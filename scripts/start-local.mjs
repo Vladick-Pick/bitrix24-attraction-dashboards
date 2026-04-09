@@ -1,0 +1,177 @@
+import { existsSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
+import readline from 'node:readline'
+import { fileURLToPath } from 'node:url'
+
+import { prepareLocalDev } from './prepare-local-dev.mjs'
+
+const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const NODE_MODULES_PATH = resolve(ROOT_DIR, 'node_modules')
+
+function runCommand(command, args, options = {}) {
+  return spawnSync(command, args, {
+    cwd: ROOT_DIR,
+    encoding: 'utf8',
+    stdio: 'inherit',
+    ...options,
+  })
+}
+
+function ensurePnpm() {
+  const result = spawnSync('pnpm', ['--version'], {
+    cwd: ROOT_DIR,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  })
+
+  if (result.error || result.status !== 0) {
+    console.error('[launcher] pnpm is required but was not found in PATH.')
+    process.exit(result.status ?? 1)
+  }
+}
+
+function parseMajorMinor(version) {
+  const [major = '0', minor = '0'] = version.replace(/^v/u, '').split('.')
+  return {
+    major: Number(major),
+    minor: Number(minor),
+  }
+}
+
+function ensureNodeVersion() {
+  const current = parseMajorMinor(process.version)
+  const supported =
+    current.major > 20 ||
+    (current.major === 20 && current.minor >= 19) ||
+    current.major >= 22
+
+  if (!supported) {
+    console.warn(
+      `[launcher] Node ${process.version} is below the Vite recommendation (20.19+ or 22.12+). The stack may still start, but upgrading Node is recommended.`,
+    )
+  }
+}
+
+function ensureDependencies() {
+  if (existsSync(NODE_MODULES_PATH)) {
+    return
+  }
+
+  console.log('[launcher] Installing dependencies with pnpm...')
+  const result = runCommand('pnpm', ['install'])
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1)
+  }
+}
+
+function stripAnsi(value) {
+  return value.replace(/\u001B\[[0-9;]*m/gu, '')
+}
+
+function pipeOutput(stream, prefix, onLine) {
+  const reader = readline.createInterface({ input: stream })
+
+  reader.on('line', (line) => {
+    const cleanLine = stripAnsi(line)
+    console.log(`${prefix} ${cleanLine}`)
+    onLine?.(cleanLine)
+  })
+
+  return reader
+}
+
+function spawnPrefixedProcess(name, args, onLine) {
+  const child = spawn('pnpm', args, {
+    cwd: ROOT_DIR,
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  pipeOutput(child.stdout, `[${name}]`, onLine)
+  pipeOutput(child.stderr, `[${name}]`, onLine)
+
+  return child
+}
+
+function openBrowser(url) {
+  if (process.platform !== 'darwin' || process.env.NO_BROWSER === '1') {
+    return
+  }
+
+  spawn('open', [url], {
+    cwd: ROOT_DIR,
+    detached: true,
+    stdio: 'ignore',
+  }).unref()
+}
+
+ensurePnpm()
+ensureNodeVersion()
+ensureDependencies()
+
+const setup = prepareLocalDev()
+
+console.log(`[launcher] Local env is ready. API will be available at ${setup.apiBaseUrl}.`)
+if (!setup.bitrixConfigured) {
+  console.log(
+    '[launcher] Bitrix24 webhook is not configured yet. The app will launch locally, but Refresh will not sync live CRM data until .env is updated.',
+  )
+}
+console.log(`[launcher] API health: ${setup.apiBaseUrl}/api/health`)
+console.log('[launcher] Web UI: http://localhost:5173')
+console.log('[launcher] Refresh inside the UI starts the manual sync flow.')
+
+let browserOpened = false
+let shuttingDown = false
+const processes = [
+  spawnPrefixedProcess('api', ['dev:api']),
+  spawnPrefixedProcess('web', ['dev:web'], (line) => {
+    if (browserOpened) {
+      return
+    }
+
+    const match = line.match(/https?:\/\/[^\s]+/u)
+
+    if (match) {
+      browserOpened = true
+      openBrowser(match[0])
+    }
+  }),
+]
+
+function shutdown(exitCode = 0) {
+  if (shuttingDown) {
+    return
+  }
+
+  shuttingDown = true
+
+  for (const child of processes) {
+    if (!child.killed) {
+      child.kill('SIGTERM')
+    }
+  }
+
+  setTimeout(() => {
+    process.exit(exitCode)
+  }, 250)
+}
+
+process.on('SIGINT', () => shutdown(0))
+process.on('SIGTERM', () => shutdown(0))
+
+for (const [index, child] of processes.entries()) {
+  child.on('exit', (code) => {
+    if (shuttingDown) {
+      return
+    }
+
+    const name = index === 0 ? 'api' : 'web'
+    const exitCode = typeof code === 'number' ? code : 1
+
+    console.error(`[launcher] ${name} exited with code ${exitCode}. Stopping the local stack.`)
+    shutdown(exitCode)
+  })
+}

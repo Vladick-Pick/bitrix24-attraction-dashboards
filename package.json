@@ -1,0 +1,16 @@
+{
+  "name": "bitrix24-reporting-local",
+  "private": true,
+  "packageManager": "pnpm@10.9.0",
+  "scripts": {
+    "prepare:local": "node ./scripts/prepare-local-dev.mjs",
+    "start": "node ./scripts/start-local.mjs",
+    "start:local": "node ./scripts/start-local.mjs",
+    "dev:api": "pnpm --filter @bitrix24-reporting/api dev",
+    "dev:web": "pnpm --filter @bitrix24-reporting/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

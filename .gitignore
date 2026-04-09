@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+.DS_Store
+.turbo
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+apps/api/data
+backups/*.bundle
+*.db
+*.db-shm
+*.db-wal

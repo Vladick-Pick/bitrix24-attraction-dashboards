@@ -1,0 +1,109 @@
+# Backlog
+
+This file mirrors the GitHub Issues backlog. GitHub Issues are the source of truth after repository setup; keep this document as a local planning summary.
+
+## P0
+
+### Performance: make prototype reports lazy-loaded
+- Area: infra, web
+- Problem: the prototype currently waits for almost every report plus cohort/source/TOC breakdowns before marking runtime data ready.
+- Expected behavior: initial render should load only shared metadata and the active scene data; heavy reports should load by active screen or in background.
+- Acceptance criteria:
+  - Opening the dashboard does not wait for all screens.
+  - Sales, activities, cohorts, and funnel screens can load their own report bundles independently.
+  - No direct Bitrix calls are added to page rendering.
+  - Existing API/web tests remain green.
+
+### Governance: keep reporting scoped to attraction managers
+- Area: infra, api
+- Problem: operational rows must never show managers outside the agreed attraction whitelist.
+- Expected behavior: sales, calls, SLA, activities, manager action-outcome, cohorts, and funnel overlays use the same manager scope unless the user explicitly filters narrower.
+- Acceptance criteria:
+  - Default report rows contain only the seven agreed managers.
+  - Activities, calls, and action-outcome reports cannot reintroduce outside managers through related activities or calls.
+  - Regression tests cover this rule.
+
+## P1
+
+### Sales planning tab: plan percent and "as is vs required"
+- Area: sales
+- Problem: comments ask for planning, percentage of plan, and forecast logic instead of just factual KPI tables.
+- Expected behavior: add a `Планирование` tab with plan progress and required action volume versus actual action volume.
+- Acceptance criteria:
+  - Shows `% от плана`.
+  - Shows `как есть` and `как надо` rows.
+  - Supports manager and cohort filters.
+  - Uses conditional formatting outside the neutral `±15%` band.
+- Data dependencies:
+  - Need plan source and granularity: total, manager, source, month.
+
+### Cohort action-outcome model
+- Area: sales, cohorts
+- Problem: actions should be counted against the selected deal cohort, not only the current activity period.
+- Expected behavior: for selected cohort, show actions and outcomes by manager and deal status.
+- Acceptance criteria:
+  - Mini-filter allows choosing cohort.
+  - Metrics are calculated for deals created in the cohort.
+  - Split outcomes into accepted by club, lost, and WIP.
+  - Shows action volume for each outcome status.
+
+### Activities operational base and SLA improvements
+- Area: activities
+- Problem: activities screen needs WIP deals, active base, and clearer SLA semantics.
+- Expected behavior: manager summary includes WIP, active base, and SLA fulfillment percentages.
+- Acceptance criteria:
+  - Adds WIP deals.
+  - Adds active base report: last communication not older than one month.
+  - Adds quality `Готов ко встрече` and source cuts.
+  - SLA displays fulfillment percent.
+  - SLA late count `0` is neutral/gray.
+  - Conditional formatting uses `±15%` deviation band.
+
+### Financial result by source, quality, and events
+- Area: sales, activities
+- Problem: comments ask for lead acquisition cost, event cost, and earnings.
+- Expected behavior: add financial-result block showing costs and earned amount by source/quality/event.
+- Acceptance criteria:
+  - Shows lead purchase cost by source and quality.
+  - Shows event costs.
+  - Shows earned amount.
+  - Shows attraction average check and club average check.
+- Data dependencies:
+  - Need earning formula by customer and contract/tariff type.
+  - Need cost source for leads and events.
+
+### Cohort matrix count plus conversion
+- Area: cohorts
+- Problem: cohort cells need both absolute deal counts and conversion, and rows need created deal count.
+- Expected behavior: cohort matrix includes created deals and each cell is split into count plus conversion.
+- Acceptance criteria:
+  - Adds created deals column.
+  - Each cohort cell displays absolute count and conversion.
+  - Existing cohort filters continue to work.
+
+### Funnel stable leaders at bottlenecks
+- Area: funnel
+- Problem: stable leaders should be detected in important funnel places, not just listed generically.
+- Expected behavior: strong managers are shown as an overlay on stages/bottlenecks with stability versus compare period.
+- Acceptance criteria:
+  - Uses compare-aware manager stage conversion.
+  - Marks stability by rank retention and conversion threshold.
+  - Links the finding to bottleneck/queue context.
+
+## Needs Clarification
+
+### Plan source
+- What is the source of plan values?
+- Should plan be monthly, weekly, by manager, by source, or global?
+
+### Attraction economics
+- How much does attraction earn by customer, contract type, and tariff?
+- What is the difference between attraction average check and club average check?
+
+### Cost data
+- Where do lead purchase costs and event costs live?
+- Are they imported, configured manually, or entered per period?
+
+### SLA color rules
+- Confirm exact coloring besides `late = 0` being gray.
+- Confirm whether the `±15%` deviation rule applies to SLA, plan, and action-outcome blocks equally.

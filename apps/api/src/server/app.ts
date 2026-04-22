@@ -1,10 +1,26 @@
-import type { DashboardData, ManualSyncSummary, StageCatalogEntry } from "@bitrix24-reporting/contracts";
+import type {
+  AcquisitionOutcomesReport,
+  ActivitiesWorkloadReport,
+  CallsWorkloadReport,
+  CohortConversionReport,
+  DashboardData,
+  ManagerActionOutcomeReport,
+  ManagerDirectoryEntry,
+  ManualSyncSummary,
+  SourceCatalogEntry,
+  SourceQualityConversionReport,
+  StageCatalogEntry,
+  TargetGroupConversionReport,
+  TocFlowReport
+} from "@bitrix24-reporting/contracts";
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
 
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
+  managerCatalog: ManagerDirectoryEntry[];
+  sourceCatalog: SourceCatalogEntry[];
   wonStageIds: string[];
   defaultPeriodDays: number;
   lastSync: {
@@ -15,23 +31,178 @@ interface MetaResponse {
   } | null;
 }
 
+interface RangeRequest {
+  periodDays?: number;
+  range?: {
+    from: string;
+    to: string;
+  };
+  compareRanges?: Array<{
+    from: string;
+    to: string;
+  }>;
+  filters?: {
+    managerIds?: string[];
+    sourceKeys?: string[];
+  };
+}
+
 interface AppService {
-  getDashboard(input: { periodDays: number }): Promise<DashboardData>;
+  getDashboard(input: RangeRequest): Promise<DashboardData>;
+  getSourceQualityConversionReport(
+    input: RangeRequest
+  ): Promise<SourceQualityConversionReport>;
+  getActivitiesWorkloadReport(
+    input: RangeRequest
+  ): Promise<ActivitiesWorkloadReport>;
+  getAcquisitionOutcomesReport(
+    input: RangeRequest
+  ): Promise<AcquisitionOutcomesReport>;
+  getTargetGroupConversionReport(
+    input: RangeRequest
+  ): Promise<TargetGroupConversionReport>;
+  getManagerActionOutcomeReport(
+    input: RangeRequest
+  ): Promise<ManagerActionOutcomeReport>;
+  getCallsWorkloadReport(input: RangeRequest): Promise<CallsWorkloadReport>;
+  getCohortConversionReport(input: RangeRequest): Promise<CohortConversionReport>;
+  getTocFlowReport(input: RangeRequest): Promise<TocFlowReport>;
   getMeta(): Promise<MetaResponse>;
   performSync(): Promise<ManualSyncSummary>;
   updateWonStages(stageIds: string[]): Promise<{ wonStageIds: string[] }>;
 }
 
-const periodQuerySchema = z.object({
-  periodDays: z.coerce.number().int().positive().max(365).default(30)
-});
+function parseCsvArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) =>
+        typeof item === "string" ? item.split(",") : [String(item)]
+      )
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return undefined;
+}
+
+const reportQuerySchema = z
+  .object({
+    periodDays: z.coerce.number().int().positive().max(365).optional(),
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    compareFrom: z.preprocess(parseCsvArray, z.array(z.string().datetime()).optional()),
+    compareTo: z.preprocess(parseCsvArray, z.array(z.string().datetime()).optional()),
+    managerIds: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
+    sourceKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional())
+  })
+  .superRefine((value, context) => {
+    const hasFrom = Boolean(value.from);
+    const hasTo = Boolean(value.to);
+
+    if (hasFrom !== hasTo) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Both from and to must be provided together.",
+        path: hasFrom ? ["to"] : ["from"]
+      });
+      return;
+    }
+
+    if (value.from && value.to && value.from > value.to) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "from must be earlier than or equal to to.",
+        path: ["from"]
+      });
+    }
+
+    const compareFrom = value.compareFrom ?? [];
+    const compareTo = value.compareTo ?? [];
+
+    if (compareFrom.length !== compareTo.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "compareFrom and compareTo must have the same number of values.",
+        path: ["compareFrom"]
+      });
+      return;
+    }
+
+    if (compareFrom.length > 5) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A maximum of 5 compare ranges is supported.",
+        path: ["compareFrom"]
+      });
+    }
+
+    for (let index = 0; index < compareFrom.length; index += 1) {
+      const from = compareFrom[index];
+      const to = compareTo[index];
+
+      if (from && to && from > to) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `compareFrom[${index}] must be earlier than or equal to compareTo[${index}].`,
+          path: ["compareFrom", index]
+        });
+      }
+    }
+  });
 
 const updateWonStagesSchema = z.object({
   stageIds: z.array(z.string().min(1)).min(1)
 });
 
+function parseRangeRequest(query: unknown): RangeRequest {
+  const parsed = reportQuerySchema.parse(query);
+  const compareRanges = (parsed.compareFrom ?? []).map((from, index) => ({
+    from,
+    to: parsed.compareTo?.[index] ?? from
+  }));
+  const filters =
+    parsed.managerIds?.length || parsed.sourceKeys?.length
+      ? {
+          ...(parsed.managerIds?.length ? { managerIds: parsed.managerIds } : {}),
+          ...(parsed.sourceKeys?.length ? { sourceKeys: parsed.sourceKeys } : {})
+        }
+      : undefined;
+
+  if (parsed.from && parsed.to) {
+    return {
+      range: {
+        from: parsed.from,
+        to: parsed.to
+      },
+      ...(compareRanges.length > 0 ? { compareRanges } : {}),
+      ...(filters ? { filters } : {})
+    };
+  }
+
+  if (parsed.periodDays) {
+    return {
+      periodDays: parsed.periodDays,
+      ...(compareRanges.length > 0 ? { compareRanges } : {}),
+      ...(filters ? { filters } : {})
+    };
+  }
+
+  return {
+    ...(compareRanges.length > 0 ? { compareRanges } : {}),
+    ...(filters ? { filters } : {})
+  };
+}
+
 export function createApp(service: AppService) {
   const app = express();
+  let activeSync: Promise<ManualSyncSummary> | null = null;
 
   app.use(cors());
   app.use(express.json());
@@ -42,11 +213,100 @@ export function createApp(service: AppService) {
 
   app.get("/api/dashboard", async (request, response, next) => {
     try {
-      const query = periodQuerySchema.parse(request.query);
-      const dashboard = await service.getDashboard({
-        periodDays: query.periodDays
-      });
-      response.json(dashboard);
+      response.json(await service.getDashboard(parseRangeRequest(request.query)));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get(
+    "/api/reports/source-quality-conversion",
+    async (request, response, next) => {
+      try {
+        response.json(
+          await service.getSourceQualityConversionReport(
+            parseRangeRequest(request.query)
+          )
+        );
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get("/api/reports/activities-workload", async (request, response, next) => {
+    try {
+      response.json(
+        await service.getActivitiesWorkloadReport(parseRangeRequest(request.query))
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/reports/acquisition-outcomes", async (request, response, next) => {
+    try {
+      response.json(
+        await service.getAcquisitionOutcomesReport(parseRangeRequest(request.query))
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get(
+    "/api/reports/target-group-conversion",
+    async (request, response, next) => {
+      try {
+        response.json(
+          await service.getTargetGroupConversionReport(
+            parseRangeRequest(request.query)
+          )
+        );
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/api/reports/manager-action-outcomes",
+    async (request, response, next) => {
+      try {
+        response.json(
+          await service.getManagerActionOutcomeReport(
+            parseRangeRequest(request.query)
+          )
+        );
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get("/api/reports/calls-workload", async (request, response, next) => {
+    try {
+      response.json(
+        await service.getCallsWorkloadReport(parseRangeRequest(request.query))
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/reports/cohort-conversion", async (request, response, next) => {
+    try {
+      response.json(
+        await service.getCohortConversionReport(parseRangeRequest(request.query))
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/reports/toc-flow", async (request, response, next) => {
+    try {
+      response.json(await service.getTocFlowReport(parseRangeRequest(request.query)));
     } catch (error) {
       next(error);
     }
@@ -61,10 +321,20 @@ export function createApp(service: AppService) {
   });
 
   app.post("/api/sync", async (_request, response, next) => {
+    if (activeSync) {
+      response.status(409).json({
+        error: "SYNC_ALREADY_RUNNING"
+      });
+      return;
+    }
+
     try {
-      response.json(await service.performSync());
+      activeSync = service.performSync();
+      response.json(await activeSync);
     } catch (error) {
       next(error);
+    } finally {
+      activeSync = null;
     }
   });
 
@@ -92,8 +362,11 @@ export function createApp(service: AppService) {
         return;
       }
 
+      console.error(error);
+
       response.status(500).json({
-        error: "INTERNAL_SERVER_ERROR"
+        error: "INTERNAL_SERVER_ERROR",
+        ...(error instanceof Error ? { message: error.message } : {})
       });
     }
   );

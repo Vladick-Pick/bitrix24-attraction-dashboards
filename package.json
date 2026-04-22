@@ -7,6 +7,7 @@
     "start": "node ./scripts/start-local.mjs",
     "start:local": "node ./scripts/start-local.mjs",
     "dev:api": "pnpm --filter @bitrix24-reporting/api dev",
+    "dev:proto": "pnpm --filter @bitrix24-reporting/proto dev",
     "dev:web": "pnpm --filter @bitrix24-reporting/web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",

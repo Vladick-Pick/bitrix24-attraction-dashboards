@@ -12,3 +12,5 @@ backups/*.bundle
 *.db
 *.db-shm
 *.db-wal
+.codex/
+.codex/proto-comments

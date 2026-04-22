@@ -10,11 +10,14 @@ const repository = createSqliteRepository({
   defaultWonStageIds: env.reportWonStageIds
 });
 const clientConfig = {
-  timeoutMs: env.BITRIX24_TIMEOUT_MS
+  timeoutMs: env.BITRIX24_TIMEOUT_MS,
+  requestIntervalMs: env.BITRIX24_REQUEST_INTERVAL_MS,
+  qualityFieldName: env.BITRIX24_DEAL_QUALITY_FIELD
 };
 
 const client = new BitrixClient({
   ...clientConfig,
+  dealCategoryIds: env.bitrixDealCategoryIds,
   ...(env.BITRIX24_PORTAL_HOST
     ? { portalHost: env.BITRIX24_PORTAL_HOST }
     : {}),
@@ -26,6 +29,12 @@ const client = new BitrixClient({
     : {})
 });
 const service = createReportingService({
+  dealCategoryIds: env.bitrixDealCategoryIds,
+  qualityFieldName: env.BITRIX24_DEAL_QUALITY_FIELD,
+  tariffFieldName: env.BITRIX24_DEAL_TARIFF_FIELD,
+  businessClubFieldName: env.BITRIX24_DEAL_BUSINESS_CLUB_FIELD,
+  targetGroupFieldName: env.BITRIX24_DEAL_TARGET_GROUP_FIELD,
+  meetingTypeFieldName: env.BITRIX24_DEAL_MEETING_TYPE_FIELD,
   repository,
   client,
   defaultPeriodDays: env.REPORT_DEFAULT_PERIOD_DAYS

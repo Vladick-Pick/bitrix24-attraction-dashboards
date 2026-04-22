@@ -3,14 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   ALLOWED_DEAL_FIELDS,
   ALLOWED_LEAD_FIELDS,
-  buildDealListParams,
-  buildLeadListParams
+  buildDealBackfillParams,
+  buildDealListParams
 } from "../src/bitrix/selectors";
 
 describe("Bitrix24 selector whitelist", () => {
   it("keeps deal field selection free from contact and company data", () => {
     expect(ALLOWED_DEAL_FIELDS).toEqual([
       "ID",
+      "TITLE",
       "LEAD_ID",
       "DATE_CREATE",
       "DATE_MODIFY",
@@ -20,6 +21,7 @@ describe("Bitrix24 selector whitelist", () => {
       "STAGE_SEMANTIC_ID",
       "OPPORTUNITY",
       "ASSIGNED_BY_ID",
+      "SOURCE_ID",
       "UTM_SOURCE",
       "UTM_MEDIUM",
       "UTM_CAMPAIGN",
@@ -45,29 +47,79 @@ describe("Bitrix24 selector whitelist", () => {
     ]);
   });
 
-  it("builds delta params against DATE_MODIFY with deterministic ordering", () => {
+  it("builds delta list params against DATE_MODIFY with stable ID ordering", () => {
     expect(
       buildDealListParams({
         modifiedAfter: "2026-04-08T10:00:00.000Z",
-        start: 50
+        start: 50,
+        categoryIds: ["10"],
+        customFieldNames: [
+          "UF_CRM_1730380390",
+          "UF_CRM_1647422744",
+          "UF_CRM_1647422890"
+        ]
       })
     ).toEqual({
-      select: ALLOWED_DEAL_FIELDS,
+      select: [
+        ...ALLOWED_DEAL_FIELDS,
+        "UF_CRM_1730380390",
+        "UF_CRM_1647422744",
+        "UF_CRM_1647422890"
+      ],
       filter: {
-        ">DATE_MODIFY": "2026-04-08T10:00:00.000Z"
+        ">DATE_MODIFY": "2026-04-08T10:00:00.000Z",
+        CATEGORY_ID: "10"
       },
       order: {
-        DATE_MODIFY: "ASC",
         ID: "ASC"
       },
       start: 50
     });
+  });
 
-    expect(buildLeadListParams({ start: 0 })).toEqual({
-      select: ALLOWED_LEAD_FIELDS,
-      filter: {},
+  it("builds optimized full-sync params using ascending IDs and disabled totals", () => {
+    expect(
+      buildDealBackfillParams({
+        afterId: "0",
+        categoryIds: ["10"],
+        customFieldNames: [
+          "UF_CRM_1730380390",
+          "UF_CRM_1647422744",
+          "UF_CRM_1647422890"
+        ]
+      })
+    ).toEqual({
+      select: [
+        ...ALLOWED_DEAL_FIELDS,
+        "UF_CRM_1730380390",
+        "UF_CRM_1647422744",
+        "UF_CRM_1647422890"
+      ],
+      filter: {
+        ">ID": "0",
+        CATEGORY_ID: "10"
+      },
       order: {
-        DATE_MODIFY: "ASC",
+        ID: "ASC"
+      },
+      start: -1
+    });
+  });
+
+  it("builds category filters for multi-category deal requests", () => {
+    expect(
+      buildDealListParams({
+        modifiedAfter: "2026-04-08T10:00:00.000Z",
+        start: 0,
+        categoryIds: ["10", "28"]
+      })
+    ).toEqual({
+      select: ALLOWED_DEAL_FIELDS,
+      filter: {
+        ">DATE_MODIFY": "2026-04-08T10:00:00.000Z",
+        "@CATEGORY_ID": ["10", "28"]
+      },
+      order: {
         ID: "ASC"
       },
       start: 0

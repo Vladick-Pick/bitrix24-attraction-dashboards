@@ -50,7 +50,7 @@ export function KpiGrid({ dashboard }: KpiGridProps) {
     <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       {KPI_ITEMS.map((item) => (
         <Card key={item.key} className="metric-card">
-          <CardHeader className="gap-4">
+          <CardHeader className="gap-3">
             <div className="flex items-start justify-between gap-3">
               <div className="metric-icon">
                 <HugeiconsIcon icon={item.icon} strokeWidth={1.8} />
@@ -62,13 +62,13 @@ export function KpiGrid({ dashboard }: KpiGridProps) {
               <CardDescription>{item.hint}</CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="flex items-end justify-between gap-4">
+          <CardContent className="flex items-end justify-between gap-4 pt-0">
             <div className="spotlight-number">
-              {item.format(dashboard.salesOverview[item.key])}
+              {item.format(dashboard.salesSummary[item.key])}
             </div>
             <div className="metric-caption">
               {item.key === 'conversionRate'
-                ? `${dashboard.salesOverview.salesCount} won / ${dashboard.salesOverview.newDealsCount} new`
+                ? `${dashboard.salesSummary.salesCount} won / ${dashboard.salesSummary.newDealsCount} new`
                 : 'Local snapshot'}
             </div>
           </CardContent>

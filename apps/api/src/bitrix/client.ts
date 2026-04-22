@@ -1,6 +1,6 @@
 import type { StageCatalogEntry } from "@bitrix24-reporting/contracts";
 
-import { buildDealListParams, buildLeadListParams } from "./selectors";
+import { buildDealBackfillParams, buildDealListParams } from "./selectors";
 import {
   assertAllowedBitrixMethod,
   assertSafeSelectFields,
@@ -8,32 +8,25 @@ import {
 } from "./security";
 
 interface BitrixClientConfig {
+  dealCategoryIds: string[];
+  qualityFieldName?: string;
   portalHost?: string;
   userId?: string;
   webhookToken?: string;
   timeoutMs: number;
+  requestIntervalMs: number;
 }
 
 interface BitrixResponse<T> {
   result?: T;
   next?: number;
+  total?: number;
   error?: string;
   error_description?: string;
 }
 
-interface LeadListRow {
-  ID: string;
-  DATE_CREATE: string;
-  DATE_MODIFY: string;
-  STATUS_ID: string;
-  SOURCE_ID: string | null;
-  OPPORTUNITY: number | null;
-  ASSIGNED_BY_ID: string | null;
-  UTM_SOURCE: string | null;
-  UTM_MEDIUM: string | null;
-  UTM_CAMPAIGN: string | null;
-  UTM_CONTENT: string | null;
-  UTM_TERM: string | null;
+interface BitrixResultItems<T> {
+  items?: T[];
 }
 
 interface DealListRow {
@@ -47,21 +40,81 @@ interface DealListRow {
   STAGE_SEMANTIC_ID: string | null;
   OPPORTUNITY: number | null;
   ASSIGNED_BY_ID: string | null;
+  SOURCE_ID: string | null;
   UTM_SOURCE: string | null;
   UTM_MEDIUM: string | null;
   UTM_CAMPAIGN: string | null;
   UTM_CONTENT: string | null;
   UTM_TERM: string | null;
+  [key: string]: unknown;
 }
 
 interface StatusRow {
   ENTITY_ID: string;
   STATUS_ID: string;
   NAME: string;
+  SORT?: string | null;
+  CATEGORY_ID?: string | null;
   EXTRA?: {
     SEMANTICS?: string | null;
     COLOR?: string | null;
   };
+}
+
+interface DealFieldMetadata {
+  settings?: Record<string, string | null>;
+  items?: Array<{
+    ID?: string | number;
+    VALUE?: string;
+    id?: string | number;
+    value?: string;
+  }>;
+}
+
+export interface StageHistoryRow {
+  ID: string | number;
+  OWNER_ID: string | number;
+  CATEGORY_ID: string | number | null;
+  STAGE_ID: string;
+  STAGE_SEMANTIC_ID: string | null;
+  TYPE_ID: number | null;
+  CREATED_TIME: string;
+}
+
+export interface ActivityRow {
+  ID: string;
+  OWNER_TYPE_ID: string;
+  OWNER_ID: string;
+  TYPE_ID: string | null;
+  PROVIDER_ID: string | null;
+  RESPONSIBLE_ID: string | null;
+  CREATED: string;
+  DEADLINE: string | null;
+  LAST_UPDATED: string;
+  COMPLETED: string;
+  COMPLETED_DATE?: string | null;
+}
+
+export interface CallRow {
+  ID: string;
+  CRM_ACTIVITY_ID: string | null;
+  PORTAL_USER_ID: string | null;
+  CALL_TYPE: string | null;
+  CALL_START_DATE: string;
+  CALL_DURATION: string | number | null;
+  CRM_ENTITY_TYPE: string | null;
+  CRM_ENTITY_ID: string | null;
+  CALL_FAILED_CODE: string | null;
+}
+
+export interface UserRow {
+  ID: string;
+  NAME: string | null;
+  LAST_NAME: string | null;
+}
+
+function buildDealStageEntityId(categoryId: string) {
+  return categoryId === "0" ? "DEAL_STAGE" : `DEAL_STAGE_${categoryId}`;
 }
 
 function delay(milliseconds: number) {
@@ -70,8 +123,61 @@ function delay(milliseconds: number) {
   });
 }
 
+function isRateLimitMessage(message: string) {
+  return /too many requests|query_limit_exceeded/i.test(message);
+}
+
+function isTransientNetworkError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const cause = (error as Error & { cause?: unknown }).cause;
+  const causeCode =
+    cause && typeof cause === "object" && "code" in cause
+      ? String((cause as { code?: unknown }).code)
+      : "";
+
+  return (
+    error.name === "AbortError" ||
+    error.message === "fetch failed" ||
+    causeCode === "UND_ERR_CONNECT_TIMEOUT" ||
+    causeCode === "UND_ERR_HEADERS_TIMEOUT" ||
+    causeCode === "ECONNRESET"
+  );
+}
+
+function toNumber(value: string | number | null | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function toStringArray(values: string[]) {
+  return values.map((value) => String(value));
+}
+
+function chunkValues<T>(values: T[], chunkSize = 50) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+
+  return chunks;
+}
+
 export class BitrixClient {
   private readonly baseUrl: string | null;
+  private lastRequestAt = 0;
+  private requestQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly config: BitrixClientConfig) {
     this.baseUrl =
@@ -86,126 +192,503 @@ export class BitrixClient {
     }
   }
 
-  private async call<T>(method: string, params: Record<string, unknown>) {
+  private async call<T>(
+    method: string,
+    params: Record<string, unknown>,
+    options?: {
+      allowedCustomFields?: string[];
+    }
+  ) {
     this.ensureConfigured();
     assertAllowedBitrixMethod(method);
 
     if (Array.isArray(params.select)) {
       assertSafeSelectFields(
-        params.select.filter((value): value is string => typeof value === "string")
+        params.select.filter((value): value is string => typeof value === "string"),
+        options?.allowedCustomFields ?? []
       );
     }
 
     const url = `${this.baseUrl}/${method}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(params),
-        signal: controller.signal
-      });
+    return this.withRequestSlot(async () => {
+      const maxAttempts = 4;
 
-      const payload = (await response.json()) as BitrixResponse<T>;
-      if (!response.ok || payload.error) {
-        throw new Error(
-          `Bitrix24 ${method} failed at ${redactWebhookUrl(url)}: ${
-            payload.error_description ?? payload.error ?? response.statusText
-          }`
-        );
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(params),
+            signal: controller.signal
+          });
+
+          const payload = (await response.json()) as BitrixResponse<T>;
+          const errorMessage =
+            payload.error_description ?? payload.error ?? response.statusText;
+          if (!response.ok || payload.error) {
+            if (
+              isRateLimitMessage(errorMessage) &&
+              attempt < maxAttempts - 1
+            ) {
+              await delay(
+                Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1)
+              );
+              continue;
+            }
+
+            throw new Error(
+              `Bitrix24 ${method} failed at ${redactWebhookUrl(url)}: ${errorMessage}`
+            );
+          }
+
+          return payload;
+        } catch (error) {
+          if (isTransientNetworkError(error) && attempt < maxAttempts - 1) {
+            await delay(
+              Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1)
+            );
+            continue;
+          }
+
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+        }
       }
 
-      return payload;
-    } finally {
-      clearTimeout(timeout);
+      throw new Error(`Bitrix24 ${method} failed at ${redactWebhookUrl(url)}`);
+    });
+  }
+
+  private async withRequestSlot<T>(task: () => Promise<T>) {
+    const previousRequest = this.requestQueue;
+    let releaseRequest!: () => void;
+    this.requestQueue = new Promise((resolve) => {
+      releaseRequest = resolve;
+    });
+
+    await previousRequest;
+
+    const waitMilliseconds = Math.max(
+      0,
+      this.lastRequestAt + this.config.requestIntervalMs - Date.now()
+    );
+    if (waitMilliseconds > 0) {
+      await delay(waitMilliseconds);
     }
+
+    try {
+      return await task();
+    } finally {
+      this.lastRequestAt = Date.now();
+      releaseRequest();
+    }
+  }
+
+  private extractItems<T>(response: BitrixResponse<T[] | BitrixResultItems<T>>) {
+    if (Array.isArray(response.result)) {
+      return response.result;
+    }
+
+    if (
+      response.result &&
+      typeof response.result === "object" &&
+      Array.isArray((response.result as BitrixResultItems<T>).items)
+    ) {
+      return (response.result as BitrixResultItems<T>).items ?? [];
+    }
+
+    return [] as T[];
   }
 
   private async collectPagedList<T>(
     method: string,
-    buildParams: (start: number) => Record<string, unknown>
+    buildParams: (start: number) => Record<string, unknown>,
+    options?: {
+      allowedCustomFields?: string[];
+    }
   ) {
     const rows: T[] = [];
     let start = 0;
 
     while (true) {
-      const response = await this.call<T[]>(method, buildParams(start));
-      const page = response.result ?? [];
+      const response = await this.call<T[] | BitrixResultItems<T>>(
+        method,
+        buildParams(start),
+        options
+      );
+      const page = this.extractItems(response);
+
+      if (page.length === 0) {
+        break;
+      }
+
+      rows.push(...page);
+
+      if (typeof response.next === "number") {
+        start = response.next;
+      } else if (page.length === 50) {
+        start += 50;
+      } else {
+        break;
+      }
+
+      await delay(this.config.requestIntervalMs);
+    }
+
+    return rows;
+  }
+
+  private async collectByAscendingId<T extends { ID: string }>(
+    method: string,
+    buildParams: (afterId: string) => Record<string, unknown>,
+    options?: {
+      allowedCustomFields?: string[];
+    }
+  ) {
+    const rows: T[] = [];
+    let afterId = "0";
+
+    while (true) {
+      const response = await this.call<T[] | BitrixResultItems<T>>(
+        method,
+        buildParams(afterId),
+        options
+      );
+      const page = this.extractItems(response);
+
+      if (page.length === 0) {
+        break;
+      }
+
       rows.push(...page);
 
       if (page.length < 50) {
         break;
       }
 
-      start += 50;
-      await delay(this.config.timeoutMs === 0 ? 0 : 250);
+      afterId = page.at(-1)?.ID ?? afterId;
+      await delay(this.config.requestIntervalMs);
     }
 
     return rows;
   }
 
-  async listLeads(cursor: { modifiedAfter: string | null }) {
-    return this.collectPagedList<LeadListRow>("crm.lead.list", (start) =>
-      buildLeadListParams(
-        cursor.modifiedAfter
-          ? {
-              modifiedAfter: cursor.modifiedAfter,
-              start
-            }
-          : { start }
-      )
+  private async collectChunked<T>(
+    values: string[],
+    loader: (chunk: string[]) => Promise<T[]>,
+    chunkSize = 50
+  ) {
+    const rows: T[] = [];
+
+    for (const chunk of chunkValues(values, chunkSize)) {
+      const page = await loader(chunk);
+      rows.push(...page);
+
+      if (chunk.length === chunkSize) {
+        await delay(this.config.requestIntervalMs);
+      }
+    }
+
+    return rows;
+  }
+
+  async listDeals(cursor: {
+    modifiedAfter: string | null;
+    categoryIds?: string[];
+    qualityFieldName?: string;
+    customFieldNames?: string[];
+  }) {
+    const categoryIds = cursor.categoryIds ?? this.config.dealCategoryIds;
+    const qualityFieldName =
+      cursor.qualityFieldName ?? this.config.qualityFieldName;
+    const customFieldNames = Array.from(
+      new Set([
+        ...(qualityFieldName ? [qualityFieldName] : []),
+        ...(cursor.customFieldNames ?? [])
+      ])
+    );
+    const allowedCustomFields = customFieldNames;
+
+    if (cursor.modifiedAfter === null) {
+      return this.collectByAscendingId<DealListRow>(
+        "crm.deal.list",
+        (afterId) =>
+          buildDealBackfillParams({
+            afterId,
+            categoryIds,
+            customFieldNames
+          }),
+        {
+          allowedCustomFields
+        }
+      );
+    }
+
+    const modifiedAfter = cursor.modifiedAfter;
+
+    return this.collectPagedList<DealListRow>(
+      "crm.deal.list",
+      (start) =>
+        buildDealListParams({
+          categoryIds,
+          modifiedAfter,
+          start,
+          customFieldNames
+        }),
+      {
+        allowedCustomFields
+      }
     );
   }
 
-  async listDeals(cursor: { modifiedAfter: string | null }) {
-    return this.collectPagedList<DealListRow>("crm.deal.list", (start) =>
-      buildDealListParams(
-        cursor.modifiedAfter
-          ? {
-              modifiedAfter: cursor.modifiedAfter,
-              start
-            }
-          : { start }
-      )
+  async fetchDealStages(categoryIds: string[]): Promise<StageCatalogEntry[]> {
+    const rows = await Promise.all(
+      Array.from(new Set(categoryIds)).map(async (categoryId) => {
+        const response = await this.call<StatusRow[]>("crm.status.list", {
+          filter: {
+            ENTITY_ID: buildDealStageEntityId(categoryId)
+          }
+        });
+
+        return this.extractItems(response).map((row) => ({
+          entityType: "deal" as const,
+          categoryId,
+          statusId: row.STATUS_ID,
+          name: row.NAME,
+          semanticId: row.EXTRA?.SEMANTICS ?? null,
+          sortOrder: toNumber(row.SORT)
+        }));
+      })
     );
+
+    return rows.flat();
   }
 
-  async fetchLeadStages(): Promise<StageCatalogEntry[]> {
+  async fetchSourceCatalog(): Promise<StageCatalogEntry[]> {
     const response = await this.call<StatusRow[]>("crm.status.list", {
       filter: {
-        ENTITY_ID: "STATUS"
+        ENTITY_ID: "SOURCE"
       }
     });
 
-    return (response.result ?? []).map((row) => ({
-      entityType: "lead",
-      categoryId: null,
+    return this.extractItems(response).map((row) => ({
+      entityType: "source" as const,
+      categoryId: row.CATEGORY_ID ? String(row.CATEGORY_ID) : null,
       statusId: row.STATUS_ID,
       name: row.NAME,
-      semanticId: row.EXTRA?.SEMANTICS ?? null
+      semanticId: row.EXTRA?.SEMANTICS ?? null,
+      sortOrder: toNumber(row.SORT)
     }));
   }
 
-  async fetchDealStages(): Promise<StageCatalogEntry[]> {
-    const response = await this.call<StatusRow[]>("crm.status.list", {});
+  async fetchDealFieldValueMap(fieldName: string) {
+    if (!fieldName) {
+      return {};
+    }
 
-    return (response.result ?? [])
-      .filter(
-        (row) => row.ENTITY_ID === "DEAL_STAGE" || row.ENTITY_ID.startsWith("DEAL_STAGE_")
-      )
-      .map((row) => ({
-        entityType: "deal",
-        categoryId:
-          row.ENTITY_ID === "DEAL_STAGE"
-            ? "0"
-            : row.ENTITY_ID.slice("DEAL_STAGE_".length),
-        statusId: row.STATUS_ID,
-        name: row.NAME,
-        semanticId: row.EXTRA?.SEMANTICS ?? null
-      }));
+    const response = await this.call<Record<string, DealFieldMetadata>>(
+      "crm.deal.fields",
+      {}
+    );
+    const field = response.result?.[fieldName];
+    if (field?.items && field.items.length > 0) {
+      return Object.fromEntries(
+        field.items.flatMap((item) => {
+          const id = item.ID ?? item.id;
+          const value = item.VALUE ?? item.value;
+
+          return id !== undefined && value ? [[String(id), value]] : [];
+        })
+      ) as Record<string, string>;
+    }
+
+    const dynamicEntityKey = Object.entries(field?.settings ?? {}).find(
+      ([key, value]) => key.startsWith("DYNAMIC_") && value === "Y"
+    )?.[0];
+
+    if (!dynamicEntityKey) {
+      return {};
+    }
+
+    const entityTypeId = Number(dynamicEntityKey.replace("DYNAMIC_", ""));
+    if (!Number.isFinite(entityTypeId)) {
+      return {};
+    }
+
+    const items = await this.collectPagedList<{ id: number | string; title: string }>(
+      "crm.item.list",
+      (start) => ({
+        entityTypeId,
+        select: ["id", "title"],
+        order: {
+          id: "ASC" as const
+        },
+        start
+      })
+    );
+
+    return Object.fromEntries(
+      items.map((item) => [String(item.id), item.title])
+    ) as Record<string, string>;
+  }
+
+  async fetchDealQualityMap(fieldName: string) {
+    return this.fetchDealFieldValueMap(fieldName);
+  }
+
+  async listStageHistory(input: { ownerIds?: string[]; categoryIds?: string[] }) {
+    if (input.categoryIds && input.categoryIds.length > 0) {
+      return (
+        await Promise.all(
+          input.categoryIds.map((categoryId) =>
+            this.collectPagedList<StageHistoryRow>(
+              "crm.stagehistory.list",
+              (start) => ({
+                entityTypeId: 2,
+                filter: {
+                  CATEGORY_ID: categoryId
+                },
+                select: [
+                  "ID",
+                  "OWNER_ID",
+                  "CATEGORY_ID",
+                  "STAGE_ID",
+                  "STAGE_SEMANTIC_ID",
+                  "TYPE_ID",
+                  "CREATED_TIME"
+                ],
+                order: {
+                  ID: "ASC" as const
+                },
+                start
+              })
+            )
+          )
+        )
+      ).flat();
+    }
+
+    const ownerIds = input.ownerIds ?? [];
+    if (ownerIds.length === 0) {
+      return [];
+    }
+
+    return this.collectChunked(
+      ownerIds,
+      (chunk) =>
+      this.collectPagedList<StageHistoryRow>("crm.stagehistory.list", (start) => ({
+        entityTypeId: 2,
+        filter: {
+          "@OWNER_ID": toStringArray(chunk)
+        },
+        select: [
+          "ID",
+          "OWNER_ID",
+          "CATEGORY_ID",
+          "STAGE_ID",
+          "STAGE_SEMANTIC_ID",
+          "TYPE_ID",
+          "CREATED_TIME"
+        ],
+        order: {
+          ID: "ASC" as const
+        },
+        start
+      })),
+      20
+    );
+  }
+
+  async listActivities(input: {
+    ownerIds: string[];
+    modifiedAfter: string | null;
+    providerId?: string;
+  }) {
+    if (input.ownerIds.length === 0) {
+      return [];
+    }
+
+    return this.collectChunked(
+      input.ownerIds,
+      (chunk) =>
+      this.collectPagedList<ActivityRow>("crm.activity.list", (start) => ({
+        order: {
+          ID: "ASC" as const
+        },
+        filter: {
+          OWNER_TYPE_ID: 2,
+          "@OWNER_ID": toStringArray(chunk),
+          ...(input.providerId
+            ? {
+                PROVIDER_ID: input.providerId
+              }
+            : {}),
+          ...(input.modifiedAfter
+            ? {
+                ">LAST_UPDATED": input.modifiedAfter
+              }
+            : {})
+        },
+        select: [
+          "ID",
+          "OWNER_TYPE_ID",
+          "OWNER_ID",
+          "TYPE_ID",
+          "PROVIDER_ID",
+          "RESPONSIBLE_ID",
+          "CREATED",
+          "DEADLINE",
+          "LAST_UPDATED",
+          "COMPLETED",
+          "COMPLETED_DATE"
+        ],
+        start
+      }))
+    );
+  }
+
+  async listCalls(input: { activityIds?: string[] }) {
+    if (input.activityIds && input.activityIds.length === 0) {
+      return [];
+    }
+
+    if (input.activityIds && input.activityIds.length > 0) {
+      return this.collectChunked(input.activityIds, async (chunk) => {
+        const response = await this.call<CallRow[]>("voximplant.statistic.get", {
+          FILTER: {
+            CRM_ACTIVITY_ID: toStringArray(chunk)
+          }
+        });
+
+        return this.extractItems(response);
+      });
+    }
+
+    return [];
+  }
+
+  async fetchUsers(input: { ids: string[] }) {
+    if (input.ids.length === 0) {
+      return [];
+    }
+
+    return this.collectChunked(
+      input.ids,
+      async (chunk) => {
+        const response = await this.call<UserRow[]>("user.get", {
+          ID: toStringArray(chunk)
+        });
+
+        return this.extractItems(response);
+      },
+      50
+    );
   }
 }

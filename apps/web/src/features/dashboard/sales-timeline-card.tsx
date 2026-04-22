@@ -43,7 +43,7 @@ export function SalesTimelineCard({
   const totalCount = timeline.reduce((sum, item) => sum + item.salesCount, 0)
 
   return (
-    <Card className="min-h-[28rem]">
+    <Card className="min-h-[24rem]">
       <CardHeader className="gap-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex flex-col gap-2">
@@ -81,7 +81,7 @@ export function SalesTimelineCard({
           </div>
         </div>
 
-        <ChartContainer config={chartConfig} className="h-[22rem] w-full">
+        <ChartContainer config={chartConfig} className="h-[18rem] w-full">
           <ComposedChart accessibilityLayer data={timeline}>
             <CartesianGrid vertical={false} />
             <XAxis

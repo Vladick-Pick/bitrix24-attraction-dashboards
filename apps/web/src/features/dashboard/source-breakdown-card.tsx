@@ -37,7 +37,7 @@ export function SourceBreakdownCard({
           <div className="flex flex-col gap-2">
             <CardTitle>Source breakdown</CardTitle>
             <CardDescription>
-              Revenue and pipeline pressure by source and UTM family.
+              Revenue and new-deal pressure by source and UTM family.
             </CardDescription>
           </div>
           <Badge variant="outline">
@@ -64,7 +64,6 @@ export function SourceBreakdownCard({
                 <TableHead className="text-right">Sales</TableHead>
                 <TableHead className="text-right">Value</TableHead>
                 <TableHead className="text-right">New deals</TableHead>
-                <TableHead className="text-right">New leads</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -81,7 +80,6 @@ export function SourceBreakdownCard({
                   <TableCell className="text-right">{formatInteger(row.salesCount)}</TableCell>
                   <TableCell className="text-right">{formatAmount(row.salesAmount)}</TableCell>
                   <TableCell className="text-right">{formatInteger(row.newDealsCount)}</TableCell>
-                  <TableCell className="text-right">{formatInteger(row.newLeadsCount)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

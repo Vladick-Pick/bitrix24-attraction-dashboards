@@ -8,6 +8,7 @@ import { prepareLocalDev } from './prepare-local-dev.mjs'
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const NODE_MODULES_PATH = resolve(ROOT_DIR, 'node_modules')
+const DEV_PORTS = [5173, 5174, 8787]
 
 function runCommand(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -66,6 +67,84 @@ function ensureDependencies() {
   }
 }
 
+function sleep(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
+}
+
+function getListeningPids(port) {
+  const result = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'], {
+    cwd: ROOT_DIR,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  })
+
+  if (result.error || (!result.stdout && result.status !== 0)) {
+    return []
+  }
+
+  return result.stdout
+    .split('\n')
+    .filter((line) => line.startsWith('p'))
+    .map((line) => Number(line.slice(1)))
+    .filter((pid) => Number.isInteger(pid) && pid > 0)
+}
+
+function getProcessCommand(pid) {
+  const result = spawnSync('ps', ['-p', String(pid), '-o', 'command='], {
+    cwd: ROOT_DIR,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  })
+
+  if (result.error || result.status !== 0) {
+    return ''
+  }
+
+  return result.stdout.trim()
+}
+
+function isProjectDevProcess(command) {
+  return (
+    command.includes(ROOT_DIR) &&
+    (command.includes('vite') ||
+      command.includes('tsx watch') ||
+      command.includes('bitrix24-reporting-local@ start'))
+  )
+}
+
+function cleanupProjectPorts() {
+  for (const port of DEV_PORTS) {
+    const pids = getListeningPids(port)
+
+    for (const pid of pids) {
+      if (pid === process.pid) {
+        continue
+      }
+
+      const command = getProcessCommand(pid)
+
+      if (!isProjectDevProcess(command)) {
+        continue
+      }
+
+      try {
+        process.kill(pid, 'SIGTERM')
+        console.log(`[launcher] Stopped stale project process on port ${port} (pid ${pid}).`)
+      } catch {
+        // Ignore already-closed processes.
+      }
+    }
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (getListeningPids(port).length === 0) {
+        break
+      }
+
+      sleep(100)
+    }
+  }
+}
+
 function stripAnsi(value) {
   return value.replace(/\u001B\[[0-9;]*m/gu, '')
 }
@@ -110,6 +189,7 @@ function openBrowser(url) {
 ensurePnpm()
 ensureNodeVersion()
 ensureDependencies()
+cleanupProjectPorts()
 
 const setup = prepareLocalDev()
 
@@ -120,7 +200,7 @@ if (!setup.bitrixConfigured) {
   )
 }
 console.log(`[launcher] API health: ${setup.apiBaseUrl}/api/health`)
-console.log('[launcher] Web UI: http://localhost:5173')
+console.log('[launcher] Web UI URL will be printed by Vite below.')
 console.log('[launcher] Refresh inside the UI starts the manual sync flow.')
 
 let browserOpened = false

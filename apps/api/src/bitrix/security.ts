@@ -31,13 +31,18 @@ export function assertAllowedBitrixMethod(method: string) {
   }
 }
 
-export function assertSafeSelectFields(fields: string[]) {
+export function assertSafeSelectFields(
+  fields: string[],
+  allowedCustomFields: string[] = []
+) {
+  const allowedCustomFieldSet = new Set(allowedCustomFields);
+
   for (const field of fields) {
     if (forbiddenFieldSet.has(field as (typeof FORBIDDEN_FIELD_TOKENS)[number])) {
       throw new Error(`Forbidden Bitrix24 field in select: ${field}`);
     }
 
-    if (field.startsWith("UF_")) {
+    if (field.startsWith("UF_") && !allowedCustomFieldSet.has(field)) {
       throw new Error(`Forbidden Bitrix24 custom field in select: ${field}`);
     }
   }

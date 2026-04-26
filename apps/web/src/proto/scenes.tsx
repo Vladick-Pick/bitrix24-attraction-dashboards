@@ -4,6 +4,7 @@ import type {
   ActivitiesWorkloadReport,
   AcquisitionOutcomesReport,
   DashboardData,
+  ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeReport,
   SalesDealRow,
   SalesManagerGroup,
@@ -49,6 +50,8 @@ type StaticActivityMatrixRow = Omit<ActivityMatrixRow, 'totalCalls' | 'totalClos
 }
 
 const SHOW_ACTIVITY_MATRIX = false
+const SHOW_TARGET_GROUP_CONVERSION = false
+const SHOW_ACTION_OUTCOME_WIP = true
 const SHOW_SALES_SECONDARY_REPORTS = false
 
 const attachActivityMatrixTotals = (rows: StaticActivityMatrixRow[]): ActivityMatrixRow[] =>
@@ -159,48 +162,48 @@ const activityMatrixRows = attachActivityMatrixTotals([
 const cohortRows: CohortMatrixRow[] = [
   {
     month: 'Октябрь 2025',
+    createdDeals: '92',
     cells: [
-      { value: '6', level: 3 },
-      { value: '11', level: 5 },
-      { value: '7', level: 4 },
-      { value: '3', level: 2 },
-      { value: '1', level: 1 },
+      { value: '6', subvalue: '7%', level: 3 },
+      { value: '11', subvalue: '12%', level: 5 },
+      { value: '7', subvalue: '8%', level: 4 },
+      { value: '4', subvalue: '4%', level: 2 },
     ],
     conversion: '31%',
     cycle: '59 дн.',
   },
   {
     month: 'Ноябрь 2025',
+    createdDeals: '101',
     cells: [
-      { value: '5', level: 2 },
-      { value: '13', level: 5 },
-      { value: '8', level: 4 },
-      { value: '4', level: 2 },
-      { value: '2', level: 1 },
+      { value: '5', subvalue: '5%', level: 2 },
+      { value: '13', subvalue: '13%', level: 5 },
+      { value: '8', subvalue: '8%', level: 4 },
+      { value: '6', subvalue: '6%', level: 2 },
     ],
     conversion: '29%',
     cycle: '63 дн.',
   },
   {
     month: 'Декабрь 2025',
+    createdDeals: '108',
     cells: [
-      { value: '4', level: 2 },
-      { value: '10', level: 4 },
-      { value: '9', level: 4 },
-      { value: '6', level: 3 },
-      { value: '3', level: 2 },
+      { value: '4', subvalue: '4%', level: 2 },
+      { value: '10', subvalue: '9%', level: 4 },
+      { value: '9', subvalue: '8%', level: 4 },
+      { value: '9', subvalue: '8%', level: 3 },
     ],
     conversion: '26%',
     cycle: '67 дн.',
   },
   {
     month: 'Январь 2026',
+    createdDeals: '114',
     cells: [
-      { value: '3', level: 1 },
-      { value: '9', level: 4 },
-      { value: '11', level: 5 },
-      { value: '6', level: 3 },
-      { value: '4', level: 2 },
+      { value: '3', subvalue: '3%', level: 1 },
+      { value: '9', subvalue: '8%', level: 4 },
+      { value: '11', subvalue: '10%', level: 5 },
+      { value: '10', subvalue: '9%', level: 3 },
     ],
     conversion: '24%',
     cycle: '71 дн.',
@@ -274,8 +277,23 @@ function getSourcePickerOptions(runtimeData?: SceneComponentProps['runtimeData']
 }
 
 function getActivitiesSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
+  if (runtimeData?.activitiesCalls) {
+    return runtimeData.activitiesCalls
+  }
+
+  if (runtimeData && runtimeData.operationalStatus !== 'ready') {
+    return {
+      kpis: [],
+      warnings: [],
+      managerCount: 0,
+      stageCount: 0,
+      summaryRows: [],
+      matrixRows: [],
+    }
+  }
+
   return (
-    runtimeData?.activitiesCalls ?? {
+    {
       kpis: [],
       warnings: [],
       managerCount: activityRows.length,
@@ -291,8 +309,8 @@ function isVisibleActivityWarning(warning: string) {
 }
 
 const activitySummaryColumns = [
-  { index: 0, label: 'Создано дел' },
-  { index: 1, label: 'Закрыто дел' },
+  { index: 0, label: 'Создано задач' },
+  { index: 1, label: 'Закрыто задач' },
   { index: 2, label: 'Исходящие', hint: 'успешные + прочие + недозвоны' },
   { index: 3, label: 'Успешные >30 сек' },
   { index: 4, label: 'Прочие исходящие' },
@@ -363,6 +381,30 @@ function SortIndicator({
   )
 }
 
+function DisclosureIndicator({ expanded }: { expanded: boolean }) {
+  return (
+    <span
+      className={[
+        'inline-flex size-7 shrink-0 items-center justify-center rounded-full border transition',
+        expanded
+          ? 'border-slate-300 bg-slate-900 text-white shadow-sm'
+          : 'border-slate-200 bg-white text-slate-400 group-hover:border-slate-300 group-hover:text-slate-600',
+      ].join(' ')}
+      aria-hidden="true"
+    >
+      <svg
+        viewBox="0 0 16 16"
+        className={['size-3.5 transition-transform duration-150', expanded ? 'rotate-90' : ''].join(' ')}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <path d="M6 4.5 10 8 6 11.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  )
+}
+
 function ActivityStageMetricCard({
   label,
   value,
@@ -396,8 +438,23 @@ function ActivityStageMetricCard({
 }
 
 function getCohortSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
+  if (runtimeData?.cohorts) {
+    return runtimeData.cohorts
+  }
+
+  if (runtimeData && runtimeData.operationalStatus !== 'ready') {
+    return {
+      range: undefined,
+      kpis: [],
+      matrixRows: [],
+      distributionBuckets: [],
+      managerDistribution: [],
+      sourceDistribution: [],
+    }
+  }
+
   return (
-    runtimeData?.cohorts ?? {
+    {
       range: undefined,
       kpis: [],
       matrixRows: cohortRows,
@@ -409,8 +466,29 @@ function getCohortSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
 }
 
 function getTocSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
+  if (runtimeData?.tocFlow) {
+    return runtimeData.tocFlow
+  }
+
+  if (runtimeData && runtimeData.operationalStatus !== 'ready') {
+    return {
+      kpis: [],
+      warnings: [],
+      currentStages: [],
+      compareStages: [],
+      managerConversionRows: [],
+      stableLeaders: [],
+      focus: {
+        bottleneckStage: '',
+        compareBottleneckStage: '',
+        maxQueueStage: '',
+        throughputDropStage: '',
+      },
+    }
+  }
+
   return (
-    runtimeData?.tocFlow ?? {
+    {
       kpis: [],
       warnings: [],
       currentStages: funnelFlowCurrent,
@@ -908,6 +986,10 @@ function formatSalesDays(value: number) {
   return `${formatInteger(value)} д`
 }
 
+function formatOneDecimal(value: number) {
+  return Number(value).toFixed(1).replace('.', ',')
+}
+
 function formatSalesHours(value: number) {
   return `${formatInteger(value)} ч`
 }
@@ -917,7 +999,7 @@ function formatMeetingCount(value: number) {
 }
 
 function formatRatioPercent(value: number) {
-  return formatPercent((value ?? 0) * 100)
+  return `${formatPercent((value ?? 0) * 100)}%`
 }
 
 function formatCompareDelta(current: number, previous: number, kind: 'count' | 'amount' | 'rate' | 'days' = 'count') {
@@ -947,6 +1029,7 @@ function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
     { label: 'Business club', value: deal.businessClubValue ?? '—' },
     { label: 'Таргет-группа', value: deal.targetGroupValue ?? '—' },
     { label: 'Тип встречи', value: deal.meetingTypeValue ?? '—' },
+    { label: 'Дата встречи', value: deal.meetingDateValue ? formatShortDate(deal.meetingDateValue) : '—' },
     { label: 'Тариф', value: deal.tariffValue ?? '—' },
   ]
 
@@ -1143,9 +1226,11 @@ function SalesManagerBlock({
 function SalesManagersReport({
   dashboard,
   status,
+  error,
 }: {
   dashboard: DashboardData | undefined
   status: NonNullable<SceneComponentProps['runtimeData']>['operationalStatus'] | undefined
+  error?: string | null | undefined
 }) {
   const [expandedDeals, setExpandedDeals] = useState<Set<string>>(() => new Set())
   const groups = dashboard?.managerGroups ?? []
@@ -1177,6 +1262,13 @@ function SalesManagersReport({
       {status === 'loading' && !dashboard ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white/70 px-4 py-6 text-sm text-slate-500">
           Загружаю продажи из локальной базы.
+        </div>
+      ) : status === 'error' ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-6 text-sm text-rose-800"
+        >
+          {error ?? 'Не удалось загрузить продажи из локальной базы.'}
         </div>
       ) : groups.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white/70 px-4 py-6 text-sm text-slate-500">
@@ -1217,7 +1309,7 @@ function TargetGroupConversionSection({
     <section className="panel p-5">
       <PanelHeading
         title="Конверсия по таргет-группам"
-        description="Отдельный аналитический срез по target group: создание, победы, win-rate, выручка, средний чек и средний цикл."
+        description="Срез по customer target group: новые заказы в период, победы в период, доля побед среди закрытых исходов, выручка, средний чек и средний цикл по выигранным."
         right={<span className="badge-chip badge-neutral">{getCompareLabel(filters)}</span>}
       />
 
@@ -1276,83 +1368,390 @@ function TargetGroupConversionSection({
 }
 
 type ManagerActionSortKey =
-  | 'createdTasks'
-  | 'closedTasks'
-  | 'totalCalls'
-  | 'successfulCallsOverThirtySeconds'
-  | 'meetingsCount'
-  | 'sla1OnTimeCount'
-  | 'sla2OnTimeCount'
-  | 'sla3OnTimeCount'
-  | 'newDealsCount'
-  | 'wonDealsCount'
-  | 'winRate'
-  | 'salesAmount'
-  | 'averageSaleAmount'
-  | 'averageCycleDays'
+  | 'dealCount'
+  | 'statusShare'
+  | 'createdTasksPerDeal'
+  | 'totalCallsPerDeal'
+  | 'meetingsPerDeal'
+  | 'sla1OnTimeRate'
+  | 'financialAmount'
+  | 'averageFinancialAmount'
+
+const managerActionStatusOrder = ['won', 'lost', 'wip'] as const
+type ManagerActionStatusKey = (typeof managerActionStatusOrder)[number]
+type ManagerActionStatusRow = NonNullable<ManagerActionOutcomeReport['cohortStatusRows']>[number]
+type ManagerActionDisplayRow = ManagerActionStatusRow & { isSynthetic?: boolean }
+
+const managerActionStatusLabels: Record<ManagerActionStatusKey, string> = {
+  won: 'Выиграно',
+  lost: 'Проиграно',
+  wip: 'В работе сейчас',
+}
+
+function getManagerActionStatusClass(statusKey: string) {
+  if (statusKey === 'won') {
+    return 'rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700'
+  }
+
+  if (statusKey === 'lost') {
+    return 'rounded-full bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700'
+  }
+
+  return 'rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600'
+}
+
+function getManagerActionRowKey(row: Pick<ManagerActionStatusRow, 'managerId' | 'cohortMonth' | 'statusKey'>) {
+  return `${row.managerId}-${row.cohortMonth ?? 'all'}-${row.statusKey}`
+}
+
+function getManagerActionDealKey(
+  row: Pick<ManagerActionStatusRow, 'managerId' | 'cohortMonth' | 'statusKey'>,
+  dealId: string,
+) {
+  return `${getManagerActionRowKey(row)}-${dealId}`
+}
+
+function formatDealSlaStatus(value: ManagerActionOutcomeDealDetail['sla']['sla1']) {
+  const hours = value.hours === null ? '—' : `${formatOneDecimal(value.hours)} ч`
+
+  if (value.status === 'onTime') {
+    return `в срок · ${hours}`
+  }
+
+  if (value.status === 'late') {
+    return `поздно · ${hours}`
+  }
+
+  return `нет касания · ${hours}`
+}
+
+function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDetail }) {
+  const detailFields = [
+    { label: 'Итоговое качество', value: deal.qualityValue ?? '—' },
+    { label: 'Источник', value: deal.sourceLabel ?? '—' },
+    { label: 'Бизнес-клуб заказчика', value: deal.businessClubValue ?? '—' },
+    { label: 'Таргет-группа', value: deal.targetGroupValue ?? '—' },
+    { label: 'Тип встречи', value: deal.meetingTypeValue ?? '—' },
+    { label: 'Дата встречи', value: deal.meetingDateValue ? formatShortDate(deal.meetingDateValue) : '—' },
+    { label: 'Тариф', value: deal.tariffValue ?? '—' },
+  ]
+
+  return (
+    <div className="mt-3 grid gap-4 border-t border-slate-200 pt-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+        <div className="rounded-xl border border-slate-200 bg-white/80 p-4">
+          <div className="subtle-label">Атрибуты сделки</div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {detailFields.map((field) => (
+              <div key={field.label} className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                <div className="subtle-label">{field.label}</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{field.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white/80 p-4">
+          <div className="subtle-label">Дела, звонки и встречи</div>
+          <div className="mt-2 text-sm text-slate-700">
+            <strong className="text-slate-950">{formatInteger(deal.taskSummary.created)}</strong>{' '}
+            создано дел · {formatInteger(deal.taskSummary.closed)} закрыто
+          </div>
+          <div className="mt-1 text-sm text-slate-500">
+            {formatInteger(deal.callSummary.incoming)} вход. ·{' '}
+            {formatInteger(deal.callSummary.outgoing)} исход. ·{' '}
+            {formatInteger(deal.callSummary.connectedOverThirtySeconds)} успешных &gt;30 сек
+          </div>
+          <div className="mt-1 text-sm text-slate-500">
+            {formatMeetingCount(deal.meetingSummary.total)}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white/80 p-4">
+          <div className="subtle-label">SLA по сделке</div>
+          <div className="mt-3 grid gap-2 text-sm text-slate-700">
+            <div>1: {formatDealSlaStatus(deal.sla.sla1)}</div>
+            <div>2: {formatDealSlaStatus(deal.sla.sla2)}</div>
+            <div>3: {formatDealSlaStatus(deal.sla.sla3)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white/80">
+        <div className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+          <span>Этап</span>
+          <span>Вход</span>
+          <span className="text-right">Время</span>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {deal.stageTimeline.length > 0 ? (
+            deal.stageTimeline.map((stage) => (
+              <div
+                key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
+                className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
+                  {stage.meetingEvents && stage.meetingEvents.length > 0 ? (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {stage.meetingEvents.map((meeting) => (
+                        <span
+                          key={meeting.activityId}
+                          className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
+                        >
+                          Встреча {formatShortDate(meeting.timelineAt)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="truncate text-xs text-slate-500">
+                    до {formatShortDate(stage.leftAt)}
+                  </div>
+                </div>
+                <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
+                <span className="text-right font-semibold text-slate-900">
+                  {formatSalesHours(stage.durationHours)}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="px-4 py-5 text-sm text-slate-500">
+              История этапов по сделке пока не подтянута.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function createEmptyManagerActionStatusRow(
+  referenceRow: ManagerActionStatusRow,
+  statusKey: ManagerActionStatusKey,
+  selectedCohortMonth: string | null,
+): ManagerActionDisplayRow {
+  return {
+    managerId: referenceRow.managerId,
+    managerName: referenceRow.managerName,
+    cohortMonth: selectedCohortMonth,
+    statusKey,
+    statusLabel: managerActionStatusLabels[statusKey],
+    cohortCreatedDeals: referenceRow.cohortCreatedDeals,
+    dealCount: 0,
+    statusShare: 0,
+    createdTasksPerDeal: 0,
+    closedTasksPerDeal: 0,
+    totalCallsPerDeal: 0,
+    successfulCallsOverThirtySecondsPerDeal: 0,
+    meetingsPerDeal: 0,
+    sla1OnTimeRate: 0,
+    sla2OnTimeRate: 0,
+    sla3OnTimeRate: 0,
+    financialAmount: 0,
+    averageFinancialAmount: 0,
+    dealDetails: [],
+    isSynthetic: true,
+  }
+}
+
+function getManagerActionGroupSortValue(
+  rows: ManagerActionDisplayRow[],
+  sortKey: ManagerActionSortKey,
+) {
+  const dealCount = rows.reduce((total, row) => total + row.dealCount, 0)
+
+  if (sortKey === 'dealCount') {
+    return dealCount
+  }
+
+  if (sortKey === 'statusShare') {
+    const cohortCreatedDeals = rows[0]?.cohortCreatedDeals ?? 0
+    return cohortCreatedDeals === 0 ? 0 : dealCount / cohortCreatedDeals
+  }
+
+  if (sortKey === 'financialAmount') {
+    return rows.reduce((total, row) => total + row.financialAmount, 0)
+  }
+
+  if (sortKey === 'averageFinancialAmount') {
+    const financialAmount = rows.reduce((total, row) => total + row.financialAmount, 0)
+    return dealCount === 0 ? 0 : financialAmount / dealCount
+  }
+
+  return dealCount === 0
+    ? 0
+    : rows.reduce((total, row) => total + Number(row[sortKey]) * row.dealCount, 0) / dealCount
+}
 
 function ManagerActionOutcomeSection({
   report,
-  filters,
 }: {
   report: ManagerActionOutcomeReport | undefined
-  filters: ProtoFilterState
 }) {
   const [sortState, setSortState] = useState<{
     key: ManagerActionSortKey
     direction: 'asc' | 'desc'
   }>({
-    key: 'salesAmount',
+    key: 'financialAmount',
     direction: 'desc',
   })
+  const [selectedCohortMonth, setSelectedCohortMonth] = useState<string | null>(null)
+  const [expandedStatusRows, setExpandedStatusRows] = useState<Set<string>>(() => new Set())
+  const [expandedDealDetails, setExpandedDealDetails] = useState<Set<string>>(() => new Set())
 
   if (!report) {
     return null
   }
 
-  const compareByManager = new Map(
-    (report.comparisons?.[0]?.snapshot.rows ?? []).map((row) => [row.managerId, row]),
-  )
   const columns: Array<{
-    key: ManagerActionSortKey
+    key: string
     label: string
-    format: (value: number) => string
-    compareKind?: 'count' | 'amount' | 'rate' | 'days'
+    sortKey: ManagerActionSortKey
+    render: (row: ManagerActionDisplayRow) => ReactNode
   }> = [
-    { key: 'createdTasks', label: 'Созд. дела', format: formatInteger },
-    { key: 'closedTasks', label: 'Закр. дела', format: formatInteger },
-    { key: 'totalCalls', label: 'Звонки', format: formatInteger },
     {
-      key: 'successfulCallsOverThirtySeconds',
-      label: 'Успешные >30с',
-      format: formatInteger,
-    },
-    { key: 'meetingsCount', label: 'Встречи', format: formatInteger },
-    { key: 'sla1OnTimeCount', label: 'SLA1 on-time', format: formatInteger },
-    { key: 'sla2OnTimeCount', label: 'SLA2 on-time', format: formatInteger },
-    { key: 'sla3OnTimeCount', label: 'SLA3 on-time', format: formatInteger },
-    { key: 'newDealsCount', label: 'Новые сделки', format: formatInteger },
-    { key: 'wonDealsCount', label: 'Выиграно', format: formatInteger },
-    { key: 'winRate', label: 'Win-rate', format: formatRatioPercent, compareKind: 'rate' },
-    { key: 'salesAmount', label: 'Выручка', format: formatAmount, compareKind: 'amount' },
-    {
-      key: 'averageSaleAmount',
-      label: 'Средний чек',
-      format: formatAmount,
-      compareKind: 'amount',
+      key: 'deals',
+      label: 'Сделки',
+      sortKey: 'dealCount',
+      render: (row) => (
+        <div>
+          <div className="font-semibold text-slate-900">{formatInteger(row.dealCount)}</div>
+          <div className="text-xs text-slate-500">
+            из {formatInteger(row.cohortCreatedDeals)} · {formatRatioPercent(row.statusShare)}
+          </div>
+        </div>
+      ),
     },
     {
-      key: 'averageCycleDays',
-      label: 'Средний цикл',
-      format: formatSalesDays,
-      compareKind: 'days',
+      key: 'tasks',
+      label: 'Дела / сделку',
+      sortKey: 'createdTasksPerDeal',
+      render: (row) => (
+        <div>
+          <div className="font-semibold text-slate-900">{formatOneDecimal(row.createdTasksPerDeal)}</div>
+          <div className="text-xs text-slate-500">закр. {formatOneDecimal(row.closedTasksPerDeal)}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'calls',
+      label: 'Звонки / сделку',
+      sortKey: 'totalCallsPerDeal',
+      render: (row) => (
+        <div>
+          <div className="font-semibold text-slate-900">{formatOneDecimal(row.totalCallsPerDeal)}</div>
+          <div className="text-xs text-slate-500">
+            &gt;30с {formatOneDecimal(row.successfulCallsOverThirtySecondsPerDeal)}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'meetings',
+      label: 'Встречи / сделку',
+      sortKey: 'meetingsPerDeal',
+      render: (row) => (
+        <div className="font-semibold text-slate-900">{formatOneDecimal(row.meetingsPerDeal)}</div>
+      ),
+    },
+    {
+      key: 'sla',
+      label: 'SLA on-time',
+      sortKey: 'sla1OnTimeRate',
+      render: (row) => (
+        <div className="flex flex-wrap gap-1">
+          <span className="rounded-md bg-slate-50 px-1.5 py-1 text-xs font-semibold text-slate-700">1: {formatRatioPercent(row.sla1OnTimeRate)}</span>
+          <span className="rounded-md bg-slate-50 px-1.5 py-1 text-xs font-semibold text-slate-700">2: {formatRatioPercent(row.sla2OnTimeRate)}</span>
+          <span className="rounded-md bg-slate-50 px-1.5 py-1 text-xs font-semibold text-slate-700">3: {formatRatioPercent(row.sla3OnTimeRate)}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'finance',
+      label: 'Финансы',
+      sortKey: 'financialAmount',
+      render: (row) => (
+        <div>
+          <div className="font-semibold text-slate-900">{formatAmount(row.financialAmount)}</div>
+          <div className="text-xs text-slate-500">ср. {formatAmount(row.averageFinancialAmount)}</div>
+        </div>
+      ),
     },
   ]
 
-  const sortedRows = [...report.rows].sort((left, right) => {
-    const result = left[sortState.key] === right[sortState.key]
+  const cohortStatusRows = report.cohortStatusRows ?? []
+  const cohortMonths = report.cohortMonths ?? []
+  const actionWarnings = report.warnings ?? []
+  const selectedRows = cohortStatusRows.filter(
+    (row) =>
+      row.cohortMonth === selectedCohortMonth &&
+      (SHOW_ACTION_OUTCOME_WIP || row.statusKey !== 'wip'),
+  )
+  const visibleStatusKeys = managerActionStatusOrder.filter(
+    (statusKey) => SHOW_ACTION_OUTCOME_WIP || statusKey !== 'wip',
+  )
+  const totalCohortDeals = selectedCohortMonth
+    ? (cohortMonths.find((cohort) => cohort.cohortMonth === selectedCohortMonth)?.totalCreatedDeals ?? 0)
+    : Array.from(
+        new Map(selectedRows.map((row) => [row.managerId, row.cohortCreatedDeals])).values(),
+      ).reduce((total, value) => total + value, 0)
+  const statusSummary = managerActionStatusOrder
+    .filter((statusKey) => SHOW_ACTION_OUTCOME_WIP || statusKey !== 'wip')
+    .map((statusKey) => {
+      const rows = selectedRows.filter((row) => row.statusKey === statusKey)
+      const dealCount = rows.reduce((total, row) => total + row.dealCount, 0)
+      const financialAmount = rows.reduce((total, row) => total + row.financialAmount, 0)
+      const callsPerDeal =
+        dealCount === 0
+          ? 0
+          : rows.reduce((total, row) => total + row.totalCallsPerDeal * row.dealCount, 0) / dealCount
+      const meetingsPerDeal =
+        dealCount === 0
+          ? 0
+          : rows.reduce((total, row) => total + row.meetingsPerDeal * row.dealCount, 0) / dealCount
+      const label = rows[0]?.statusLabel ?? (statusKey === 'won' ? 'Выиграно' : statusKey === 'lost' ? 'Проиграно' : 'В работе сейчас')
+
+      return {
+        statusKey,
+        label,
+        dealCount,
+        financialAmount,
+        callsPerDeal,
+        meetingsPerDeal,
+      }
+    })
+  const managerGroups = Array.from(
+    selectedRows.reduce((groups, row) => {
+      const current = groups.get(row.managerId) ?? []
+      current.push(row)
+      groups.set(row.managerId, current)
+      return groups
+    }, new Map<string, ManagerActionStatusRow[]>()),
+  ).map(([managerId, rows]) => {
+    const referenceRow = rows[0]
+    const rowsByStatus = new Map(rows.map((row) => [row.statusKey, row]))
+    const displayRows: ManagerActionDisplayRow[] = referenceRow
+      ? visibleStatusKeys.map((statusKey) => {
+          const existingRow = rowsByStatus.get(statusKey)
+          return existingRow
+            ? { ...existingRow, isSynthetic: false }
+            : createEmptyManagerActionStatusRow(referenceRow, statusKey, selectedCohortMonth)
+        })
+      : []
+
+    return {
+      managerId,
+      managerName: referenceRow?.managerName ?? managerId,
+      rows: displayRows,
+    }
+  })
+
+  const sortedGroups = [...managerGroups].sort((left, right) => {
+    const leftValue = getManagerActionGroupSortValue(left.rows, sortState.key)
+    const rightValue = getManagerActionGroupSortValue(right.rows, sortState.key)
+    const result = leftValue === rightValue
       ? left.managerName.localeCompare(right.managerName, 'ru-RU')
-      : Number(left[sortState.key]) - Number(right[sortState.key])
+      : leftValue - rightValue
 
     return sortState.direction === 'asc' ? result : -result
   })
@@ -1365,30 +1764,119 @@ function ManagerActionOutcomeSection({
     }))
   }
 
+  function toggleStatusRow(row: ManagerActionDisplayRow) {
+    if (row.dealDetails.length === 0) {
+      return
+    }
+
+    const rowKey = getManagerActionRowKey(row)
+    setExpandedStatusRows((current) => {
+      const next = new Set(current)
+      if (next.has(rowKey)) {
+        next.delete(rowKey)
+      } else {
+        next.add(rowKey)
+      }
+
+      return next
+    })
+  }
+
+  function toggleDealDetails(row: ManagerActionDisplayRow, dealId: string) {
+    const dealKey = getManagerActionDealKey(row, dealId)
+    setExpandedDealDetails((current) => {
+      const next = new Set(current)
+      if (next.has(dealKey)) {
+        next.delete(dealKey)
+      } else {
+        next.add(dealKey)
+      }
+
+      return next
+    })
+  }
+
   return (
     <section className="panel p-5">
       <PanelHeading
         title="Действия → результат"
-        description="Менеджерский summary, где действия и результат стоят рядом: можно сортировать по любому столбцу и сразу видеть первую compare-динамику."
-        right={<span className="badge-chip badge-neutral">{getCompareLabel(filters)}</span>}
+        description="Средний объём действий на сделку по когорте создания и статусу: выиграно, проиграно, в работе сейчас."
+        right={<span className="badge-chip badge-neutral">{cohortMonths.length || 12} когорт · годовой период</span>}
       />
 
-      {sortedRows.length > 0 ? (
-        <div className="overflow-auto">
+      {actionWarnings.length > 0 ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {actionWarnings.join(' · ')}
+        </div>
+      ) : null}
+
+      <div className="mb-4 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50/80 p-2">
+        <div className="flex min-w-max items-center gap-2 text-sm">
+          <button
+            type="button"
+            onClick={() => setSelectedCohortMonth(null)}
+            className={
+              selectedCohortMonth === null
+                ? 'rounded-full bg-slate-900 px-3 py-1.5 font-bold text-white'
+                : 'rounded-full border border-slate-200 bg-white px-3 py-1.5 font-bold text-slate-600 transition hover:border-slate-300'
+            }
+          >
+            Все когорты
+          </button>
+          {cohortMonths.map((cohort) => (
+            <button
+              key={cohort.cohortMonth}
+              type="button"
+              onClick={() => setSelectedCohortMonth(cohort.cohortMonth)}
+              className={
+                selectedCohortMonth === cohort.cohortMonth
+                  ? 'rounded-full bg-slate-900 px-3 py-1.5 font-bold text-white'
+                  : 'rounded-full border border-slate-200 bg-white px-3 py-1.5 font-bold text-slate-600 transition hover:border-slate-300'
+              }
+            >
+              {cohort.cohortLabel}
+            </button>
+          ))}
+          <span className="ml-2 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-500">
+            создано сделок: {formatInteger(totalCohortDeals)}
+          </span>
+        </div>
+      </div>
+
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
+        {statusSummary.map((status) => (
+          <article key={status.statusKey} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className={getManagerActionStatusClass(status.statusKey)}>{status.label}</span>
+              <span className="text-xs font-semibold text-slate-500">{formatRatioPercent(totalCohortDeals === 0 ? 0 : status.dealCount / totalCohortDeals)}</span>
+            </div>
+            <div className="mt-3 text-2xl font-bold text-slate-900">{formatInteger(status.dealCount)}</div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-500">
+              <span>фин. {formatAmount(status.financialAmount)}</span>
+              <span>звонки {formatOneDecimal(status.callsPerDeal)}</span>
+              <span>встречи {formatOneDecimal(status.meetingsPerDeal)}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {sortedGroups.length > 0 ? (
+        <div className="overflow-auto rounded-2xl border border-slate-200">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
+              <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
                 <th className="px-3 py-3">Менеджер</th>
+                <th className="px-3 py-3">Статус</th>
                 {columns.map((column) => (
                   <th key={column.key} className="px-3 py-3">
                     <button
                       type="button"
                       className="flex items-center gap-2 rounded-lg px-2 py-1 transition hover:bg-slate-100"
-                      onClick={() => toggleSort(column.key)}
+                      onClick={() => toggleSort(column.sortKey)}
                     >
                       <span>{column.label}</span>
                       <SortIndicator
-                        active={sortState.key === column.key}
+                        active={sortState.key === column.sortKey}
                         direction={sortState.direction}
                       />
                     </button>
@@ -1397,78 +1885,183 @@ function ManagerActionOutcomeSection({
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((row) => {
-                const compareRow = compareByManager.get(row.managerId)
-                return (
-                  <tr key={row.managerId} className="border-b border-slate-100 last:border-b-0">
-                    <td className="px-3 py-3 font-semibold text-slate-900">{row.managerName}</td>
-                    {columns.map((column) => {
-                      const currentValue = Number(row[column.key])
-                      const previousValue = Number(compareRow?.[column.key] ?? 0)
-                      return (
-                        <td key={`${row.managerId}-${column.key}`} className="px-3 py-3">
-                          <div className="font-semibold text-slate-900">
-                            {column.format(currentValue)}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            С1: {compareRow ? column.format(previousValue) : '—'} ·{' '}
-                            {compareRow
-                              ? formatCompareDelta(
-                                  currentValue,
-                                  previousValue,
-                                  column.compareKind ?? 'count',
-                                )
-                              : 'без базы'}
+              {sortedGroups.flatMap((group) => {
+                const expandedRowsInGroup = group.rows.filter(
+                  (row) => expandedStatusRows.has(getManagerActionRowKey(row)) && row.dealDetails.length > 0,
+                ).length
+                const managerRowSpan = group.rows.length + expandedRowsInGroup
+
+                return group.rows.flatMap((row, rowIndex) => {
+                  const rowKey = getManagerActionRowKey(row)
+                  const isExpanded = expandedStatusRows.has(rowKey) && row.dealDetails.length > 0
+                  const canExpand = row.dealDetails.length > 0
+                  const baseRow = (
+                    <tr
+                      key={rowKey}
+                      className={`border-b border-slate-100 last:border-b-0 ${rowIndex === 0 ? 'border-t border-t-slate-200' : ''}`}
+                    >
+                      {rowIndex === 0 ? (
+                        <td
+                          rowSpan={managerRowSpan}
+                          className="bg-white px-3 py-3 align-top font-semibold text-slate-900"
+                        >
+                          <div>{group.managerName}</div>
+                          <div className="mt-1 text-xs font-medium text-slate-500">
+                            {formatInteger(group.rows[0]?.cohortCreatedDeals ?? 0)} сделок в когорте
                           </div>
                         </td>
-                      )
-                    })}
-                  </tr>
-                )
+                      ) : null}
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          disabled={!canExpand}
+                          onClick={() => toggleStatusRow(row)}
+                          aria-expanded={canExpand ? isExpanded : undefined}
+                          aria-label={
+                            canExpand
+                              ? `${isExpanded ? 'Свернуть' : 'Раскрыть'} статус ${row.statusLabel}`
+                              : row.statusLabel
+                          }
+                          title={canExpand ? `${isExpanded ? 'Свернуть' : 'Раскрыть'} сделки` : undefined}
+                          className="group inline-flex items-center gap-2 rounded-full px-1 py-1 text-left transition hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-transparent"
+                        >
+                          <span className={getManagerActionStatusClass(row.statusKey)}>
+                            {row.statusLabel}
+                          </span>
+                          {canExpand ? <DisclosureIndicator expanded={isExpanded} /> : null}
+                        </button>
+                      </td>
+                      {columns.map((column) => (
+                        <td
+                          key={`${rowKey}-${column.key}`}
+                          className={`px-3 py-3 ${row.isSynthetic ? 'text-slate-400' : ''}`}
+                        >
+                          {column.render(row)}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+
+                  if (!isExpanded) {
+                    return [baseRow]
+                  }
+
+                  const detailRow = (
+                    <tr key={`${rowKey}-details`} className="border-b border-slate-100 bg-slate-50/70">
+                      <td colSpan={columns.length + 1} className="px-3 py-4">
+                        <div className="space-y-3">
+                          {row.dealDetails.map((deal) => {
+                            const dealKey = getManagerActionDealKey(row, deal.dealId)
+                            const isDealExpanded = expandedDealDetails.has(dealKey)
+
+                            return (
+                              <article
+                                key={deal.dealId}
+                                className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+                              >
+                                <div className="grid gap-3 xl:grid-cols-[minmax(8rem,1fr)_8rem_8rem_8rem_9rem_auto] xl:items-center">
+                                  <div className="min-w-0">
+                                    <div className="font-bold text-slate-950">ID {deal.dealId}</div>
+                                    <div className="text-xs text-slate-500">
+                                      создана {formatShortDate(deal.dateCreate)} · {deal.stageName}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="subtle-label">Сумма</div>
+                                    <div className="font-semibold text-slate-900">{formatAmount(deal.amount)}</div>
+                                  </div>
+                                  <div>
+                                    <div className="subtle-label">Дела</div>
+                                    <div className="font-semibold text-slate-900">
+                                      {formatInteger(deal.taskSummary.created)} / {formatInteger(deal.taskSummary.closed)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="subtle-label">Звонки</div>
+                                    <div className="font-semibold text-slate-900">{formatInteger(deal.callSummary.total)}</div>
+                                    <div className="text-xs text-slate-500">
+                                      &gt;30с {formatInteger(deal.callSummary.connectedOverThirtySeconds)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="subtle-label">Встречи</div>
+                                    <div className="font-semibold text-slate-900">{formatInteger(deal.meetingSummary.total)}</div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className={isDealExpanded ? 'btn btn-dark' : 'btn btn-ghost'}
+                                    onClick={() => toggleDealDetails(row, deal.dealId)}
+                                  >
+                                    Подробнее
+                                  </button>
+                                </div>
+                                {isDealExpanded ? <ManagerActionDealDetails deal={deal} /> : null}
+                              </article>
+                            )
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+
+                  return [baseRow, detailRow]
+                })
               })}
             </tbody>
           </table>
         </div>
       ) : (
-        <OutcomeEmptyState message="По менеджерам пока нет данных для блока «действия → результат»." />
+        <OutcomeEmptyState message="По выбранной когорте пока нет данных для блока «действия → результат»." />
       )}
     </section>
   )
 }
 
-function SalesKpiCards({ dashboard }: { dashboard: DashboardData | undefined }) {
+function SalesKpiCards({
+  dashboard,
+  status,
+}: {
+  dashboard: DashboardData | undefined
+  status: NonNullable<SceneComponentProps['runtimeData']>['operationalStatus'] | undefined
+}) {
+  const pendingState = !dashboard && status !== 'ready'
   const groups = dashboard?.managerGroups ?? []
   const salesSummary = dashboard?.salesSummary
   const totalDeals = salesSummary?.salesCount ?? groups.reduce((total, group) => total + group.totalWonDeals, 0)
   const totalAmount = salesSummary?.salesAmount ?? groups.reduce((total, group) => total + group.totalSalesAmount, 0)
   const averageSaleAmount =
     salesSummary?.averageSaleAmount ?? (totalDeals === 0 ? 0 : totalAmount / totalDeals)
+  const pendingValue = status === 'loading' ? '…' : '—'
+  const pendingNote =
+    status === 'loading' ? 'ожидаем live-данные' : 'live-данные недоступны'
 
   const cards = [
     {
       label: 'Выиграно',
-      value: formatInteger(totalDeals),
-      note: 'передано в клуб за период',
+      value: pendingState ? pendingValue : formatInteger(totalDeals),
+      note: pendingState ? pendingNote : 'передано в клуб за период',
     },
     {
       label: 'Сумма продаж',
-      value: formatAmount(totalAmount),
-      note: 'по выигранным сделкам',
+      value: pendingState ? pendingValue : formatAmount(totalAmount),
+      note: pendingState ? pendingNote : 'по выигранным сделкам',
     },
     {
       label: 'Средний чек',
-      value: formatAmount(averageSaleAmount),
-      note: 'среднее по продажам',
+      value: pendingState ? pendingValue : formatAmount(averageSaleAmount),
+      note: pendingState ? pendingNote : 'среднее по продажам',
     },
     {
       label: 'Новые сделки / конверсия',
-      value: formatInteger(salesSummary?.newDealsCount ?? 0),
-      note: `${formatPercent(salesSummary?.conversionRate ?? 0)}% win-rate периода`,
+      value: pendingState ? pendingValue : formatInteger(salesSummary?.newDealsCount ?? 0),
+      note: pendingState
+        ? pendingNote
+        : `${formatPercent(salesSummary?.conversionRate ?? 0)}% win-rate периода`,
     },
     {
       label: 'Встречи',
-      value: formatInteger(salesSummary?.meetingsCount ?? 0),
-      note: 'по выигранным сделкам',
+      value: pendingState ? pendingValue : formatInteger(salesSummary?.meetingsCount ?? 0),
+      note: pendingState ? pendingNote : 'по выигранным сделкам',
     },
   ]
 
@@ -1488,21 +2081,22 @@ function SalesKpiCards({ dashboard }: { dashboard: DashboardData | undefined }) 
 function SalesScene({ filters, runtimeData }: SceneComponentProps) {
   return (
     <div className="space-y-6">
-      <SalesKpiCards dashboard={runtimeData?.salesDashboard} />
-
-      <TargetGroupConversionSection
-        report={runtimeData?.targetGroupConversion}
-        filters={filters}
+      <SalesKpiCards
+        dashboard={runtimeData?.salesDashboard}
+        status={runtimeData?.operationalStatus}
       />
 
-      <ManagerActionOutcomeSection
-        report={runtimeData?.managerActionOutcomes}
-        filters={filters}
-      />
+      {SHOW_TARGET_GROUP_CONVERSION ? (
+        <TargetGroupConversionSection
+          report={runtimeData?.targetGroupConversion}
+          filters={filters}
+        />
+      ) : null}
 
       <SalesManagersReport
         dashboard={runtimeData?.salesDashboard}
         status={runtimeData?.operationalStatus}
+        error={runtimeData?.operationalError}
       />
 
       {SHOW_SALES_SECONDARY_REPORTS ? (
@@ -2110,8 +2704,8 @@ function BusinessClubWorkloadSection({
   return (
     <section className="panel p-5">
       <PanelHeading
-        title="Business-club workload"
-        description="Нагрузка по менеджерам и business club без смешения с target group: видно, где создаётся и теряется основной объём."
+        title="Нагрузка по заказчикам"
+        description="Открытые сделки в воронке по менеджерам: отдельно бизнес-клуб заказчика и таргет-группа."
         right={<span className="badge-chip badge-neutral">{getFilterScopeLabel(filters)}</span>}
       />
 
@@ -2121,8 +2715,9 @@ function BusinessClubWorkloadSection({
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
                 <th className="px-3 py-3">Менеджер</th>
-                <th className="px-3 py-3">Business club</th>
-                <th className="px-3 py-3 text-right">Итого</th>
+                <th className="px-3 py-3">Бизнес-клуб заказчика</th>
+                <th className="px-3 py-3">Таргет-группа</th>
+                <th className="px-3 py-3 text-right">Открыто сделок</th>
               </tr>
             </thead>
             <tbody>
@@ -2142,6 +2737,19 @@ function BusinessClubWorkloadSection({
                       ))}
                     </div>
                   </td>
+                  <td className="px-3 py-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      {row.targetGroups.map((targetGroup) => (
+                        <span
+                          key={`${row.managerId}-${targetGroup.targetGroupKey}`}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+                        >
+                          <span>{targetGroup.targetGroupLabel}</span>
+                          <span className="text-slate-400">{formatInteger(targetGroup.count)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
                   <td className="px-3 py-3 text-right font-semibold text-slate-900">
                     {formatInteger(row.totalDeals)}
                   </td>
@@ -2151,7 +2759,7 @@ function BusinessClubWorkloadSection({
           </table>
         </div>
       ) : (
-        <OutcomeEmptyState message="В выбранном периоде workload по business club пустой." />
+        <OutcomeEmptyState message="В текущей воронке нет открытых сделок по выбранным фильтрам." />
       )}
     </section>
   )
@@ -2162,6 +2770,8 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
     index: 2,
     direction: 'desc',
   })
+  const isUnavailable =
+    runtimeData?.operationalStatus !== 'ready' && !runtimeData?.activitiesCalls
   const sceneData = getActivitiesSceneData(runtimeData)
   const activitiesWorkload = runtimeData?.activitiesWorkload
   const acquisitionOutcomes = runtimeData?.acquisitionOutcomes
@@ -2174,6 +2784,21 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
       index,
       direction: current.index === index && current.direction === 'desc' ? 'asc' : 'desc',
     }))
+  }
+
+  if (isUnavailable) {
+    return (
+      <section className="panel p-5">
+        <PanelHeading
+          title="Отчет активности"
+          description={
+            runtimeData?.operationalStatus === 'loading'
+              ? 'Загружаю live-данные отчёта активности.'
+              : 'Live-данные отчёта активности сейчас недоступны.'
+          }
+        />
+      </section>
+    )
   }
 
   return (
@@ -2367,6 +2992,7 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
 
 function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
   const [sliceMode, setSliceMode] = useState<'summary' | 'managers' | 'sources'>('summary')
+  const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !runtimeData?.cohorts
   const sceneData = getCohortSceneData(runtimeData)
   const managerPickerOptions = getManagerPickerOptions(runtimeData)
   const sourcePickerOptions = getSourcePickerOptions(runtimeData)
@@ -2385,6 +3011,21 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
   const cohortRangeLabel = sceneData.range
     ? `${formatFilterDate(sceneData.range.from.slice(0, 10))} - ${formatFilterDate(sceneData.range.to.slice(0, 10))}`
     : `${formatFilterDate(filters.rangeStart)} - ${formatFilterDate(filters.rangeEnd)}`
+
+  if (isUnavailable) {
+    return (
+      <section className="panel p-5">
+        <PanelHeading
+          title="Когортный отчет"
+          description={
+            runtimeData?.operationalStatus === 'loading'
+              ? 'Загружаю live-данные когортного отчёта.'
+              : 'Live-данные когортного отчёта сейчас недоступны.'
+          }
+        />
+      </section>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -2437,10 +3078,10 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
                   <th className="px-3 py-3">Когорта</th>
+                  <th className="px-3 py-3">Создано</th>
                   <th className="px-3 py-3">В 1 месяц</th>
                   <th className="px-3 py-3">Во 2 месяц</th>
                   <th className="px-3 py-3">В 3 месяц</th>
-                  <th className="px-3 py-3">В 4 месяц</th>
                   <th className="px-3 py-3">В 4+ месяц</th>
                   <th className="px-3 py-3">Конверсия</th>
                   <th className="px-3 py-3">Средний цикл</th>
@@ -2450,6 +3091,7 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
                 {sceneData.matrixRows.map((row) => (
                   <tr key={row.month} className="border-b border-slate-100 last:border-b-0">
                     <td className="px-3 py-3 font-semibold text-slate-900">{row.month}</td>
+                    <td className="px-3 py-3 font-semibold text-slate-900">{row.createdDeals}</td>
                     {row.cells.map((cell, index) => (
                       <td key={`${row.month}-${index}`} className="px-3 py-3">
                         <div className="rounded-lg px-3 py-2 text-center text-sm font-semibold text-slate-900" style={{
@@ -2461,6 +3103,11 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
                             'rgba(77,124,255,0.06)',
                         }}>
                           <div>{cell.value}</div>
+                          {cell.subvalue ? (
+                            <div className="mt-1 text-[11px] font-semibold text-slate-500">
+                              {cell.subvalue}
+                            </div>
+                          ) : null}
                         </div>
                       </td>
                     ))}
@@ -2529,12 +3176,30 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
           </section>
         </div>
       </section>
+
+      <ManagerActionOutcomeSection report={runtimeData?.managerActionOutcomes} />
     </div>
   )
 }
 
 function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
+  const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !runtimeData?.tocFlow
   const sceneData = getTocSceneData(runtimeData)
+
+  if (isUnavailable) {
+    return (
+      <section className="panel p-5">
+        <PanelHeading
+          title="Движение по воронке"
+          description={
+            runtimeData?.operationalStatus === 'loading'
+              ? 'Загружаю live-данные stage-flow.'
+              : 'Live-данные stage-flow сейчас недоступны.'
+          }
+        />
+      </section>
+    )
+  }
 
   if (sceneData.currentStages.length === 0) {
     return (
@@ -2618,7 +3283,7 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
             </div>
 
             <div className="rounded-xl border border-slate-200/80 bg-white/65 p-3">
-              <p className="text-xs text-slate-500">Вывод недели</p>
+              <p className="text-xs text-slate-500">Вывод за период</p>
               <p className="text-sm text-slate-700">
                 Самая сильная просадка ПС:{' '}
                 <span className="font-semibold">
@@ -2792,11 +3457,11 @@ export const scenes: ProtoScene[] = [
     description: 'Матричная структура по менеджерам и этапам: дела, звонки и переносы дедлайнов.',
     focus: 'Дела / звонки / дисциплина',
     kpis: [
-      { label: 'Создано дел', value: '486', note: 'за активный диапазон', compare: 'пред. период: 441', delta: '+10%', deltaTone: 'positive' },
+      { label: 'Создано задач', value: '486', note: 'за активный диапазон', compare: 'пред. период: 441', delta: '+10%', deltaTone: 'positive' },
       { label: 'Перенесён дедлайн', value: '92', note: '19% от всех дел', compare: 'пред. период: 104', delta: '-12%', deltaTone: 'positive' },
-      { label: 'Закрыто дел', value: '401', note: '82% от созданных', compare: 'пред. период: 362', delta: '+11%', deltaTone: 'positive' },
+      { label: 'Закрыто задач', value: '401', note: '82% от созданных', compare: 'пред. период: 362', delta: '+11%', deltaTone: 'positive' },
       { label: 'Звонков на сделку', value: '2.8', note: 'среднее по воронке', compare: 'пред. период: 2.4', delta: '+17%', deltaTone: 'positive' },
-      { label: 'Дел на сделку', value: '4.6', note: 'среднее по воронке', compare: 'пред. период: 4.9', delta: '-6%', deltaTone: 'neutral' },
+      { label: 'Задач на сделку', value: '4.6', note: 'среднее по воронке', compare: 'пред. период: 4.9', delta: '-6%', deltaTone: 'neutral' },
     ],
     component: ActivitiesScene,
   },
@@ -2822,7 +3487,7 @@ export const scenes: ProtoScene[] = [
     focus: 'Очередь / throughput / ограничения',
     kpis: [
       { label: 'Сделок в работе', value: '223', note: 'вся очередь на конец периода', compare: 'пред. период: 205', delta: '+9%', deltaTone: 'negative' },
-      { label: 'Выход в неделю', value: '68', note: 'через все этапы воронки', compare: 'пред. период: 61', delta: '+11%', deltaTone: 'positive' },
+      { label: 'Выход за период', value: '68', note: 'через все этапы воронки', compare: 'пред. период: 61', delta: '+11%', deltaTone: 'positive' },
       { label: 'Главное ограничение', value: 'Проблематизация', note: 'самый плотный этап', compare: '17 сделок в очереди' },
       { label: 'Средний WIP', value: '31', note: 'на один активный этап', compare: 'пред. период: 28', delta: '+3', deltaTone: 'negative' },
       { label: 'Средний цикл этапа', value: '9 дн.', note: 'по этапам с накоплением', compare: 'пред. период: 10 дн.', delta: '-1 дн.', deltaTone: 'positive' },

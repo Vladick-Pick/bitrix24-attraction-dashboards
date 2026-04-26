@@ -421,6 +421,7 @@ describe("buildDashboard", () => {
               businessClubValue: null,
               targetGroupValue: null,
               meetingTypeValue: null,
+              meetingDateValue: null,
               tariffValue: null,
               cohortContext: {
                 createdMonth: "2026-03",
@@ -478,6 +479,7 @@ describe("buildDashboard", () => {
               businessClubValue: null,
               targetGroupValue: "ClubFirst",
               meetingTypeValue: null,
+              meetingDateValue: null,
               tariffValue: "Федеральный Москва",
               cohortContext: {
                 createdMonth: "2026-03",
@@ -559,6 +561,7 @@ describe("buildDashboard", () => {
               businessClubValue: null,
               targetGroupValue: null,
               meetingTypeValue: null,
+              meetingDateValue: null,
               tariffValue: null,
               cohortContext: {
                 createdMonth: "2026-04",
@@ -738,5 +741,171 @@ describe("buildDashboard", () => {
         meetingEvents: []
       }
     ]);
+  });
+
+  it("relabels leaked numeric target-group ids in the sales drilldown", () => {
+    const result = buildDashboard({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      wonStageIds: ["C1:WON"],
+      leads: [],
+      deals: [
+        {
+          id: "D-UNKNOWN-TG",
+          leadId: null,
+          categoryId: "1",
+          stageId: "C1:WON",
+          stageSemanticId: "S",
+          opportunity: 50000,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: "395454",
+          meetingTypeValue: null,
+          tariffValue: null,
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-04-01T08:00:00.000Z",
+          dateModify: "2026-04-18T15:00:00.000Z",
+          dateClosed: "2026-04-18T15:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "1",
+          statusId: "C1:WON",
+          name: "Won",
+          semanticId: "S",
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [],
+      activities: [],
+      calls: [],
+      managerDirectory: [{ id: "7", name: "Менеджер" }]
+    });
+
+    expect(result.managerGroups[0]?.deals[0]).toEqual(
+      expect.objectContaining({
+        dealId: "D-UNKNOWN-TG",
+        targetGroupValue: null
+      })
+    );
+  });
+  it("treats zero-duration calls with null failed code as failed in the sales drilldown", () => {
+    const result = buildDashboard({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      wonStageIds: ["C1:WON"],
+      leads: [],
+      deals: [
+        {
+          id: "D-CALL-EDGE",
+          leadId: null,
+          categoryId: "1",
+          stageId: "C1:WON",
+          stageSemanticId: "S",
+          opportunity: 50000,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          tariffValue: null,
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-04-01T08:00:00.000Z",
+          dateModify: "2026-04-18T15:00:00.000Z",
+          dateClosed: "2026-04-18T15:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "1",
+          statusId: "C1:NEW",
+          name: "New",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "deal",
+          categoryId: "1",
+          statusId: "C1:WON",
+          name: "Won",
+          semanticId: "S",
+          sortOrder: 20
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [
+        {
+          id: "D-CALL-EDGE-H1",
+          ownerId: "D-CALL-EDGE",
+          categoryId: "1",
+          stageId: "C1:NEW",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-01T08:00:00.000Z"
+        },
+        {
+          id: "D-CALL-EDGE-H2",
+          ownerId: "D-CALL-EDGE",
+          categoryId: "1",
+          stageId: "C1:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-18T15:00:00.000Z"
+        }
+      ],
+      activities: [],
+      calls: [
+        {
+          id: "CALL-EDGE-1",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "1",
+          callStartDate: "2026-04-10T10:00:00.000Z",
+          callDurationSeconds: 0,
+          crmEntityType: "DEAL",
+          crmEntityId: "D-CALL-EDGE",
+          callFailedCode: null
+        }
+      ],
+      managerDirectory: [{ id: "7", name: "Менеджер" }]
+    });
+
+    expect(result.managerGroups[0]?.deals[0]?.callSummary).toEqual(
+      expect.objectContaining({
+        total: 1,
+        successful: 0,
+        failed: 1,
+        connectedOverThirtySeconds: 0
+      })
+    );
   });
 });

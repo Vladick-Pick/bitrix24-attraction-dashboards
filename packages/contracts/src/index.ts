@@ -27,6 +27,7 @@ export interface DealSnapshot {
   businessClubValue?: string | null;
   targetGroupValue?: string | null;
   meetingTypeValue?: string | null;
+  meetingDateValue?: string | null;
   tariffValue?: string | null;
   refusalReasonValue?: string | null;
   refusalReasonDetail?: string | null;
@@ -203,6 +204,7 @@ export interface SalesDealRow {
   businessClubValue?: string | null;
   targetGroupValue?: string | null;
   meetingTypeValue?: string | null;
+  meetingDateValue?: string | null;
   tariffValue?: string | null;
   cohortContext: DealCohortContext;
   callSummary: DealCallSummary;
@@ -374,6 +376,28 @@ export interface StageCallMetric {
   averageDurationSeconds: number;
 }
 
+export interface CallPopulationSummary {
+  totalCalls: number;
+  incomingCalls: number;
+  outgoingCalls: number;
+  otherOutgoingCalls: number;
+  connectedCalls: number;
+  failedCalls: number;
+  callsOverThirtySeconds: number;
+  connectedCallsOverThirtySeconds: number;
+  averageDurationSeconds: number;
+}
+
+export interface LinkedDealCallPopulationSummary extends CallPopulationSummary {
+  dealCount: number;
+  averageCallsPerDeal: number;
+  stageBreakdown: StageCallMetric[];
+}
+
+export interface LinkedDealCallReportSummary extends CallPopulationSummary {
+  totalDealCount: number;
+}
+
 export interface ManagerCallsWorkloadRow {
   managerId: string;
   managerName: string;
@@ -388,6 +412,8 @@ export interface ManagerCallsWorkloadRow {
   connectedCallsOverThirtySeconds: number;
   averageCallsPerDeal: number;
   averageDurationSeconds: number;
+  allCalls: CallPopulationSummary;
+  linkedDealCalls: LinkedDealCallPopulationSummary;
   stageBreakdown: StageCallMetric[];
 }
 
@@ -402,6 +428,8 @@ export interface CallsWorkloadReportSnapshot {
   totalFailedCalls: number;
   totalCallsOverThirtySeconds: number;
   totalConnectedCallsOverThirtySeconds: number;
+  allCalls: CallPopulationSummary;
+  linkedDealCalls: LinkedDealCallReportSummary;
   warnings: string[];
   managerRows: ManagerCallsWorkloadRow[];
 }
@@ -459,11 +487,18 @@ export interface AcquisitionOutcomeBusinessClubBucket {
   count: number;
 }
 
+export interface AcquisitionOutcomeTargetGroupBucket {
+  targetGroupKey: string;
+  targetGroupLabel: string;
+  count: number;
+}
+
 export interface AcquisitionOutcomeBusinessClubByManagerRow {
   managerId: string;
   managerName: string;
   totalDeals: number;
   businessClubs: AcquisitionOutcomeBusinessClubBucket[];
+  targetGroups: AcquisitionOutcomeTargetGroupBucket[];
 }
 
 export interface LostDealDetailRow {
@@ -548,9 +583,76 @@ export interface ManagerActionOutcomeRow {
   averageCycleDays: number;
 }
 
+export type ManagerActionOutcomeStatus = "won" | "lost" | "wip";
+
+export interface ManagerActionOutcomeCohortOption {
+  cohortMonth: string;
+  cohortLabel: string;
+  totalCreatedDeals: number;
+}
+
+export type ManagerActionOutcomeDealSlaStatus = "onTime" | "late" | "noTouch";
+
+export interface ManagerActionOutcomeDealSla {
+  status: ManagerActionOutcomeDealSlaStatus;
+  hours: number | null;
+}
+
+export interface ManagerActionOutcomeDealDetail {
+  dealId: string;
+  stageId: string;
+  stageName: string;
+  amount: number;
+  dateCreate: string;
+  dateClosed: string | null;
+  dateModify: string;
+  sourceKey?: string;
+  sourceLabel?: string;
+  qualityValue?: string | null;
+  businessClubValue?: string | null;
+  targetGroupValue?: string | null;
+  meetingTypeValue?: string | null;
+  meetingDateValue?: string | null;
+  tariffValue?: string | null;
+  taskSummary: DealTaskSummary;
+  callSummary: DealCallSummary;
+  meetingSummary: DealMeetingSummary;
+  sla: {
+    sla1: ManagerActionOutcomeDealSla;
+    sla2: ManagerActionOutcomeDealSla;
+    sla3: ManagerActionOutcomeDealSla;
+  };
+  stageTimeline: DealStageTimelineEntry[];
+}
+
+export interface ManagerActionOutcomeStatusRow {
+  managerId: string;
+  managerName: string;
+  cohortMonth: string | null;
+  statusKey: ManagerActionOutcomeStatus;
+  statusLabel: string;
+  cohortCreatedDeals: number;
+  dealCount: number;
+  statusShare: number;
+  createdTasksPerDeal: number;
+  closedTasksPerDeal: number;
+  totalCallsPerDeal: number;
+  successfulCallsOverThirtySecondsPerDeal: number;
+  meetingsPerDeal: number;
+  sla1OnTimeRate: number;
+  sla2OnTimeRate: number;
+  sla3OnTimeRate: number;
+  financialAmount: number;
+  averageFinancialAmount: number;
+  dealDetails: ManagerActionOutcomeDealDetail[];
+}
+
 export interface ManagerActionOutcomeReportSnapshot {
   range: ReportRange;
+  warnings: string[];
   rows: ManagerActionOutcomeRow[];
+  cohortMonths: ManagerActionOutcomeCohortOption[];
+  cohortStatusRows: ManagerActionOutcomeStatusRow[];
 }
 
 export interface ManagerActionOutcomeReport
@@ -649,4 +751,26 @@ export interface ManualSyncSummary {
   mode: "full" | "delta";
   modifiedAfter: string | null;
   finishedAt: string;
+}
+
+export type SyncHealthStatus = "ready" | "warning" | "blocked";
+export type SyncHealthIssueSeverity = "warning" | "blocking";
+
+export interface SyncHealthIssue {
+  code:
+    | "NO_SUCCESSFUL_SYNC"
+    | "STALE_SUCCESSFUL_SYNC"
+    | "STALE_RUNNING_SYNC"
+    | "MISSING_COVERAGE";
+  severity: SyncHealthIssueSeverity;
+  message: string;
+}
+
+export interface SyncHealth {
+  status: SyncHealthStatus;
+  blocking: boolean;
+  checkedAt: string;
+  lastSuccessfulSync: string | null;
+  issues: SyncHealthIssue[];
+  warnings: string[];
 }

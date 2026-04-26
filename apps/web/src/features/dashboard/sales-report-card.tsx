@@ -162,7 +162,7 @@ export function SalesReportCard({ groups }: SalesReportCardProps) {
                         <div className="grid gap-4 xl:grid-cols-[minmax(12rem,1.1fr)_7rem_8rem_9rem_12rem_9rem_auto] xl:items-center">
                           <div className="min-w-0">
                             <h4 className="truncate text-base font-semibold">
-                              {deal.dealTitle}
+                              {`Сделка #${deal.dealId}`}
                             </h4>
                             <p className="text-sm text-muted-foreground">
                               Закрыта {formatShortDate(deal.dateClosed)} · создана{' '}

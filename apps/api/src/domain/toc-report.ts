@@ -79,6 +79,13 @@ function getActiveStageDefinitions(stageCatalog: StageCatalogEntry[]) {
   );
 }
 
+function buildNextActiveStageMap(activeStages: StageDefinition[]) {
+  return new Map(
+    activeStages
+      .map((stage, index) => [stage.stageId, activeStages[index + 1]?.stageId ?? null] as const)
+  );
+}
+
 function buildStageHistoryMap(stageHistory: StageHistorySnapshot[]) {
   const map = new Map<string, StageHistorySnapshot[]>();
 
@@ -169,10 +176,9 @@ export function buildTocFlowReport(input: TocFlowInput): TocFlowReport {
   const fromMs = Date.parse(input.range.from);
   const toMs = Date.parse(input.range.to);
   const allowedCategoryIds = getAllowedCategoryIds(input.stageCatalog);
-  const allStages = getAllStageDefinitions(input.stageCatalog);
   const activeStages = getActiveStageDefinitions(input.stageCatalog);
   const activeStageIds = new Set(activeStages.map((stage) => stage.stageId));
-  const stageSortOrder = new Map(allStages.map((stage) => [stage.stageId, stage.sortOrder]));
+  const nextActiveStageById = buildNextActiveStageMap(activeStages);
   const deals = input.deals.filter((deal) =>
     allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
   );
@@ -224,15 +230,13 @@ export function buildTocFlowReport(input: TocFlowInput): TocFlowReport {
       }
 
       const nextStay = stays[index + 1];
-      const nextSortOrder = nextStay ? stageSortOrder.get(nextStay.stageId) ?? null : null;
-      const currentSortOrder = stageSortOrder.get(stay.stageId) ?? null;
+      const canonicalNextStageId = nextActiveStageById.get(stay.stageId) ?? null;
 
       if (
         stay.leftAt &&
         isWithinRange(stay.leftAt, fromMs, toMs) &&
-        currentSortOrder !== null &&
-        nextSortOrder !== null &&
-        nextSortOrder > currentSortOrder
+        canonicalNextStageId !== null &&
+        nextStay?.stageId === canonicalNextStageId
       ) {
         current.movedNextDeals += 1;
         const durationMs = Date.parse(stay.leftAt) - Date.parse(stay.enteredAt);
@@ -287,7 +291,7 @@ export function buildTocFlowReport(input: TocFlowInput): TocFlowReport {
   const bottleneckCandidates = rows.filter(
     (row) =>
       (row.enteredDeals > 0 || row.movedNextDeals > 0 || row.queueEnd > 0) &&
-      row.throughputPerDay > 0
+      (row.throughputPerDay > 0 || row.queueEnd > 0)
   );
   const bottleneck =
     bottleneckCandidates.length === 0

@@ -88,7 +88,7 @@ function deal(input: Partial<DealSnapshot> & Pick<DealSnapshot, "id">): DealSnap
 }
 
 describe("buildAcquisitionOutcomesReport", () => {
-  it("groups attraction new deals and lost outcomes by manager, source, quality, stage and reason", () => {
+  it("groups outcomes by period and customer workload by open funnel deals", () => {
     const report = buildAcquisitionOutcomesReport({
       range,
       deals: [
@@ -141,6 +141,22 @@ describe("buildAcquisitionOutcomesReport", () => {
           dateCreate: "2026-04-05T10:00:00.000Z",
           dateModify: "2026-04-10T10:00:00.000Z",
           dateClosed: "2026-04-10T10:00:00.000Z"
+        }),
+        deal({
+          id: "D8",
+          assignedById: "78",
+          businessClubValue: "ClubTwo",
+          targetGroupValue: "ClubFuture",
+          dateCreate: "2026-03-05T10:00:00.000Z",
+          dateModify: "2026-04-10T10:00:00.000Z"
+        }),
+        deal({
+          id: "D9",
+          assignedById: "11234",
+          businessClubValue: "ClubThree",
+          targetGroupValue: "395454",
+          dateCreate: "2026-03-06T10:00:00.000Z",
+          dateModify: "2026-04-10T10:00:00.000Z"
         })
       ],
       stageCatalog,
@@ -153,16 +169,28 @@ describe("buildAcquisitionOutcomesReport", () => {
       {
         managerId: "78",
         managerName: "Егоров Андрей",
-        totalDeals: 4,
+        totalDeals: 3,
         businessClubs: [
           {
             businessClubKey: "ClubOne",
             businessClubLabel: "ClubOne",
-            count: 3
+            count: 2
           },
           {
             businessClubKey: "ClubTwo",
             businessClubLabel: "ClubTwo",
+            count: 1
+          }
+        ],
+        targetGroups: [
+          {
+            targetGroupKey: "ClubFirst",
+            targetGroupLabel: "ClubFirst",
+            count: 2
+          },
+          {
+            targetGroupKey: "ClubFuture",
+            targetGroupLabel: "ClubFuture",
             count: 1
           }
         ]
@@ -180,6 +208,18 @@ describe("buildAcquisitionOutcomesReport", () => {
           {
             businessClubKey: "ClubThree",
             businessClubLabel: "ClubThree",
+            count: 1
+          }
+        ],
+        targetGroups: [
+          {
+            targetGroupKey: "UNSPECIFIED",
+            targetGroupLabel: "Без таргет-группы",
+            count: 1
+          },
+          {
+            targetGroupKey: "ClubFirst",
+            targetGroupLabel: "ClubFirst",
             count: 1
           }
         ]

@@ -70,6 +70,17 @@ function daysBetween(left: string, right: string) {
   return round(Math.max(0, rightMs - leftMs) / 86_400_000);
 }
 
+function sanitizeTargetGroupValue(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return /^\d+$/.test(trimmed) || trimmed === "Неизвестная таргет-группа"
+    ? null
+    : trimmed;
+}
+
 function getClosedAt(deal: DealSnapshot) {
   return deal.dateClosed ?? deal.dateModify;
 }
@@ -197,9 +208,10 @@ function isIncomingCall(call: CallSnapshot) {
 
 function isSuccessfulCall(call: CallSnapshot) {
   return (
-    call.callDurationSeconds > 0 ||
-    call.callFailedCode === null ||
-    call.callFailedCode === "200"
+    call.callDurationSeconds > 0 &&
+    (call.callFailedCode === null ||
+      call.callFailedCode.trim() === "" ||
+      call.callFailedCode === "200")
   );
 }
 
@@ -449,7 +461,7 @@ export function buildDashboard(input: DashboardInput): DashboardData {
     group.totalSalesAmount += amount;
     group.deals.push({
       dealId: deal.id,
-      dealTitle: deal.title?.trim() || deal.id,
+      dealTitle: deal.id,
       managerId,
       managerName,
       amount,
@@ -460,8 +472,9 @@ export function buildDashboard(input: DashboardInput): DashboardData {
       sourceLabel: source.label,
       qualityValue: deal.qualityValue,
       businessClubValue: deal.businessClubValue ?? null,
-      targetGroupValue: deal.targetGroupValue ?? null,
+      targetGroupValue: sanitizeTargetGroupValue(deal.targetGroupValue),
       meetingTypeValue: deal.meetingTypeValue ?? null,
+      meetingDateValue: deal.meetingDateValue ?? null,
       tariffValue: deal.tariffValue ?? null,
       cohortContext: {
         createdMonth,

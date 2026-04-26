@@ -10,10 +10,13 @@
 
 ## Безопасностная модель
 
-- Runtime allowlist методов Bitrix24: только `crm.deal.list`, `crm.lead.list`, `crm.status.list`.
-- Все `contact/company`, single-record `get`, write/delete и custom-field payloads запрещены.
-- В storage не сохраняются `phone`, `email`, `name`, `comments`, `address`, `contact/company` links и `UF_*`.
+- Runtime allowlist методов Bitrix24 ограничен list/read-only методами, нужными для локального snapshot sync.
+- Contact reads разрешены только для `ID` и согласованных custom enum полей целевой группы; персональные поля контактов запрещены.
+- Все `company`, single-record `get`, write/delete и произвольные `UF_*` payloads запрещены.
+- В storage не сохраняются `phone`, `email`, имена контактов, deal title, comments, address, company links и raw `UF_*`.
 - Webhook secret никогда не должен попадать в логи.
+- Mutating API routes (`/api/sync`, `/api/settings/won-stages`) требуют `API_AUTH_TOKEN`, если токен задан в окружении.
+- Prototype comments endpoint доступен только на localhost, валидирует JSON/schema/размер тела и в preview выключен по умолчанию. Для preview включения задайте `PROTO_COMMENTS_ENABLED=true`.
 
 Подробности: [SECURITY.md](/Users/vladislavbogdan/Documents/Вайб-проекты/Модуль%20%22Привлечение%22/Дашборды%20Привлечения/SECURITY.md)
 
@@ -40,6 +43,8 @@
 4. Запустить web: `pnpm dev:web`
 
 Пока в `.env` стоят плейсхолдеры Bitrix24, интерфейс и локальный API запускаются, но ручной `Refresh` не сможет тянуть живые данные из портала.
+
+Если задаете `API_AUTH_TOKEN`, ручные mutating запросы должны передавать токен через `X-API-Token` или `Authorization: Bearer <token>`.
 
 ## Проверки
 

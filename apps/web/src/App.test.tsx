@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '@/App'
@@ -73,6 +72,8 @@ vi.mock('@/lib/api-client', () => ({
     getManagerActionOutcomeReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       rows: [],
+      cohortMonths: [],
+      cohortStatusRows: [],
       comparisons: [],
     })),
     getCohortConversionReport: vi.fn(async () => ({
@@ -93,6 +94,14 @@ vi.mock('@/lib/api-client', () => ({
       rows: [],
       bottleneck: null,
       comparisons: [],
+    })),
+    triggerSync: vi.fn(async () => ({
+      syncRunId: 1,
+      leadsSynced: 0,
+      dealsSynced: 0,
+      mode: 'delta',
+      modifiedAfter: null,
+      finishedAt: '2026-04-19T12:00:00.000Z',
     })),
   },
 }))
@@ -129,29 +138,17 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders the prototype dashboard as the main app', async () => {
+  it('renders the production dashboard shell as the main app', async () => {
     render(<App />)
 
     expect(
-      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+      await screen.findByRole('heading', { name: /операционный стол привлечения/i }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /^comment mode$/i }),
+      screen.getByRole('heading', { name: /продажи по менеджерам/i }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/фильтры периода и среза/i)).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /операционный стол привлечения/i })).not.toBeInTheDocument()
-  })
-
-  it('switches to the activity scene with the matrix hidden', async () => {
-    render(<App />)
-
-    await userEvent.click(
-      await screen.findByRole('button', { name: /отчет активности/i }),
-    )
-
     expect(
-      screen.getByRole('heading', { name: /сводка по менеджерам/i }),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /матрица активности/i })).not.toBeInTheDocument()
+      screen.queryByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+    ).not.toBeInTheDocument()
   })
 })

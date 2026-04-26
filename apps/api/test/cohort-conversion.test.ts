@@ -242,4 +242,66 @@ describe("buildCohortConversionReport", () => {
       ]
     });
   });
+  it("counts lost terminal stage-history transitions when dateClosed is missing", () => {
+    const result = buildCohortConversionReport({
+      range: {
+        from: "2026-01-01T00:00:00.000Z",
+        to: "2026-02-28T23:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      deals: [
+        {
+          id: "LOST-1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          opportunity: 3000,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-01-05T00:00:00.000Z",
+          dateModify: "2026-03-10T00:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageHistory: [
+        {
+          id: "LOST-1-H1",
+          ownerId: "LOST-1",
+          categoryId: "10",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-01-05T00:00:00.000Z"
+        },
+        {
+          id: "LOST-1-H2",
+          ownerId: "LOST-1",
+          categoryId: "10",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          typeId: null,
+          createdTime: "2026-02-10T00:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(result.totalClosedDeals).toBe(1);
+    expect(result.closureMonths).toEqual(["2026-02"]);
+    expect(result.rows[0]?.closureBuckets).toEqual([
+      {
+        closedMonth: "2026-02",
+        closedDeals: 1,
+        wonDeals: 0,
+        closedRate: 100,
+        wonConversionRate: 0
+      }
+    ]);
+  });
 });

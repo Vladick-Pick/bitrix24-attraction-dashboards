@@ -1,13 +1,13 @@
-import { startTransition, useEffect, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Alert02Icon } from '@hugeicons/core-free-icons'
 import { toast } from 'sonner'
 
 import { apiClient } from '@/lib/api-client'
-import { getDemoSnapshot } from '@/lib/demo-dashboard'
 import type {
   DashboardQuery,
   DashboardData,
+  DashboardSnapshot,
   MetaResponse,
   PeriodDays,
   ReportRange,
@@ -21,6 +21,7 @@ import {
 } from '@/lib/formatters'
 import { getWonStageLabels } from '@/lib/reporting'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   ReportFilters,
@@ -58,8 +59,8 @@ function toBoundaryIso(value: string, boundary: 'start' | 'end') {
 
   const date =
     boundary === 'start'
-      ? new Date(year!, month! - 1, day!, 0, 0, 0, 0)
-      : new Date(year!, month! - 1, day!, 23, 59, 59, 999)
+      ? new Date(Date.UTC(year!, month! - 1, day!, 0, 0, 0, 0))
+      : new Date(Date.UTC(year!, month! - 1, day!, 23, 59, 59, 999))
   return date.toISOString()
 }
 
@@ -169,7 +170,34 @@ function DashboardSkeleton() {
   )
 }
 
-export function DashboardShell() {
+function DashboardErrorState({
+  message,
+  onRetry,
+}: {
+  message: string
+  onRetry: () => void
+}) {
+  return (
+    <main className="app-shell">
+      <Alert>
+        <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.8} />
+        <AlertTitle>Live local API недоступен</AlertTitle>
+        <AlertDescription className="flex flex-col items-start gap-3">
+          <span>{message}</span>
+          <Button variant="outline" onClick={onRetry}>
+            Повторить загрузку
+          </Button>
+        </AlertDescription>
+      </Alert>
+    </main>
+  )
+}
+
+interface DashboardShellProps {
+  previewSnapshot?: DashboardSnapshot | null
+}
+
+export function DashboardShell({ previewSnapshot = null }: DashboardShellProps) {
   const [dashboardQuery, setDashboardQuery] = useState<DashboardQuery>(() =>
     withCompareRanges({ preset: 30 }, DEFAULT_COMPARISON_WINDOWS),
   )
@@ -184,13 +212,29 @@ export function DashboardShell() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const hydrateRequestIdRef = useRef(0)
+  const isMountedRef = useRef(true)
 
-  async function hydrate(nextQuery: DashboardQuery) {
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  const hydrate = useCallback(async (nextQuery: DashboardQuery) => {
+    const requestId = ++hydrateRequestIdRef.current
+    const canCommit = () =>
+      isMountedRef.current && requestId === hydrateRequestIdRef.current
+
     try {
       const [nextMeta, nextDashboard] = await Promise.all([
         apiClient.getMeta(),
         apiClient.getDashboard(nextQuery),
       ])
+
+      if (!canCommit()) {
+        return
+      }
 
       startTransition(() => {
         setMeta(nextMeta)
@@ -199,27 +243,45 @@ export function DashboardShell() {
         setStatusMessage(null)
       })
     } catch {
-      const previewPeriod = nextQuery.preset === 'custom' ? 30 : nextQuery.preset
-      const snapshot = getDemoSnapshot(previewPeriod)
+      if (!canCommit()) {
+        return
+      }
 
       startTransition(() => {
-        setMeta(snapshot.meta)
-        setDashboard(snapshot.dashboard)
-        setConnectionMode('preview')
+        if (previewSnapshot) {
+          setMeta(previewSnapshot.meta)
+          setDashboard(previewSnapshot.dashboard)
+          setConnectionMode('preview')
+          setStatusMessage('Активирован preview dataset по явному opt-in сценарию.')
+          return
+        }
+
+        setConnectionMode('live')
         setStatusMessage(
-          nextQuery.preset === 'custom'
-            ? 'Preview mode cannot emulate a custom date window yet, so the shell is showing a 30-day sample.'
-            : 'Local API is not reachable yet, so the shell is rendering a preview dataset.',
+          'Не удалось загрузить live-данные. Проверьте локальный API и повторите загрузку.',
         )
       })
     } finally {
-      setIsInitialLoading(false)
+      if (canCommit()) {
+        setIsInitialLoading(false)
+      }
     }
-  }
+  }, [previewSnapshot])
 
   useEffect(() => {
     void hydrate(dashboardQuery)
-  }, [dashboardQuery])
+  }, [dashboardQuery, hydrate])
+
+  const handleRetry = () => {
+    setConnectionMode('live')
+    setStatusMessage(null)
+
+    if (!dashboard || !meta) {
+      setIsInitialLoading(true)
+    }
+
+    void hydrate(dashboardQuery)
+  }
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
@@ -240,8 +302,20 @@ export function DashboardShell() {
     }
   }
 
-  if (isInitialLoading || !dashboard || !meta) {
+  if (isInitialLoading) {
     return <DashboardSkeleton />
+  }
+
+  if (!dashboard || !meta) {
+    return (
+      <DashboardErrorState
+        message={
+          statusMessage ??
+          'Не удалось загрузить live-данные. Проверьте локальный API и повторите загрузку.'
+        }
+        onRetry={handleRetry}
+      />
+    )
   }
 
   const isCustomRangeValid =
@@ -327,9 +401,18 @@ export function DashboardShell() {
         <Alert>
           <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.8} />
           <AlertTitle>
-            {connectionMode === 'preview' ? 'Preview dataset active' : 'Status update'}
+            {connectionMode === 'preview'
+              ? 'Preview dataset active'
+              : 'Live local API недоступен'}
           </AlertTitle>
-          <AlertDescription>{statusMessage}</AlertDescription>
+          <AlertDescription className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{statusMessage}</span>
+            {connectionMode === 'preview' ? null : (
+              <Button variant="outline" size="sm" onClick={handleRetry}>
+                Повторить загрузку
+              </Button>
+            )}
+          </AlertDescription>
         </Alert>
       ) : null}
 

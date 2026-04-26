@@ -10,6 +10,7 @@ This repository contains Bitrix24 attraction dashboards: local API, SQLite-backe
 - Prefer small, reviewable changes over broad mixed commits.
 - Do not commit local runtime state, raw Codex comments, SQLite databases, secrets, or Bitrix snapshots.
 - Convert prototype comments from `.codex/proto-comments/comments.json` into GitHub issues or `docs/backlog.md` items before implementation.
+- Use the Context7 MCP server frequently when library/framework/API documentation may affect implementation details or when current docs are needed.
 
 ## Backlog And Issues
 - GitHub Issues are the source of truth once the remote repository is connected.
@@ -39,6 +40,7 @@ If a named preset is unavailable in the current runtime, emulate it with the clo
 - Reports should use the local API and SQLite snapshot. Do not add direct Bitrix reads to page rendering.
 - Bitrix sync is a separate operation; dashboard screens should read cached local data.
 - Heavy reports should be loaded lazily by active screen or background prefetch, not block the initial UI render.
+- Never fetch or store deal names or contact personal data for reporting. Use deal/contact IDs only; if upstream Bitrix responses include names, phones, emails, or other personal fields, ignore or redact them before persistence and UI output.
 
 ## Verification
 - API targeted tests: `pnpm --filter @bitrix24-reporting/api test -- --runInBand <test files>`.

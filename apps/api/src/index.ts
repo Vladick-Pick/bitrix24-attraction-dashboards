@@ -33,13 +33,33 @@ const service = createReportingService({
   qualityFieldName: env.BITRIX24_DEAL_QUALITY_FIELD,
   tariffFieldName: env.BITRIX24_DEAL_TARIFF_FIELD,
   businessClubFieldName: env.BITRIX24_DEAL_BUSINESS_CLUB_FIELD,
-  targetGroupFieldName: env.BITRIX24_DEAL_TARGET_GROUP_FIELD,
-  meetingTypeFieldName: env.BITRIX24_DEAL_MEETING_TYPE_FIELD,
+  ...(env.BITRIX24_DEAL_TARGET_GROUP_FIELD
+    ? { targetGroupFieldName: env.BITRIX24_DEAL_TARGET_GROUP_FIELD }
+    : {}),
+  ...(env.BITRIX24_DEAL_MEETING_TYPE_FIELD
+    ? { meetingTypeFieldName: env.BITRIX24_DEAL_MEETING_TYPE_FIELD }
+    : {}),
+  ...(env.BITRIX24_DEAL_MEETING_DATE_FIELD
+    ? { meetingDateFieldName: env.BITRIX24_DEAL_MEETING_DATE_FIELD }
+    : {}),
+  ...(env.BITRIX24_CONTACT_TARGET_GROUP_FIELD
+    ? { contactTargetGroupFieldName: env.BITRIX24_CONTACT_TARGET_GROUP_FIELD }
+    : {}),
+  ...(env.BITRIX24_CONTACT_TARGET_GROUP_LEGACY_FIELD
+    ? {
+        legacyContactTargetGroupFieldName:
+          env.BITRIX24_CONTACT_TARGET_GROUP_LEGACY_FIELD
+      }
+    : {}),
   repository,
   client,
-  defaultPeriodDays: env.REPORT_DEFAULT_PERIOD_DAYS
+  defaultPeriodDays: env.REPORT_DEFAULT_PERIOD_DAYS,
+  bootstrapLookbackDays: env.BITRIX24_BOOTSTRAP_LOOKBACK_DAYS
 });
-const app = createApp(service);
+const app = createApp(service, {
+  webOrigin: env.WEB_ORIGIN,
+  ...(env.API_AUTH_TOKEN ? { apiAuthToken: env.API_AUTH_TOKEN } : {})
+});
 
 const server = app.listen(env.API_PORT, () => {
   console.log(`API listening on http://localhost:${env.API_PORT}`);

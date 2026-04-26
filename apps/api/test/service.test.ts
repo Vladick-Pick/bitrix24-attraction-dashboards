@@ -169,6 +169,152 @@ describe("createReportingService", () => {
     expect(reportManagerIds).not.toContain("999");
     expect(activities.totalDealCount).toBe(1);
     expect(actionOutcomes.rows.find((row) => row.managerId === "78")?.createdTasks).toBe(1);
+    expect(
+      actionOutcomes.cohortStatusRows
+        .find((row) => row.managerId === "78" && row.statusKey === "wip")
+        ?.dealDetails[0]?.taskSummary
+    ).toEqual({
+      created: 2,
+      closed: 2
+    });
+    expect(
+      actionOutcomes.cohortStatusRows
+        .find((row) => row.managerId === "78" && row.statusKey === "wip")
+        ?.dealDetails[0]?.callSummary
+    ).toEqual(
+      expect.objectContaining({
+        total: 2,
+        connectedOverThirtySeconds: 2
+      })
+    );
+    expect(
+      actionOutcomes.cohortStatusRows
+        .find((row) => row.managerId === "78" && row.statusKey === "wip")
+        ?.dealDetails[0]?.sourceLabel
+    ).toBe("Website");
+  });
+
+  it("warns when manager action outcome historical activity coverage is missing", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 10000,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          tariffValue: null,
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-04-01T10:00:00.000Z",
+          dateModify: "2026-04-01T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Preparation",
+          semanticId: "P",
+          sortOrder: 10
+        }
+      ],
+      getWonStageIds: async () => ["C10:WON"],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllCalls: async () => [],
+      getManagerDirectory: async () => [{ id: "78", name: "Андрей Егоров" }],
+      upsertManagerDirectory: async () => 1,
+      getLastSyncSummary: async () => null,
+      setWonStageIds: async () => undefined,
+      hasSyncCoverage: async () => false,
+      getDealMeetingDateFieldBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallActivityIdsMissingCallStats: async () => []
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T12:00:00.000Z")
+    });
+
+    const report = await service.getManagerActionOutcomeReport({});
+
+    expect(report.warnings).toContain(
+      "Данные по делам/звонкам неполные: требуется историческая синхронизация за выбранный период."
+    );
+  });
+
+  it("exposes blocking sync health from meta and recovers stale running sync runs", async () => {
+    let recoveredBefore: string | null = null;
+    const repository = {
+      getAllDeals: async () => [],
+      getStageCatalog: async () => [],
+      getWonStageIds: async () => ["C10:WON"],
+      getManagerDirectory: async () => [],
+      upsertManagerDirectory: async () => 0,
+      getLastSyncSummary: async () => ({
+        finishedAt: "2026-04-19T00:00:00.000Z",
+        leadsSynced: 0,
+        dealsSynced: 0,
+        mode: "delta" as const
+      }),
+      recoverStaleSyncRuns: async (input: { staleBefore: string }) => {
+        recoveredBefore = input.staleBefore;
+        return 2;
+      },
+      hasSyncCoverage: async () => false
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      bootstrapLookbackDays: 365,
+      now: () => new Date("2026-04-26T12:00:00.000Z")
+    });
+
+    const meta = await service.getMeta();
+
+    expect(recoveredBefore).toBe("2026-04-26T10:00:00.000Z");
+    expect(meta.syncHealth).toMatchObject({
+      status: "blocked",
+      blocking: true,
+      lastSuccessfulSync: "2026-04-19T00:00:00.000Z"
+    });
+    expect(meta.syncHealth.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "STALE_RUNNING_SYNC", severity: "blocking" }),
+        expect.objectContaining({ code: "STALE_SUCCESSFUL_SYNC", severity: "blocking" }),
+        expect.objectContaining({ code: "MISSING_COVERAGE", severity: "blocking" })
+      ])
+    );
   });
 
   it("pre-filters manager catalogs and default report scope to the attraction team", async () => {
@@ -604,7 +750,7 @@ describe("createReportingService", () => {
               businessClubBreakdown: [
                 {
                   businessClubKey: "UNSPECIFIED",
-                  businessClubLabel: "Без business club",
+                  businessClubLabel: "Без бизнес-клуба заказчика",
                   dealCount: 1
                 }
               ],

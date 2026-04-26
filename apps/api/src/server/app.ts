@@ -72,6 +72,11 @@ interface AppService {
   updateWonStages(stageIds: string[]): Promise<{ wonStageIds: string[] }>;
 }
 
+interface AppConfig {
+  webOrigin?: string;
+  apiAuthToken?: string;
+}
+
 function parseCsvArray(value: unknown) {
   if (Array.isArray(value)) {
     return value
@@ -92,13 +97,26 @@ function parseCsvArray(value: unknown) {
   return undefined;
 }
 
+function isLaterThan(from: string, to: string) {
+  const fromMs = Date.parse(from);
+  const toMs = Date.parse(to);
+
+  return Number.isFinite(fromMs) && Number.isFinite(toMs) && fromMs > toMs;
+}
+
 const reportQuerySchema = z
   .object({
     periodDays: z.coerce.number().int().positive().max(365).optional(),
-    from: z.string().datetime().optional(),
-    to: z.string().datetime().optional(),
-    compareFrom: z.preprocess(parseCsvArray, z.array(z.string().datetime()).optional()),
-    compareTo: z.preprocess(parseCsvArray, z.array(z.string().datetime()).optional()),
+    from: z.string().datetime({ offset: true }).optional(),
+    to: z.string().datetime({ offset: true }).optional(),
+    compareFrom: z.preprocess(
+      parseCsvArray,
+      z.array(z.string().datetime({ offset: true })).optional()
+    ),
+    compareTo: z.preprocess(
+      parseCsvArray,
+      z.array(z.string().datetime({ offset: true })).optional()
+    ),
     managerIds: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
     sourceKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional())
   })
@@ -115,7 +133,7 @@ const reportQuerySchema = z
       return;
     }
 
-    if (value.from && value.to && value.from > value.to) {
+    if (value.from && value.to && isLaterThan(value.from, value.to)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "from must be earlier than or equal to to.",
@@ -147,7 +165,7 @@ const reportQuerySchema = z
       const from = compareFrom[index];
       const to = compareTo[index];
 
-      if (from && to && from > to) {
+      if (from && to && isLaterThan(from, to)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: `compareFrom[${index}] must be earlier than or equal to compareTo[${index}].`,
@@ -200,12 +218,71 @@ function parseRangeRequest(query: unknown): RangeRequest {
   };
 }
 
-export function createApp(service: AppService) {
+function createErrorResponse(code: string, details?: unknown) {
+  return {
+    error: code,
+    code,
+    ...(details === undefined ? {} : { details })
+  };
+}
+
+function readBearerToken(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const match = /^Bearer\s+(.+)$/i.exec(value);
+  return match?.[1]?.trim();
+}
+
+export function createApp(service: AppService, config: AppConfig = {}) {
   const app = express();
   let activeSync: Promise<ManualSyncSummary> | null = null;
+  const webOrigin = config.webOrigin?.trim() || "http://localhost:5173";
+  const apiAuthToken = config.apiAuthToken?.trim() || undefined;
 
-  app.use(cors());
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin) {
+          callback(null, false);
+          return;
+        }
+
+        callback(null, origin === webOrigin ? webOrigin : false);
+      },
+      methods: ["GET", "POST", "PUT"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-API-Token"]
+    })
+  );
   app.use(express.json());
+  app.use((request, response, next) => {
+    if (!apiAuthToken || !request.path.startsWith("/api/")) {
+      next();
+      return;
+    }
+
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
+      next();
+      return;
+    }
+
+    if (request.path === "/api/health") {
+      next();
+      return;
+    }
+
+    const token =
+      request.header("X-API-Token")?.trim() ??
+      readBearerToken(request.header("Authorization"));
+
+    if (token === apiAuthToken) {
+      next();
+      return;
+    }
+
+    response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+  });
 
   app.get("/api/health", (_request, response) => {
     response.json({ ok: true });
@@ -322,9 +399,7 @@ export function createApp(service: AppService) {
 
   app.post("/api/sync", async (_request, response, next) => {
     if (activeSync) {
-      response.status(409).json({
-        error: "SYNC_ALREADY_RUNNING"
-      });
+      response.status(409).json(createErrorResponse("SYNC_ALREADY_RUNNING"));
       return;
     }
 
@@ -355,19 +430,15 @@ export function createApp(service: AppService) {
       _next: express.NextFunction
     ) => {
       if (error instanceof z.ZodError) {
-        response.status(400).json({
-          error: "VALIDATION_ERROR",
-          details: error.flatten()
-        });
+        response
+          .status(400)
+          .json(createErrorResponse("VALIDATION_ERROR", error.flatten()));
         return;
       }
 
       console.error(error);
 
-      response.status(500).json({
-        error: "INTERNAL_SERVER_ERROR",
-        ...(error instanceof Error ? { message: error.message } : {})
-      });
+      response.status(500).json(createErrorResponse("INTERNAL_SERVER_ERROR"));
     }
   );
 

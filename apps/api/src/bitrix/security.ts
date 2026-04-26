@@ -5,6 +5,7 @@ export { ALLOWED_BITRIX_METHODS };
 export const FORBIDDEN_FIELD_TOKENS = [
   "*",
   "UF_*",
+  "TITLE",
   "PHONE",
   "EMAIL",
   "WEB",
@@ -17,7 +18,6 @@ export const FORBIDDEN_FIELD_TOKENS = [
   "ADDRESS",
   "COMPANY_TITLE",
   "SOURCE_DESCRIPTION",
-  "CONTACT_ID",
   "CONTACT_IDS",
   "COMPANY_ID"
 ] as const;

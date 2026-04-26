@@ -109,6 +109,14 @@ export function getDemoSnapshot(period: PeriodDays): DashboardSnapshot {
       wonStageIds: ['C1:WON'],
       defaultPeriodDays: 30,
       lastSync: null,
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '',
+        lastSuccessfulSync: null,
+        issues: [],
+        warnings: [],
+      },
     },
   }
 }

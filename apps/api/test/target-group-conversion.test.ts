@@ -28,7 +28,7 @@ const stageCatalog: StageCatalogEntry[] = [
 ];
 
 function deal(input: Partial<DealSnapshot> & Pick<DealSnapshot, "id">): DealSnapshot {
-  return {
+  const base: DealSnapshot = {
     id: input.id,
     title: null,
     leadId: null,
@@ -52,13 +52,18 @@ function deal(input: Partial<DealSnapshot> & Pick<DealSnapshot, "id">): DealSnap
     utmMedium: null,
     utmCampaign: null,
     utmContent: null,
-    utmTerm: null,
-    ...input
+    utmTerm: null
+  };
+
+  return {
+    ...base,
+    ...input,
+    id: input.id
   };
 }
 
 describe("buildTargetGroupConversionReport", () => {
-  it("aggregates created, won, revenue and cycle metrics by target group", () => {
+  it("aggregates created volume and closed outcomes in-period by target group", () => {
     const report = buildTargetGroupConversionReport({
       range,
       wonStageIds: ["C10:WON"],
@@ -69,7 +74,7 @@ describe("buildTargetGroupConversionReport", () => {
           stageId: "C10:WON",
           stageSemanticId: "S",
           opportunity: 120000,
-          dateCreate: "2026-04-01T10:00:00.000Z",
+          dateCreate: "2026-03-01T10:00:00.000Z",
           dateClosed: "2026-04-11T10:00:00.000Z"
         }),
         deal({
@@ -83,9 +88,9 @@ describe("buildTargetGroupConversionReport", () => {
         deal({
           id: "D3",
           targetGroupValue: "ClubFuture",
-          stageId: "C10:WON",
-          stageSemanticId: "S",
-          opportunity: 80000,
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          opportunity: 0,
           dateCreate: "2026-04-03T10:00:00.000Z",
           dateClosed: "2026-04-08T10:00:00.000Z"
         })
@@ -94,28 +99,92 @@ describe("buildTargetGroupConversionReport", () => {
       stageHistory: []
     });
 
-    expect(report.totalCreatedDeals).toBe(3);
-    expect(report.totalWonDeals).toBe(2);
+    expect(report.totalCreatedDeals).toBe(2);
+    expect(report.totalWonDeals).toBe(1);
     expect(report.rows).toEqual([
       {
         targetGroupKey: "ClubFirst",
         targetGroupLabel: "ClubFirst",
-        createdDeals: 2,
+        createdDeals: 1,
         wonDeals: 1,
-        winRate: 0.5,
+        winRate: 1,
         salesAmount: 120000,
         averageSaleAmount: 120000,
-        averageCycleDays: 10
+        averageCycleDays: 41
       },
       {
         targetGroupKey: "ClubFuture",
         targetGroupLabel: "ClubFuture",
         createdDeals: 1,
-        wonDeals: 1,
-        winRate: 1,
-        salesAmount: 80000,
-        averageSaleAmount: 80000,
-        averageCycleDays: 5
+        wonDeals: 0,
+        winRate: 0,
+        salesAmount: 0,
+        averageSaleAmount: 0,
+        averageCycleDays: 0
+      }
+    ]);
+  });
+
+  it("folds leaked numeric target-group ids into the unspecified bucket", () => {
+    const report = buildTargetGroupConversionReport({
+      range,
+      wonStageIds: ["C10:WON"],
+      deals: [
+        deal({
+          id: "D-UNKNOWN",
+          targetGroupValue: "395454",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          dateCreate: "2026-04-03T10:00:00.000Z"
+        })
+      ],
+      stageCatalog,
+      stageHistory: []
+    });
+
+    expect(report.rows).toEqual([
+      {
+        targetGroupKey: "UNSPECIFIED",
+        targetGroupLabel: "Без таргет-группы",
+        createdDeals: 1,
+        wonDeals: 0,
+        winRate: 0,
+        salesAmount: 0,
+        averageSaleAmount: 0,
+        averageCycleDays: 0
+      }
+    ]);
+  });
+  it("keeps target groups that only have losses in the selected period", () => {
+    const report = buildTargetGroupConversionReport({
+      range,
+      wonStageIds: ["C10:WON"],
+      deals: [
+        deal({
+          id: "D-LOSS-ONLY",
+          targetGroupValue: "ClubLostOnly",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          opportunity: 0,
+          dateCreate: "2026-03-20T10:00:00.000Z",
+          dateClosed: "2026-04-08T10:00:00.000Z"
+        })
+      ],
+      stageCatalog,
+      stageHistory: []
+    });
+
+    expect(report.rows).toEqual([
+      {
+        targetGroupKey: "ClubLostOnly",
+        targetGroupLabel: "ClubLostOnly",
+        createdDeals: 0,
+        wonDeals: 0,
+        winRate: 0,
+        salesAmount: 0,
+        averageSaleAmount: 0,
+        averageCycleDays: 0
       }
     ]);
   });

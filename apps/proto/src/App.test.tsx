@@ -84,7 +84,7 @@ describe('CRM Prototype App', () => {
     render(<App />)
 
     await userEvent.click(screen.getByRole('button', { name: /^менеджеры$/i }))
-    await userEvent.click(screen.getAllByText(/анна петрова/i).at(-1)!)
+    await userEvent.click(screen.getAllByText(/егоров андрей/i).at(-1)!)
     await userEvent.keyboard('{Escape}')
 
     await userEvent.click(screen.getByRole('button', { name: /^источники$/i }))
@@ -96,7 +96,7 @@ describe('CRM Prototype App', () => {
     )
 
     await userEvent.click(screen.getByRole('button', { name: /^по менеджерам$/i }))
-    expect(screen.getByText(/выбраны менеджеры:/i).parentElement).toHaveTextContent(/анна петрова/i)
+    expect(screen.getByText(/выбраны менеджеры:/i).parentElement).toHaveTextContent(/егоров андрей/i)
 
     await userEvent.click(screen.getByRole('button', { name: /^по источникам$/i }))
     expect(screen.getByText(/выбраны источники:/i).parentElement).toHaveTextContent(/платный поиск/i)
@@ -156,8 +156,8 @@ describe('CRM Prototype App', () => {
     await userEvent.click(screen.getByRole('button', { name: /менеджеры/i }))
 
     expect(screen.getByPlaceholderText(/поиск менеджера/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/анна петрова/i).length).toBeGreaterThan(0)
-    expect(screen.getByText(/ольга лунёва/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/егоров андрей/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/ромашова ольга/i)).toBeInTheDocument()
   })
 
   it('toggles comment mode', async () => {

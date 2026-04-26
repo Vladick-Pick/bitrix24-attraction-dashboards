@@ -8,10 +8,18 @@ import type {
   CallSnapshot,
   CohortRelativeBucketKey,
   CohortConversionReport,
+  DealCallSummary,
+  DealMeetingEvent,
+  DealMeetingSummary,
   DealSnapshot,
+  DealStageTimelineEntry,
+  DealTaskSummary,
   LostDealDetailRow,
+  ManagerActionOutcomeDealDetail,
+  ManagerActionOutcomeDealSla,
   ManagerActionOutcomeReport,
   ManagerActionOutcomeRow,
+  ManagerActionOutcomeStatusRow,
   ManagerDirectoryEntry,
   ReportRange,
   SlaMetric,
@@ -95,12 +103,6 @@ interface ManagerActionOutcomeInput {
   managerDirectory?: ManagerDirectoryEntry[];
 }
 
-interface StageDefinition {
-  stageId: string;
-  stageName: string;
-  sortOrder: number;
-}
-
 function isWithinRange(value: string | null, fromMs: number, toMs: number) {
   if (!value) {
     return false;
@@ -149,9 +151,10 @@ const SLA_THRESHOLDS_HOURS = {
 const UNSPECIFIED_MEETING_TYPE = "UNSPECIFIED";
 const UNSPECIFIED_MEETING_TYPE_LABEL = "Без типа встречи";
 const UNSPECIFIED_BUSINESS_CLUB = "UNSPECIFIED";
-const UNSPECIFIED_BUSINESS_CLUB_LABEL = "Без business club";
+const UNSPECIFIED_BUSINESS_CLUB_LABEL = "Без бизнес-клуба заказчика";
 const UNSPECIFIED_TARGET_GROUP = "UNSPECIFIED";
 const UNSPECIFIED_TARGET_GROUP_LABEL = "Без таргет-группы";
+const TASK_ACTIVITY_PROVIDER_IDS = new Set(["CRM_TODO", "CRM_TASKS_TASK"]);
 
 const COHORT_RELATIVE_BUCKETS: Array<{
   key: CohortRelativeBucketKey;
@@ -225,6 +228,54 @@ function buildStageHistoryMap(stageHistory: StageHistorySnapshot[]) {
   return map;
 }
 
+function getLatestStageHistoryTime(
+  stageHistoryRows: StageHistorySnapshot[],
+  matcher: (row: StageHistorySnapshot) => boolean
+) {
+  for (let index = stageHistoryRows.length - 1; index >= 0; index -= 1) {
+    const row = stageHistoryRows[index];
+    if (row && matcher(row)) {
+      return row.createdTime;
+    }
+  }
+
+  return null;
+}
+
+function resolveWonAt(
+  deal: DealSnapshot,
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>,
+  wonStageIds: Set<string>
+) {
+  const wonAt = getLatestStageHistoryTime(
+    stageHistoryMap.get(deal.id) ?? [],
+    (row) => wonStageIds.has(row.stageId) || row.stageSemanticId === "S"
+  );
+
+  return wonAt ?? deal.dateClosed ?? deal.dateModify;
+}
+
+function resolveTerminalClosedAt(
+  deal: DealSnapshot,
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>,
+  wonStageIds: Set<string>
+) {
+  if (wonStageIds.has(deal.stageId) || deal.stageSemanticId === "S") {
+    return resolveWonAt(deal, stageHistoryMap, wonStageIds);
+  }
+
+  if (deal.stageSemanticId === "F") {
+    const lostAt = getLatestStageHistoryTime(
+      stageHistoryMap.get(deal.id) ?? [],
+      (row) => row.stageSemanticId === "F"
+    );
+
+    return lostAt ?? deal.dateClosed ?? deal.dateModify;
+  }
+
+  return null;
+}
+
 function resolveStageAtTime(
   deal: DealSnapshot,
   stageHistoryMap: Map<string, StageHistorySnapshot[]>,
@@ -288,7 +339,13 @@ function resolveMeetingTypeLabel(value: string) {
 
 function resolveTargetGroupValue(deal: DealSnapshot) {
   const value = deal.targetGroupValue?.trim();
-  return value && value.length > 0 ? value : UNSPECIFIED_TARGET_GROUP;
+  if (!value || value.length === 0) {
+    return UNSPECIFIED_TARGET_GROUP;
+  }
+
+  return /^\d+$/.test(value) || value === "Неизвестная таргет-группа"
+    ? UNSPECIFIED_TARGET_GROUP
+    : value;
 }
 
 function resolveTargetGroupLabel(value: string) {
@@ -297,16 +354,14 @@ function resolveTargetGroupLabel(value: string) {
     : value;
 }
 
-function isCallActivity(activity: ActivitySnapshot) {
-  return activity.typeId === "2" || activity.providerId === "VOXIMPLANT_CALL";
-}
-
 function isMeetingActivity(activity: ActivitySnapshot) {
   return activity.typeId === "1" || activity.providerId === "CRM_MEETING";
 }
 
 function isTaskActivity(activity: ActivitySnapshot) {
-  return !isCallActivity(activity) && !isMeetingActivity(activity);
+  return activity.providerId
+    ? TASK_ACTIVITY_PROVIDER_IDS.has(activity.providerId)
+    : false;
 }
 
 function isCompletedMeetingActivity(activity: ActivitySnapshot) {
@@ -553,6 +608,90 @@ function toSlaMetrics(accumulatorSet: SlaAccumulatorSet): SlaMetric[] {
   );
 }
 
+function recordDealSlaOutcomes(input: {
+  deal: DealSnapshot;
+  accumulatorSet: SlaAccumulatorSet;
+  stageLookup: Map<string, { stageName: string; sortOrder: number }>;
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>;
+  meetingsByDeal: Map<string, ActivitySnapshot[]>;
+  callsByDeal: Map<string, CallSnapshot[]>;
+  toMs: number;
+}) {
+  const historyRows = input.stageHistoryMap.get(input.deal.id) ?? [];
+  const introEntry = findFirstMatchingStageEntry(historyRows, (row) =>
+    isIntroCallStage(row.stageId, input.stageLookup.get(row.stageId)?.stageName)
+  );
+
+  const introEnteredAt = introEntry?.row.createdTime ?? null;
+  const baseEnteredAt =
+    historyRows
+      .slice(0, introEntry?.index ?? 0)
+      .find((row) =>
+        isInboundBaseStage(row.stageId, input.stageLookup.get(row.stageId)?.stageName)
+      )?.createdTime ?? input.deal.dateCreate;
+  const sla1Duration = toDurationHours(baseEnteredAt, introEnteredAt);
+  recordSlaOutcome(
+    input.accumulatorSet.sla1,
+    evaluateTimedSla(sla1Duration, SLA_THRESHOLDS_HOURS.sla1),
+    sla1Duration
+  );
+
+  const firstCommunicationAt = [
+    ...(input.callsByDeal.get(input.deal.id) ?? []).map((call) => call.callStartDate),
+    ...(input.meetingsByDeal.get(input.deal.id) ?? []).map((meeting) =>
+      getMeetingCommunicationTime(meeting)
+    )
+  ]
+    .filter((value) => {
+      const timestamp = Date.parse(value);
+      return (
+        Number.isFinite(timestamp) &&
+        timestamp >= Date.parse(input.deal.dateCreate) &&
+        timestamp <= input.toMs
+      );
+    })
+    .sort((left, right) => Date.parse(left) - Date.parse(right))[0] ?? null;
+  const sla2Duration = toDurationHours(input.deal.dateCreate, firstCommunicationAt);
+  recordSlaOutcome(
+    input.accumulatorSet.sla2,
+    evaluateTimedSla(sla2Duration, SLA_THRESHOLDS_HOURS.sla2),
+    sla2Duration
+  );
+
+  if (!introEntry) {
+    return;
+  }
+
+  const nextStageEntry = historyRows[introEntry.index + 1];
+  const introExitedAt =
+    nextStageEntry?.createdTime ??
+    (input.deal.stageId === introEntry.row.stageId
+      ? null
+      : input.deal.dateClosed ?? input.deal.dateModify);
+  const introCalls = (input.callsByDeal.get(input.deal.id) ?? []).filter((call) => {
+    const callTime = Date.parse(call.callStartDate);
+    const enteredTime = Date.parse(introEntry.row.createdTime);
+    const exitedTime = introExitedAt ? Date.parse(introExitedAt) : Number.POSITIVE_INFINITY;
+
+    return (
+      Number.isFinite(callTime) &&
+      Number.isFinite(enteredTime) &&
+      callTime >= enteredTime &&
+      callTime < exitedTime
+    );
+  });
+  const secondCallAt = introCalls[1]?.callStartDate ?? null;
+  const sla3Duration = toDurationHours(introEntry.row.createdTime, secondCallAt);
+  const sla3Outcome =
+    secondCallAt !== null
+      ? evaluateTimedSla(sla3Duration, SLA_THRESHOLDS_HOURS.sla3)
+      : introExitedAt
+        ? "late"
+        : "noTouch";
+
+  recordSlaOutcome(input.accumulatorSet.sla3, sla3Outcome, sla3Duration);
+}
+
 function buildSlaMetricsByManager(input: {
   range: ReportRange;
   deals: DealSnapshot[];
@@ -579,75 +718,15 @@ function buildSlaMetricsByManager(input: {
 
     const managerId = deal.assignedById ?? "UNASSIGNED";
     const accumulatorSet = rows.get(managerId) ?? createSlaAccumulatorSet();
-    const historyRows = stageHistoryMap.get(deal.id) ?? [];
-    const introEntry = findFirstMatchingStageEntry(historyRows, (row) =>
-      isIntroCallStage(row.stageId, stageLookup.get(row.stageId)?.stageName)
-    );
-
-    const introEnteredAt = introEntry?.row.createdTime ?? null;
-    const baseEnteredAt =
-      historyRows
-        .slice(0, introEntry?.index ?? 0)
-        .find((row) =>
-          isInboundBaseStage(row.stageId, stageLookup.get(row.stageId)?.stageName)
-        )?.createdTime ?? deal.dateCreate;
-    const sla1Duration = toDurationHours(baseEnteredAt, introEnteredAt);
-    recordSlaOutcome(
-      accumulatorSet.sla1,
-      evaluateTimedSla(sla1Duration, SLA_THRESHOLDS_HOURS.sla1),
-      sla1Duration
-    );
-
-    const firstCommunicationAt = [
-      ...(callsByDeal.get(deal.id) ?? []).map((call) => call.callStartDate),
-      ...(meetingsByDeal.get(deal.id) ?? []).map((meeting) =>
-        getMeetingCommunicationTime(meeting)
-      )
-    ]
-      .filter((value) => {
-        const timestamp = Date.parse(value);
-        return (
-          Number.isFinite(timestamp) &&
-          timestamp >= Date.parse(deal.dateCreate) &&
-          timestamp <= toMs
-        );
-      })
-      .sort((left, right) => Date.parse(left) - Date.parse(right))[0] ?? null;
-    const sla2Duration = toDurationHours(deal.dateCreate, firstCommunicationAt);
-    recordSlaOutcome(
-      accumulatorSet.sla2,
-      evaluateTimedSla(sla2Duration, SLA_THRESHOLDS_HOURS.sla2),
-      sla2Duration
-    );
-
-    if (introEntry) {
-      const nextStageEntry = historyRows[introEntry.index + 1];
-      const introExitedAt =
-        nextStageEntry?.createdTime ??
-        (deal.stageId === introEntry.row.stageId ? null : deal.dateClosed ?? deal.dateModify);
-      const introCalls = (callsByDeal.get(deal.id) ?? []).filter((call) => {
-        const callTime = Date.parse(call.callStartDate);
-        const enteredTime = Date.parse(introEntry.row.createdTime);
-        const exitedTime = introExitedAt ? Date.parse(introExitedAt) : Number.POSITIVE_INFINITY;
-
-        return (
-          Number.isFinite(callTime) &&
-          Number.isFinite(enteredTime) &&
-          callTime >= enteredTime &&
-          callTime < exitedTime
-        );
-      });
-      const secondCallAt = introCalls[1]?.callStartDate ?? null;
-      const sla3Duration = toDurationHours(introEntry.row.createdTime, secondCallAt);
-      const sla3Outcome =
-        secondCallAt !== null
-          ? evaluateTimedSla(sla3Duration, SLA_THRESHOLDS_HOURS.sla3)
-          : introExitedAt
-            ? "late"
-            : "noTouch";
-
-      recordSlaOutcome(accumulatorSet.sla3, sla3Outcome, sla3Duration);
-    }
+    recordDealSlaOutcomes({
+      deal,
+      accumulatorSet,
+      stageLookup,
+      stageHistoryMap,
+      meetingsByDeal,
+      callsByDeal,
+      toMs
+    });
 
     rows.set(managerId, accumulatorSet);
   }
@@ -744,14 +823,29 @@ export function buildSourceQualityConversionReport(
     .map((row) => {
       const stageMetrics = stageSequence.map<StageProgressionMetric>((stage) => {
         const reachedDeals = row.deals.filter((deal) => {
+          const historyAsOf = (stageHistoryMap.get(deal.id) ?? []).filter((entry) => {
+            const entryTime = Date.parse(entry.createdTime);
+            return Number.isFinite(entryTime) && entryTime <= toMs;
+          });
           const stages = new Set(
-            (stageHistoryMap.get(deal.id) ?? []).map((entry) => entry.stageId)
+            historyAsOf.map((entry) => entry.stageId)
           );
-          stages.add(deal.stageId);
+          if (historyAsOf.length === 0) {
+            stages.add(deal.stageId);
+          }
           return stages.has(stage.stageId);
         });
+        const durationHistoryMap = new Map(
+          reachedDeals.map((deal) => [
+            deal.id,
+            (stageHistoryMap.get(deal.id) ?? []).filter((entry) => {
+              const entryTime = Date.parse(entry.createdTime);
+              return Number.isFinite(entryTime) && entryTime <= toMs;
+            })
+          ])
+        );
         const durations = reachedDeals.flatMap((deal) =>
-          resolveDurationMetrics(deal.id, stage.stageId, stageHistoryMap)
+          resolveDurationMetrics(deal.id, stage.stageId, durationHistoryMap)
         );
 
         return {
@@ -778,7 +872,7 @@ export function buildSourceQualityConversionReport(
         wonDeals: row.deals.filter(
           (deal) =>
             wonStageIds.has(deal.stageId) &&
-            isWithinRange(deal.dateClosed ?? deal.dateModify, fromMs, toMs)
+            isWithinRange(resolveWonAt(deal, stageHistoryMap, wonStageIds), fromMs, toMs)
         ).length,
         stageMetrics
       };
@@ -797,7 +891,7 @@ export function buildSourceQualityConversionReport(
     totalWonDeals: deals.filter(
       (deal) =>
         wonStageIds.has(deal.stageId) &&
-        isWithinRange(deal.dateClosed ?? deal.dateModify, fromMs, toMs)
+        isWithinRange(resolveWonAt(deal, stageHistoryMap, wonStageIds), fromMs, toMs)
     ).length,
     rows: resultRows,
     stageSequence
@@ -837,6 +931,7 @@ export function buildAcquisitionOutcomesReport(
       deal.stageSemanticId === "F" &&
       isWithinRange(deal.dateClosed ?? deal.dateModify, fromMs, toMs)
   );
+  const activeDeals = scopedDeals.filter((deal) => deal.stageSemanticId === "P");
 
   const newDealRows = new Map<
     string,
@@ -923,24 +1018,29 @@ export function buildAcquisitionOutcomesReport(
       managerName: string;
       dealIds: Set<string>;
       businessClubs: Map<string, number>;
+      targetGroups: Map<string, number>;
     }
   >();
-  for (const deal of new Map(
-    [...newDeals, ...lostDeals].map((deal) => [deal.id, deal])
-  ).values()) {
+  for (const deal of activeDeals) {
     const managerId = deal.assignedById ?? "UNASSIGNED";
     const businessClubKey = resolveBusinessClubValue(deal);
+    const targetGroupKey = resolveTargetGroupValue(deal);
     const current = businessClubRows.get(managerId) ?? {
       managerId,
       managerName: resolveManagerName(managerId, managerDirectory),
       dealIds: new Set<string>(),
-      businessClubs: new Map<string, number>()
+      businessClubs: new Map<string, number>(),
+      targetGroups: new Map<string, number>()
     };
 
     current.dealIds.add(deal.id);
     current.businessClubs.set(
       businessClubKey,
       (current.businessClubs.get(businessClubKey) ?? 0) + 1
+    );
+    current.targetGroups.set(
+      targetGroupKey,
+      (current.targetGroups.get(targetGroupKey) ?? 0) + 1
     );
     businessClubRows.set(managerId, current);
   }
@@ -1066,6 +1166,14 @@ export function buildAcquisitionOutcomesReport(
             count
           })),
           (businessClub) => businessClub.businessClubLabel
+        ),
+        targetGroups: sortCountRows(
+          Array.from(row.targetGroups.entries()).map(([targetGroupKey, count]) => ({
+            targetGroupKey,
+            targetGroupLabel: resolveTargetGroupLabel(targetGroupKey),
+            count
+          })),
+          (targetGroup) => targetGroup.targetGroupLabel
         )
       }))
       .sort((left, right) => {
@@ -1444,11 +1552,10 @@ export function buildTargetGroupConversionReport(
   const toMs = Date.parse(input.range.to);
   const wonStageIds = new Set(input.wonStageIds);
   const allowedCategoryIds = getAllowedCategoryIds(input.stageCatalog);
-  const scopedDeals = input.deals.filter(
-    (deal) =>
-      allowedCategoryIds.has(normalizeCategoryId(deal.categoryId)) &&
-      isWithinRange(deal.dateCreate, fromMs, toMs)
+  const scopedDeals = input.deals.filter((deal) =>
+    allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
   );
+  const stageHistoryMap = buildStageHistoryMap(input.stageHistory ?? []);
   const rows = new Map<
     string,
     {
@@ -1456,6 +1563,7 @@ export function buildTargetGroupConversionReport(
       targetGroupLabel: string;
       createdDeals: number;
       wonDeals: number;
+      lostDeals: number;
       salesAmount: number;
       totalCycleMs: number;
       cycleCount: number;
@@ -1469,25 +1577,33 @@ export function buildTargetGroupConversionReport(
       targetGroupLabel: resolveTargetGroupLabel(targetGroupKey),
       createdDeals: 0,
       wonDeals: 0,
+      lostDeals: 0,
       salesAmount: 0,
       totalCycleMs: 0,
       cycleCount: 0
     };
 
-    current.createdDeals += 1;
+    if (isWithinRange(deal.dateCreate, fromMs, toMs)) {
+      current.createdDeals += 1;
+    }
 
-    if (
-      wonStageIds.has(deal.stageId) &&
-      isWithinRange(deal.dateClosed ?? deal.dateModify, fromMs, toMs)
-    ) {
-      current.wonDeals += 1;
-      current.salesAmount += deal.opportunity ?? 0;
+    const terminalClosedAt = resolveTerminalClosedAt(deal, stageHistoryMap, wonStageIds);
 
-      const closedAt = deal.dateClosed ?? deal.dateModify;
-      const cycleMs = Date.parse(closedAt) - Date.parse(deal.dateCreate);
-      if (Number.isFinite(cycleMs) && cycleMs >= 0) {
-        current.totalCycleMs += cycleMs;
-        current.cycleCount += 1;
+    if (isWithinRange(terminalClosedAt, fromMs, toMs)) {
+      if (wonStageIds.has(deal.stageId)) {
+        current.wonDeals += 1;
+        current.salesAmount += deal.opportunity ?? 0;
+
+        const closedAt = resolveWonAt(deal, stageHistoryMap, wonStageIds);
+        if (closedAt) {
+          const cycleMs = Date.parse(closedAt) - Date.parse(deal.dateCreate);
+          if (Number.isFinite(cycleMs) && cycleMs >= 0) {
+            current.totalCycleMs += cycleMs;
+            current.cycleCount += 1;
+          }
+        }
+      } else if (deal.stageSemanticId === "F") {
+        current.lostDeals += 1;
       }
     }
 
@@ -1496,31 +1612,315 @@ export function buildTargetGroupConversionReport(
 
   return {
     range: input.range,
-    totalCreatedDeals: scopedDeals.length,
+    totalCreatedDeals: scopedDeals.filter((deal) =>
+      isWithinRange(deal.dateCreate, fromMs, toMs)
+    ).length,
     totalWonDeals: scopedDeals.filter(
       (deal) =>
         wonStageIds.has(deal.stageId) &&
-        isWithinRange(deal.dateClosed ?? deal.dateModify, fromMs, toMs)
+        isWithinRange(resolveWonAt(deal, stageHistoryMap, wonStageIds), fromMs, toMs)
     ).length,
     rows: Array.from(rows.values())
+      .filter((row) => row.createdDeals > 0 || row.wonDeals > 0 || row.lostDeals > 0)
       .map((row) => ({
         targetGroupKey: row.targetGroupKey,
         targetGroupLabel: row.targetGroupLabel,
         createdDeals: row.createdDeals,
         wonDeals: row.wonDeals,
         winRate:
-          row.createdDeals === 0 ? 0 : Number((row.wonDeals / row.createdDeals).toFixed(4)),
+          row.wonDeals + row.lostDeals === 0
+            ? 0
+            : Number((row.wonDeals / (row.wonDeals + row.lostDeals)).toFixed(4)),
         salesAmount: row.salesAmount,
         averageSaleAmount: toAverage(row.salesAmount, row.wonDeals),
         averageCycleDays: toAverageDays(row.totalCycleMs, row.cycleCount)
       }))
       .sort((left, right) => {
+        if (right.wonDeals !== left.wonDeals) {
+          return right.wonDeals - left.wonDeals;
+        }
+
         if (right.createdDeals !== left.createdDeals) {
           return right.createdDeals - left.createdDeals;
         }
 
         return left.targetGroupLabel.localeCompare(right.targetGroupLabel, "ru");
       })
+  };
+}
+
+const ACTION_OUTCOME_STATUS_LABELS = {
+  won: "Выиграно",
+  lost: "Проиграно",
+  wip: "В работе сейчас"
+} as const;
+
+const ACTION_OUTCOME_STATUS_ORDER = {
+  won: 0,
+  lost: 1,
+  wip: 2
+} as const;
+
+type ActionOutcomeStatusKey = keyof typeof ACTION_OUTCOME_STATUS_LABELS;
+
+type ActionOutcomeStatusAccumulator = {
+  managerId: string;
+  cohortMonth: string | null;
+  statusKey: ActionOutcomeStatusKey;
+  cohortCreatedDeals: number;
+  dealCount: number;
+  createdTasks: number;
+  closedTasks: number;
+  totalCalls: number;
+  successfulCallsOverThirtySeconds: number;
+  meetingsCount: number;
+  financialAmount: number;
+  sla: SlaAccumulatorSet;
+  dealDetails: ManagerActionOutcomeDealDetail[];
+};
+
+function toCohortMonth(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? value.slice(0, 7) : null;
+}
+
+function resolveActionOutcomeStatus(
+  deal: DealSnapshot,
+  wonStageIds: Set<string>
+): ActionOutcomeStatusKey {
+  if (wonStageIds.has(deal.stageId) || deal.stageSemanticId === "S") {
+    return "won";
+  }
+
+  if (deal.stageSemanticId === "F") {
+    return "lost";
+  }
+
+  return "wip";
+}
+
+function isLifecycleTimestamp(value: string | null, deal: DealSnapshot, toMs: number) {
+  if (!value) {
+    return false;
+  }
+
+  const timestamp = Date.parse(value);
+  const createdAt = Date.parse(deal.dateCreate);
+  const closedAt = deal.dateClosed ? Date.parse(deal.dateClosed) : Number.POSITIVE_INFINITY;
+  const upperBound = Math.min(
+    toMs,
+    Number.isFinite(closedAt) ? closedAt : Number.POSITIVE_INFINITY
+  );
+
+  return (
+    Number.isFinite(timestamp) &&
+    Number.isFinite(createdAt) &&
+    timestamp >= createdAt &&
+    timestamp <= upperBound
+  );
+}
+
+function buildMeetingDateFallbackEvents(
+  deal: DealSnapshot,
+  existingMeetings: ActivitySnapshot[],
+  toMs: number
+): DealMeetingEvent[] {
+  if (existingMeetings.length > 0) {
+    return [];
+  }
+
+  const meetingDateValue = deal.meetingDateValue?.trim();
+  if (!meetingDateValue || !isLifecycleTimestamp(meetingDateValue, deal, toMs)) {
+    return [];
+  }
+
+  return [
+    {
+      activityId: `deal-field:${deal.id}:meeting-date`,
+      createdAt: meetingDateValue,
+      timelineAt: meetingDateValue,
+      scheduledAt: meetingDateValue,
+      completed: true
+    }
+  ];
+}
+
+function toPerDeal(total: number, dealCount: number) {
+  return dealCount === 0 ? 0 : Number((total / dealCount).toFixed(2));
+}
+
+function toSlaOnTimeRate(accumulator: SlaAccumulator) {
+  const denominator =
+    accumulator.onTimeCount + accumulator.lateCount + accumulator.noTouchCount;
+  return denominator === 0
+    ? 0
+    : Number((accumulator.onTimeCount / denominator).toFixed(4));
+}
+
+function toManagerActionDealSla(accumulator: SlaAccumulator): ManagerActionOutcomeDealSla {
+  const hours = accumulator.durations[0] ?? null;
+
+  if (accumulator.onTimeCount > 0) {
+    return { status: "onTime", hours };
+  }
+
+  if (accumulator.lateCount > 0) {
+    return { status: "late", hours };
+  }
+
+  return { status: "noTouch", hours };
+}
+
+function buildManagerActionCallSummary(calls: CallSnapshot[]): DealCallSummary {
+  const successful = calls.filter(isCallConnected);
+
+  return {
+    total: calls.length,
+    incoming: calls.filter((call) => resolveCallDirection(call.callType) === "incoming").length,
+    outgoing: calls.filter((call) => resolveCallDirection(call.callType) === "outgoing").length,
+    successful: successful.length,
+    failed: calls.length - successful.length,
+    overThirtySeconds: calls.filter(isCallOverThirtySeconds).length,
+    connectedOverThirtySeconds: successful.filter(isCallOverThirtySeconds).length
+  };
+}
+
+function buildManagerActionStageTimeline(input: {
+  deal: DealSnapshot;
+  stageHistoryRows: StageHistorySnapshot[];
+  stageLookup: Map<string, { stageName: string; sortOrder: number }>;
+  terminalAt: string;
+  meetingEvents: DealMeetingEvent[];
+}): DealStageTimelineEntry[] {
+  const rows =
+    input.stageHistoryRows.length === 0
+      ? [
+          {
+            stageId: input.deal.stageId,
+            createdTime: input.deal.dateCreate
+          }
+        ]
+      : input.stageHistoryRows.map((row) => ({
+          stageId: row.stageId,
+          createdTime: row.createdTime
+        }));
+  const timeline = rows.map<DealStageTimelineEntry>((row, index) => {
+    const next = rows[index + 1];
+    const leftAt = next?.createdTime ?? input.terminalAt;
+
+    return {
+      stageId: row.stageId,
+      stageName: input.stageLookup.get(row.stageId)?.stageName ?? row.stageId,
+      enteredAt: row.createdTime,
+      leftAt,
+      durationHours: toDurationHours(row.createdTime, leftAt) ?? 0,
+      meetingEvents: []
+    };
+  });
+
+  for (const meeting of input.meetingEvents) {
+    const meetingTime = Date.parse(meeting.timelineAt);
+    const targetIndex = timeline.findIndex((stage, index) => {
+      const enteredAt = Date.parse(stage.enteredAt);
+      const leftAt = Date.parse(stage.leftAt);
+      const isLast = index === timeline.length - 1;
+
+      return (
+        Number.isFinite(meetingTime) &&
+        Number.isFinite(enteredAt) &&
+        Number.isFinite(leftAt) &&
+        meetingTime >= enteredAt &&
+        (isLast ? meetingTime <= leftAt : meetingTime < leftAt)
+      );
+    });
+    const safeIndex = targetIndex === -1 ? Math.max(0, timeline.length - 1) : targetIndex;
+    timeline[safeIndex]?.meetingEvents?.push(meeting);
+  }
+
+  return timeline;
+}
+
+function sanitizeManagerActionTargetGroup(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed || /^\d+$/.test(trimmed) || trimmed === "Неизвестная таргет-группа") {
+    return null;
+  }
+
+  return trimmed;
+}
+
+function buildManagerActionDealDetail(input: {
+  deal: DealSnapshot;
+  stageLookup: Map<string, { stageName: string; sortOrder: number }>;
+  stageHistoryRows: StageHistorySnapshot[];
+  sourceLabels: Map<string, string>;
+  taskCreatedCount: number;
+  taskClosedCount: number;
+  dealCalls: CallSnapshot[];
+  successfulDealCalls: CallSnapshot[];
+  dealMeetings: ActivitySnapshot[];
+  fallbackMeetingEvents: DealMeetingEvent[];
+  sla: SlaAccumulatorSet;
+  terminalAt: string;
+}): ManagerActionOutcomeDealDetail {
+  const source = resolveDealSource(input.deal, input.sourceLabels);
+  const meetingEvents: DealMeetingEvent[] = [
+    ...input.dealMeetings.map((meeting) => ({
+      activityId: meeting.id,
+      createdAt: meeting.createdTime,
+      timelineAt: getMeetingCommunicationTime(meeting),
+      scheduledAt: meeting.deadline ?? meeting.createdTime,
+      completed: meeting.completed
+    })),
+    ...input.fallbackMeetingEvents
+  ].sort((left, right) => {
+    const byTime = Date.parse(left.timelineAt) - Date.parse(right.timelineAt);
+    return byTime !== 0 ? byTime : left.activityId.localeCompare(right.activityId);
+  });
+
+  return {
+    dealId: input.deal.id,
+    stageId: input.deal.stageId,
+    stageName: input.stageLookup.get(input.deal.stageId)?.stageName ?? input.deal.stageId,
+    amount: input.deal.opportunity ?? 0,
+    dateCreate: input.deal.dateCreate,
+    dateClosed: input.deal.dateClosed,
+    dateModify: input.deal.dateModify,
+    sourceKey: source.key,
+    sourceLabel: source.label,
+    qualityValue: input.deal.qualityValue,
+    businessClubValue: input.deal.businessClubValue ?? null,
+    targetGroupValue: sanitizeManagerActionTargetGroup(input.deal.targetGroupValue),
+    meetingTypeValue: input.deal.meetingTypeValue ?? null,
+    meetingDateValue: input.deal.meetingDateValue ?? null,
+    tariffValue: input.deal.tariffValue ?? null,
+    taskSummary: {
+      created: input.taskCreatedCount,
+      closed: input.taskClosedCount
+    } satisfies DealTaskSummary,
+    callSummary: {
+      ...buildManagerActionCallSummary(input.dealCalls),
+      connectedOverThirtySeconds: input.successfulDealCalls.length
+    },
+    meetingSummary: {
+      total: meetingEvents.length
+    } satisfies DealMeetingSummary,
+    sla: {
+      sla1: toManagerActionDealSla(input.sla.sla1),
+      sla2: toManagerActionDealSla(input.sla.sla2),
+      sla3: toManagerActionDealSla(input.sla.sla3)
+    },
+    stageTimeline: buildManagerActionStageTimeline({
+      deal: input.deal,
+      stageHistoryRows: input.stageHistoryRows,
+      stageLookup: input.stageLookup,
+      terminalAt: input.terminalAt,
+      meetingEvents
+    })
   };
 }
 
@@ -1536,12 +1936,28 @@ export function buildManagerActionOutcomeReport(
   );
   const dealMap = new Map(deals.map((deal) => [deal.id, deal]));
   const managerDirectory = buildManagerDirectoryMap(input.managerDirectory ?? []);
+  const managerScopeIds = new Set((input.managerDirectory ?? []).map((manager) => manager.id));
+  const isScopedAggregateManager = (managerId: string) =>
+    managerScopeIds.size === 0 || managerScopeIds.has(managerId);
   const activities = input.activities.filter(
     (activity) => activity.ownerTypeId === "2" && dealMap.has(activity.ownerId)
   );
   const taskActivities = activities.filter(isTaskActivity);
   const meetingActivities = activities.filter(isMeetingActivity);
   const activityById = new Map(activities.map((activity) => [activity.id, activity]));
+  const activitiesByDeal = new Map<string, ActivitySnapshot[]>();
+  for (const activity of activities) {
+    const current = activitiesByDeal.get(activity.ownerId) ?? [];
+    current.push(activity);
+    activitiesByDeal.set(activity.ownerId, current);
+  }
+  const stageLookup = buildStageLookup(input.stageCatalog);
+  const sourceLabels = buildSourceLabelMap(input.stageCatalog);
+  const stageHistoryMap = buildStageHistoryMap(
+    input.stageHistory.filter((row) => dealMap.has(row.ownerId))
+  );
+  const completedMeetingsByDeal = buildCompletedMeetingsByDeal(activities, dealMap);
+  const callsByDeal = buildCallsByDeal(input.calls, activities, dealMap);
   const slaMetricsByManager = buildSlaMetricsByManager({
     range: input.range,
     deals,
@@ -1592,6 +2008,10 @@ export function buildManagerActionOutcomeReport(
 
   for (const activity of taskActivities) {
     const managerId = activity.responsibleId ?? "UNASSIGNED";
+    if (!isScopedAggregateManager(managerId)) {
+      continue;
+    }
+
     const row = ensureRow(managerId);
 
     if (isWithinRange(activity.createdTime, fromMs, toMs)) {
@@ -1609,7 +2029,25 @@ export function buildManagerActionOutcomeReport(
     }
 
     const managerId = activity.responsibleId ?? "UNASSIGNED";
+    if (!isScopedAggregateManager(managerId)) {
+      continue;
+    }
+
     ensureRow(managerId).meetingsCount += 1;
+  }
+
+  for (const deal of deals) {
+    const fallbackMeetingEvents = buildMeetingDateFallbackEvents(
+      deal,
+      completedMeetingsByDeal.get(deal.id) ?? [],
+      toMs
+    ).filter((event) => isWithinRange(event.timelineAt, fromMs, toMs));
+    if (fallbackMeetingEvents.length === 0) {
+      continue;
+    }
+
+    const managerId = deal.assignedById ?? "UNASSIGNED";
+    ensureRow(managerId).meetingsCount += fallbackMeetingEvents.length;
   }
 
   for (const call of input.calls) {
@@ -1620,6 +2058,10 @@ export function buildManagerActionOutcomeReport(
     const activityManagerId =
       call.crmActivityId ? activityById.get(call.crmActivityId)?.responsibleId : null;
     const managerId = call.portalUserId ?? activityManagerId ?? "UNASSIGNED";
+    if (!isScopedAggregateManager(managerId)) {
+      continue;
+    }
+
     const row = ensureRow(managerId);
 
     row.totalCalls += 1;
@@ -1638,17 +2080,162 @@ export function buildManagerActionOutcomeReport(
 
     if (
       wonStageIds.has(deal.stageId) &&
-      isWithinRange(deal.dateClosed ?? deal.dateModify, fromMs, toMs)
+      isWithinRange(resolveWonAt(deal, stageHistoryMap, wonStageIds), fromMs, toMs)
     ) {
       row.wonDealsCount += 1;
       row.salesAmount += deal.opportunity ?? 0;
 
-      const closedAt = deal.dateClosed ?? deal.dateModify;
-      const cycleMs = Date.parse(closedAt) - Date.parse(deal.dateCreate);
-      if (Number.isFinite(cycleMs) && cycleMs >= 0) {
-        row.totalCycleMs += cycleMs;
-        row.cycleCount += 1;
+      const closedAt = resolveWonAt(deal, stageHistoryMap, wonStageIds);
+      if (closedAt) {
+        const cycleMs = Date.parse(closedAt) - Date.parse(deal.dateCreate);
+        if (Number.isFinite(cycleMs) && cycleMs >= 0) {
+          row.totalCycleMs += cycleMs;
+          row.cycleCount += 1;
+        }
       }
+    }
+  }
+
+  const cohortDeals = deals.filter(
+    (deal) =>
+      isWithinRange(deal.dateCreate, fromMs, toMs) &&
+      toCohortMonth(deal.dateCreate) !== null
+  );
+  const cohortMonthCounts = new Map<string, number>();
+  const cohortCreatedDealCounts = new Map<string, number>();
+  const statusRows = new Map<string, ActionOutcomeStatusAccumulator>();
+  const cohortCountKey = (managerId: string, cohortMonth: string | null) =>
+    `${managerId}::${cohortMonth ?? "ALL"}`;
+  const statusRowKey = (
+    managerId: string,
+    cohortMonth: string | null,
+    statusKey: ActionOutcomeStatusKey
+  ) => `${managerId}::${cohortMonth ?? "ALL"}::${statusKey}`;
+
+  for (const deal of cohortDeals) {
+    const cohortMonth = toCohortMonth(deal.dateCreate);
+    if (!cohortMonth) {
+      continue;
+    }
+
+    const managerId = deal.assignedById ?? "UNASSIGNED";
+    cohortMonthCounts.set(cohortMonth, (cohortMonthCounts.get(cohortMonth) ?? 0) + 1);
+    for (const monthScope of [null, cohortMonth]) {
+      const key = cohortCountKey(managerId, monthScope);
+      cohortCreatedDealCounts.set(key, (cohortCreatedDealCounts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const ensureStatusRow = (
+    managerId: string,
+    cohortMonth: string | null,
+    statusKey: ActionOutcomeStatusKey
+  ) => {
+    const key = statusRowKey(managerId, cohortMonth, statusKey);
+    const current = statusRows.get(key) ?? {
+      managerId,
+      cohortMonth,
+      statusKey,
+      cohortCreatedDeals: cohortCreatedDealCounts.get(
+        cohortCountKey(managerId, cohortMonth)
+      ) ?? 0,
+      dealCount: 0,
+      createdTasks: 0,
+      closedTasks: 0,
+      totalCalls: 0,
+      successfulCallsOverThirtySeconds: 0,
+      meetingsCount: 0,
+      financialAmount: 0,
+      sla: createSlaAccumulatorSet(),
+      dealDetails: []
+    };
+
+    statusRows.set(key, current);
+    return current;
+  };
+
+  for (const deal of cohortDeals) {
+    const cohortMonth = toCohortMonth(deal.dateCreate);
+    if (!cohortMonth) {
+      continue;
+    }
+
+    const managerId = deal.assignedById ?? "UNASSIGNED";
+    const statusKey = resolveActionOutcomeStatus(deal, wonStageIds);
+    const dealActivities = activitiesByDeal.get(deal.id) ?? [];
+    const taskCreatedCount = dealActivities.filter(
+      (activity) =>
+        isTaskActivity(activity) &&
+        isLifecycleTimestamp(activity.createdTime, deal, toMs)
+    ).length;
+    const taskClosedCount = dealActivities.filter(
+      (activity) =>
+        isTaskActivity(activity) &&
+        activity.completed &&
+        isLifecycleTimestamp(activity.completedTime, deal, toMs)
+    ).length;
+    const dealCalls = (callsByDeal.get(deal.id) ?? []).filter((call) =>
+      isLifecycleTimestamp(call.callStartDate, deal, toMs)
+    );
+    const successfulDealCalls = dealCalls.filter(
+      (call) => isCallConnected(call) && isCallOverThirtySeconds(call)
+    );
+    const dealMeetings = (completedMeetingsByDeal.get(deal.id) ?? []).filter((meeting) =>
+      isLifecycleTimestamp(getMeetingCommunicationTime(meeting), deal, toMs)
+    );
+    const fallbackMeetingEvents = buildMeetingDateFallbackEvents(
+      deal,
+      dealMeetings,
+      toMs
+    );
+    const dealSla = createSlaAccumulatorSet();
+    recordDealSlaOutcomes({
+      deal,
+      accumulatorSet: dealSla,
+      stageLookup,
+      stageHistoryMap,
+      meetingsByDeal: completedMeetingsByDeal,
+      callsByDeal,
+      toMs
+    });
+    const terminalAt =
+      resolveTerminalClosedAt(deal, stageHistoryMap, wonStageIds) ??
+      deal.dateModify ??
+      input.range.to;
+    const dealDetail = buildManagerActionDealDetail({
+      deal,
+      stageLookup,
+      stageHistoryRows: stageHistoryMap.get(deal.id) ?? [],
+      sourceLabels,
+      taskCreatedCount,
+      taskClosedCount,
+      dealCalls,
+      successfulDealCalls,
+      dealMeetings,
+      fallbackMeetingEvents,
+      sla: dealSla,
+      terminalAt
+    });
+
+    for (const monthScope of [null, cohortMonth]) {
+      const row = ensureStatusRow(managerId, monthScope, statusKey);
+      row.dealCount += 1;
+      row.createdTasks += taskCreatedCount;
+      row.closedTasks += taskClosedCount;
+      row.totalCalls += dealCalls.length;
+      row.successfulCallsOverThirtySeconds += successfulDealCalls.length;
+      row.meetingsCount += dealMeetings.length + fallbackMeetingEvents.length;
+      row.financialAmount += deal.opportunity ?? 0;
+      row.dealDetails.push(dealDetail);
+      recordDealSlaOutcomes({
+        deal,
+        accumulatorSet: row.sla,
+        stageLookup,
+        stageHistoryMap,
+        meetingsByDeal: completedMeetingsByDeal,
+        callsByDeal,
+        toMs
+      });
     }
   }
 
@@ -1657,14 +2244,84 @@ export function buildManagerActionOutcomeReport(
       ...rows.keys(),
       ...slaMetricsByManager.keys(),
       ...deals.map((deal) => deal.assignedById ?? "UNASSIGNED"),
-      ...taskActivities.map((activity) => activity.responsibleId ?? "UNASSIGNED"),
-      ...meetingActivities.map((activity) => activity.responsibleId ?? "UNASSIGNED"),
-      ...input.calls.map((call) => call.portalUserId ?? "UNASSIGNED")
+      ...taskActivities
+        .map((activity) => activity.responsibleId ?? "UNASSIGNED")
+        .filter(isScopedAggregateManager),
+      ...meetingActivities
+        .map((activity) => activity.responsibleId ?? "UNASSIGNED")
+        .filter(isScopedAggregateManager),
+      ...input.calls
+        .map((call) => {
+          const activityManagerId = call.crmActivityId
+            ? activityById.get(call.crmActivityId)?.responsibleId
+            : null;
+
+          return call.portalUserId ?? activityManagerId ?? "UNASSIGNED";
+        })
+        .filter(isScopedAggregateManager)
     ])
   );
 
   return {
     range: input.range,
+    warnings: [],
+    cohortMonths: Array.from(cohortMonthCounts.entries())
+      .map(([cohortMonth, totalCreatedDeals]) => ({
+        cohortMonth,
+        cohortLabel: cohortMonth,
+        totalCreatedDeals
+      }))
+      .sort((left, right) => right.cohortMonth.localeCompare(left.cohortMonth)),
+    cohortStatusRows: Array.from(statusRows.values())
+      .filter((row) => row.dealCount > 0)
+      .map<ManagerActionOutcomeStatusRow>((row) => ({
+        managerId: row.managerId,
+        managerName: resolveManagerName(row.managerId, managerDirectory),
+        cohortMonth: row.cohortMonth,
+        statusKey: row.statusKey,
+        statusLabel: ACTION_OUTCOME_STATUS_LABELS[row.statusKey],
+        cohortCreatedDeals: row.cohortCreatedDeals,
+        dealCount: row.dealCount,
+        statusShare:
+          row.cohortCreatedDeals === 0
+            ? 0
+            : Number((row.dealCount / row.cohortCreatedDeals).toFixed(4)),
+        createdTasksPerDeal: toPerDeal(row.createdTasks, row.dealCount),
+        closedTasksPerDeal: toPerDeal(row.closedTasks, row.dealCount),
+        totalCallsPerDeal: toPerDeal(row.totalCalls, row.dealCount),
+        successfulCallsOverThirtySecondsPerDeal: toPerDeal(
+          row.successfulCallsOverThirtySeconds,
+          row.dealCount
+        ),
+        meetingsPerDeal: toPerDeal(row.meetingsCount, row.dealCount),
+        sla1OnTimeRate: toSlaOnTimeRate(row.sla.sla1),
+        sla2OnTimeRate: toSlaOnTimeRate(row.sla.sla2),
+        sla3OnTimeRate: toSlaOnTimeRate(row.sla.sla3),
+        financialAmount: row.financialAmount,
+        averageFinancialAmount: toAverage(row.financialAmount, row.dealCount),
+        dealDetails: row.dealDetails.sort((left, right) => {
+          const byCreated = right.dateCreate.localeCompare(left.dateCreate);
+          return byCreated !== 0 ? byCreated : right.dealId.localeCompare(left.dealId);
+        })
+      }))
+      .sort((left, right) => {
+        const byMonth = (left.cohortMonth ?? "").localeCompare(
+          right.cohortMonth ?? ""
+        );
+        if (byMonth !== 0) {
+          return byMonth;
+        }
+
+        const byManager = left.managerName.localeCompare(right.managerName, "ru");
+        if (byManager !== 0) {
+          return byManager;
+        }
+
+        return (
+          ACTION_OUTCOME_STATUS_ORDER[left.statusKey] -
+          ACTION_OUTCOME_STATUS_ORDER[right.statusKey]
+        );
+      }),
     rows: managerIds
       .map<ManagerActionOutcomeRow>((managerId) => {
         const row = ensureRow(managerId);
@@ -1943,6 +2600,54 @@ export function buildCallsWorkloadReport(
       accumulator.connectedCallsOverThirtySeconds += 1;
     }
   };
+  const toCallPopulationSummary = (accumulator: CallAccumulator) => ({
+    totalCalls: accumulator.totalCalls,
+    incomingCalls: accumulator.incomingCalls,
+    outgoingCalls: accumulator.outgoingCalls,
+    otherOutgoingCalls: accumulator.otherOutgoingCalls,
+    connectedCalls: accumulator.connectedCalls,
+    failedCalls: accumulator.failedCalls,
+    callsOverThirtySeconds: accumulator.callsOverThirtySeconds,
+    connectedCallsOverThirtySeconds: accumulator.connectedCallsOverThirtySeconds,
+    averageDurationSeconds: toAverage(
+      accumulator.totalDurationSeconds,
+      accumulator.totalCalls
+    )
+  });
+  const toLinkedDealCallSummary = (
+    accumulator: CallAccumulator,
+    stageBreakdown = buildCallsStageBreakdown(accumulator.stageItems, stageLookup)
+  ) => ({
+    ...toCallPopulationSummary(accumulator),
+    dealCount: accumulator.dealIds.size,
+    averageCallsPerDeal: toAverage(accumulator.totalCalls, accumulator.dealIds.size),
+    stageBreakdown
+  });
+  const combineAccumulators = (
+    accumulators: Iterable<CallAccumulator>,
+    managerId: string
+  ) => {
+    const combined = createAccumulator(managerId);
+
+    for (const accumulator of accumulators) {
+      for (const dealId of accumulator.dealIds) {
+        combined.dealIds.add(dealId);
+      }
+      combined.totalCalls += accumulator.totalCalls;
+      combined.incomingCalls += accumulator.incomingCalls;
+      combined.outgoingCalls += accumulator.outgoingCalls;
+      combined.otherOutgoingCalls += accumulator.otherOutgoingCalls;
+      combined.connectedCalls += accumulator.connectedCalls;
+      combined.failedCalls += accumulator.failedCalls;
+      combined.callsOverThirtySeconds += accumulator.callsOverThirtySeconds;
+      combined.connectedCallsOverThirtySeconds +=
+        accumulator.connectedCallsOverThirtySeconds;
+      combined.totalDurationSeconds += accumulator.totalDurationSeconds;
+      combined.stageItems.push(...accumulator.stageItems);
+    }
+
+    return combined;
+  };
 
   const summaryRows = new Map<string, CallAccumulator>();
   const linkedRows = new Map<string, CallAccumulator>();
@@ -2022,6 +2727,9 @@ export function buildCallsWorkloadReport(
     .map((managerId) => {
       const summary = summaryRows.get(managerId) ?? createAccumulator(managerId);
       const linked = linkedRows.get(managerId) ?? createAccumulator(managerId);
+      const stageBreakdown = buildCallsStageBreakdown(linked.stageItems, stageLookup);
+      const allCalls = toCallPopulationSummary(summary);
+      const linkedDealCalls = toLinkedDealCallSummary(linked, stageBreakdown);
 
       return {
         managerId,
@@ -2040,7 +2748,9 @@ export function buildCallsWorkloadReport(
           summary.totalDurationSeconds,
           summary.totalCalls
         ),
-        stageBreakdown: buildCallsStageBreakdown(linked.stageItems, stageLookup)
+        allCalls,
+        linkedDealCalls,
+        stageBreakdown
       };
     })
     .sort((left, right) => left.managerId.localeCompare(right.managerId));
@@ -2051,6 +2761,15 @@ export function buildCallsWorkloadReport(
       totalDealIds.add(dealId);
     }
   }
+  const allCallsAccumulator = combineAccumulators(
+    summaryRows.values(),
+    "__ALL_CALLS__"
+  );
+  const linkedDealCallsAccumulator = combineAccumulators(
+    linkedRows.values(),
+    "__LINKED_DEAL_CALLS__"
+  );
+  const linkedDealCallsSummary = toLinkedDealCallSummary(linkedDealCallsAccumulator);
 
   return {
     range: input.range,
@@ -2084,6 +2803,20 @@ export function buildCallsWorkloadReport(
       (total, row) => total + row.connectedCallsOverThirtySeconds,
       0
     ),
+    allCalls: toCallPopulationSummary(allCallsAccumulator),
+    linkedDealCalls: {
+      totalDealCount: linkedDealCallsSummary.dealCount,
+      totalCalls: linkedDealCallsSummary.totalCalls,
+      incomingCalls: linkedDealCallsSummary.incomingCalls,
+      outgoingCalls: linkedDealCallsSummary.outgoingCalls,
+      otherOutgoingCalls: linkedDealCallsSummary.otherOutgoingCalls,
+      connectedCalls: linkedDealCallsSummary.connectedCalls,
+      failedCalls: linkedDealCallsSummary.failedCalls,
+      callsOverThirtySeconds: linkedDealCallsSummary.callsOverThirtySeconds,
+      connectedCallsOverThirtySeconds:
+        linkedDealCallsSummary.connectedCallsOverThirtySeconds,
+      averageDurationSeconds: linkedDealCallsSummary.averageDurationSeconds
+    },
     warnings: [],
     managerRows: managerRowsResult
   };
@@ -2129,22 +2862,6 @@ function resolveRelativeCohortBucket(
   }
 
   return "month_4_plus";
-}
-
-function resolveCohortClosedAt(
-  deal: DealSnapshot,
-  stageHistoryByDeal: Map<string, StageHistorySnapshot[]>,
-  wonStageIds: Set<string>
-) {
-  if (!wonStageIds.has(deal.stageId)) {
-    return deal.dateClosed;
-  }
-
-  const wonRows = (stageHistoryByDeal.get(deal.id) ?? []).filter((row) =>
-    wonStageIds.has(row.stageId)
-  );
-
-  return wonRows.at(-1)?.createdTime ?? deal.dateClosed;
 }
 
 export function buildCohortConversionReport(
@@ -2217,7 +2934,7 @@ export function buildCohortConversionReport(
 
     current.createdDeals += 1;
     const isWonDeal = wonStageIds.has(deal.stageId);
-    const closedAt = resolveCohortClosedAt(
+    const closedAt = resolveTerminalClosedAt(
       deal,
       stageHistoryByDeal,
       wonStageIds

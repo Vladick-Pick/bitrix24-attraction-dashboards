@@ -19,6 +19,8 @@ import type {
   SourceQualityConversionReport,
   SourceQualityConversionReportSnapshot,
   StageCatalogEntry,
+  SyncHealth,
+  SyncHealthIssue,
   TargetGroupConversionReport,
   TargetGroupConversionReportSnapshot,
   TocFlowReport,
@@ -49,7 +51,19 @@ import {
   UNASSIGNED_MANAGER_NAME
 } from "../domain/report-dimensions";
 import { buildDashboard } from "../domain/reporting";
-import { performManualSync } from "../domain/sync";
+import {
+  ACTIVITY_HISTORY_COVERAGE_VERSION,
+  CALL_STATS_COVERAGE_PROVIDER,
+  CALL_STATS_COVERAGE_STREAM,
+  CALL_STATS_COVERAGE_VERSION,
+  buildCategoryScopeKey,
+  DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
+  DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
+  DEAL_CUSTOM_FIELDS_COVERAGE_VERSION,
+  DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
+  DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION,
+  performManualSync
+} from "../domain/sync";
 import type { SyncClient } from "../domain/sync";
 import type { SqliteRepository } from "./sqlite-repository";
 
@@ -60,9 +74,13 @@ interface CreateReportingServiceInput {
   businessClubFieldName?: string;
   targetGroupFieldName?: string;
   meetingTypeFieldName?: string;
+  meetingDateFieldName?: string;
+  contactTargetGroupFieldName?: string;
+  legacyContactTargetGroupFieldName?: string;
   repository: SqliteRepository;
   client: SyncClient;
   defaultPeriodDays: number;
+  bootstrapLookbackDays?: number;
   now?: () => Date;
 }
 
@@ -133,6 +151,7 @@ export interface ReportingService {
       dealsSynced: number;
       mode: "full" | "delta";
     } | null;
+    syncHealth: SyncHealth;
   }>;
   performSync(): Promise<ManualSyncSummary>;
   updateWonStages(stageIds: string[]): Promise<{ wonStageIds: string[] }>;
@@ -178,6 +197,242 @@ function resolveLatestTwelveMonthCohortRange(now: Date): ReportRange {
     from: from.toISOString(),
     to: to.toISOString()
   };
+}
+
+const MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING =
+  "Данные по делам/звонкам неполные: требуется историческая синхронизация за выбранный период.";
+const MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS = [
+  "CRM_TODO",
+  "CRM_TASKS_TASK",
+  "VOXIMPLANT_CALL",
+  "CRM_MEETING"
+];
+const SYNC_HEALTH_STALE_RUN_HOURS = 2;
+const SYNC_HEALTH_STALE_SUCCESS_HOURS = 24;
+
+function addHours(date: Date, hours: number) {
+  const copy = new Date(date);
+  copy.setUTCHours(copy.getUTCHours() + hours);
+  return copy;
+}
+
+function addDays(date: Date, days: number) {
+  const copy = new Date(date);
+  copy.setUTCDate(copy.getUTCDate() + days);
+  return copy;
+}
+
+async function buildSyncHealth(input: {
+  repository: SqliteRepository;
+  categoryIds: string[];
+  lastSync: {
+    finishedAt: string;
+    leadsSynced: number;
+    dealsSynced: number;
+    mode: "full" | "delta";
+  } | null;
+  now: Date;
+  bootstrapLookbackDays: number;
+  meetingDateFieldName?: string;
+}): Promise<SyncHealth> {
+  const checkedAt = input.now.toISOString();
+  const issues: SyncHealthIssue[] = [];
+  const staleBefore = addHours(
+    input.now,
+    -SYNC_HEALTH_STALE_RUN_HOURS
+  ).toISOString();
+  const recoveredStaleRuns =
+    typeof input.repository.recoverStaleSyncRuns === "function"
+      ? await input.repository.recoverStaleSyncRuns({
+          staleBefore,
+          failedAt: checkedAt
+        })
+      : 0;
+
+  if (recoveredStaleRuns > 0) {
+    issues.push({
+      code: "STALE_RUNNING_SYNC",
+      severity: "blocking",
+      message:
+        "Есть зависшие sync runs; они помечены как failed, нужен новый успешный sync."
+    });
+  }
+
+  if (!input.lastSync) {
+    issues.push({
+      code: "NO_SUCCESSFUL_SYNC",
+      severity: "blocking",
+      message: "Нет успешной синхронизации локального snapshot."
+    });
+  } else {
+    const staleSuccessBefore = addHours(
+      input.now,
+      -SYNC_HEALTH_STALE_SUCCESS_HOURS
+    ).getTime();
+    const lastSuccessTime = Date.parse(input.lastSync.finishedAt);
+    if (!Number.isFinite(lastSuccessTime) || lastSuccessTime < staleSuccessBefore) {
+      issues.push({
+        code: "STALE_SUCCESSFUL_SYNC",
+        severity: "blocking",
+        message: "Последняя успешная синхронизация устарела."
+      });
+    }
+  }
+
+  const requiredFrom = addDays(
+    input.now,
+    -input.bootstrapLookbackDays
+  ).toISOString();
+  const scopeKey = buildCategoryScopeKey(input.categoryIds);
+  const coverageChecks = [
+    ...MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS.map((providerId) => ({
+      stream: "activity_history",
+      providerId,
+      algorithmVersion: ACTIVITY_HISTORY_COVERAGE_VERSION
+    })),
+    {
+      stream: DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
+      providerId: DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
+      algorithmVersion: DEAL_CUSTOM_FIELDS_COVERAGE_VERSION
+    },
+    {
+      stream: CALL_STATS_COVERAGE_STREAM,
+      providerId: CALL_STATS_COVERAGE_PROVIDER,
+      algorithmVersion: CALL_STATS_COVERAGE_VERSION
+    },
+    ...(input.meetingDateFieldName
+      ? [
+          {
+            stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
+            providerId: input.meetingDateFieldName,
+            algorithmVersion: DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION
+          }
+        ]
+      : [])
+  ];
+
+  const repositoryWithCoverage = input.repository as Partial<SqliteRepository>;
+  const coverageResults =
+    typeof repositoryWithCoverage.hasSyncCoverage === "function"
+      ? await Promise.all(
+          coverageChecks.map((check) =>
+            repositoryWithCoverage.hasSyncCoverage?.({
+              scopeKey,
+              stream: check.stream,
+              providerId: check.providerId,
+              requiredFrom,
+              requiredTo: checkedAt,
+              algorithmVersion: check.algorithmVersion
+            })
+          )
+        )
+      : [false];
+
+  if (coverageResults.some((covered) => covered !== true)) {
+    issues.push({
+      code: "MISSING_COVERAGE",
+      severity: "blocking",
+      message: "Нет подтвержденного покрытия локального snapshot."
+    });
+  }
+
+  const blocking = issues.some((issue) => issue.severity === "blocking");
+
+  return {
+    status: blocking ? "blocked" : issues.length > 0 ? "warning" : "ready",
+    blocking,
+    checkedAt,
+    lastSuccessfulSync: input.lastSync?.finishedAt ?? null,
+    issues,
+    warnings: issues.map((issue) => issue.message)
+  };
+}
+
+async function buildManagerActionOutcomeWarnings(input: {
+  repository: SqliteRepository;
+  categoryIds: string[];
+  range: ReportRange;
+  meetingDateFieldName?: string;
+}) {
+  const warnings = new Set<string>();
+  const repositoryWithCoverage = input.repository as Partial<SqliteRepository>;
+
+  if (typeof repositoryWithCoverage.hasSyncCoverage === "function") {
+    const scopeKey = buildCategoryScopeKey(input.categoryIds);
+    const coverageResults = await Promise.all(
+      MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS.map((providerId) =>
+        repositoryWithCoverage.hasSyncCoverage?.({
+          scopeKey,
+          stream: "activity_history",
+          providerId,
+          requiredFrom: input.range.from,
+          requiredTo: input.range.to,
+          algorithmVersion: ACTIVITY_HISTORY_COVERAGE_VERSION
+        })
+      )
+    );
+
+    if (coverageResults.some((covered) => covered !== true)) {
+      warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
+    }
+
+    const fieldCoverageResults = await Promise.all([
+      repositoryWithCoverage.hasSyncCoverage({
+        scopeKey,
+        stream: DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
+        providerId: DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
+        requiredFrom: input.range.from,
+        requiredTo: input.range.to,
+        algorithmVersion: DEAL_CUSTOM_FIELDS_COVERAGE_VERSION
+      }),
+      input.meetingDateFieldName
+        ? repositoryWithCoverage.hasSyncCoverage({
+            scopeKey,
+            stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
+            providerId: input.meetingDateFieldName,
+            requiredFrom: input.range.from,
+            requiredTo: input.range.to,
+            algorithmVersion: DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION
+          })
+        : true,
+      repositoryWithCoverage.hasSyncCoverage({
+        scopeKey,
+        stream: CALL_STATS_COVERAGE_STREAM,
+        providerId: CALL_STATS_COVERAGE_PROVIDER,
+        requiredFrom: input.range.from,
+        requiredTo: input.range.to,
+        algorithmVersion: CALL_STATS_COVERAGE_VERSION
+      })
+    ]);
+
+    if (fieldCoverageResults.some((covered) => covered !== true)) {
+      warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
+    }
+  }
+
+  if (
+    typeof repositoryWithCoverage.getDealMeetingDateFieldBootstrappedAt ===
+    "function"
+  ) {
+    const bootstrappedAt =
+      await repositoryWithCoverage.getDealMeetingDateFieldBootstrappedAt();
+    if (!bootstrappedAt) {
+      warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
+    }
+  }
+
+  if (typeof repositoryWithCoverage.getCallActivityIdsMissingCallStats === "function") {
+    const missingCallStatActivityIds =
+      await repositoryWithCoverage.getCallActivityIdsMissingCallStats(
+        1,
+        input.range.from
+      );
+    if (missingCallStatActivityIds.length > 0) {
+      warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
+    }
+  }
+
+  return Array.from(warnings);
 }
 
 function attachComparisons<TReport extends object, TSnapshot extends object>(
@@ -307,10 +562,13 @@ export function createReportingService(
 
     if (missing.length > 0) {
       try {
-        const fetched = (await input.client.fetchUsers({ ids: missing })).map((row) => ({
-          id: row.ID,
-          name: [row.NAME, row.LAST_NAME].filter(Boolean).join(" ").trim() || row.ID
-        }));
+        const fetched = (await input.client.fetchUsers({ ids: missing })).map((row) => {
+          const id = String(row.ID);
+          return {
+            id,
+            name: [row.NAME, row.LAST_NAME].filter(Boolean).join(" ").trim() || id
+          };
+        });
 
         if (fetched.length > 0) {
           await input.repository.upsertManagerDirectory(fetched);
@@ -636,17 +894,12 @@ export function createReportingService(
       ) as TargetGroupConversionReport;
     },
 
-    async getManagerActionOutcomeReport({
-      periodDays,
-      range,
-      compareRanges,
-      filters
-    }) {
+    async getManagerActionOutcomeReport({ filters }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
       const [deals, stageCatalog, stageHistory, activities, calls, wonStageIds] =
         await Promise.all([
           input.repository.getAllDeals(),
-          getScopedStageCatalog(),
+          getScopedStageCatalog(true),
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
           input.repository.getAllCalls(),
@@ -655,15 +908,13 @@ export function createReportingService(
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
       const managerIds = new Set(scopedFilters.managerIds ?? []);
-      const scopedActivities = activities.filter(
-        (activity) =>
-          scopedDealIds.has(activity.ownerId) &&
-          isManagerInScope(managerIds, activity.responsibleId)
+      const dealScopedActivities = activities.filter((activity) =>
+        scopedDealIds.has(activity.ownerId)
       );
       const activityById = new Map(
-        scopedActivities.map((activity) => [activity.id, activity])
+        dealScopedActivities.map((activity) => [activity.id, activity])
       );
-      const scopedCalls = calls.filter((call) => {
+      const dealScopedCalls = calls.filter((call) => {
         const activity = call.crmActivityId
           ? activityById.get(call.crmActivityId)
           : null;
@@ -672,25 +923,29 @@ export function createReportingService(
           call.crmEntityId &&
           scopedDealIds.has(call.crmEntityId)
         ) {
-          return isManagerInScope(
-            managerIds,
-            call.portalUserId ?? activity?.responsibleId
-          );
+          return true;
         }
 
-        return Boolean(
-          activity &&
-            isManagerInScope(
-              managerIds,
-              call.portalUserId ?? activity.responsibleId
-            )
+        return Boolean(activity);
+      });
+      const managerScopedActivities = dealScopedActivities.filter((activity) =>
+        isManagerInScope(managerIds, activity.responsibleId)
+      );
+      const managerScopedCalls = dealScopedCalls.filter((call) => {
+        const activity = call.crmActivityId
+          ? activityById.get(call.crmActivityId)
+          : null;
+
+        return isManagerInScope(
+          managerIds,
+          call.portalUserId ?? activity?.responsibleId
         );
       });
       const managerDirectory = await ensureManagerDirectory(
         uniqueStrings([
           ...scopedDeals.map((deal) => deal.assignedById),
-          ...scopedActivities.map((activity) => activity.responsibleId),
-          ...scopedCalls.map((call) => call.portalUserId)
+          ...managerScopedActivities.map((activity) => activity.responsibleId),
+          ...managerScopedCalls.map((call) => call.portalUserId)
         ])
       );
       const scopedStageHistory = stageHistory.filter((row) =>
@@ -705,22 +960,24 @@ export function createReportingService(
           deals: scopedDeals,
           stageCatalog,
           stageHistory: scopedStageHistory,
-          activities: scopedActivities,
-          calls: scopedCalls,
+          activities: dealScopedActivities,
+          calls: dealScopedCalls,
           managerDirectory
         });
-      const resolvedRange = resolveRange(
-        periodDays,
-        range,
-        input.defaultPeriodDays,
-        nowFactory()
-      );
+      const reportRange = resolveLatestTwelveMonthCohortRange(nowFactory());
+      const warnings = await buildManagerActionOutcomeWarnings({
+        repository: input.repository,
+        categoryIds: input.dealCategoryIds,
+        range: reportRange,
+        ...(input.meetingDateFieldName
+          ? { meetingDateFieldName: input.meetingDateFieldName }
+          : {})
+      });
 
-      return attachComparisons(
-        buildSnapshot(resolvedRange),
-        compareRanges,
-        buildSnapshot
-      ) as ManagerActionOutcomeReport;
+      return {
+        ...buildSnapshot(reportRange),
+        warnings
+      };
     },
 
     async getCallsWorkloadReport({ periodDays, range, compareRanges, filters }) {
@@ -876,6 +1133,16 @@ export function createReportingService(
         normalizeAttractionManagerFilters(undefined)
       );
       const managerCatalog = await ensureManagerDirectory(ATTRACTION_MANAGER_IDS);
+      const syncHealth = await buildSyncHealth({
+        repository: input.repository,
+        categoryIds: input.dealCategoryIds,
+        lastSync,
+        now: nowFactory(),
+        bootstrapLookbackDays: input.bootstrapLookbackDays ?? 365,
+        ...(input.meetingDateFieldName
+          ? { meetingDateFieldName: input.meetingDateFieldName }
+          : {})
+      });
 
       return {
         stageCatalog,
@@ -883,7 +1150,8 @@ export function createReportingService(
         sourceCatalog: buildSourceCatalog(scopedDeals, stageCatalog),
         wonStageIds,
         defaultPeriodDays: input.defaultPeriodDays,
-        lastSync
+        lastSync,
+        syncHealth
       };
     },
 
@@ -894,6 +1162,9 @@ export function createReportingService(
         client: input.client,
         repository: input.repository,
         now: () => nowFactory().toISOString(),
+        ...(input.bootstrapLookbackDays
+          ? { bootstrapLookbackDays: input.bootstrapLookbackDays }
+          : {}),
         ...(input.tariffFieldName
           ? { tariffFieldName: input.tariffFieldName }
           : {}),
@@ -905,6 +1176,18 @@ export function createReportingService(
           : {}),
         ...(input.meetingTypeFieldName
           ? { meetingTypeFieldName: input.meetingTypeFieldName }
+          : {}),
+        ...(input.meetingDateFieldName
+          ? { meetingDateFieldName: input.meetingDateFieldName }
+          : {}),
+        ...(input.contactTargetGroupFieldName
+          ? { contactTargetGroupFieldName: input.contactTargetGroupFieldName }
+          : {}),
+        ...(input.legacyContactTargetGroupFieldName
+          ? {
+              legacyContactTargetGroupFieldName:
+                input.legacyContactTargetGroupFieldName
+            }
           : {})
       });
     },

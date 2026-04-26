@@ -31,6 +31,7 @@ interface BitrixResultItems<T> {
 
 interface DealListRow {
   ID: string;
+  CONTACT_ID?: string | null;
   LEAD_ID: string | null;
   DATE_CREATE: string;
   DATE_MODIFY: string;
@@ -47,6 +48,13 @@ interface DealListRow {
   UTM_CONTENT: string | null;
   UTM_TERM: string | null;
   [key: string]: unknown;
+}
+
+export interface DealAuditRow {
+  ID: string;
+  ASSIGNED_BY_ID: string | null;
+  DATE_CREATE: string;
+  CATEGORY_ID: string | null;
 }
 
 interface StatusRow {
@@ -113,6 +121,11 @@ export interface UserRow {
   LAST_NAME: string | null;
 }
 
+export interface ContactRow {
+  ID: string;
+  [key: string]: unknown;
+}
+
 function buildDealStageEntityId(categoryId: string) {
   return categoryId === "0" ? "DEAL_STAGE" : `DEAL_STAGE_${categoryId}`;
 }
@@ -162,6 +175,22 @@ function toNumber(value: string | number | null | undefined) {
 
 function toStringArray(values: string[]) {
   return values.map((value) => String(value));
+}
+
+function buildActivityOwnerFilter(ownerIds: string[]) {
+  if (ownerIds.length === 1) {
+    return {
+      OWNER_TYPE_ID: 2,
+      OWNER_ID: ownerIds[0]
+    };
+  }
+
+  return {
+    BINDINGS: ownerIds.map((ownerId) => ({
+      OWNER_TYPE_ID: 2,
+      OWNER_ID: ownerId
+    }))
+  };
 }
 
 function chunkValues<T>(values: T[], chunkSize = 50) {
@@ -228,7 +257,22 @@ export class BitrixClient {
             signal: controller.signal
           });
 
-          const payload = (await response.json()) as BitrixResponse<T>;
+          let payload: BitrixResponse<T>;
+          try {
+            payload = (await response.json()) as BitrixResponse<T>;
+          } catch {
+            if (attempt < maxAttempts - 1) {
+              await delay(
+                Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1)
+              );
+              continue;
+            }
+
+            throw new Error(
+              `Bitrix24 ${method} failed at ${redactWebhookUrl(url)}: non-JSON response (${response.status} ${response.statusText})`
+            );
+          }
+
           const errorMessage =
             payload.error_description ?? payload.error ?? response.statusText;
           if (!response.ok || payload.error) {
@@ -448,6 +492,17 @@ export class BitrixClient {
     );
   }
 
+  async listDealsForAudit(input: { filter: Record<string, unknown> }) {
+    return this.collectPagedList<DealAuditRow>("crm.deal.list", (start) => ({
+      select: ["ID", "ASSIGNED_BY_ID", "DATE_CREATE", "CATEGORY_ID"],
+      filter: input.filter,
+      order: {
+        ID: "ASC" as const
+      },
+      start
+    }));
+  }
+
   async fetchDealStages(categoryIds: string[]): Promise<StageCatalogEntry[]> {
     const rows = await Promise.all(
       Array.from(new Set(categoryIds)).map(async (categoryId) => {
@@ -543,6 +598,30 @@ export class BitrixClient {
     return this.fetchDealFieldValueMap(fieldName);
   }
 
+  async fetchContactFieldValueMap(fieldName: string) {
+    if (!fieldName) {
+      return {};
+    }
+
+    const response = await this.call<Record<string, DealFieldMetadata>>(
+      "crm.contact.fields",
+      {}
+    );
+    const field = response.result?.[fieldName];
+    if (!field?.items || field.items.length === 0) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      field.items.flatMap((item) => {
+        const id = item.ID ?? item.id;
+        const value = item.VALUE ?? item.value;
+
+        return id !== undefined && value ? [[String(id), value]] : [];
+      })
+    ) as Record<string, string>;
+  }
+
   async listStageHistory(input: { ownerIds?: string[]; categoryIds?: string[] }) {
     if (input.categoryIds && input.categoryIds.length > 0) {
       return (
@@ -618,57 +697,146 @@ export class BitrixClient {
     return this.collectChunked(
       input.ownerIds,
       (chunk) =>
-      this.collectPagedList<ActivityRow>("crm.activity.list", (start) => ({
-        order: {
-          ID: "ASC" as const
-        },
-        filter: {
-          OWNER_TYPE_ID: 2,
-          "@OWNER_ID": toStringArray(chunk),
-          ...(input.providerId
-            ? {
-                PROVIDER_ID: input.providerId
-              }
-            : {}),
-          ...(input.modifiedAfter
-            ? {
-                ">LAST_UPDATED": input.modifiedAfter
-              }
-            : {})
-        },
-        select: [
-          "ID",
-          "OWNER_TYPE_ID",
-          "OWNER_ID",
-          "TYPE_ID",
-          "PROVIDER_ID",
-          "RESPONSIBLE_ID",
-          "CREATED",
-          "DEADLINE",
-          "LAST_UPDATED",
-          "COMPLETED",
-          "COMPLETED_DATE"
-        ],
-        start
-      }))
+        this.collectPagedList<ActivityRow>("crm.activity.list", (start) => ({
+          order: {
+            ID: "ASC" as const
+          },
+          filter: {
+            ...buildActivityOwnerFilter(chunk),
+            ...(input.providerId
+              ? {
+                  PROVIDER_ID: input.providerId
+                }
+              : {}),
+            ...(input.modifiedAfter
+              ? {
+                  ">=LAST_UPDATED": input.modifiedAfter
+                }
+              : {})
+          },
+          select: [
+            "ID",
+            "OWNER_TYPE_ID",
+            "OWNER_ID",
+            "TYPE_ID",
+            "PROVIDER_ID",
+            "RESPONSIBLE_ID",
+            "CREATED",
+            "DEADLINE",
+            "LAST_UPDATED",
+            "COMPLETED",
+            "COMPLETED_DATE"
+          ],
+          start
+        })),
+      10
     );
   }
 
-  async listCalls(input: { activityIds?: string[] }) {
+  async listContacts(input: { ids: string[]; customFieldNames?: string[] }) {
+    if (input.ids.length === 0) {
+      return [];
+    }
+
+    const customFieldNames = Array.from(new Set(input.customFieldNames ?? []));
+
+    return this.collectChunked(
+      input.ids,
+      async (chunk) => {
+        const response = await this.call<ContactRow[]>(
+          "crm.contact.list",
+          {
+            order: {
+              ID: "ASC" as const
+            },
+            filter: {
+              "@ID": toStringArray(chunk)
+            },
+            select: ["ID", ...customFieldNames],
+            start: 0
+          },
+          {
+            allowedCustomFields: customFieldNames
+          }
+        );
+
+        return this.extractItems(response);
+      }
+    );
+  }
+
+  async listActivitiesByIds(activityIds: string[]) {
+    if (activityIds.length === 0) {
+      return [];
+    }
+
+    return this.collectChunked(
+      activityIds,
+      async (chunk) => {
+        const response = await this.call<ActivityRow[]>("crm.activity.list", {
+          order: {
+            ID: "ASC" as const
+          },
+          filter: {
+            OWNER_TYPE_ID: 2,
+            "@ID": toStringArray(chunk)
+          },
+          select: [
+            "ID",
+            "OWNER_TYPE_ID",
+            "OWNER_ID",
+            "TYPE_ID",
+            "PROVIDER_ID",
+            "RESPONSIBLE_ID",
+            "CREATED",
+            "DEADLINE",
+            "LAST_UPDATED",
+            "COMPLETED",
+            "COMPLETED_DATE"
+          ],
+          start: 0
+        });
+
+        return this.extractItems(response);
+      }
+    );
+  }
+
+  async listCalls(input: {
+    activityIds?: string[];
+    callStartDateFrom?: string;
+    callStartDateTo?: string;
+    portalUserIds?: string[];
+  }) {
     if (input.activityIds && input.activityIds.length === 0) {
       return [];
     }
 
     if (input.activityIds && input.activityIds.length > 0) {
-      return this.collectChunked(input.activityIds, async (chunk) => {
-        const response = await this.call<CallRow[]>("voximplant.statistic.get", {
+      return this.collectChunked(input.activityIds, (chunk) =>
+        this.collectPagedList<CallRow>("voximplant.statistic.get", (start) => ({
           FILTER: {
             CRM_ACTIVITY_ID: toStringArray(chunk)
-          }
-        });
+          },
+          start
+        }))
+      );
+    }
 
-        return this.extractItems(response);
-      });
+    if (
+      input.callStartDateFrom &&
+      input.callStartDateTo &&
+      input.portalUserIds &&
+      input.portalUserIds.length > 0
+    ) {
+      return this.collectPagedList<CallRow>("voximplant.statistic.get", (start) => ({
+        FILTER: {
+          ">=CALL_START_DATE": input.callStartDateFrom,
+          "<=CALL_START_DATE": input.callStartDateTo,
+          PORTAL_USER_ID: toStringArray(input.portalUserIds ?? [])
+        },
+        start
+      }));
     }
 
     return [];

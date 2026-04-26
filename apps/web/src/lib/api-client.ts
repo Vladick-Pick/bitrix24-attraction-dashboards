@@ -10,6 +10,7 @@ import type {
   DashboardQuery,
   DashboardData,
   DashboardDataSnapshot,
+  ManagerActionOutcomeDealSlaStatus,
   ManagerActionOutcomeReport,
   ManagerActionOutcomeReportSnapshot,
   MetaResponse,
@@ -149,6 +150,7 @@ function normalizeDashboardSnapshot(value: unknown): DashboardDataSnapshot {
             businessClubValue: asNullableString(row.businessClubValue),
             targetGroupValue: asNullableString(row.targetGroupValue),
             meetingTypeValue: asNullableString(row.meetingTypeValue),
+            meetingDateValue: asNullableString(row.meetingDateValue),
             tariffValue: asNullableString(row.tariffValue),
             cohortContext: {
               createdMonth: asString(cohort.createdMonth),
@@ -213,6 +215,46 @@ function normalizeDashboard(value: unknown): DashboardData {
   }
 }
 
+function normalizeSyncHealth(value: unknown): MetaResponse['syncHealth'] {
+  const data = isRecord(value) ? value : {}
+  const issues: MetaResponse['syncHealth']['issues'] = asArray(data.issues, (entry) => {
+    const issue = isRecord(entry) ? entry : {}
+    const code = asString(issue.code)
+    const normalizedCode: MetaResponse['syncHealth']['issues'][number]['code'] =
+      code === 'NO_SUCCESSFUL_SYNC' ||
+      code === 'STALE_SUCCESSFUL_SYNC' ||
+      code === 'STALE_RUNNING_SYNC' ||
+      code === 'MISSING_COVERAGE'
+        ? code
+        : 'MISSING_COVERAGE'
+
+    return {
+      code: normalizedCode,
+      severity: issue.severity === 'warning' ? ('warning' as const) : ('blocking' as const),
+      message: asString(issue.message, 'Нет подтвержденного покрытия локального snapshot.'),
+    }
+  })
+  const blocking =
+    typeof data.blocking === 'boolean'
+      ? data.blocking
+      : issues.some((issue) => issue.severity === 'blocking')
+  const status =
+    data.status === 'ready' || data.status === 'warning' || data.status === 'blocked'
+      ? data.status
+      : blocking
+        ? 'blocked'
+        : 'ready'
+
+  return {
+    status,
+    blocking,
+    checkedAt: asString(data.checkedAt),
+    lastSuccessfulSync: asNullableString(data.lastSuccessfulSync),
+    issues,
+    warnings: asArray(data.warnings, (entry) => asString(entry)).filter(Boolean),
+  }
+}
+
 function normalizeMeta(value: unknown): MetaResponse {
   const data = isRecord(value) ? value : {}
   const lastSync = isRecord(data.lastSync) ? data.lastSync : null
@@ -255,6 +297,7 @@ function normalizeMeta(value: unknown): MetaResponse {
           mode: lastSync.mode === 'full' ? 'full' : 'delta',
         }
       : null,
+    syncHealth: normalizeSyncHealth(data.syncHealth),
   }
 }
 
@@ -422,6 +465,41 @@ function normalizeActivitiesWorkloadReport(value: unknown): ActivitiesWorkloadRe
 
 function normalizeCallsWorkloadSnapshot(value: unknown): CallsWorkloadReportSnapshot {
   const data = isRecord(value) ? value : {}
+  const normalizeCallPopulation = (value: unknown) => {
+    const item = isRecord(value) ? value : {}
+
+    return {
+      totalCalls: asNumber(item.totalCalls),
+      incomingCalls: asNumber(item.incomingCalls),
+      outgoingCalls: asNumber(item.outgoingCalls),
+      otherOutgoingCalls: asNumber(item.otherOutgoingCalls),
+      connectedCalls: asNumber(item.connectedCalls),
+      failedCalls: asNumber(item.failedCalls),
+      callsOverThirtySeconds: asNumber(item.callsOverThirtySeconds),
+      connectedCallsOverThirtySeconds: asNumber(item.connectedCallsOverThirtySeconds),
+      averageDurationSeconds: asNumber(item.averageDurationSeconds),
+    }
+  }
+  const normalizeStageCallMetric = (value: unknown) => {
+    const row = isRecord(value) ? value : {}
+
+    return {
+      stageId: asString(row.stageId),
+      stageName: asString(row.stageName, asString(row.stageId)),
+      dealCount: asNumber(row.dealCount),
+      totalCalls: asNumber(row.totalCalls),
+      incomingCalls: asNumber(row.incomingCalls),
+      outgoingCalls: asNumber(row.outgoingCalls),
+      otherOutgoingCalls: asNumber(row.otherOutgoingCalls),
+      connectedCalls: asNumber(row.connectedCalls),
+      failedCalls: asNumber(row.failedCalls),
+      callsOverThirtySeconds: asNumber(row.callsOverThirtySeconds),
+      connectedCallsOverThirtySeconds: asNumber(row.connectedCallsOverThirtySeconds),
+      averageCallsPerDeal: asNumber(row.averageCallsPerDeal),
+      averageDurationSeconds: asNumber(row.averageDurationSeconds),
+    }
+  }
+  const linkedDealCalls = isRecord(data.linkedDealCalls) ? data.linkedDealCalls : {}
 
   return {
     range: normalizeRange(data.range),
@@ -436,9 +514,15 @@ function normalizeCallsWorkloadSnapshot(value: unknown): CallsWorkloadReportSnap
     totalConnectedCallsOverThirtySeconds: asNumber(
       data.totalConnectedCallsOverThirtySeconds,
     ),
+    allCalls: normalizeCallPopulation(data.allCalls),
+    linkedDealCalls: {
+      ...normalizeCallPopulation(linkedDealCalls),
+      totalDealCount: asNumber(linkedDealCalls.totalDealCount),
+    },
     warnings: asArray(data.warnings, (entry) => asString(entry)).filter(Boolean),
     managerRows: asArray(data.managerRows, (entry) => {
       const item = isRecord(entry) ? entry : {}
+      const linked = isRecord(item.linkedDealCalls) ? item.linkedDealCalls : {}
       return {
         managerId: asString(item.managerId),
         managerName: asString(item.managerName, asString(item.managerId)),
@@ -455,26 +539,14 @@ function normalizeCallsWorkloadSnapshot(value: unknown): CallsWorkloadReportSnap
         ),
         averageCallsPerDeal: asNumber(item.averageCallsPerDeal),
         averageDurationSeconds: asNumber(item.averageDurationSeconds),
-        stageBreakdown: asArray(item.stageBreakdown, (stage) => {
-          const row = isRecord(stage) ? stage : {}
-          return {
-            stageId: asString(row.stageId),
-            stageName: asString(row.stageName, asString(row.stageId)),
-            dealCount: asNumber(row.dealCount),
-            totalCalls: asNumber(row.totalCalls),
-            incomingCalls: asNumber(row.incomingCalls),
-            outgoingCalls: asNumber(row.outgoingCalls),
-            otherOutgoingCalls: asNumber(row.otherOutgoingCalls),
-            connectedCalls: asNumber(row.connectedCalls),
-            failedCalls: asNumber(row.failedCalls),
-            callsOverThirtySeconds: asNumber(row.callsOverThirtySeconds),
-            connectedCallsOverThirtySeconds: asNumber(
-              row.connectedCallsOverThirtySeconds,
-            ),
-            averageCallsPerDeal: asNumber(row.averageCallsPerDeal),
-            averageDurationSeconds: asNumber(row.averageDurationSeconds),
-          }
-        }),
+        allCalls: normalizeCallPopulation(item.allCalls),
+        linkedDealCalls: {
+          ...normalizeCallPopulation(linked),
+          dealCount: asNumber(linked.dealCount),
+          averageCallsPerDeal: asNumber(linked.averageCallsPerDeal),
+          stageBreakdown: asArray(linked.stageBreakdown, normalizeStageCallMetric),
+        },
+        stageBreakdown: asArray(item.stageBreakdown, normalizeStageCallMetric),
       }
     }),
   }
@@ -559,6 +631,17 @@ function normalizeAcquisitionOutcomesSnapshot(
             businessClubLabel: asString(
               row.businessClubLabel,
               asString(row.businessClubKey),
+            ),
+            count: asNumber(row.count),
+          }
+        }),
+        targetGroups: asArray(item.targetGroups, (bucket) => {
+          const row = isRecord(bucket) ? bucket : {}
+          return {
+            targetGroupKey: asString(row.targetGroupKey),
+            targetGroupLabel: asString(
+              row.targetGroupLabel,
+              asString(row.targetGroupKey),
             ),
             count: asNumber(row.count),
           }
@@ -721,9 +804,75 @@ function normalizeManagerActionOutcomeSnapshot(
   value: unknown,
 ): ManagerActionOutcomeReportSnapshot {
   const data = isRecord(value) ? value : {}
+  const normalizeStatusKey = (value: unknown) =>
+    value === 'won' || value === 'lost' || value === 'wip' ? value : 'wip'
+  const normalizeDealSlaStatus = (value: unknown): ManagerActionOutcomeDealSlaStatus =>
+    value === 'onTime' || value === 'late' || value === 'noTouch' ? value : 'noTouch'
+  const normalizeCallSummary = (value: unknown) => {
+    const calls = isRecord(value) ? value : {}
+    return {
+      total: asNumber(calls.total),
+      incoming: asNumber(calls.incoming),
+      outgoing: asNumber(calls.outgoing),
+      successful: asNumber(calls.successful),
+      failed: asNumber(calls.failed),
+      overThirtySeconds: asNumber(calls.overThirtySeconds),
+      connectedOverThirtySeconds: asNumber(calls.connectedOverThirtySeconds),
+    }
+  }
+  const normalizeTaskSummary = (value: unknown) => {
+    const tasks = isRecord(value) ? value : {}
+    return {
+      created: asNumber(tasks.created),
+      closed: asNumber(tasks.closed),
+    }
+  }
+  const normalizeMeetingSummary = (value: unknown) => {
+    const meetings = isRecord(value) ? value : {}
+    return {
+      total: asNumber(meetings.total),
+    }
+  }
+  const normalizeStageTimeline = (value: unknown) =>
+    asArray(value, (stage) => {
+      const stageRow = isRecord(stage) ? stage : {}
+      return {
+        stageId: asString(stageRow.stageId),
+        stageName: asString(stageRow.stageName, asString(stageRow.stageId)),
+        enteredAt: asString(stageRow.enteredAt),
+        leftAt: asString(stageRow.leftAt),
+        durationHours: asNumber(stageRow.durationHours),
+        meetingEvents: asArray(stageRow.meetingEvents, (event) => {
+          const eventRow = isRecord(event) ? event : {}
+          return {
+            activityId: asString(eventRow.activityId),
+            createdAt: asString(eventRow.createdAt),
+            timelineAt: asString(eventRow.timelineAt, asString(eventRow.createdAt)),
+            scheduledAt: asString(eventRow.scheduledAt),
+            completed: Boolean(eventRow.completed),
+          }
+        }),
+      }
+    })
+  const normalizeDealSla = (value: unknown) => {
+    const sla = isRecord(value) ? value : {}
+    const normalizeOne = (entry: unknown) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        status: normalizeDealSlaStatus(item.status),
+        hours: typeof item.hours === 'number' && Number.isFinite(item.hours) ? item.hours : null,
+      }
+    }
+    return {
+      sla1: normalizeOne(sla.sla1),
+      sla2: normalizeOne(sla.sla2),
+      sla3: normalizeOne(sla.sla3),
+    }
+  }
 
   return {
     range: normalizeRange(data.range),
+    warnings: asArray(data.warnings, (entry) => asString(entry)).filter(Boolean),
     rows: asArray(data.rows, (entry) => {
       const item = isRecord(entry) ? entry : {}
       return {
@@ -754,6 +903,64 @@ function normalizeManagerActionOutcomeSnapshot(
         salesAmount: asNumber(item.salesAmount),
         averageSaleAmount: asNumber(item.averageSaleAmount),
         averageCycleDays: asNumber(item.averageCycleDays),
+      }
+    }),
+    cohortMonths: asArray(data.cohortMonths, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        cohortMonth: asString(item.cohortMonth),
+        cohortLabel: asString(item.cohortLabel, asString(item.cohortMonth)),
+        totalCreatedDeals: asNumber(item.totalCreatedDeals),
+      }
+    }),
+    cohortStatusRows: asArray(data.cohortStatusRows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        managerId: asString(item.managerId),
+        managerName: asString(item.managerName, asString(item.managerId)),
+        cohortMonth: typeof item.cohortMonth === 'string' ? item.cohortMonth : null,
+        statusKey: normalizeStatusKey(item.statusKey),
+        statusLabel: asString(item.statusLabel),
+        cohortCreatedDeals: asNumber(item.cohortCreatedDeals),
+        dealCount: asNumber(item.dealCount),
+        statusShare: asNumber(item.statusShare),
+        createdTasksPerDeal: asNumber(item.createdTasksPerDeal),
+        closedTasksPerDeal: asNumber(item.closedTasksPerDeal),
+        totalCallsPerDeal: asNumber(item.totalCallsPerDeal),
+        successfulCallsOverThirtySecondsPerDeal: asNumber(
+          item.successfulCallsOverThirtySecondsPerDeal,
+        ),
+        meetingsPerDeal: asNumber(item.meetingsPerDeal),
+        sla1OnTimeRate: asNumber(item.sla1OnTimeRate),
+        sla2OnTimeRate: asNumber(item.sla2OnTimeRate),
+        sla3OnTimeRate: asNumber(item.sla3OnTimeRate),
+        financialAmount: asNumber(item.financialAmount),
+        averageFinancialAmount: asNumber(item.averageFinancialAmount),
+        dealDetails: asArray(item.dealDetails, (deal) => {
+          const row = isRecord(deal) ? deal : {}
+          return {
+            dealId: asString(row.dealId),
+            stageId: asString(row.stageId),
+            stageName: asString(row.stageName, asString(row.stageId)),
+            amount: asNumber(row.amount),
+            dateCreate: asString(row.dateCreate),
+            dateClosed: asNullableString(row.dateClosed),
+            dateModify: asString(row.dateModify),
+            sourceKey: asString(row.sourceKey),
+            sourceLabel: asString(row.sourceLabel, asString(row.sourceKey)),
+            qualityValue: asNullableString(row.qualityValue),
+            businessClubValue: asNullableString(row.businessClubValue),
+            targetGroupValue: asNullableString(row.targetGroupValue),
+            meetingTypeValue: asNullableString(row.meetingTypeValue),
+            meetingDateValue: asNullableString(row.meetingDateValue),
+            tariffValue: asNullableString(row.tariffValue),
+            taskSummary: normalizeTaskSummary(row.taskSummary),
+            callSummary: normalizeCallSummary(row.callSummary),
+            meetingSummary: normalizeMeetingSummary(row.meetingSummary),
+            sla: normalizeDealSla(row.sla),
+            stageTimeline: normalizeStageTimeline(row.stageTimeline),
+          }
+        }),
       }
     }),
   }

@@ -266,6 +266,10 @@ export function ProtoApp() {
     [activeSceneId],
   )
   const activeSceneKpis = useMemo(() => {
+    if (runtimeData.operationalStatus !== 'ready' && activeScene.id !== 'sales') {
+      return []
+    }
+
     if (activeScene.id === 'activities-calls' && runtimeData.activitiesCalls) {
       return runtimeData.activitiesCalls.kpis
     }
@@ -279,7 +283,13 @@ export function ProtoApp() {
     }
 
     return activeScene.kpis
-  }, [activeScene, runtimeData.activitiesCalls, runtimeData.cohorts, runtimeData.tocFlow])
+  }, [
+    activeScene,
+    runtimeData.activitiesCalls,
+    runtimeData.cohorts,
+    runtimeData.operationalStatus,
+    runtimeData.tocFlow,
+  ])
   const visibleSceneKpis = useMemo(
     () => getVisibleSceneKpis(activeScene.id, activeSceneKpis),
     [activeScene.id, activeSceneKpis],
@@ -324,6 +334,21 @@ export function ProtoApp() {
           label: entry.label,
           meta: 'Источник',
         }))
+        if (meta.syncHealth?.blocking) {
+          const message =
+            meta.syncHealth.warnings[0] ??
+            meta.syncHealth.issues[0]?.message ??
+            'Локальный snapshot не подтвержден sync coverage.'
+
+          setRuntimeData((current) => ({
+            ...current,
+            managerOptions: managerPickerOptions,
+            sourceOptions: sourcePickerOptions,
+            operationalStatus: 'error',
+            operationalError: message,
+          }))
+          return
+        }
 
         const query = buildDashboardQueryFromProtoFilters(appliedFilters)
         const [
@@ -409,7 +434,7 @@ export function ProtoApp() {
               const report = await apiClient.getTocFlowReport({
                 ...query,
                 managerIds: [managerId],
-                compareRanges: query.compareRanges,
+                compareRanges: query.compareRanges ?? [],
               })
               const label =
                 managerPickerOptions.find((entry) => entry.id === managerId)?.label ??
@@ -814,15 +839,18 @@ export function ProtoApp() {
           </section>
         )}
 
-        {runtimeData.operationalError && activeScene.id !== 'sales' ? (
-          <div className="panel border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+        {runtimeData.operationalError ? (
+          <div
+            role="alert"
+            className="panel border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+          >
             {runtimeData.operationalError}
           </div>
         ) : null}
 
         <ActiveSceneComponent
           commentMode={commentMode}
-          filters={filters}
+          filters={appliedFilters}
           runtimeData={runtimeData}
         />
 

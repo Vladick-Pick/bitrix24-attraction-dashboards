@@ -1,3 +1,4 @@
+import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +8,178 @@ import {
   assertSafeSelectFields,
   redactWebhookUrl
 } from "../src/bitrix/security";
+import { createApp } from "../src/server/app";
+
+function createCorsTestApp(config?: {
+  webOrigin?: string;
+  apiAuthToken?: string;
+}) {
+  return (
+    createApp as unknown as (
+      service: Parameters<typeof createApp>[0],
+      config?: {
+        webOrigin?: string;
+        apiAuthToken?: string;
+      }
+    ) => ReturnType<typeof createApp>
+  )(
+    {
+      getDashboard: async () => ({
+        salesSummary: {
+          salesCount: 0,
+          salesAmount: 0,
+          averageSaleAmount: 0,
+          newDealsCount: 0,
+          conversionRate: 0
+        },
+        managerGroups: []
+      }),
+      getSourceQualityConversionReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalCreatedDeals: 0,
+        totalWonDeals: 0,
+        rows: [],
+        stageSequence: []
+      }),
+      getActivitiesWorkloadReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalDealCount: 0,
+        totalCreatedCount: 0,
+        totalRescheduledCount: 0,
+        totalClosedCount: 0,
+        totalMeetingCount: 0,
+        warnings: [],
+        managerRows: [],
+        comparisons: []
+      }),
+      getCallsWorkloadReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalDealCount: 0,
+        totalCalls: 0,
+        totalIncomingCalls: 0,
+        totalOutgoingCalls: 0,
+        totalOtherOutgoingCalls: 0,
+        totalConnectedCalls: 0,
+        totalFailedCalls: 0,
+        totalCallsOverThirtySeconds: 0,
+        totalConnectedCallsOverThirtySeconds: 0,
+        allCalls: {
+          totalCalls: 0,
+          incomingCalls: 0,
+          outgoingCalls: 0,
+          otherOutgoingCalls: 0,
+          connectedCalls: 0,
+          failedCalls: 0,
+          callsOverThirtySeconds: 0,
+          connectedCallsOverThirtySeconds: 0,
+          averageDurationSeconds: 0
+        },
+        linkedDealCalls: {
+          totalDealCount: 0,
+          totalCalls: 0,
+          incomingCalls: 0,
+          outgoingCalls: 0,
+          otherOutgoingCalls: 0,
+          connectedCalls: 0,
+          failedCalls: 0,
+          callsOverThirtySeconds: 0,
+          connectedCallsOverThirtySeconds: 0,
+          averageDurationSeconds: 0
+        },
+        warnings: [],
+        managerRows: [],
+        comparisons: []
+      }),
+      getCohortConversionReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalCreatedDeals: 0,
+        totalClosedDeals: 0,
+        totalWonDeals: 0,
+        closureMonths: [],
+        relativeBucketKeys: ["month_1", "month_2", "month_3", "month_4_plus"],
+        rows: [],
+        comparisons: []
+      }),
+      getTocFlowReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        businessDays: 0,
+        warnings: [],
+        estimatedGainPerDay: null,
+        bottleneck: null,
+        rows: [],
+        comparisons: []
+      }),
+      getAcquisitionOutcomesReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalNewDeals: 0,
+        totalLostDeals: 0,
+        newDealsByManager: [],
+        lostDealsByManager: [],
+        lostStages: [],
+        businessClubByManager: [],
+        lostDealDetails: [],
+        topLossReasons: []
+      }),
+      getTargetGroupConversionReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalCreatedDeals: 0,
+        totalWonDeals: 0,
+        rows: []
+      }),
+      getManagerActionOutcomeReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        warnings: [],
+        rows: [],
+        cohortMonths: [],
+        cohortStatusRows: []
+      }),
+      getMeta: async () => ({
+        stageCatalog: [],
+        managerCatalog: [],
+        sourceCatalog: [],
+        wonStageIds: [],
+        defaultPeriodDays: 30,
+        lastSync: null
+      }),
+      performSync: async () => ({
+        syncRunId: 1,
+        leadsSynced: 0,
+        dealsSynced: 0,
+        mode: "delta" as const,
+        modifiedAfter: null,
+        finishedAt: "2026-04-09T00:00:00.000Z"
+      }),
+      updateWonStages: async (stageIds: string[]) => ({
+        wonStageIds: stageIds
+      })
+    },
+    config
+  );
+}
 
 describe("Bitrix transport security", () => {
   it("keeps the runtime method policy on a strict allowlist", () => {
@@ -14,20 +187,26 @@ describe("Bitrix transport security", () => {
       "crm.deal.list",
       "crm.status.list",
       "crm.deal.fields",
+      "crm.contact.list",
+      "crm.contact.fields",
       "crm.item.list",
       "crm.stagehistory.list",
       "crm.activity.list",
       "voximplant.statistic.get",
       "user.get"
     ]);
-    expect(() => assertAllowedBitrixMethod("crm.contact.list")).toThrow(
+    expect(() => assertAllowedBitrixMethod("crm.contact.get")).toThrow(
       /forbidden/i
     );
   });
 
   it("rejects selects that contain pii or wildcard fields while allowing the configured quality field", () => {
     expect(FORBIDDEN_FIELD_TOKENS).toContain("PHONE");
+    expect(FORBIDDEN_FIELD_TOKENS).toContain("TITLE");
+    expect(FORBIDDEN_FIELD_TOKENS).not.toContain("CONTACT_ID");
     expect(() => assertSafeSelectFields(["ID", "PHONE"])).toThrow(/PHONE/);
+    expect(() => assertSafeSelectFields(["ID", "TITLE"])).toThrow(/TITLE/);
+    expect(() => assertSafeSelectFields(["ID", "CONTACT_ID"])).not.toThrow();
     expect(() => assertSafeSelectFields(["ID", "*"])).toThrow(/\*/);
     expect(() =>
       assertSafeSelectFields(["ID", "UF_CRM_999"], ["UF_CRM_1730380390"])
@@ -45,5 +224,30 @@ describe("Bitrix transport security", () => {
     expect(
       redactWebhookUrl("https://portal.bitrix24.ru/rest/1/secrettoken/crm.deal.list")
     ).toBe("https://portal.bitrix24.ru/rest/1/[REDACTED]/crm.deal.list");
+  });
+
+  it("uses a configured WEB_ORIGIN allowlist instead of wildcard CORS", async () => {
+    const app = createCorsTestApp({
+      webOrigin: "http://localhost:5173"
+    });
+
+    await request(app)
+      .get("/api/health")
+      .set("Origin", "http://localhost:5173")
+      .expect(200)
+      .expect((response) => {
+        expect(response.headers["access-control-allow-origin"]).toBe(
+          "http://localhost:5173"
+        );
+        expect(response.headers["access-control-allow-origin"]).not.toBe("*");
+      });
+
+    await request(app)
+      .get("/api/health")
+      .set("Origin", "https://evil.example")
+      .expect(200)
+      .expect((response) => {
+        expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+      });
   });
 });

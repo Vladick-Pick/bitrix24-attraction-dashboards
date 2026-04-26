@@ -22,6 +22,7 @@ import type {
   ProtoKpi,
   TocManagerConversionRow,
   TocFlowSceneData,
+  TocStableLeaderRow,
 } from '@/proto/types'
 
 type ManagerCohortBreakdown = {
@@ -98,6 +99,10 @@ function formatDecimal(value: number) {
 function formatPercentDisplay(value: number) {
   if (!Number.isFinite(value) || value <= 0) {
     return '0%'
+  }
+
+  if (value < 1) {
+    return '<1%'
   }
 
   return `${Math.floor(value)}%`
@@ -189,6 +194,18 @@ function formatCompareValue(prefix: string, value: string) {
   return `${prefix}: ${value}`
 }
 
+function formatOptionalCompareValue(
+  prefix: string,
+  value: number | null | undefined,
+  formatter: (input: number) => string,
+) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined
+  }
+
+  return formatCompareValue(prefix, formatter(value))
+}
+
 function getFirstComparison<TSnapshot extends { range: ReportRange }>(
   report: { comparisons?: Array<{ snapshot: TSnapshot }> },
 ) {
@@ -252,49 +269,20 @@ function monthLabel(value: string) {
     .replace(/^./, (letter) => letter.toUpperCase())
 }
 
-function monthDiff(createdMonth: string, closedMonth: string) {
-  const [createdYear, createdMonthNumber] = createdMonth.split('-').map(Number)
-  const [closedYear, closedMonthNumber] = closedMonth.split('-').map(Number)
-
-  if (
-    !createdYear ||
-    !createdMonthNumber ||
-    !closedYear ||
-    !closedMonthNumber
-  ) {
-    return null
-  }
-
-  return (closedYear - createdYear) * 12 + (closedMonthNumber - createdMonthNumber)
-}
-
-function collectWonDealsByRelativeWindow(
+function getRelativeClosureBucket(
   row: CohortConversionReportSnapshot['rows'][number],
+  bucketKey: (typeof cohortBucketOrder)[number],
 ) {
-  let month4 = 0
-
-  for (const bucket of row.closureBuckets) {
-    const diff = monthDiff(row.createdMonth, bucket.closedMonth)
-    if (diff === 3) {
-      month4 += bucket.wonDeals
+  return (
+    row.relativeClosureBuckets.find((bucket) => bucket.bucketKey === bucketKey) ?? {
+      bucketKey,
+      label: cohortBucketLabels.get(bucketKey) ?? bucketKey,
+      closedDeals: 0,
+      wonDeals: 0,
+      closedRate: 0,
+      wonConversionRate: 0,
     }
-  }
-
-  const relativeWonDeals = (bucketKey: (typeof cohortBucketOrder)[number]) =>
-    row.relativeClosureBuckets.find((bucket) => bucket.bucketKey === bucketKey)
-      ?.wonDeals ?? 0
-
-  const tailTotal =
-    row.relativeClosureBuckets.find((bucket) => bucket.bucketKey === 'month_4_plus')
-      ?.wonDeals ?? 0
-
-  return {
-    month1: relativeWonDeals('month_1'),
-    month2: relativeWonDeals('month_2'),
-    month3: relativeWonDeals('month_3'),
-    month4,
-    month4Plus: Math.max(tailTotal - month4, 0),
-  }
+  )
 }
 
 function createHeatLevel(value: number, maxValue: number) {
@@ -325,6 +313,24 @@ function average(values: number[]) {
 
 function sumRowsCreatedDeals(rows: CohortConversionReportSnapshot['rows']) {
   return rows.reduce((total, row) => total + row.createdDeals, 0)
+}
+
+function weightedAverageCohortCycleDays(rows: CohortConversionReportSnapshot['rows']) {
+  const totals = rows.reduce(
+    (accumulator, row) => {
+      if (row.wonDeals <= 0 || row.averageDaysToWin <= 0) {
+        return accumulator
+      }
+
+      return {
+        weightedDays: accumulator.weightedDays + row.averageDaysToWin * row.wonDeals,
+        wonDeals: accumulator.wonDeals + row.wonDeals,
+      }
+    },
+    { weightedDays: 0, wonDeals: 0 },
+  )
+
+  return totals.wonDeals > 0 ? totals.weightedDays / totals.wonDeals : 0
 }
 
 function widthFromPercent(value: number) {
@@ -431,7 +437,7 @@ function mapTocManagerConversionRow(entry: ManagerTocBreakdown): TocManagerConve
   }
 }
 
-function buildStableLeaderRows(managerBreakdowns: ManagerTocBreakdown[]) {
+function buildStableLeaderRows(managerBreakdowns: ManagerTocBreakdown[]): TocStableLeaderRow[] {
   const stageIds = Array.from(
     new Set(
       managerBreakdowns.flatMap((entry) => entry.report.rows.map((row) => row.stageId)),
@@ -503,14 +509,22 @@ function buildStableLeaderRows(managerBreakdowns: ManagerTocBreakdown[]) {
           return left.key.localeCompare(right.key)
         })
 
-      const compareRank = compareEntries.findIndex((entry) => entry.key === leader.key)
-      const compareEntry = compareRank === -1 ? null : compareEntries[compareRank]
+      const compareEntry = compareEntries.find((entry) => entry.key === leader.key) ?? null
+      const compareRank = compareEntry ? compareEntries.indexOf(compareEntry) : -1
       const isStable =
         compareEntry !== null &&
         compareRank <= 1 &&
         (compareEntry.conversionRate === 0
           ? leader.conversionRate === 0
           : leader.conversionRate >= compareEntry.conversionRate * STABLE_LEADER_RATE_THRESHOLD)
+      const stabilityTone: TocStableLeaderRow['stabilityTone'] =
+        compareEntries.length === 0
+          ? 'neutral'
+          : isStable
+            ? 'positive'
+            : compareEntry
+              ? 'negative'
+              : 'neutral'
 
       return {
         stage: leader.stage,
@@ -533,14 +547,7 @@ function buildStableLeaderRows(managerBreakdowns: ManagerTocBreakdown[]) {
               : compareEntry
                 ? 'Нужно проверить'
                 : 'Новый лидер',
-        stabilityTone:
-          compareEntries.length === 0
-            ? 'neutral'
-            : isStable
-              ? 'positive'
-              : compareEntry
-                ? 'negative'
-                : 'neutral',
+        stabilityTone,
       }
     })
     .filter((row): row is NonNullable<typeof row> => row !== null)
@@ -715,7 +722,7 @@ export function mapActivitiesCallsSceneData(input: {
   const compareCallsPerDeal =
     compareCalls && compareCalls.totalDealCount > 0
       ? compareCalls.totalCalls / compareCalls.totalDealCount
-      : 0
+      : null
   const totalTasksPerDeal =
     activities.totalDealCount > 0
       ? activities.totalCreatedCount / activities.totalDealCount
@@ -723,7 +730,7 @@ export function mapActivitiesCallsSceneData(input: {
   const compareTasksPerDeal =
     compareActivities && compareActivities.totalDealCount > 0
       ? compareActivities.totalCreatedCount / compareActivities.totalDealCount
-      : 0
+      : null
 
   const createdDelta = formatPercentDelta(
     activities.totalCreatedCount,
@@ -734,16 +741,21 @@ export function mapActivitiesCallsSceneData(input: {
     compareActivities?.totalClosedCount ?? 0,
   )
   const callsPerDealDelta = hasCallsPerDealBase
-    ? formatPercentDelta(totalCallsPerDeal, compareCallsPerDeal)
+    ? compareCallsPerDeal === null
+      ? '—'
+      : formatPercentDelta(totalCallsPerDeal, compareCallsPerDeal)
     : calls.totalCalls > 0
       ? 'нет привязки'
       : 'нет базы'
-  const tasksPerDealDelta = formatPercentDelta(totalTasksPerDeal, compareTasksPerDeal)
+  const tasksPerDealDelta =
+    compareTasksPerDeal === null
+      ? '—'
+      : formatPercentDelta(totalTasksPerDeal, compareTasksPerDeal)
 
   return {
     kpis: [
       buildKpi({
-        label: 'Создано дел',
+        label: 'Создано задач',
         value: formatCount(activities.totalCreatedCount),
         note: 'за активный диапазон',
         compare: compareActivities
@@ -761,7 +773,7 @@ export function mapActivitiesCallsSceneData(input: {
         deltaTone: 'neutral',
       }),
       buildKpi({
-        label: 'Закрыто дел',
+        label: 'Закрыто задач',
         value: formatCount(activities.totalClosedCount),
         note:
           activities.totalCreatedCount > 0
@@ -781,21 +793,24 @@ export function mapActivitiesCallsSceneData(input: {
           : calls.totalCalls > 0
             ? 'есть звонки, но они не привязаны к сделкам'
             : 'нет связанных сделок для расчета',
-        compare: hasCallsPerDealBase && compareCalls
-          ? formatCompareValue('пред. период', formatDecimal(compareCallsPerDeal))
-          : undefined,
+        compare:
+          hasCallsPerDealBase && compareCallsPerDeal !== null
+            ? formatCompareValue('пред. период', formatDecimal(compareCallsPerDeal))
+            : undefined,
         delta: callsPerDealDelta,
         deltaTone: hasCallsPerDealBase
           ? normalizeKpiTone(callsPerDealDelta, true)
           : 'neutral',
       }),
       buildKpi({
-        label: 'Дел на сделку',
+        label: 'Задач на сделку',
         value: formatDecimal(totalTasksPerDeal),
-        note: 'созданные дела / сделки в выборке',
-        compare: compareActivities
-          ? formatCompareValue('пред. период', formatDecimal(compareTasksPerDeal))
-          : undefined,
+        note: 'созданные задачи / сделки в выборке',
+        compare: formatOptionalCompareValue(
+          'пред. период',
+          compareTasksPerDeal,
+          formatDecimal,
+        ),
         delta: tasksPerDealDelta,
         deltaTone: tasksPerDealDelta === '0%' ? 'neutral' : normalizeKpiTone(tasksPerDealDelta, true),
       }),
@@ -821,20 +836,21 @@ export function mapCohortSceneData(input: {
       rawValues: number[]
     }
   > = report.rows.map((row) => {
-    const wonByWindow = collectWonDealsByRelativeWindow(row)
-    const rawValues = [
-      wonByWindow.month1,
-      wonByWindow.month2,
-      wonByWindow.month3,
-      wonByWindow.month4,
-      wonByWindow.month4Plus,
-    ]
+    const matrixBuckets = cohortBucketOrder.map((bucketKey) =>
+      getRelativeClosureBucket(row, bucketKey),
+    )
+    const rawValues = matrixBuckets.map((bucket) => bucket.wonDeals)
 
     return {
       month: monthLabel(row.createdMonth),
+      createdDeals: formatCount(row.createdDeals),
       rawValues,
-      cells: rawValues.map((value) => ({ value: String(value), level: 1 })),
-      conversion: formatPercentDisplay(row.wonConversionRate * 100),
+      cells: matrixBuckets.map((bucket) => ({
+        value: formatCount(bucket.wonDeals),
+        subvalue: formatPercentDisplay(bucket.wonConversionRate),
+        level: 1,
+      })),
+      conversion: formatPercentDisplay(row.wonConversionRate),
       cycle: `${Math.round(row.averageDaysToWin)} дн.`,
     }
   })
@@ -846,11 +862,12 @@ export function mapCohortSceneData(input: {
 
   const matrixRows: CohortMatrixRow[] = matrixRowsBase.map((row) => ({
     month: row.month,
+    createdDeals: row.createdDeals,
     conversion: row.conversion,
     cycle: row.cycle,
-    cells: row.rawValues.map((value) => ({
-      value: String(value),
-      level: createHeatLevel(value, maxMatrixValue),
+    cells: row.cells.map((cell, index) => ({
+      ...cell,
+      level: createHeatLevel(row.rawValues[index] ?? 0, maxMatrixValue),
     })),
   }))
 
@@ -858,16 +875,12 @@ export function mapCohortSceneData(input: {
     report.totalCreatedDeals > 0
       ? (report.totalWonDeals / report.totalCreatedDeals) * 100
       : 0
-  const currentAverageConversionDeltaBasis =
-    average(report.rows.map((row) => row.wonConversionRate)) * 100
-  const compareAverageConversionDeltaBasis =
-    average(compare?.rows.map((row) => row.wonConversionRate) ?? []) * 100
-  const currentAverageCycle = average(
-    report.rows.map((row) => row.averageDaysToWin).filter((value) => value > 0),
-  )
-  const compareAverageCycle = average(
-    compare?.rows.map((row) => row.averageDaysToWin).filter((value) => value > 0) ?? [],
-  )
+  const compareAverageConversion =
+    compare && compare.totalCreatedDeals > 0
+      ? (compare.totalWonDeals / compare.totalCreatedDeals) * 100
+      : 0
+  const currentAverageCycle = weightedAverageCohortCycleDays(report.rows)
+  const compareAverageCycle = weightedAverageCohortCycleDays(compare?.rows ?? [])
 
   const currentBucketDenominator = report.totalCreatedDeals || sumRowsCreatedDeals(report.rows) || 1
   const compareBucketDenominator =
@@ -897,8 +910,8 @@ export function mapCohortSceneData(input: {
 
   const summaryConversionDelta = compare
     ? formatPercentPointDelta(
-        currentAverageConversionDeltaBasis,
-        compareAverageConversionDeltaBasis,
+        currentAverageConversion,
+        compareAverageConversion,
       )
     : '—'
   const averageCycleDelta = compare
@@ -1042,7 +1055,7 @@ export function mapTocFlowSceneData(input: {
         deltaTone: normalizeKpiTone(totalQueueDelta, false),
       }),
       buildKpi({
-        label: 'Выход в неделю',
+        label: 'Выход за период',
         value: formatCount(totalMovedNext),
         note: 'перешло на следующий этап в периоде',
         compare: compare

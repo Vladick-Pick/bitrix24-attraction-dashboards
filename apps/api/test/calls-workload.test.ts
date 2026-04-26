@@ -198,7 +198,7 @@ describe("buildCallsWorkloadReport", () => {
       ]
     });
 
-    expect(result).toEqual({
+      expect(result).toEqual({
       range: {
         from: "2026-04-01T00:00:00.000Z",
         to: "2026-04-30T23:59:59.999Z"
@@ -212,6 +212,29 @@ describe("buildCallsWorkloadReport", () => {
       totalFailedCalls: 1,
       totalCallsOverThirtySeconds: 2,
       totalConnectedCallsOverThirtySeconds: 1,
+      allCalls: {
+        totalCalls: 5,
+        incomingCalls: 2,
+        outgoingCalls: 3,
+        otherOutgoingCalls: 1,
+        connectedCalls: 3,
+        failedCalls: 1,
+        callsOverThirtySeconds: 2,
+        connectedCallsOverThirtySeconds: 1,
+        averageDurationSeconds: 40
+      },
+      linkedDealCalls: {
+        totalDealCount: 2,
+        totalCalls: 4,
+        incomingCalls: 2,
+        outgoingCalls: 2,
+        otherOutgoingCalls: 1,
+        connectedCalls: 3,
+        failedCalls: 0,
+        callsOverThirtySeconds: 2,
+        connectedCallsOverThirtySeconds: 1,
+        averageDurationSeconds: 50
+      },
       warnings: [],
       managerRows: [
         {
@@ -228,6 +251,31 @@ describe("buildCallsWorkloadReport", () => {
           connectedCallsOverThirtySeconds: 0,
           averageCallsPerDeal: 0,
           averageDurationSeconds: 0,
+          allCalls: {
+            totalCalls: 1,
+            incomingCalls: 0,
+            outgoingCalls: 1,
+            otherOutgoingCalls: 0,
+            connectedCalls: 0,
+            failedCalls: 1,
+            callsOverThirtySeconds: 0,
+            connectedCallsOverThirtySeconds: 0,
+            averageDurationSeconds: 0
+          },
+          linkedDealCalls: {
+            dealCount: 0,
+            totalCalls: 0,
+            incomingCalls: 0,
+            outgoingCalls: 0,
+            otherOutgoingCalls: 0,
+            connectedCalls: 0,
+            failedCalls: 0,
+            callsOverThirtySeconds: 0,
+            connectedCallsOverThirtySeconds: 0,
+            averageCallsPerDeal: 0,
+            averageDurationSeconds: 0,
+            stageBreakdown: []
+          },
           stageBreakdown: []
         },
         {
@@ -244,6 +292,47 @@ describe("buildCallsWorkloadReport", () => {
           connectedCallsOverThirtySeconds: 1,
           averageCallsPerDeal: 2,
           averageDurationSeconds: 70,
+          allCalls: {
+            totalCalls: 2,
+            incomingCalls: 0,
+            outgoingCalls: 2,
+            otherOutgoingCalls: 1,
+            connectedCalls: 2,
+            failedCalls: 0,
+            callsOverThirtySeconds: 1,
+            connectedCallsOverThirtySeconds: 1,
+            averageDurationSeconds: 70
+          },
+          linkedDealCalls: {
+            dealCount: 1,
+            totalCalls: 2,
+            incomingCalls: 0,
+            outgoingCalls: 2,
+            otherOutgoingCalls: 1,
+            connectedCalls: 2,
+            failedCalls: 0,
+            callsOverThirtySeconds: 1,
+            connectedCallsOverThirtySeconds: 1,
+            averageCallsPerDeal: 2,
+            averageDurationSeconds: 70,
+            stageBreakdown: [
+              {
+                stageId: "C10:UC_9E0XYG",
+                stageName: "Встреча-знакомство",
+                dealCount: 1,
+                totalCalls: 2,
+                incomingCalls: 0,
+                outgoingCalls: 2,
+                otherOutgoingCalls: 1,
+                connectedCalls: 2,
+                failedCalls: 0,
+                callsOverThirtySeconds: 1,
+                connectedCallsOverThirtySeconds: 1,
+                averageCallsPerDeal: 2,
+                averageDurationSeconds: 70
+              }
+            ]
+          },
           stageBreakdown: [
             {
               stageId: "C10:UC_9E0XYG",
@@ -276,6 +365,47 @@ describe("buildCallsWorkloadReport", () => {
           connectedCallsOverThirtySeconds: 0,
           averageCallsPerDeal: 2,
           averageDurationSeconds: 30,
+          allCalls: {
+            totalCalls: 2,
+            incomingCalls: 2,
+            outgoingCalls: 0,
+            otherOutgoingCalls: 0,
+            connectedCalls: 1,
+            failedCalls: 0,
+            callsOverThirtySeconds: 1,
+            connectedCallsOverThirtySeconds: 0,
+            averageDurationSeconds: 30
+          },
+          linkedDealCalls: {
+            dealCount: 1,
+            totalCalls: 2,
+            incomingCalls: 2,
+            outgoingCalls: 0,
+            otherOutgoingCalls: 0,
+            connectedCalls: 1,
+            failedCalls: 0,
+            callsOverThirtySeconds: 1,
+            connectedCallsOverThirtySeconds: 0,
+            averageCallsPerDeal: 2,
+            averageDurationSeconds: 30,
+            stageBreakdown: [
+              {
+                stageId: "C10:PREPARATION",
+                stageName: "Звонок-знакомство",
+                dealCount: 1,
+                totalCalls: 2,
+                incomingCalls: 2,
+                outgoingCalls: 0,
+                otherOutgoingCalls: 0,
+                connectedCalls: 1,
+                failedCalls: 0,
+                callsOverThirtySeconds: 1,
+                connectedCallsOverThirtySeconds: 0,
+                averageCallsPerDeal: 2,
+                averageDurationSeconds: 30
+              }
+            ]
+          },
           stageBreakdown: [
             {
               stageId: "C10:PREPARATION",
@@ -308,6 +438,31 @@ describe("buildCallsWorkloadReport", () => {
           connectedCallsOverThirtySeconds: 0,
           averageCallsPerDeal: 0,
           averageDurationSeconds: 0,
+          allCalls: {
+            totalCalls: 0,
+            incomingCalls: 0,
+            outgoingCalls: 0,
+            otherOutgoingCalls: 0,
+            connectedCalls: 0,
+            failedCalls: 0,
+            callsOverThirtySeconds: 0,
+            connectedCallsOverThirtySeconds: 0,
+            averageDurationSeconds: 0
+          },
+          linkedDealCalls: {
+            dealCount: 0,
+            totalCalls: 0,
+            incomingCalls: 0,
+            outgoingCalls: 0,
+            otherOutgoingCalls: 0,
+            connectedCalls: 0,
+            failedCalls: 0,
+            callsOverThirtySeconds: 0,
+            connectedCallsOverThirtySeconds: 0,
+            averageCallsPerDeal: 0,
+            averageDurationSeconds: 0,
+            stageBreakdown: []
+          },
           stageBreakdown: []
         }
       ]

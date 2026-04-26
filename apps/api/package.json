@@ -6,6 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "audit:attraction-scope": "tsx src/tools/audit-attraction-scope.ts",
     "lint": "eslint src test",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -15,6 +15,14 @@ vi.mock('@/lib/api-client', () => ({
       wonStageIds: [],
       defaultPeriodDays: 30,
       lastSync: null,
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '2026-04-10T12:00:00.000Z',
+        lastSuccessfulSync: null,
+        issues: [],
+        warnings: [],
+      },
     })),
     getDashboard: vi.fn(async () => ({
       salesSummary: {
@@ -74,6 +82,8 @@ vi.mock('@/lib/api-client', () => ({
     getManagerActionOutcomeReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       rows: [],
+      cohortMonths: [],
+      cohortStatusRows: [],
       comparisons: [],
     })),
     getCohortConversionReport: vi.fn(async () => ({
@@ -259,7 +269,7 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).getByText('24 ч')).toBeInTheDocument()
   })
 
-  it('renders target-group conversion and action-to-result blocks in the sales scene', async () => {
+  it('moves the action-to-result block to cohorts without compare subrows', async () => {
     vi.mocked(apiClient.getTargetGroupConversionReport).mockResolvedValueOnce({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalCreatedDeals: 3,
@@ -302,6 +312,7 @@ describe('ProtoApp', () => {
     })
     vi.mocked(apiClient.getManagerActionOutcomeReport).mockResolvedValueOnce({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+      warnings: [],
       rows: [
         {
           managerId: '78',
@@ -331,12 +342,145 @@ describe('ProtoApp', () => {
           averageCycleDays: 10,
         },
       ],
+      cohortMonths: [
+        { cohortMonth: '2026-04', cohortLabel: '2026-04', totalCreatedDeals: 3 },
+      ],
+      cohortStatusRows: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          cohortMonth: null,
+          statusKey: 'won',
+          statusLabel: 'Выиграно',
+          cohortCreatedDeals: 3,
+          dealCount: 1,
+          statusShare: 0.3333,
+          createdTasksPerDeal: 1,
+          closedTasksPerDeal: 1,
+          totalCallsPerDeal: 2,
+          successfulCallsOverThirtySecondsPerDeal: 2,
+          meetingsPerDeal: 1,
+          sla1OnTimeRate: 1,
+          sla2OnTimeRate: 1,
+          sla3OnTimeRate: 1,
+          financialAmount: 120000,
+          averageFinancialAmount: 120000,
+          dealDetails: [
+            {
+              dealId: 'D1',
+              stageId: 'C10:WON',
+              stageName: 'Передано в клуб',
+              amount: 120000,
+              dateCreate: '2026-04-01T10:00:00.000Z',
+              dateClosed: '2026-04-04T10:00:00.000Z',
+              dateModify: '2026-04-04T10:00:00.000Z',
+              sourceKey: 'WEB',
+              sourceLabel: 'Сайт',
+              qualityValue: '2 Пришёл на мероприятие',
+              businessClubValue: 'ClubFirst One',
+              targetGroupValue: 'ClubFirst Russia',
+              meetingTypeValue: 'Мероприятие',
+              tariffValue: 'Федеральный Москва',
+              taskSummary: { created: 1, closed: 1 },
+              callSummary: {
+                total: 2,
+                incoming: 0,
+                outgoing: 2,
+                successful: 2,
+                failed: 0,
+                overThirtySeconds: 2,
+                connectedOverThirtySeconds: 2,
+              },
+              meetingSummary: { total: 1 },
+              sla: {
+                sla1: { status: 'onTime', hours: 1 },
+                sla2: { status: 'onTime', hours: 2 },
+                sla3: { status: 'onTime', hours: 3 },
+              },
+              stageTimeline: [
+                {
+                  stageId: 'C10:WON',
+                  stageName: 'Передано в клуб',
+                  enteredAt: '2026-04-04T10:00:00.000Z',
+                  leftAt: '2026-04-04T10:00:00.000Z',
+                  durationHours: 0,
+                  meetingEvents: [],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          cohortMonth: null,
+          statusKey: 'lost',
+          statusLabel: 'Проиграно',
+          cohortCreatedDeals: 3,
+          dealCount: 1,
+          statusShare: 0.3333,
+          createdTasksPerDeal: 1,
+          closedTasksPerDeal: 0,
+          totalCallsPerDeal: 1,
+          successfulCallsOverThirtySecondsPerDeal: 0,
+          meetingsPerDeal: 0,
+          sla1OnTimeRate: 0,
+          sla2OnTimeRate: 0,
+          sla3OnTimeRate: 0,
+          financialAmount: 50000,
+          averageFinancialAmount: 50000,
+          dealDetails: [],
+        },
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          cohortMonth: null,
+          statusKey: 'wip',
+          statusLabel: 'В работе сейчас',
+          cohortCreatedDeals: 3,
+          dealCount: 1,
+          statusShare: 0.3333,
+          createdTasksPerDeal: 0,
+          closedTasksPerDeal: 0,
+          totalCallsPerDeal: 0,
+          successfulCallsOverThirtySecondsPerDeal: 0,
+          meetingsPerDeal: 0,
+          sla1OnTimeRate: 0,
+          sla2OnTimeRate: 0,
+          sla3OnTimeRate: 0,
+          financialAmount: 70000,
+          averageFinancialAmount: 70000,
+          dealDetails: [],
+        },
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          cohortMonth: '2026-04',
+          statusKey: 'won',
+          statusLabel: 'Выиграно',
+          cohortCreatedDeals: 3,
+          dealCount: 1,
+          statusShare: 0.3333,
+          createdTasksPerDeal: 1,
+          closedTasksPerDeal: 1,
+          totalCallsPerDeal: 2,
+          successfulCallsOverThirtySecondsPerDeal: 2,
+          meetingsPerDeal: 1,
+          sla1OnTimeRate: 1,
+          sla2OnTimeRate: 1,
+          sla3OnTimeRate: 1,
+          financialAmount: 120000,
+          averageFinancialAmount: 120000,
+          dealDetails: [],
+        },
+      ],
       comparisons: [
         {
           compareIndex: 1,
           range: { from: '2026-03-01T00:00:00.000Z', to: '2026-03-31T23:59:59.999Z' },
           snapshot: {
             range: { from: '2026-03-01T00:00:00.000Z', to: '2026-03-31T23:59:59.999Z' },
+            warnings: [],
             rows: [
               {
                 managerId: '78',
@@ -366,6 +510,8 @@ describe('ProtoApp', () => {
                 averageCycleDays: 8,
               },
             ],
+            cohortMonths: [],
+            cohortStatusRows: [],
           },
         },
       ],
@@ -373,16 +519,35 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp />)
 
-    const targetGroupHeading = await screen.findByRole('heading', { name: /конверсия по таргет-группам/i })
-    const targetGroupSection = targetGroupHeading.closest('section')
-    const actionHeading = screen.getByRole('heading', { name: /действия → результат/i })
+    await screen.findByRole('heading', { name: /продажи по менеджерам/i })
+    expect(screen.queryByRole('heading', { name: /действия → результат/i })).not.toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('button', { name: /когортный отчет/i }))
+
+    const actionHeading = await screen.findByRole('heading', { name: /действия → результат/i })
     const actionSection = actionHeading.closest('section')
 
-    expect(targetGroupSection).not.toBeNull()
+    expect(screen.queryByRole('heading', { name: /конверсия по таргет-группам/i })).not.toBeInTheDocument()
     expect(actionSection).not.toBeNull()
-    expect(within(targetGroupSection as HTMLElement).getByText('ClubFirst')).toBeInTheDocument()
-    expect(within(targetGroupSection as HTMLElement).getAllByText(/120\s*000/).length).toBeGreaterThan(0)
-    expect(within(actionSection as HTMLElement).getByText('Егоров Андрей')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getAllByText('Егоров Андрей')).toHaveLength(1)
+    expect(within(actionSection as HTMLElement).getByText('Все когорты')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText('2026-04')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getAllByText('В работе сейчас').length).toBeGreaterThan(0)
+    expect(within(actionSection as HTMLElement).getAllByRole('row')).toHaveLength(4)
+    expect(within(actionSection as HTMLElement).getByText('SLA on-time')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).queryByText(/^С1:/)).not.toBeInTheDocument()
+
+    await userEvent.click(
+      within(actionSection as HTMLElement).getByRole('button', {
+        name: /раскрыть статус выиграно/i,
+      }),
+    )
+    expect(within(actionSection as HTMLElement).getByText('ID D1')).toBeInTheDocument()
+
+    await userEvent.click(within(actionSection as HTMLElement).getByRole('button', { name: 'Подробнее' }))
+    expect(within(actionSection as HTMLElement).getByText('Атрибуты сделки')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText('2 Пришёл на мероприятие')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText('Передано в клуб')).toBeInTheDocument()
   })
 
   it('keeps the manager filter prebuilt to the attraction team fallback list', async () => {
@@ -495,9 +660,90 @@ describe('ProtoApp', () => {
     })
 
     expect(screen.queryByRole('heading', { name: /матрица активности/i })).not.toBeInTheDocument()
-    expect(screen.getAllByText('Создано дел').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Создано задач').length).toBeGreaterThan(0)
     expect(screen.queryByText('Перенесён дедлайн')).not.toBeInTheDocument()
     expect(screen.queryByText(/Deadline reschedule counts are disabled/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a sales error state instead of an empty sales report when live loading fails', async () => {
+    vi.mocked(apiClient.getDashboard).mockRejectedValueOnce(new Error('Тестовый сбой live-данных'))
+
+    render(<ProtoApp />)
+
+    expect(
+      await screen.findAllByText('Тестовый сбой live-данных'),
+    ).toHaveLength(2)
+    expect(
+      screen.queryByText('В выбранном периоде нет выигранных сделок.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('blocks operational reports when sync health says local data is not trustworthy', async () => {
+    vi.mocked(apiClient.getMeta).mockResolvedValueOnce({
+      stageCatalog: [],
+      managerCatalog: [],
+      sourceCatalog: [],
+      wonStageIds: [],
+      defaultPeriodDays: 30,
+      lastSync: null,
+      syncHealth: {
+        status: 'blocked',
+        blocking: true,
+        checkedAt: '2026-04-10T12:00:00.000Z',
+        lastSuccessfulSync: null,
+        issues: [
+          {
+            code: 'MISSING_COVERAGE',
+            severity: 'blocking',
+            message: 'Нет подтвержденного покрытия локального snapshot.',
+          },
+        ],
+        warnings: ['Нет подтвержденного покрытия локального snapshot.'],
+      },
+    })
+
+    render(<ProtoApp />)
+
+    expect(
+      await screen.findAllByText('Нет подтвержденного покрытия локального snapshot.'),
+    ).toHaveLength(2)
+    expect(apiClient.getDashboard).not.toHaveBeenCalled()
+    expect(apiClient.getCallsWorkloadReport).not.toHaveBeenCalled()
+  })
+
+  it('keeps scene filter signatures bound to applied filters until the user applies draft changes', async () => {
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /когортный отчет/i }))
+
+    const cohortSection = (await screen.findByRole('heading', { name: /когортная матрица/i }))
+      .closest('section')
+    expect(cohortSection).not.toBeNull()
+    expect(
+      within(cohortSection as HTMLElement).getByText('Срез: все менеджеры / все источники'),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^Менеджеры$/i }))
+    await userEvent.click(screen.getByText('Егоров Андрей'))
+
+    expect(
+      within(cohortSection as HTMLElement).getByText('Срез: все менеджеры / все источники'),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/менеджеры: егоров андрей/i)).toBeInTheDocument()
+  })
+
+  it('does not render prototype fallback activity data after an operational live error', async () => {
+    vi.mocked(apiClient.getActivitiesWorkloadReport).mockRejectedValueOnce(
+      new Error('Отчёт активности недоступен'),
+    )
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /отчет активности/i }))
+
+    expect(await screen.findByText('Отчёт активности недоступен')).toBeInTheDocument()
+    expect(screen.queryByText('Анна Петрова')).not.toBeInTheDocument()
+    expect(screen.queryByText('486')).not.toBeInTheDocument()
   })
 
   it('renders attraction deal outcome blocks below the activity manager summary', async () => {
@@ -545,6 +791,10 @@ describe('ProtoApp', () => {
           businessClubs: [
             { businessClubKey: 'ClubOne', businessClubLabel: 'ClubOne', count: 3 },
             { businessClubKey: 'ClubTwo', businessClubLabel: 'ClubTwo', count: 1 },
+          ],
+          targetGroups: [
+            { targetGroupKey: 'ClubFirst', targetGroupLabel: 'ClubFirst', count: 3 },
+            { targetGroupKey: 'ClubFuture', targetGroupLabel: 'ClubFuture', count: 1 },
           ],
         },
       ],
@@ -607,11 +857,14 @@ describe('ProtoApp', () => {
     expect(within(lostDealsBlock as HTMLElement).getByRole('columnheader', { name: 'Причины' })).toBeInTheDocument()
     expect(within(lostDealsBlock as HTMLElement).getAllByRole('columnheader', { name: 'Потери' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: /drill-down потерь/i })).toBeInTheDocument()
-    const businessClubHeading = screen.getByRole('heading', { name: /business-club workload/i })
+    const businessClubHeading = screen.getByRole('heading', { name: /нагрузка по заказчикам/i })
     const businessClubSection = businessClubHeading.closest('section')
 
     expect(businessClubSection).not.toBeNull()
+    expect(within(businessClubSection as HTMLElement).getByRole('columnheader', { name: 'Бизнес-клуб заказчика' })).toBeInTheDocument()
+    expect(within(businessClubSection as HTMLElement).getByRole('columnheader', { name: 'Таргет-группа' })).toBeInTheDocument()
     expect(within(businessClubSection as HTMLElement).getAllByText('ClubTwo').length).toBeGreaterThan(0)
+    expect(within(businessClubSection as HTMLElement).getAllByText('ClubFuture').length).toBeGreaterThan(0)
   })
 
   it('renders meetings and SLA blocks in the activity scene', async () => {
@@ -678,6 +931,14 @@ describe('ProtoApp', () => {
       wonStageIds: [],
       defaultPeriodDays: 30,
       lastSync: null,
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '2026-04-10T12:00:00.000Z',
+        lastSuccessfulSync: null,
+        issues: [],
+        warnings: [],
+      },
     })
     vi.mocked(apiClient.getTocFlowReport)
       .mockResolvedValueOnce({
@@ -930,8 +1191,8 @@ describe('ProtoApp', () => {
       )
 
     expect(headers[0]).toBe('Менеджер')
-    expect(headers[1]).toBe('Создано дел')
-    expect(headers[2]).toBe('Закрыто дел')
+    expect(headers[1]).toBe('Создано задач')
+    expect(headers[2]).toBe('Закрыто задач')
     expect(headers[3]).toContain('Исходящие')
     expect(headers[3]).toContain('успешные + прочие + недозвоны')
     expect(headers[4]).toBe('Успешные >30 сек')

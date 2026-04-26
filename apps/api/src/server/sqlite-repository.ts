@@ -20,15 +20,60 @@ export interface LastSyncSummary {
   mode: "full" | "delta";
 }
 
+export interface SyncCursorInput {
+  key: string;
+  cursorValue: string;
+  updatedAt: string;
+}
+
+export interface SyncCoverageInput {
+  scopeKey: string;
+  stream: string;
+  providerId: string | null;
+  coveredFrom: string;
+  coveredTo: string | null;
+  algorithmVersion: string;
+  syncedAt: string;
+}
+
+export interface SyncCoverageQuery {
+  scopeKey: string;
+  stream: string;
+  providerId: string | null;
+  requiredFrom: string;
+  requiredTo?: string | null;
+  algorithmVersion: string;
+}
+
 export interface SqliteRepository {
   getLatestSuccessCursor(categoryIds?: string[]): Promise<string | null>;
+  runSnapshotTransaction<T>(task: () => T): T;
+  getSyncCursor(key: string): Promise<string | null>;
+  setSyncCursor(input: SyncCursorInput): Promise<void>;
+  hasSyncCoverage(input: SyncCoverageQuery): Promise<boolean>;
+  upsertSyncCoverage(input: SyncCoverageInput): Promise<void>;
   getOperationalHistoryBootstrappedAt(): Promise<string | null>;
   getCallHistoryBootstrappedAt(): Promise<string | null>;
   getCallActivityHistoryBootstrappedAt(): Promise<string | null>;
   getMeetingActivityHistoryBootstrappedAt(): Promise<string | null>;
+  getTaskActivityHistoryBootstrappedAt(): Promise<string | null>;
+  getDealCustomFieldsBootstrappedAt(): Promise<string | null>;
+  getDealMeetingDateFieldBootstrappedAt(): Promise<string | null>;
   getActivitySnapshotCount(): Promise<number>;
   getDealIdsByCategoryIds(categoryIds: string[]): Promise<string[]>;
   getActivitiesByIds(activityIds: string[]): Promise<ActivitySnapshot[]>;
+  getCallActivityIdsMissingActivities(
+    limit?: number,
+    callStartDateFrom?: string | null
+  ): Promise<string[]>;
+  getCallActivityIdsMissingCallStats(
+    limit?: number,
+    activityCreatedFrom?: string | null
+  ): Promise<string[]>;
+  getCallActivityIdsForCallStatsRefresh(
+    limit?: number,
+    activityCreatedFrom?: string | null
+  ): Promise<string[]>;
   replaceStageCatalog(rows: StageCatalogEntry[]): Promise<void>;
   upsertLeads(rows: LeadSnapshot[]): Promise<number>;
   upsertDeals(rows: DealSnapshot[]): Promise<number>;
@@ -43,11 +88,15 @@ export interface SqliteRepository {
   markCallHistoryBootstrapped(timestamp: string): Promise<void>;
   markCallActivityHistoryBootstrapped(timestamp: string): Promise<void>;
   markMeetingActivityHistoryBootstrapped(timestamp: string): Promise<void>;
+  markTaskActivityHistoryBootstrapped(timestamp: string): Promise<void>;
+  markDealCustomFieldsBootstrapped(timestamp: string): Promise<void>;
+  markDealMeetingDateFieldBootstrapped(timestamp: string): Promise<void>;
   createSyncRun(input?: {
     startedAt: string;
     mode: "full" | "delta";
     modifiedAfter: string | null;
   }): Promise<number>;
+  recoverStaleSyncRuns(input: { staleBefore: string; failedAt?: string }): Promise<number>;
   failSyncRun(input: {
     syncRunId: number;
     finishedAt: string;
@@ -173,6 +222,23 @@ export function createSqliteRepository(
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS sync_cursors (
+      key TEXT PRIMARY KEY,
+      cursor_value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_coverage (
+      scope_key TEXT NOT NULL,
+      stream TEXT NOT NULL,
+      provider_id TEXT,
+      covered_from TEXT NOT NULL,
+      covered_to TEXT,
+      algorithm_version TEXT NOT NULL,
+      synced_at TEXT NOT NULL,
+      PRIMARY KEY (scope_key, stream, provider_id, algorithm_version)
+    );
+
     CREATE TABLE IF NOT EXISTS lead_snapshots (
       id TEXT PRIMARY KEY,
       status_id TEXT NOT NULL,
@@ -202,6 +268,7 @@ export function createSqliteRepository(
       business_club_value TEXT,
       target_group_value TEXT,
       meeting_type_value TEXT,
+      meeting_date_value TEXT,
       tariff_value TEXT,
       refusal_reason_value TEXT,
       refusal_reason_detail TEXT,
@@ -287,6 +354,8 @@ export function createSqliteRepository(
       ON stage_history_snapshots (owner_id);
     CREATE INDEX IF NOT EXISTS idx_activity_owner_id
       ON activity_snapshots (owner_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_provider_created
+      ON activity_snapshots (provider_id, created_time);
     CREATE INDEX IF NOT EXISTS idx_call_crm_activity_id
       ON call_snapshots (crm_activity_id);
   `);
@@ -297,6 +366,7 @@ export function createSqliteRepository(
   ensureColumn(database, "deal_snapshots", "business_club_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "target_group_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "meeting_type_value", "TEXT");
+  ensureColumn(database, "deal_snapshots", "meeting_date_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "tariff_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_detail", "TEXT");
@@ -356,11 +426,11 @@ export function createSqliteRepository(
   const upsertDealStatement = database.prepare(`
     INSERT INTO deal_snapshots (
       id, title, lead_id, category_id, stage_id, stage_semantic_id, opportunity, assigned_by_id,
-      source_id, quality_value, business_club_value, target_group_value, meeting_type_value, tariff_value, refusal_reason_value, refusal_reason_detail, date_create,
+      source_id, quality_value, business_club_value, target_group_value, meeting_type_value, meeting_date_value, tariff_value, refusal_reason_value, refusal_reason_detail, date_create,
       date_modify, date_closed, utm_source, utm_medium, utm_campaign, utm_content, utm_term
     ) VALUES (
       @id, @title, @leadId, @categoryId, @stageId, @stageSemanticId, @opportunity, @assignedById,
-      @sourceId, @qualityValue, @businessClubValue, @targetGroupValue, @meetingTypeValue, @tariffValue, @refusalReasonValue, @refusalReasonDetail, @dateCreate,
+      @sourceId, @qualityValue, @businessClubValue, @targetGroupValue, @meetingTypeValue, @meetingDateValue, @tariffValue, @refusalReasonValue, @refusalReasonDetail, @dateCreate,
       @dateModify, @dateClosed, @utmSource, @utmMedium, @utmCampaign, @utmContent, @utmTerm
     )
     ON CONFLICT(id) DO UPDATE SET
@@ -376,6 +446,7 @@ export function createSqliteRepository(
       business_club_value = excluded.business_club_value,
       target_group_value = excluded.target_group_value,
       meeting_type_value = excluded.meeting_type_value,
+      meeting_date_value = excluded.meeting_date_value,
       tariff_value = excluded.tariff_value,
       refusal_reason_value = excluded.refusal_reason_value,
       refusal_reason_detail = excluded.refusal_reason_detail,
@@ -533,8 +604,49 @@ export function createSqliteRepository(
     ON CONFLICT(key) DO UPDATE SET
       value = excluded.value
   `);
+  const upsertSyncCursorStatement = database.prepare(`
+    INSERT INTO sync_cursors (key, cursor_value, updated_at)
+    VALUES (@key, @cursorValue, @updatedAt)
+    ON CONFLICT(key) DO UPDATE SET
+      cursor_value = excluded.cursor_value,
+      updated_at = excluded.updated_at
+  `);
+  const upsertSyncCoverageStatement = database.prepare(`
+    INSERT INTO sync_coverage (
+      scope_key,
+      stream,
+      provider_id,
+      covered_from,
+      covered_to,
+      algorithm_version,
+      synced_at
+    ) VALUES (
+      @scopeKey,
+      @stream,
+      @providerId,
+      @coveredFrom,
+      @coveredTo,
+      @algorithmVersion,
+      @syncedAt
+    )
+    ON CONFLICT(scope_key, stream, provider_id, algorithm_version) DO UPDATE SET
+      covered_from = CASE
+        WHEN excluded.covered_from < sync_coverage.covered_from
+          THEN excluded.covered_from
+        ELSE sync_coverage.covered_from
+      END,
+      covered_to = excluded.covered_to,
+      synced_at = excluded.synced_at
+  `);
+  const snapshotTransaction = database.transaction((task: () => unknown) =>
+    task()
+  );
 
   return {
+    runSnapshotTransaction<T>(task: () => T) {
+      return snapshotTransaction(task) as T;
+    },
+
     async getLatestSuccessCursor(categoryIds = []) {
       const where = buildCategoryWhereClause(categoryIds);
       const row = database
@@ -544,6 +656,55 @@ export function createSqliteRepository(
         .get(...where.values) as { value: string | null };
 
       return row.value ?? null;
+    },
+
+    async getSyncCursor(key) {
+      const row = database
+        .prepare("SELECT cursor_value AS value FROM sync_cursors WHERE key = ?")
+        .get(key) as { value: string } | undefined;
+
+      return row?.value ?? null;
+    },
+
+    setSyncCursor(inputRow) {
+      upsertSyncCursorStatement.run(inputRow);
+      return Promise.resolve();
+    },
+
+    async hasSyncCoverage(inputRow) {
+      const providerClause =
+        inputRow.providerId === null ? "provider_id IS NULL" : "provider_id = ?";
+      const values: string[] =
+        inputRow.providerId === null
+          ? [inputRow.scopeKey, inputRow.stream, inputRow.algorithmVersion]
+          : [
+              inputRow.scopeKey,
+              inputRow.stream,
+              inputRow.providerId,
+              inputRow.algorithmVersion
+            ];
+      const requiredTo = inputRow.requiredTo ?? null;
+      const row = database
+        .prepare(
+          `SELECT COUNT(*) AS count
+          FROM sync_coverage
+          WHERE scope_key = ?
+            AND stream = ?
+            AND ${providerClause}
+            AND algorithm_version = ?
+            AND covered_from <= ?
+            AND (? IS NULL OR covered_to IS NULL OR covered_to >= ?)`
+        )
+        .get(...values, inputRow.requiredFrom, requiredTo, requiredTo) as {
+        count: number;
+      };
+
+      return row.count > 0;
+    },
+
+    upsertSyncCoverage(inputRow) {
+      upsertSyncCoverageStatement.run(inputRow);
+      return Promise.resolve();
     },
 
     async getOperationalHistoryBootstrappedAt() {
@@ -580,6 +741,36 @@ export function createSqliteRepository(
       const row = database
         .prepare(
           "SELECT value FROM sync_state WHERE key = 'meeting_activity_history_bootstrapped_at'"
+        )
+        .get() as { value: string } | undefined;
+
+      return row?.value ?? null;
+    },
+
+    async getTaskActivityHistoryBootstrappedAt() {
+      const row = database
+        .prepare(
+          "SELECT value FROM sync_state WHERE key = 'task_activity_history_bootstrapped_at'"
+        )
+        .get() as { value: string } | undefined;
+
+      return row?.value ?? null;
+    },
+
+    async getDealCustomFieldsBootstrappedAt() {
+      const row = database
+        .prepare(
+          "SELECT value FROM sync_state WHERE key = 'deal_custom_fields_bootstrapped_at'"
+        )
+        .get() as { value: string } | undefined;
+
+      return row?.value ?? null;
+    },
+
+    async getDealMeetingDateFieldBootstrappedAt() {
+      const row = database
+        .prepare(
+          "SELECT value FROM sync_state WHERE key = 'deal_meeting_date_field_bootstrapped_at'"
         )
         .get() as { value: string } | undefined;
 
@@ -640,7 +831,99 @@ export function createSqliteRepository(
       return mapActivityRows(rows);
     },
 
-    async replaceStageCatalog(rows) {
+    async getCallActivityIdsMissingActivities(limit = 20_000, callStartDateFrom = null) {
+      const safeLimit = Number.isFinite(limit)
+        ? Math.max(0, Math.trunc(limit))
+        : 20_000;
+      const filters = [
+        "c.crm_activity_id IS NOT NULL",
+        "TRIM(c.crm_activity_id) <> ''",
+        "c.crm_activity_id <> '0'",
+        "a.id IS NULL"
+      ];
+      const values: Array<string | number> = [];
+
+      if (callStartDateFrom) {
+        filters.push("c.call_start_date >= ?");
+        values.push(callStartDateFrom);
+      }
+
+      const rows = database
+        .prepare(
+          `SELECT DISTINCT c.crm_activity_id AS activityId
+          FROM call_snapshots c
+          LEFT JOIN activity_snapshots a ON a.id = c.crm_activity_id
+          WHERE ${filters.join(" AND ")}
+          ORDER BY c.crm_activity_id ASC
+          LIMIT ?`
+        )
+        .all(...values, safeLimit) as Array<{ activityId: string }>;
+
+      return rows.map((row) => row.activityId);
+    },
+
+    async getCallActivityIdsMissingCallStats(limit = 20_000, activityCreatedFrom = null) {
+      const safeLimit = Number.isFinite(limit)
+        ? Math.max(0, Math.trunc(limit))
+        : 20_000;
+      const filters = [
+        "a.owner_type_id = '2'",
+        "a.provider_id = 'VOXIMPLANT_CALL'",
+        "c.id IS NULL"
+      ];
+      const values: Array<string | number> = [];
+
+      if (activityCreatedFrom) {
+        filters.push("a.created_time >= ?");
+        values.push(activityCreatedFrom);
+      }
+
+      const rows = database
+        .prepare(
+          `SELECT DISTINCT a.id AS activityId
+          FROM activity_snapshots a
+          LEFT JOIN call_snapshots c ON c.crm_activity_id = a.id
+          WHERE ${filters.join(" AND ")}
+          ORDER BY a.id ASC
+          LIMIT ?`
+        )
+        .all(...values, safeLimit) as Array<{ activityId: string }>;
+
+      return rows.map((row) => row.activityId);
+    },
+
+    async getCallActivityIdsForCallStatsRefresh(
+      limit = 20_000,
+      activityCreatedFrom = null
+    ) {
+      const safeLimit = Number.isFinite(limit)
+        ? Math.max(0, Math.trunc(limit))
+        : 20_000;
+      const filters = [
+        "owner_type_id = '2'",
+        "provider_id = 'VOXIMPLANT_CALL'"
+      ];
+      const values: Array<string | number> = [];
+
+      if (activityCreatedFrom) {
+        filters.push("created_time >= ?");
+        values.push(activityCreatedFrom);
+      }
+
+      const rows = database
+        .prepare(
+          `SELECT DISTINCT id AS activityId
+          FROM activity_snapshots
+          WHERE ${filters.join(" AND ")}
+          ORDER BY id ASC
+          LIMIT ?`
+        )
+        .all(...values, safeLimit) as Array<{ activityId: string }>;
+
+      return rows.map((row) => row.activityId);
+    },
+
+    replaceStageCatalog(rows) {
       const transaction = database.transaction((nextRows: StageCatalogEntry[]) => {
         database.exec("DELETE FROM stage_catalog");
         for (const row of nextRows) {
@@ -651,19 +934,20 @@ export function createSqliteRepository(
         }
       });
       transaction(rows);
+      return Promise.resolve();
     },
 
-    async upsertLeads(rows) {
+    upsertLeads(rows) {
       const transaction = database.transaction((nextRows: LeadSnapshot[]) => {
         for (const row of nextRows) {
           upsertLeadStatement.run(row);
         }
       });
       transaction(rows);
-      return rows.length;
+      return Promise.resolve(rows.length);
     },
 
-    async upsertDeals(rows) {
+    upsertDeals(rows) {
       const transaction = database.transaction((nextRows: DealSnapshot[]) => {
         for (const row of nextRows) {
           upsertDealStatement.run({
@@ -672,17 +956,18 @@ export function createSqliteRepository(
             businessClubValue: row.businessClubValue ?? null,
             targetGroupValue: row.targetGroupValue ?? null,
             meetingTypeValue: row.meetingTypeValue ?? null,
+            meetingDateValue: row.meetingDateValue ?? null,
             tariffValue: row.tariffValue ?? null,
             refusalReasonValue: row.refusalReasonValue ?? null,
-            refusalReasonDetail: row.refusalReasonDetail ?? null
+            refusalReasonDetail: null
           });
         }
       });
       transaction(rows);
-      return rows.length;
+      return Promise.resolve(rows.length);
     },
 
-    async upsertStageHistory(rows) {
+    upsertStageHistory(rows) {
       const transaction = database.transaction(
         (nextRows: StageHistorySnapshot[]) => {
           for (const row of nextRows) {
@@ -691,10 +976,10 @@ export function createSqliteRepository(
         }
       );
       transaction(rows);
-      return rows.length;
+      return Promise.resolve(rows.length);
     },
 
-    async upsertActivities(rows) {
+    upsertActivities(rows) {
       const transaction = database.transaction((nextRows: ActivitySnapshot[]) => {
         for (const row of nextRows) {
           upsertActivityStatement.run({
@@ -704,10 +989,10 @@ export function createSqliteRepository(
         }
       });
       transaction(rows);
-      return rows.length;
+      return Promise.resolve(rows.length);
     },
 
-    async upsertActivityDeadlineChanges(rows) {
+    upsertActivityDeadlineChanges(rows) {
       const transaction = database.transaction(
         (nextRows: ActivityDeadlineChangeSnapshot[]) => {
           for (const row of nextRows) {
@@ -716,20 +1001,20 @@ export function createSqliteRepository(
         }
       );
       transaction(rows);
-      return rows.length;
+      return Promise.resolve(rows.length);
     },
 
-    async upsertCalls(rows) {
+    upsertCalls(rows) {
       const transaction = database.transaction((nextRows: CallSnapshot[]) => {
         for (const row of nextRows) {
           upsertCallStatement.run(row);
         }
       });
       transaction(rows);
-      return rows.length;
+      return Promise.resolve(rows.length);
     },
 
-    async upsertManagerDirectory(rows) {
+    upsertManagerDirectory(rows) {
       const transaction = database.transaction(
         (nextRows: ManagerDirectoryEntry[]) => {
           for (const row of nextRows) {
@@ -738,32 +1023,60 @@ export function createSqliteRepository(
         }
       );
       transaction(rows);
-      return rows.length;
+      return Promise.resolve(rows.length);
     },
 
-    async markOperationalHistoryBootstrapped(timestamp) {
+    markOperationalHistoryBootstrapped(timestamp) {
       upsertSyncStateStatement.run(
         "operational_history_bootstrapped_at",
         timestamp
       );
+      return Promise.resolve();
     },
 
-    async markCallHistoryBootstrapped(timestamp) {
+    markCallHistoryBootstrapped(timestamp) {
       upsertSyncStateStatement.run("call_history_bootstrapped_at", timestamp);
+      return Promise.resolve();
     },
 
-    async markCallActivityHistoryBootstrapped(timestamp) {
+    markCallActivityHistoryBootstrapped(timestamp) {
       upsertSyncStateStatement.run(
         "call_activity_history_bootstrapped_at",
         timestamp
       );
+      return Promise.resolve();
     },
 
-    async markMeetingActivityHistoryBootstrapped(timestamp) {
+    markMeetingActivityHistoryBootstrapped(timestamp) {
       upsertSyncStateStatement.run(
         "meeting_activity_history_bootstrapped_at",
         timestamp
       );
+      return Promise.resolve();
+    },
+
+    markTaskActivityHistoryBootstrapped(timestamp) {
+      upsertSyncStateStatement.run(
+        "task_activity_history_bootstrapped_at",
+        timestamp
+      );
+      return Promise.resolve();
+    },
+
+    markDealCustomFieldsBootstrapped(timestamp) {
+      upsertSyncStateStatement.run(
+        "deal_custom_fields_bootstrapped_at",
+        timestamp
+      );
+      return Promise.resolve();
+    },
+
+    markDealMeetingDateFieldBootstrapped(timestamp) {
+      upsertSyncStateStatement.run(
+        "deal_meeting_date_field_bootstrapped_at",
+        timestamp
+      );
+      return Promise.resolve();
     },
 
     async createSyncRun(inputRow) {
@@ -779,7 +1092,19 @@ export function createSqliteRepository(
       return Number(result.lastInsertRowid);
     },
 
-    async finishSyncRun(inputRow) {
+    async recoverStaleSyncRuns(inputRow) {
+      const failedAt = inputRow.failedAt ?? new Date().toISOString();
+      const result = database
+        .prepare(`
+          UPDATE sync_runs
+          SET finished_at = ?, status = 'failed'
+          WHERE status = 'running' AND started_at < ?
+        `)
+        .run(failedAt, inputRow.staleBefore);
+      return result.changes;
+    },
+
+    finishSyncRun(inputRow) {
       database
         .prepare(`
           UPDATE sync_runs
@@ -794,9 +1119,10 @@ export function createSqliteRepository(
           inputRow.modifiedAfter,
           inputRow.syncRunId
         );
+      return Promise.resolve();
     },
 
-    async failSyncRun(inputRow) {
+    failSyncRun(inputRow) {
       database
         .prepare(`
           UPDATE sync_runs
@@ -804,6 +1130,7 @@ export function createSqliteRepository(
           WHERE id = ?
         `)
         .run(inputRow.finishedAt, inputRow.status, inputRow.syncRunId);
+      return Promise.resolve();
     },
 
     async getAllLeads() {
@@ -845,6 +1172,7 @@ export function createSqliteRepository(
             business_club_value AS businessClubValue,
             target_group_value AS targetGroupValue,
             meeting_type_value AS meetingTypeValue,
+            meeting_date_value AS meetingDateValue,
             tariff_value AS tariffValue,
             refusal_reason_value AS refusalReasonValue,
             refusal_reason_detail AS refusalReasonDetail,

@@ -8,10 +8,10 @@ import {
 } from "../src/bitrix/selectors";
 
 describe("Bitrix24 selector whitelist", () => {
-  it("keeps deal field selection free from contact and company data", () => {
+  it("keeps deal field selection free from deal names, contact data and company data", () => {
     expect(ALLOWED_DEAL_FIELDS).toEqual([
       "ID",
-      "TITLE",
+      "CONTACT_ID",
       "LEAD_ID",
       "DATE_CREATE",
       "DATE_MODIFY",
@@ -67,7 +67,7 @@ describe("Bitrix24 selector whitelist", () => {
         "UF_CRM_1647422890"
       ],
       filter: {
-        ">DATE_MODIFY": "2026-04-08T10:00:00.000Z",
+        ">=DATE_MODIFY": "2026-04-08T10:00:00.000Z",
         CATEGORY_ID: "10"
       },
       order: {
@@ -116,7 +116,7 @@ describe("Bitrix24 selector whitelist", () => {
     ).toEqual({
       select: ALLOWED_DEAL_FIELDS,
       filter: {
-        ">DATE_MODIFY": "2026-04-08T10:00:00.000Z",
+        ">=DATE_MODIFY": "2026-04-08T10:00:00.000Z",
         "@CATEGORY_ID": ["10", "28"]
       },
       order: {

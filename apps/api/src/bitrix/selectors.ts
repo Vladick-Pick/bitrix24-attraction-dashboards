@@ -1,6 +1,6 @@
 export const ALLOWED_DEAL_FIELDS = [
   "ID",
-  "TITLE",
+  "CONTACT_ID",
   "LEAD_ID",
   "DATE_CREATE",
   "DATE_MODIFY",
@@ -37,6 +37,8 @@ export const ALLOWED_BITRIX_METHODS = [
   "crm.deal.list",
   "crm.status.list",
   "crm.deal.fields",
+  "crm.contact.list",
+  "crm.contact.fields",
   "crm.item.list",
   "crm.stagehistory.list",
   "crm.activity.list",
@@ -92,7 +94,7 @@ export function buildDealListParams(options: SelectorOptions) {
     filter: options.modifiedAfter
       ? {
           ...buildCategoryFilter(options.categoryIds),
-          ">DATE_MODIFY": options.modifiedAfter
+          ">=DATE_MODIFY": options.modifiedAfter
         }
       : buildCategoryFilter(options.categoryIds),
     order: {
@@ -120,7 +122,7 @@ export function buildLeadListParams(options: SelectorOptions) {
   return {
     select: [...ALLOWED_LEAD_FIELDS],
     filter: options.modifiedAfter
-      ? { ">DATE_MODIFY": options.modifiedAfter }
+      ? { ">=DATE_MODIFY": options.modifiedAfter }
       : {},
     order: {
       ID: "ASC" as const

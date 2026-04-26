@@ -138,6 +138,9 @@ describe('apiClient', () => {
             businessClubs: [
               { businessClubKey: 'ClubOne', businessClubLabel: 'ClubOne', count: 2 },
             ],
+            targetGroups: [
+              { targetGroupKey: 'ClubFirst', targetGroupLabel: 'ClubFirst', count: 2 },
+            ],
           },
         ],
         topLossReasons: [
@@ -200,6 +203,56 @@ describe('apiClient', () => {
       businessClubLabel: 'ClubOne',
       count: 2,
     })
+    expect(report.businessClubByManager[0]?.targetGroups[0]).toEqual({
+      targetGroupKey: 'ClubFirst',
+      targetGroupLabel: 'ClubFirst',
+      count: 2,
+    })
     expect(report.lostDealDetails[0]?.reasonDetail).toBe('Нет интереса')
+  })
+
+  it('normalizes sync health from meta responses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        stageCatalog: [],
+        managerCatalog: [],
+        sourceCatalog: [],
+        wonStageIds: [],
+        defaultPeriodDays: 30,
+        lastSync: null,
+        syncHealth: {
+          status: 'blocked',
+          blocking: true,
+          checkedAt: '2026-04-10T12:00:00.000Z',
+          lastSuccessfulSync: null,
+          issues: [
+            {
+              code: 'MISSING_COVERAGE',
+              severity: 'blocking',
+              message: 'Нет покрытия',
+            },
+          ],
+          warnings: ['Нет покрытия'],
+        },
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(apiClient.getMeta()).resolves.toMatchObject({
+      syncHealth: {
+        status: 'blocked',
+        blocking: true,
+        warnings: ['Нет покрытия'],
+        issues: [
+          {
+            code: 'MISSING_COVERAGE',
+            severity: 'blocking',
+            message: 'Нет покрытия',
+          },
+        ],
+      },
+    })
   })
 })

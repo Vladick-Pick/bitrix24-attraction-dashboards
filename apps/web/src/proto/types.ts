@@ -94,11 +94,13 @@ export interface ActivitiesCallsSceneData {
 
 export interface HeatCell {
   value: string
+  subvalue?: string
   level: number
 }
 
 export interface CohortMatrixRow {
   month: string
+  createdDeals: string
   cells: HeatCell[]
   conversion: string
   cycle: string

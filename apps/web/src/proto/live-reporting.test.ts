@@ -253,11 +253,11 @@ describe('live-reporting', () => {
     const scene = mapActivitiesCallsSceneData({ activities, calls })
 
     expect(scene.kpis).toEqual([
-      expect.objectContaining({ label: 'Создано дел', value: '80', delta: '+25%', deltaTone: 'positive' }),
+      expect.objectContaining({ label: 'Создано задач', value: '80', delta: '+25%', deltaTone: 'positive' }),
       expect.objectContaining({ label: 'Перенесён дедлайн', value: '0', delta: '—', deltaTone: 'neutral' }),
-      expect.objectContaining({ label: 'Закрыто дел', value: '60', delta: '+25%', deltaTone: 'positive' }),
+      expect.objectContaining({ label: 'Закрыто задач', value: '60', delta: '+25%', deltaTone: 'positive' }),
       expect.objectContaining({ label: 'Звонков на сделку', value: '2.5', delta: '+25%', deltaTone: 'positive' }),
-      expect.objectContaining({ label: 'Дел на сделку', value: '4.0', delta: '0%', deltaTone: 'neutral' }),
+      expect.objectContaining({ label: 'Задач на сделку', value: '4.0', delta: '0%', deltaTone: 'neutral' }),
     ])
     expect(scene.summaryRows).toEqual([
       expect.objectContaining({
@@ -346,6 +346,115 @@ describe('live-reporting', () => {
     })
   })
 
+  it('does not invent zero compare values when the comparison base is missing', () => {
+    const activities: ActivitiesWorkloadReport = {
+      range: {
+        from: '2026-04-06T00:00:00.000Z',
+        to: '2026-04-12T23:59:59.999Z',
+      },
+      totalDealCount: 4,
+      totalCreatedCount: 12,
+      totalRescheduledCount: 0,
+      totalClosedCount: 6,
+      totalMeetingCount: 0,
+      warnings: [],
+      managerRows: [],
+      comparisons: [
+        {
+          compareIndex: 1,
+          range: {
+            from: '2026-03-30T00:00:00.000Z',
+            to: '2026-04-05T23:59:59.999Z',
+          },
+          snapshot: {
+            range: {
+              from: '2026-03-30T00:00:00.000Z',
+              to: '2026-04-05T23:59:59.999Z',
+            },
+            totalDealCount: 0,
+            totalCreatedCount: 0,
+            totalRescheduledCount: 0,
+            totalClosedCount: 0,
+            totalMeetingCount: 0,
+            warnings: [],
+            managerRows: [],
+          },
+        },
+      ],
+    }
+
+    const calls: CallsWorkloadReport = {
+      range: {
+        from: '2026-04-06T00:00:00.000Z',
+        to: '2026-04-12T23:59:59.999Z',
+      },
+      totalDealCount: 4,
+      totalCalls: 8,
+      totalIncomingCalls: 2,
+      totalOutgoingCalls: 6,
+      totalOtherOutgoingCalls: 1,
+      totalConnectedCalls: 4,
+      totalFailedCalls: 2,
+      totalCallsOverThirtySeconds: 3,
+      totalConnectedCallsOverThirtySeconds: 2,
+      warnings: [],
+      managerRows: [],
+      comparisons: [
+        {
+          compareIndex: 1,
+          range: {
+            from: '2026-03-30T00:00:00.000Z',
+            to: '2026-04-05T23:59:59.999Z',
+          },
+          snapshot: {
+            range: {
+              from: '2026-03-30T00:00:00.000Z',
+              to: '2026-04-05T23:59:59.999Z',
+            },
+            totalDealCount: 0,
+            totalCalls: 0,
+            totalIncomingCalls: 0,
+            totalOutgoingCalls: 0,
+            totalOtherOutgoingCalls: 0,
+            totalConnectedCalls: 0,
+            totalFailedCalls: 0,
+            totalCallsOverThirtySeconds: 0,
+            totalConnectedCallsOverThirtySeconds: 0,
+            warnings: [],
+            managerRows: [],
+          },
+        },
+      ],
+    }
+
+    const scene = mapActivitiesCallsSceneData({ activities, calls })
+
+    expect(scene.kpis).toEqual(
+      expect.arrayContaining([
+        expect.not.objectContaining({
+          label: 'Звонков на сделку',
+          compare: 'пред. период: 0.0',
+        }),
+        expect.not.objectContaining({
+          label: 'Задач на сделку',
+          compare: 'пред. период: 0.0',
+        }),
+      ]),
+    )
+    expect(scene.kpis).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Звонков на сделку',
+          delta: '—',
+        }),
+        expect.objectContaining({
+          label: 'Задач на сделку',
+          delta: '—',
+        }),
+      ]),
+    )
+  })
+
   it('maps cohort report into matrix rows, cycle buckets and breakdown slices', () => {
     const report: CohortConversionReport = {
       range: {
@@ -363,21 +472,21 @@ describe('live-reporting', () => {
           createdDeals: 10,
           closedDeals: 8,
           wonDeals: 6,
-          closedRate: 0.8,
-          wonConversionRate: 0.6,
+          closedRate: 80,
+          wonConversionRate: 60,
           averageDaysToClose: 53,
           averageDaysToWin: 49,
           closureBuckets: [
-            { closedMonth: '2026-01', closedDeals: 2, wonDeals: 2, closedRate: 0.2, wonConversionRate: 0.2 },
-            { closedMonth: '2026-02', closedDeals: 2, wonDeals: 2, closedRate: 0.2, wonConversionRate: 0.2 },
-            { closedMonth: '2026-03', closedDeals: 2, wonDeals: 1, closedRate: 0.2, wonConversionRate: 0.1 },
-            { closedMonth: '2026-04', closedDeals: 2, wonDeals: 1, closedRate: 0.2, wonConversionRate: 0.1 },
+            { closedMonth: '2026-01', closedDeals: 2, wonDeals: 2, closedRate: 20, wonConversionRate: 20 },
+            { closedMonth: '2026-02', closedDeals: 2, wonDeals: 2, closedRate: 20, wonConversionRate: 20 },
+            { closedMonth: '2026-03', closedDeals: 2, wonDeals: 1, closedRate: 20, wonConversionRate: 10 },
+            { closedMonth: '2026-04', closedDeals: 2, wonDeals: 1, closedRate: 20, wonConversionRate: 10 },
           ],
           relativeClosureBuckets: [
-            { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 2, wonDeals: 2, closedRate: 0.2, wonConversionRate: 0.2 },
-            { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 2, wonDeals: 2, closedRate: 0.2, wonConversionRate: 0.2 },
-            { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 2, wonDeals: 1, closedRate: 0.2, wonConversionRate: 0.1 },
-            { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 2, wonDeals: 2, closedRate: 0.2, wonConversionRate: 0.2 },
+            { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 2, wonDeals: 2, closedRate: 20, wonConversionRate: 20 },
+            { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 2, wonDeals: 2, closedRate: 20, wonConversionRate: 20 },
+            { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 2, wonDeals: 1, closedRate: 20, wonConversionRate: 10 },
+            { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 2, wonDeals: 2, closedRate: 20, wonConversionRate: 20 },
           ],
         },
       ],
@@ -404,16 +513,16 @@ describe('live-reporting', () => {
                 createdDeals: 8,
                 closedDeals: 6,
                 wonDeals: 4,
-                closedRate: 0.75,
-                wonConversionRate: 0.5,
+                closedRate: 75,
+                wonConversionRate: 50,
                 averageDaysToClose: 58,
                 averageDaysToWin: 54,
                 closureBuckets: [],
                 relativeClosureBuckets: [
-                  { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 1, wonDeals: 1, closedRate: 0.125, wonConversionRate: 0.125 },
-                  { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 2, wonDeals: 1, closedRate: 0.25, wonConversionRate: 0.125 },
-                  { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 1, wonDeals: 1, closedRate: 0.125, wonConversionRate: 0.125 },
-                  { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 2, wonDeals: 1, closedRate: 0.25, wonConversionRate: 0.125 },
+                  { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 1, wonDeals: 1, closedRate: 12.5, wonConversionRate: 12.5 },
+                  { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 2, wonDeals: 1, closedRate: 25, wonConversionRate: 12.5 },
+                  { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 1, wonDeals: 1, closedRate: 12.5, wonConversionRate: 12.5 },
+                  { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 2, wonDeals: 1, closedRate: 25, wonConversionRate: 12.5 },
                 ],
               },
             ],
@@ -452,7 +561,7 @@ describe('live-reporting', () => {
 
     expect(scene.range).toEqual(report.range)
     expect(scene.kpis).toEqual([
-      expect.objectContaining({ label: 'Средняя когортная конверсия', value: '50%', delta: '+10 п.п.' }),
+      expect.objectContaining({ label: 'Средняя когортная конверсия', value: '50%', delta: '0 п.п.' }),
       expect.objectContaining({ label: 'В 1 месяц', value: '10%', delta: '-2 п.п.' }),
       expect.objectContaining({ label: 'Во 2 месяц', value: '10%', delta: '-2 п.п.' }),
       expect.objectContaining({ label: 'В 3 месяц', value: '5%', delta: '-8 п.п.' }),
@@ -462,12 +571,12 @@ describe('live-reporting', () => {
     expect(scene.matrixRows).toEqual([
       expect.objectContaining({
         month: 'Январь 2026',
+        createdDeals: '10',
         cells: [
-          { value: '2', level: 5 },
-          { value: '2', level: 5 },
-          { value: '1', level: 3 },
-          { value: '1', level: 3 },
-          { value: '1', level: 3 },
+          { value: '2', subvalue: '20%', level: 5 },
+          { value: '2', subvalue: '20%', level: 5 },
+          { value: '1', subvalue: '10%', level: 3 },
+          { value: '2', subvalue: '20%', level: 5 },
         ],
         conversion: '60%',
         cycle: '49 дн.',
@@ -495,6 +604,61 @@ describe('live-reporting', () => {
         month2: '20%',
         month3: '10%',
         tail: '20%',
+      }),
+    ])
+  })
+
+  it('formats sub-one-percent values without collapsing them to zero', () => {
+    const scene = mapCohortSceneData({
+      report: {
+        range: {
+          from: '2026-04-01T00:00:00.000Z',
+          to: '2026-04-30T23:59:59.999Z',
+        },
+        totalCreatedDeals: 200,
+        totalClosedDeals: 1,
+        totalWonDeals: 1,
+        closureMonths: ['2026-04'],
+        relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+        rows: [
+          {
+            createdMonth: '2026-04',
+            createdDeals: 200,
+            closedDeals: 1,
+            wonDeals: 1,
+            closedRate: 0.5,
+            wonConversionRate: 0.5,
+            averageDaysToClose: 12,
+            averageDaysToWin: 12,
+            closureBuckets: [],
+            relativeClosureBuckets: [
+              { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 1, wonDeals: 1, closedRate: 0.5, wonConversionRate: 0.5 },
+              { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+              { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+              { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+            ],
+          },
+        ],
+        comparisons: [],
+      },
+      managerBreakdowns: [],
+      sourceBreakdowns: [],
+    })
+
+    expect(scene.kpis).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Средняя когортная конверсия', value: '<1%' }),
+        expect.objectContaining({ label: 'В 1 месяц', value: '<1%' }),
+      ]),
+    )
+    expect(scene.matrixRows).toEqual([
+      expect.objectContaining({
+        cells: [
+          expect.objectContaining({ subvalue: '<1%' }),
+          expect.objectContaining({ subvalue: '0%' }),
+          expect.objectContaining({ subvalue: '0%' }),
+          expect.objectContaining({ subvalue: '0%' }),
+        ],
       }),
     ])
   })
@@ -754,7 +918,7 @@ describe('live-reporting', () => {
 
     expect(scene.kpis).toEqual([
       expect.objectContaining({ label: 'Сделок в работе', value: '32', delta: '+52%' }),
-      expect.objectContaining({ label: 'Выход в неделю', value: '28', delta: '-12%', deltaTone: 'negative' }),
+      expect.objectContaining({ label: 'Выход за период', value: '28', delta: '-12%', deltaTone: 'negative' }),
       expect.objectContaining({ label: 'Главное ограничение', value: 'Проблематизация' }),
       expect.objectContaining({ label: 'Средний WIP', value: '16' }),
       expect.objectContaining({ label: 'Средний цикл этапа', value: '6.9 дн.', delta: '+1.7 дн.', deltaTone: 'negative' }),

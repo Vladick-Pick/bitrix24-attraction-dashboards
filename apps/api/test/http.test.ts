@@ -4,14 +4,186 @@ import type {
   CallsWorkloadReport,
   CohortConversionReport,
   DashboardData,
+  ManagerActionOutcomeReport,
   SourceQualityConversionReport,
   StageCatalogEntry,
+  TargetGroupConversionReport,
   TocFlowReport
 } from "@bitrix24-reporting/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../src/server/app";
+
+const emptyCallPopulation = {
+  totalCalls: 0,
+  incomingCalls: 0,
+  outgoingCalls: 0,
+  otherOutgoingCalls: 0,
+  connectedCalls: 0,
+  failedCalls: 0,
+  callsOverThirtySeconds: 0,
+  connectedCallsOverThirtySeconds: 0,
+  averageDurationSeconds: 0
+};
+
+const emptyLinkedDealCalls = {
+  ...emptyCallPopulation,
+  totalDealCount: 0
+};
+
+function createTestApp(
+  serviceOverrides: Partial<Parameters<typeof createApp>[0]> = {},
+  config?: {
+    webOrigin?: string;
+    apiAuthToken?: string;
+  }
+) {
+  const service: Parameters<typeof createApp>[0] = {
+    getDashboard: async () => ({
+      salesSummary: {
+        salesCount: 0,
+        salesAmount: 0,
+        averageSaleAmount: 0,
+        newDealsCount: 0,
+        conversionRate: 0
+      },
+      managerGroups: []
+    }),
+    getSourceQualityConversionReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalCreatedDeals: 0,
+      totalWonDeals: 0,
+      rows: [],
+      stageSequence: []
+    }),
+    getActivitiesWorkloadReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalDealCount: 0,
+      totalCreatedCount: 0,
+      totalRescheduledCount: 0,
+      totalClosedCount: 0,
+      totalMeetingCount: 0,
+      warnings: [],
+      managerRows: [],
+      comparisons: []
+    }),
+    getCallsWorkloadReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalDealCount: 0,
+      totalCalls: 0,
+      totalIncomingCalls: 0,
+      totalOutgoingCalls: 0,
+      totalOtherOutgoingCalls: 0,
+      totalConnectedCalls: 0,
+      totalFailedCalls: 0,
+      totalCallsOverThirtySeconds: 0,
+      totalConnectedCallsOverThirtySeconds: 0,
+      allCalls: emptyCallPopulation,
+      linkedDealCalls: emptyLinkedDealCalls,
+      warnings: [],
+      managerRows: [],
+      comparisons: []
+    }),
+    getCohortConversionReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalCreatedDeals: 0,
+      totalClosedDeals: 0,
+      totalWonDeals: 0,
+      closureMonths: [],
+      relativeBucketKeys: ["month_1", "month_2", "month_3", "month_4_plus"],
+      rows: [],
+      comparisons: []
+    }),
+    getTocFlowReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      businessDays: 0,
+      warnings: [],
+      estimatedGainPerDay: null,
+      bottleneck: null,
+      rows: [],
+      comparisons: []
+    }),
+    getAcquisitionOutcomesReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalNewDeals: 0,
+      totalLostDeals: 0,
+      newDealsByManager: [],
+      lostDealsByManager: [],
+      lostStages: [],
+      businessClubByManager: [],
+      lostDealDetails: [],
+      topLossReasons: []
+    }),
+    getTargetGroupConversionReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalCreatedDeals: 0,
+      totalWonDeals: 0,
+      rows: []
+    }),
+    getManagerActionOutcomeReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      warnings: [],
+      rows: [],
+      cohortMonths: [],
+      cohortStatusRows: []
+    }),
+    getMeta: async () => ({
+      stageCatalog: [],
+      managerCatalog: [],
+      sourceCatalog: [],
+      wonStageIds: [],
+      defaultPeriodDays: 30,
+      lastSync: null
+    }),
+    performSync: async () => ({
+      syncRunId: 1,
+      leadsSynced: 0,
+      dealsSynced: 0,
+      mode: "delta",
+      modifiedAfter: null,
+      finishedAt: "2026-04-09T00:00:00.000Z"
+    }),
+    updateWonStages: async (stageIds: string[]) => ({
+      wonStageIds: stageIds
+    }),
+    ...serviceOverrides
+  };
+
+  return (
+    createApp as unknown as (
+      service: Parameters<typeof createApp>[0],
+      config?: {
+        webOrigin?: string;
+        apiAuthToken?: string;
+      }
+    ) => ReturnType<typeof createApp>
+  )(service, config);
+}
 
 describe("createApp", () => {
   it("returns dashboard data, settings and sync status from the local API", async () => {
@@ -54,6 +226,7 @@ describe("createApp", () => {
       totalCreatedCount: 5,
       totalRescheduledCount: 0,
       totalClosedCount: 2,
+      totalMeetingCount: 0,
       warnings: [],
       managerRows: [],
       comparisons: [
@@ -72,6 +245,7 @@ describe("createApp", () => {
             totalCreatedCount: 2,
             totalRescheduledCount: 0,
             totalClosedCount: 1,
+            totalMeetingCount: 0,
             warnings: [],
             managerRows: []
           }
@@ -92,6 +266,29 @@ describe("createApp", () => {
       totalFailedCalls: 1,
       totalCallsOverThirtySeconds: 4,
       totalConnectedCallsOverThirtySeconds: 4,
+      allCalls: {
+        ...emptyCallPopulation,
+        totalCalls: 7,
+        incomingCalls: 3,
+        outgoingCalls: 4,
+        otherOutgoingCalls: 1,
+        connectedCalls: 6,
+        failedCalls: 1,
+        callsOverThirtySeconds: 4,
+        connectedCallsOverThirtySeconds: 4
+      },
+      linkedDealCalls: {
+        ...emptyLinkedDealCalls,
+        totalDealCount: 2,
+        totalCalls: 7,
+        incomingCalls: 3,
+        outgoingCalls: 4,
+        otherOutgoingCalls: 1,
+        connectedCalls: 6,
+        failedCalls: 1,
+        callsOverThirtySeconds: 4,
+        connectedCallsOverThirtySeconds: 4
+      },
       warnings: [],
       managerRows: []
     };
@@ -128,7 +325,28 @@ describe("createApp", () => {
       newDealsByManager: [],
       lostDealsByManager: [],
       lostStages: [],
+      businessClubByManager: [],
+      lostDealDetails: [],
       topLossReasons: []
+    };
+    const targetGroupConversionReport: TargetGroupConversionReport = {
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalCreatedDeals: 0,
+      totalWonDeals: 0,
+      rows: []
+    };
+    const managerActionOutcomeReport: ManagerActionOutcomeReport = {
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      warnings: [],
+      rows: [],
+      cohortMonths: [],
+      cohortStatusRows: []
     };
     const service = {
       getDashboard: async () => dashboard,
@@ -141,6 +359,8 @@ describe("createApp", () => {
       getCohortConversionReport: async () => cohortReport,
       getTocFlowReport: async () => tocReport,
       getAcquisitionOutcomesReport: async () => acquisitionOutcomesReport,
+      getTargetGroupConversionReport: async () => targetGroupConversionReport,
+      getManagerActionOutcomeReport: async () => managerActionOutcomeReport,
       getMeta: async () => ({
         stageCatalog,
         managerCatalog: [],
@@ -325,6 +545,7 @@ describe("createApp", () => {
         totalCreatedCount: 0,
         totalRescheduledCount: 0,
         totalClosedCount: 0,
+        totalMeetingCount: 0,
         warnings: [],
         managerRows: [],
         comparisons: []
@@ -343,6 +564,8 @@ describe("createApp", () => {
         totalFailedCalls: 0,
         totalCallsOverThirtySeconds: 0,
         totalConnectedCallsOverThirtySeconds: 0,
+        allCalls: emptyCallPopulation,
+        linkedDealCalls: emptyLinkedDealCalls,
         warnings: [],
         managerRows: [],
         comparisons: []
@@ -382,7 +605,28 @@ describe("createApp", () => {
         newDealsByManager: [],
         lostDealsByManager: [],
         lostStages: [],
+        businessClubByManager: [],
+        lostDealDetails: [],
         topLossReasons: []
+      }),
+      getTargetGroupConversionReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalCreatedDeals: 0,
+        totalWonDeals: 0,
+        rows: []
+      }),
+      getManagerActionOutcomeReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        warnings: [],
+        rows: [],
+        cohortMonths: [],
+        cohortStatusRows: []
       }),
       getMeta: async () => ({
         stageCatalog: [],
@@ -465,6 +709,7 @@ describe("createApp", () => {
         totalCreatedCount: 0,
         totalRescheduledCount: 0,
         totalClosedCount: 0,
+        totalMeetingCount: 0,
         warnings: [],
         managerRows: []
       }),
@@ -482,6 +727,8 @@ describe("createApp", () => {
         totalFailedCalls: 0,
         totalCallsOverThirtySeconds: 0,
         totalConnectedCallsOverThirtySeconds: 0,
+        allCalls: emptyCallPopulation,
+        linkedDealCalls: emptyLinkedDealCalls,
         warnings: [],
         managerRows: []
       }),
@@ -518,7 +765,28 @@ describe("createApp", () => {
         newDealsByManager: [],
         lostDealsByManager: [],
         lostStages: [],
+        businessClubByManager: [],
+        lostDealDetails: [],
         topLossReasons: []
+      }),
+      getTargetGroupConversionReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalCreatedDeals: 0,
+        totalWonDeals: 0,
+        rows: []
+      }),
+      getManagerActionOutcomeReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        warnings: [],
+        rows: [],
+        cohortMonths: [],
+        cohortStatusRows: []
       }),
       getMeta: async () => ({
         stageCatalog: [],
@@ -585,5 +853,144 @@ describe("createApp", () => {
           "compareFrom and compareTo must have the same number of values."
         );
       });
+  });
+
+  it("rejects unauthorized mutating requests when an API token is configured", async () => {
+    const app = createTestApp(undefined, {
+      apiAuthToken: "top-secret-token"
+    });
+
+    await request(app)
+      .post("/api/sync")
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          error: "UNAUTHORIZED",
+          code: "UNAUTHORIZED"
+        });
+      });
+
+    await request(app)
+      .put("/api/settings/won-stages")
+      .send({ stageIds: ["C1:WON"] })
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          error: "UNAUTHORIZED",
+          code: "UNAUTHORIZED"
+        });
+      });
+  });
+
+  it("accepts configured API token via X-API-Token or Authorization Bearer", async () => {
+    const app = createTestApp(undefined, {
+      apiAuthToken: "top-secret-token"
+    });
+
+    await request(app)
+      .post("/api/sync")
+      .set("X-API-Token", "top-secret-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.syncRunId).toBe(1);
+      });
+
+    await request(app)
+      .put("/api/settings/won-stages")
+      .set("Authorization", "Bearer top-secret-token")
+      .send({ stageIds: ["C1:WON", "C1:PAID"] })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.wonStageIds).toEqual(["C1:WON", "C1:PAID"]);
+      });
+  });
+
+  it("returns validation errors in a stable error contract", async () => {
+    const app = createTestApp();
+
+    await request(app)
+      .get("/api/reports/activities-workload")
+      .query({
+        compareFrom: ["2026-03-01T00:00:00.000Z"],
+        compareTo: [
+          "2026-03-31T23:59:59.999Z",
+          "2026-02-28T23:59:59.999Z"
+        ]
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          error: "VALIDATION_ERROR",
+          code: "VALIDATION_ERROR"
+        });
+        expect(body.details.fieldErrors.compareFrom).toContain(
+          "compareFrom and compareTo must have the same number of values."
+        );
+      });
+  });
+
+  it("does not leak raw error messages in generic 500 responses", async () => {
+    const app = createTestApp({
+      performSync: async () => {
+        throw new Error("database password leaked");
+      }
+    });
+
+    await request(app)
+      .post("/api/sync")
+      .expect(500)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          error: "INTERNAL_SERVER_ERROR",
+          code: "INTERNAL_SERVER_ERROR"
+        });
+        expect(body).not.toHaveProperty("message");
+      });
+  });
+
+  it("compares range timestamps using Date.parse instead of lexicographic ISO strings", async () => {
+    let receivedInput: unknown = null;
+    const app = createTestApp({
+      getActivitiesWorkloadReport: async (input: unknown) => {
+        receivedInput = input;
+        return {
+          range: {
+            from: "2026-03-31T21:30:00.000Z",
+            to: "2026-03-31T23:00:00.000Z"
+          },
+          totalDealCount: 0,
+          totalCreatedCount: 0,
+          totalRescheduledCount: 0,
+          totalClosedCount: 0,
+          totalMeetingCount: 0,
+          warnings: [],
+          managerRows: [],
+          comparisons: []
+        };
+      }
+    });
+
+    await request(app)
+      .get("/api/reports/activities-workload")
+      .query({
+        from: "2026-04-01T00:30:00+03:00",
+        to: "2026-03-31T23:00:00Z",
+        compareFrom: ["2026-04-02T00:30:00+03:00"],
+        compareTo: ["2026-04-01T22:00:00Z"]
+      })
+      .expect(200);
+
+    expect(receivedInput).toEqual({
+      range: {
+        from: "2026-04-01T00:30:00+03:00",
+        to: "2026-03-31T23:00:00Z"
+      },
+      compareRanges: [
+        {
+          from: "2026-04-02T00:30:00+03:00",
+          to: "2026-04-01T22:00:00Z"
+        }
+      ]
+    });
   });
 });

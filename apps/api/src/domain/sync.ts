@@ -9,8 +9,11 @@ import type {
   StageHistorySnapshot
 } from "@bitrix24-reporting/contracts";
 
+import { ATTRACTION_MANAGER_IDS } from "./attraction-managers";
+
 export interface DealRow {
   ID: string;
+  CONTACT_ID?: string | null;
   TITLE?: string | null;
   LEAD_ID: string | null;
   DATE_CREATE: string;
@@ -41,12 +44,12 @@ export interface StageHistoryRow {
 }
 
 export interface ActivityRow {
-  ID: string;
-  OWNER_TYPE_ID: string;
-  OWNER_ID: string;
-  TYPE_ID: string | null;
+  ID: string | number;
+  OWNER_TYPE_ID: string | number;
+  OWNER_ID: string | number;
+  TYPE_ID: string | number | null;
   PROVIDER_ID: string | null;
-  RESPONSIBLE_ID: string | null;
+  RESPONSIBLE_ID: string | number | null;
   CREATED: string;
   DEADLINE: string | null;
   LAST_UPDATED: string;
@@ -55,21 +58,26 @@ export interface ActivityRow {
 }
 
 export interface CallRow {
-  ID: string;
-  CRM_ACTIVITY_ID: string | null;
-  PORTAL_USER_ID: string | null;
-  CALL_TYPE: string | null;
+  ID: string | number;
+  CRM_ACTIVITY_ID: string | number | null;
+  PORTAL_USER_ID: string | number | null;
+  CALL_TYPE: string | number | null;
   CALL_START_DATE: string;
   CALL_DURATION: string | number | null;
   CRM_ENTITY_TYPE: string | null;
-  CRM_ENTITY_ID: string | null;
-  CALL_FAILED_CODE: string | null;
+  CRM_ENTITY_ID: string | number | null;
+  CALL_FAILED_CODE: string | number | null;
 }
 
 export interface UserRow {
-  ID: string;
+  ID: string | number;
   NAME: string | null;
   LAST_NAME: string | null;
+}
+
+export interface ContactRow {
+  ID: string;
+  [key: string]: unknown;
 }
 
 export interface SyncClient {
@@ -77,12 +85,17 @@ export interface SyncClient {
   fetchSourceCatalog(): Promise<StageCatalogEntry[]>;
   fetchDealQualityMap(fieldName: string): Promise<Record<string, string>>;
   fetchDealFieldValueMap?(fieldName: string): Promise<Record<string, string>>;
+  fetchContactFieldValueMap?(fieldName: string): Promise<Record<string, string>>;
   listDeals(cursor: {
     modifiedAfter: string | null;
     categoryIds: string[];
     qualityFieldName?: string;
     customFieldNames?: string[];
   }): Promise<DealRow[]>;
+  listContacts?(input: {
+    ids: string[];
+    customFieldNames?: string[];
+  }): Promise<ContactRow[]>;
   listStageHistory(input: {
     ownerIds?: string[];
     categoryIds?: string[];
@@ -92,21 +105,64 @@ export interface SyncClient {
     modifiedAfter: string | null;
     providerId?: string;
   }): Promise<ActivityRow[]>;
+  listActivitiesByIds?(activityIds: string[]): Promise<ActivityRow[]>;
   listCalls(input: {
     activityIds?: string[];
+    callStartDateFrom?: string;
+    callStartDateTo?: string;
+    portalUserIds?: string[];
   }): Promise<CallRow[]>;
   fetchUsers(input: { ids: string[] }): Promise<UserRow[]>;
 }
 
 export interface SyncRepository {
   getLatestSuccessCursor(categoryIds?: string[]): Promise<string | null>;
+  runSnapshotTransaction?<T>(task: () => T): T;
+  getSyncCursor?(key: string): Promise<string | null>;
+  setSyncCursor?(input: {
+    key: string;
+    cursorValue: string;
+    updatedAt: string;
+  }): Promise<void>;
+  hasSyncCoverage?(input: {
+    scopeKey: string;
+    stream: string;
+    providerId: string | null;
+    requiredFrom: string;
+    requiredTo?: string | null;
+    algorithmVersion: string;
+  }): Promise<boolean>;
+  upsertSyncCoverage?(input: {
+    scopeKey: string;
+    stream: string;
+    providerId: string | null;
+    coveredFrom: string;
+    coveredTo: string | null;
+    algorithmVersion: string;
+    syncedAt: string;
+  }): Promise<void>;
   getOperationalHistoryBootstrappedAt(): Promise<string | null>;
   getCallHistoryBootstrappedAt(): Promise<string | null>;
   getCallActivityHistoryBootstrappedAt?(): Promise<string | null>;
   getMeetingActivityHistoryBootstrappedAt?(): Promise<string | null>;
+  getTaskActivityHistoryBootstrappedAt?(): Promise<string | null>;
+  getDealCustomFieldsBootstrappedAt?(): Promise<string | null>;
+  getDealMeetingDateFieldBootstrappedAt?(): Promise<string | null>;
   getActivitySnapshotCount(): Promise<number>;
   getDealIdsByCategoryIds(categoryIds: string[]): Promise<string[]>;
   getActivitiesByIds(activityIds: string[]): Promise<ActivitySnapshot[]>;
+  getCallActivityIdsMissingActivities?(
+    limit?: number,
+    callStartDateFrom?: string | null
+  ): Promise<string[]>;
+  getCallActivityIdsMissingCallStats?(
+    limit?: number,
+    activityCreatedFrom?: string | null
+  ): Promise<string[]>;
+  getCallActivityIdsForCallStatsRefresh?(
+    limit?: number,
+    activityCreatedFrom?: string | null
+  ): Promise<string[]>;
   replaceStageCatalog(rows: StageCatalogEntry[]): Promise<void>;
   upsertDeals(rows: DealSnapshot[]): Promise<number>;
   upsertStageHistory(rows: StageHistorySnapshot[]): Promise<number>;
@@ -120,6 +176,9 @@ export interface SyncRepository {
   markCallHistoryBootstrapped(timestamp: string): Promise<void>;
   markCallActivityHistoryBootstrapped?(timestamp: string): Promise<void>;
   markMeetingActivityHistoryBootstrapped?(timestamp: string): Promise<void>;
+  markTaskActivityHistoryBootstrapped?(timestamp: string): Promise<void>;
+  markDealCustomFieldsBootstrapped?(timestamp: string): Promise<void>;
+  markDealMeetingDateFieldBootstrapped?(timestamp: string): Promise<void>;
   createSyncRun(input?: {
     startedAt: string;
     mode: "full" | "delta";
@@ -147,9 +206,13 @@ interface PerformManualSyncInput {
   businessClubFieldName?: string;
   targetGroupFieldName?: string;
   meetingTypeFieldName?: string;
+  meetingDateFieldName?: string;
+  contactTargetGroupFieldName?: string;
+  legacyContactTargetGroupFieldName?: string;
   client: SyncClient;
   repository: SyncRepository;
   now: () => string;
+  bootstrapLookbackDays?: number;
 }
 
 export const ATTRACTION_REFUSAL_REASON_FIELD_NAME = "UF_CRM_1647422744";
@@ -158,6 +221,28 @@ export const LEADGEN_US_CATEGORY_ID = "28";
 export const LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME = "UF_CRM_1730360968";
 export const LEADGEN_US_RETURN_REASON_FIELD_NAME = "UF_CRM_1758715585";
 export const LEADGEN_US_BASKET_REASON_FIELD_NAME = "UF_CRM_1772109151192";
+const TASK_ACTIVITY_PROVIDER_IDS = ["CRM_TODO", "CRM_TASKS_TASK"] as const;
+const MISSING_CALL_ACTIVITY_BACKFILL_LIMIT = 20_000;
+const MISSING_CALL_STATS_BACKFILL_LIMIT = 20_000;
+const CALL_STATS_REFRESH_LIMIT = 20_000;
+export const ACTIVITY_HISTORY_COVERAGE_VERSION = "activity-bindings-v2";
+export const DEAL_CUSTOM_FIELDS_COVERAGE_STREAM = "deal_custom_fields";
+export const DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER = "all";
+export const DEAL_CUSTOM_FIELDS_COVERAGE_VERSION = "deal-custom-fields-v1";
+export const DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM = "deal_meeting_date_field";
+export const DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION =
+  "deal-meeting-date-field-v1";
+export const CALL_STATS_COVERAGE_STREAM = "call_stats";
+export const CALL_STATS_COVERAGE_PROVIDER = "VOXIMPLANT_CALL";
+export const CALL_STATS_COVERAGE_VERSION = "call-stats-refresh-v1";
+const FULL_COVERAGE_FROM = "0000-01-01T00:00:00.000Z";
+const CONTACT_TARGET_GROUP_VALUE_MAP = {
+  "140488": "ClubFirst Russia",
+  "140490": "ClubFirst GlobAll",
+  "140492": "ClubFirst Kazakstan",
+  "140494": "ClubFirst Guest",
+  "140496": "ClubFirst Ladies"
+} satisfies Record<string, string>;
 
 type LinkedLeadgenLossContext = {
   basketReasonValue: string | null;
@@ -182,6 +267,26 @@ function normalizeMappedFieldValue(
     return normalized.length > 0 ? normalized.join(", ") : null;
   }
 
+  return null;
+}
+
+function normalizeString(value: string | number | null | undefined) {
+  return value === null || value === undefined ? null : String(value);
+}
+
+function isOpaqueBitrixEnumId(value: string | null) {
+  return Boolean(value && /^\d+$/.test(value));
+}
+
+function sanitizeDealTargetGroupValue(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return isOpaqueBitrixEnumId(value) ? null : value;
+}
+
+function sanitizeRefusalReasonDetail(_value: string | null) {
   return null;
 }
 
@@ -229,6 +334,30 @@ function extractLinkedDealId(value: unknown): string | null {
   }
 
   return null;
+}
+
+function resolveContactTargetGroupValue(input: {
+  row: ContactRow;
+  contactTargetGroupFieldName: string | undefined;
+  legacyContactTargetGroupFieldName: string | undefined;
+  legacyContactTargetGroupMap: Record<string, string>;
+}) {
+  const nextValue = input.contactTargetGroupFieldName
+    ? normalizeMappedFieldValue(
+        input.row[input.contactTargetGroupFieldName],
+        CONTACT_TARGET_GROUP_VALUE_MAP
+      )
+    : null;
+
+  const legacyValue = input.legacyContactTargetGroupFieldName
+    ? normalizeMappedFieldValue(
+        input.row[input.legacyContactTargetGroupFieldName],
+        input.legacyContactTargetGroupMap
+      )
+    : null;
+  const sanitizedNextValue = sanitizeDealTargetGroupValue(nextValue);
+
+  return sanitizedNextValue ?? sanitizeDealTargetGroupValue(legacyValue);
 }
 
 function buildStageNameById(rows: StageCatalogEntry[]) {
@@ -313,7 +442,7 @@ function resolveLossFields(
   if (genericReasonValue || genericReasonDetail) {
     return {
       refusalReasonValue: genericReasonValue,
-      refusalReasonDetail: genericReasonDetail
+      refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail)
     };
   }
 
@@ -321,7 +450,7 @@ function resolveLossFields(
   if (!linked) {
     return {
       refusalReasonValue: genericReasonValue,
-      refusalReasonDetail: genericReasonDetail
+      refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail)
     };
   }
 
@@ -329,20 +458,24 @@ function resolveLossFields(
   if (isReturnLossStage(row.STAGE_ID, stageName)) {
     return {
       refusalReasonValue: linked.returnReasonValue ?? genericReasonValue,
-      refusalReasonDetail: linked.refusalReasonDetail ?? genericReasonDetail
+      refusalReasonDetail: sanitizeRefusalReasonDetail(
+        linked.refusalReasonDetail ?? genericReasonDetail
+      )
     };
   }
 
   if (isBasketLossStage(row.STAGE_ID, stageName)) {
     return {
       refusalReasonValue: linked.basketReasonValue ?? genericReasonValue,
-      refusalReasonDetail: linked.refusalReasonDetail ?? genericReasonDetail
+      refusalReasonDetail: sanitizeRefusalReasonDetail(
+        linked.refusalReasonDetail ?? genericReasonDetail
+      )
     };
   }
 
   return {
     refusalReasonValue: genericReasonValue,
-    refusalReasonDetail: genericReasonDetail
+    refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail)
   };
 }
 
@@ -353,6 +486,8 @@ function mapDealRow(
   businessClubFieldName: string | undefined,
   targetGroupFieldName: string | undefined,
   meetingTypeFieldName: string | undefined,
+  meetingDateFieldName: string | undefined,
+  contactTargetGroupByContactId: Map<string, string>,
   qualityMap: Record<string, string>,
   tariffMap: Record<string, string>,
   businessClubMap: Record<string, string>,
@@ -372,11 +507,21 @@ function mapDealRow(
   const normalizedBusinessClubValue = businessClubFieldName
     ? normalizeMappedFieldValue(row[businessClubFieldName], businessClubMap)
     : null;
-  const normalizedTargetGroupValue = targetGroupFieldName
-    ? normalizeMappedFieldValue(row[targetGroupFieldName], targetGroupMap)
-    : null;
+  const normalizedDealTargetGroupValue = sanitizeDealTargetGroupValue(
+    targetGroupFieldName
+      ? normalizeMappedFieldValue(row[targetGroupFieldName], targetGroupMap)
+      : null
+  );
+  const normalizedTargetGroupValue =
+    normalizedDealTargetGroupValue ??
+    (row.CONTACT_ID
+      ? contactTargetGroupByContactId.get(row.CONTACT_ID) ?? null
+      : null);
   const normalizedMeetingTypeValue = meetingTypeFieldName
     ? normalizeMappedFieldValue(row[meetingTypeFieldName], meetingTypeMap)
+    : null;
+  const normalizedMeetingDateValue = meetingDateFieldName
+    ? normalizeMappedFieldValue(row[meetingDateFieldName], {})
     : null;
   const genericReasonValue = normalizeMappedFieldValue(
     row[ATTRACTION_REFUSAL_REASON_FIELD_NAME],
@@ -396,7 +541,7 @@ function mapDealRow(
 
   return {
     id: row.ID,
-    title: row.TITLE ?? null,
+    title: null,
     leadId: row.LEAD_ID,
     categoryId: row.CATEGORY_ID,
     stageId: row.STAGE_ID,
@@ -408,9 +553,12 @@ function mapDealRow(
     businessClubValue: normalizedBusinessClubValue,
     targetGroupValue: normalizedTargetGroupValue,
     meetingTypeValue: normalizedMeetingTypeValue,
+    meetingDateValue: normalizedMeetingDateValue,
     tariffValue: normalizedTariffValue,
     refusalReasonValue: resolvedLossFields.refusalReasonValue,
-    refusalReasonDetail: resolvedLossFields.refusalReasonDetail,
+    refusalReasonDetail: sanitizeRefusalReasonDetail(
+      resolvedLossFields.refusalReasonDetail
+    ),
     dateCreate: row.DATE_CREATE,
     dateModify: row.DATE_MODIFY,
     dateClosed: row.DATE_CLOSED ?? null,
@@ -441,12 +589,12 @@ function mapActivityRow(row: ActivityRow): ActivitySnapshot {
   const completed = row.COMPLETED === "Y";
 
   return {
-    id: row.ID,
-    ownerTypeId: row.OWNER_TYPE_ID,
-    ownerId: row.OWNER_ID,
-    typeId: row.TYPE_ID,
+    id: String(row.ID),
+    ownerTypeId: String(row.OWNER_TYPE_ID),
+    ownerId: String(row.OWNER_ID),
+    typeId: normalizeString(row.TYPE_ID),
     providerId: row.PROVIDER_ID,
-    responsibleId: row.RESPONSIBLE_ID,
+    responsibleId: normalizeString(row.RESPONSIBLE_ID),
     createdTime: row.CREATED,
     deadline: row.DEADLINE ?? null,
     lastUpdated: row.LAST_UPDATED,
@@ -462,15 +610,15 @@ function mapCallRow(row: CallRow): CallSnapshot {
       : Number(row.CALL_DURATION ?? 0);
 
   return {
-    id: row.ID,
-    crmActivityId: row.CRM_ACTIVITY_ID,
-    portalUserId: row.PORTAL_USER_ID,
-    callType: row.CALL_TYPE,
+    id: String(row.ID),
+    crmActivityId: normalizeString(row.CRM_ACTIVITY_ID),
+    portalUserId: normalizeString(row.PORTAL_USER_ID),
+    callType: normalizeString(row.CALL_TYPE),
     callStartDate: row.CALL_START_DATE,
     callDurationSeconds: Number.isFinite(duration) ? duration : 0,
     crmEntityType: row.CRM_ENTITY_TYPE,
-    crmEntityId: row.CRM_ENTITY_ID,
-    callFailedCode: row.CALL_FAILED_CODE
+    crmEntityId: normalizeString(row.CRM_ENTITY_ID),
+    callFailedCode: normalizeString(row.CALL_FAILED_CODE)
   };
 }
 
@@ -478,8 +626,8 @@ function mapUserRow(row: UserRow): ManagerDirectoryEntry {
   const fullName = [row.NAME, row.LAST_NAME].filter(Boolean).join(" ").trim();
 
   return {
-    id: row.ID,
-    name: fullName || row.ID
+    id: String(row.ID),
+    name: fullName || String(row.ID)
   };
 }
 
@@ -531,6 +679,102 @@ function buildDeadlineChanges(
   });
 }
 
+function resolveBootstrapModifiedAfter(
+  nowIso: string,
+  lookbackDays: number | undefined
+) {
+  if (!lookbackDays || !Number.isFinite(lookbackDays) || lookbackDays <= 0) {
+    return null;
+  }
+
+  const nowMs = Date.parse(nowIso);
+  if (!Number.isFinite(nowMs)) {
+    return null;
+  }
+
+  const cutoff = new Date(nowMs);
+  cutoff.setUTCDate(cutoff.getUTCDate() - Math.trunc(lookbackDays));
+  return cutoff.toISOString();
+}
+
+function isActivityUpdatedAfter(row: ActivityRow, modifiedAfter: string | null) {
+  if (!modifiedAfter) {
+    return true;
+  }
+
+  const updatedAt = Date.parse(row.LAST_UPDATED);
+  const cutoff = Date.parse(modifiedAfter);
+
+  return Number.isFinite(updatedAt) && Number.isFinite(cutoff) && updatedAt >= cutoff;
+}
+
+export function buildCategoryScopeKey(categoryIds: string[]) {
+  return `category:${[...categoryIds].sort().join(",")}`;
+}
+
+function buildSyncCursorKey(scopeKey: string, stream: "deals" | "activities") {
+  return stream === "deals"
+    ? `${scopeKey}:deals:date_modify`
+    : `${scopeKey}:activities:last_updated`;
+}
+
+async function resolveSyncCursor(
+  repository: SyncRepository,
+  key: string,
+  fallback: string | null
+) {
+  return repository.getSyncCursor ? (await repository.getSyncCursor(key)) ?? fallback : fallback;
+}
+
+async function hasActivityProviderCoverage(input: {
+  repository: SyncRepository;
+  scopeKey: string;
+  providerId: string;
+  requiredFrom: string | null;
+}) {
+  if (!input.repository.hasSyncCoverage || !input.requiredFrom) {
+    return true;
+  }
+
+  return input.repository.hasSyncCoverage({
+    scopeKey: input.scopeKey,
+    stream: "activity_history",
+    providerId: input.providerId,
+    requiredFrom: input.requiredFrom,
+    algorithmVersion: ACTIVITY_HISTORY_COVERAGE_VERSION
+  });
+}
+
+async function hasSyncCoverage(input: {
+  repository: SyncRepository;
+  scopeKey: string;
+  stream: string;
+  providerId: string;
+  requiredFrom: string | null;
+  algorithmVersion: string;
+}) {
+  if (!input.repository.hasSyncCoverage || !input.requiredFrom) {
+    return true;
+  }
+
+  return input.repository.hasSyncCoverage({
+    scopeKey: input.scopeKey,
+    stream: input.stream,
+    providerId: input.providerId,
+    requiredFrom: input.requiredFrom,
+    algorithmVersion: input.algorithmVersion
+  });
+}
+
+function runSnapshotTransaction<T>(
+  repository: SyncRepository,
+  task: () => T
+) {
+  return repository.runSnapshotTransaction
+    ? repository.runSnapshotTransaction(task)
+    : task();
+}
+
 export async function performManualSync(
   input: PerformManualSyncInput
 ): Promise<ManualSyncSummary> {
@@ -545,6 +789,13 @@ export async function performManualSync(
     input.repository.getCallHistoryBootstrappedAt(),
     input.repository.getActivitySnapshotCount()
   ]);
+  const scopeKey = buildCategoryScopeKey(input.categoryIds);
+  const dealCursorKey = buildSyncCursorKey(scopeKey, "deals");
+  const activityCursorKey = buildSyncCursorKey(scopeKey, "activities");
+  const [dealCursor, activityCursor] = await Promise.all([
+    resolveSyncCursor(input.repository, dealCursorKey, modifiedAfter),
+    resolveSyncCursor(input.repository, activityCursorKey, modifiedAfter)
+  ]);
   const callActivityHistoryBootstrappedAt =
     input.repository.getCallActivityHistoryBootstrappedAt
       ? await input.repository.getCallActivityHistoryBootstrappedAt()
@@ -553,21 +804,111 @@ export async function performManualSync(
     input.repository.getMeetingActivityHistoryBootstrappedAt
       ? await input.repository.getMeetingActivityHistoryBootstrappedAt()
       : "__legacy__";
-  const mode = modifiedAfter === null ? "full" : "delta";
+  const taskActivityHistoryBootstrappedAt =
+    input.repository.getTaskActivityHistoryBootstrappedAt
+      ? await input.repository.getTaskActivityHistoryBootstrappedAt()
+      : "__legacy__";
+  const dealCustomFieldsBootstrappedAt =
+    input.repository.getDealCustomFieldsBootstrappedAt
+      ? await input.repository.getDealCustomFieldsBootstrappedAt()
+      : "__legacy__";
+  const dealMeetingDateFieldBootstrappedAt =
+    input.meetingDateFieldName &&
+    input.repository.getDealMeetingDateFieldBootstrappedAt
+      ? await input.repository.getDealMeetingDateFieldBootstrappedAt()
+      : "__legacy__";
+  const startedAt = input.now();
+  const bootstrapModifiedAfter = resolveBootstrapModifiedAfter(
+    startedAt,
+    input.bootstrapLookbackDays
+  );
+  const [
+    hasCallActivityHistoryCoverage,
+    hasMeetingActivityHistoryCoverage,
+    hasDealCustomFieldsCoverage,
+    hasDealMeetingDateFieldCoverage,
+    hasCallStatsCoverage,
+    ...taskActivityHistoryCoverage
+  ] = await Promise.all([
+    hasActivityProviderCoverage({
+      repository: input.repository,
+      scopeKey,
+      providerId: "VOXIMPLANT_CALL",
+      requiredFrom: bootstrapModifiedAfter
+    }),
+    hasActivityProviderCoverage({
+      repository: input.repository,
+      scopeKey,
+      providerId: "CRM_MEETING",
+      requiredFrom: bootstrapModifiedAfter
+    }),
+    hasSyncCoverage({
+      repository: input.repository,
+      scopeKey,
+      stream: DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
+      providerId: DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
+      requiredFrom: bootstrapModifiedAfter,
+      algorithmVersion: DEAL_CUSTOM_FIELDS_COVERAGE_VERSION
+    }),
+    input.meetingDateFieldName
+      ? hasSyncCoverage({
+          repository: input.repository,
+          scopeKey,
+          stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
+          providerId: input.meetingDateFieldName,
+          requiredFrom: bootstrapModifiedAfter,
+          algorithmVersion: DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION
+        })
+      : true,
+    hasSyncCoverage({
+      repository: input.repository,
+      scopeKey,
+      stream: CALL_STATS_COVERAGE_STREAM,
+      providerId: CALL_STATS_COVERAGE_PROVIDER,
+      requiredFrom: bootstrapModifiedAfter,
+      algorithmVersion: CALL_STATS_COVERAGE_VERSION
+    }),
+    ...TASK_ACTIVITY_PROVIDER_IDS.map((providerId) =>
+      hasActivityProviderCoverage({
+        repository: input.repository,
+        scopeKey,
+        providerId,
+        requiredFrom: bootstrapModifiedAfter
+      })
+    )
+  ]);
+  const runModifiedAfter = dealCursor;
+  const mode = runModifiedAfter === null ? "full" : "delta";
   const shouldBootstrapOperationalHistory =
     !operationalHistoryBootstrappedAt && activitySnapshotCount === 0;
   const shouldBootstrapCallActivityHistory =
-    !callActivityHistoryBootstrappedAt;
+    !callActivityHistoryBootstrappedAt || !hasCallActivityHistoryCoverage;
   const shouldBootstrapMeetingActivityHistory =
-    !meetingActivityHistoryBootstrappedAt;
+    !meetingActivityHistoryBootstrappedAt || !hasMeetingActivityHistoryCoverage;
+  const taskActivityProvidersToBootstrap = TASK_ACTIVITY_PROVIDER_IDS.filter(
+    (_providerId, index) =>
+      !taskActivityHistoryBootstrappedAt || !taskActivityHistoryCoverage[index]
+  );
+  const shouldBootstrapTaskActivityHistory =
+    taskActivityProvidersToBootstrap.length > 0;
+  const shouldBootstrapDealCustomFields =
+    !dealCustomFieldsBootstrappedAt || !hasDealCustomFieldsCoverage;
+  const shouldBootstrapDealMeetingDateField =
+    Boolean(input.meetingDateFieldName) &&
+    (!dealMeetingDateFieldBootstrappedAt || !hasDealMeetingDateFieldCoverage);
+  const shouldRefreshCallStatsCoverage = !hasCallStatsCoverage;
+  const shouldBootstrapAnyDealFields =
+    shouldBootstrapDealCustomFields || shouldBootstrapDealMeetingDateField;
+  const dealModifiedAfter = shouldBootstrapAnyDealFields
+    ? bootstrapModifiedAfter
+    : dealCursor;
   const activityModifiedAfter = shouldBootstrapOperationalHistory
-    ? null
-    : modifiedAfter;
-  const startedAt = input.now();
+    ? bootstrapModifiedAfter
+    : activityCursor;
   const syncRunId = await input.repository.createSyncRun({
     startedAt,
     mode,
-    modifiedAfter
+    modifiedAfter: runModifiedAfter
   });
 
   try {
@@ -580,6 +921,7 @@ export async function performManualSync(
       businessClubMap,
       targetGroupMap,
       meetingTypeMap,
+      legacyContactTargetGroupMap,
       refusalReasonMap,
       leadgenReturnReasonMap,
       leadgenBasketReasonMap,
@@ -601,6 +943,12 @@ export async function performManualSync(
       input.meetingTypeFieldName && input.client.fetchDealFieldValueMap
         ? input.client.fetchDealFieldValueMap(input.meetingTypeFieldName)
         : Promise.resolve({}),
+      input.legacyContactTargetGroupFieldName &&
+      input.client.fetchContactFieldValueMap
+        ? input.client.fetchContactFieldValueMap(
+            input.legacyContactTargetGroupFieldName
+          )
+        : Promise.resolve({}),
       input.client.fetchDealFieldValueMap
         ? input.client.fetchDealFieldValueMap(ATTRACTION_REFUSAL_REASON_FIELD_NAME)
         : Promise.resolve({}),
@@ -611,7 +959,7 @@ export async function performManualSync(
         ? input.client.fetchDealFieldValueMap(LEADGEN_US_BASKET_REASON_FIELD_NAME)
         : Promise.resolve({}),
       input.client.listDeals({
-        modifiedAfter,
+        modifiedAfter: dealModifiedAfter,
         categoryIds: input.categoryIds,
         qualityFieldName: input.qualityFieldName,
         customFieldNames: [
@@ -620,13 +968,14 @@ export async function performManualSync(
           ...(input.businessClubFieldName ? [input.businessClubFieldName] : []),
           ...(input.targetGroupFieldName ? [input.targetGroupFieldName] : []),
           ...(input.meetingTypeFieldName ? [input.meetingTypeFieldName] : []),
+          ...(input.meetingDateFieldName ? [input.meetingDateFieldName] : []),
           ATTRACTION_REFUSAL_REASON_FIELD_NAME,
           ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME
         ]
       }),
       shouldFetchLeadgenReasons
         ? input.client.listDeals({
-            modifiedAfter,
+            modifiedAfter: dealModifiedAfter,
             categoryIds: [LEADGEN_US_CATEGORY_ID],
             customFieldNames: [
               LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME,
@@ -637,76 +986,171 @@ export async function performManualSync(
           })
         : Promise.resolve([])
     ]);
+
+    const contactIds = Array.from(
+      new Set(
+        dealRows
+          .map((row) => row.CONTACT_ID)
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+    const contactRows =
+      contactIds.length > 0 &&
+      input.contactTargetGroupFieldName &&
+      input.client.listContacts
+        ? await input.client.listContacts({
+            ids: contactIds,
+            customFieldNames: [
+              input.contactTargetGroupFieldName,
+              ...(input.legacyContactTargetGroupFieldName
+                ? [input.legacyContactTargetGroupFieldName]
+                : [])
+            ]
+          })
+        : [];
+    const contactTargetGroupByContactId = new Map(
+      contactRows.flatMap((row) => {
+        const targetGroupValue = resolveContactTargetGroupValue({
+          row,
+          contactTargetGroupFieldName: input.contactTargetGroupFieldName,
+          legacyContactTargetGroupFieldName:
+            input.legacyContactTargetGroupFieldName,
+          legacyContactTargetGroupMap
+        });
+
+        return targetGroupValue ? [[row.ID, targetGroupValue] as const] : [];
+      })
+    );
     const stageNameById = buildStageNameById(dealStages);
     const linkedLeadgenLossLookup = buildLinkedLeadgenLossLookup(
       leadgenReasonRows,
       leadgenReturnReasonMap,
       leadgenBasketReasonMap
     );
-
-    await input.repository.replaceStageCatalog([...dealStages, ...sourceCatalog]);
-
-    const dealsSynced = await input.repository.upsertDeals(
-      dealRows.map((row) =>
-        mapDealRow(
-          row,
-          input.qualityFieldName,
-          input.tariffFieldName,
-          input.businessClubFieldName,
-          input.targetGroupFieldName,
-          input.meetingTypeFieldName,
-          qualityMap,
-          tariffMap,
-          businessClubMap,
-          targetGroupMap,
-          meetingTypeMap,
-          refusalReasonMap,
-          stageNameById,
-          linkedLeadgenLossLookup
-        )
+    const deals = dealRows.map((row) =>
+      mapDealRow(
+        row,
+        input.qualityFieldName,
+        input.tariffFieldName,
+        input.businessClubFieldName,
+        input.targetGroupFieldName,
+        input.meetingTypeFieldName,
+        input.meetingDateFieldName,
+        contactTargetGroupByContactId,
+        qualityMap,
+        tariffMap,
+        businessClubMap,
+        targetGroupMap,
+        meetingTypeMap,
+        refusalReasonMap,
+        stageNameById,
+        linkedLeadgenLossLookup
       )
     );
+    const dealsSynced = deals.length;
 
-    const ownerIds = await input.repository.getDealIdsByCategoryIds(input.categoryIds);
-    if (!callHistoryBootstrappedAt) {
-      await input.repository.markCallHistoryBootstrapped(input.now());
+    const ownerIds = Array.from(
+      new Set([
+        ...(await input.repository.getDealIdsByCategoryIds(input.categoryIds)),
+        ...deals.map((deal) => deal.id)
+      ])
+    );
+
+    const historicalActivityRequests: Array<{
+      providerId: string;
+      request: Promise<ActivityRow[]>;
+    }> = [];
+    if (shouldBootstrapCallActivityHistory) {
+      historicalActivityRequests.push({
+        providerId: "VOXIMPLANT_CALL",
+        request: input.client.listActivities({
+          ownerIds,
+          modifiedAfter: bootstrapModifiedAfter,
+          providerId: "VOXIMPLANT_CALL"
+        })
+      });
     }
-
-    const [
-      deltaActivityRows,
-      historicalCallActivityRows,
-      historicalMeetingActivityRows
-    ] = await Promise.all([
+    if (shouldBootstrapMeetingActivityHistory) {
+      historicalActivityRequests.push({
+        providerId: "CRM_MEETING",
+        request: input.client.listActivities({
+          ownerIds,
+          modifiedAfter: bootstrapModifiedAfter,
+          providerId: "CRM_MEETING"
+        })
+      });
+    }
+    if (shouldBootstrapTaskActivityHistory) {
+      for (const providerId of taskActivityProvidersToBootstrap) {
+        historicalActivityRequests.push({
+          providerId,
+          request: input.client.listActivities({
+            ownerIds,
+            modifiedAfter: bootstrapModifiedAfter,
+            providerId
+          })
+        });
+      }
+    }
+    const [deltaActivityRows, historicalActivityGroups] = await Promise.all([
       input.client.listActivities({
         ownerIds,
         modifiedAfter: activityModifiedAfter
       }),
-      shouldBootstrapCallActivityHistory
-        ? input.client.listActivities({
-            ownerIds,
-            modifiedAfter: null,
-            providerId: "VOXIMPLANT_CALL"
-          })
-        : Promise.resolve([]),
-      shouldBootstrapMeetingActivityHistory
-        ? input.client.listActivities({
-            ownerIds,
-            modifiedAfter: null,
-            providerId: "CRM_MEETING"
-          })
-        : Promise.resolve([])
+      Promise.all(historicalActivityRequests.map((entry) => entry.request))
     ]);
-    const activityRows = Array.from(
+    const historicalActivityRows = historicalActivityGroups.flat();
+    const syncedActivityRows = Array.from(
       new Map(
         [
-          ...historicalCallActivityRows,
-          ...historicalMeetingActivityRows,
+          ...historicalActivityRows.filter((row) =>
+            isActivityUpdatedAfter(row, bootstrapModifiedAfter)
+          ),
           ...deltaActivityRows
-        ].map((row) => [row.ID, row])
+        ].map((row) => [String(row.ID), row])
       ).values()
     );
+    const missingCallActivityIds =
+      input.repository.getCallActivityIdsMissingActivities &&
+      input.client.listActivitiesByIds
+        ? await input.repository.getCallActivityIdsMissingActivities(
+            MISSING_CALL_ACTIVITY_BACKFILL_LIMIT,
+            bootstrapModifiedAfter
+          )
+        : [];
+    const missingCallActivityRows =
+      missingCallActivityIds.length > 0 && input.client.listActivitiesByIds
+        ? (await input.client.listActivitiesByIds(missingCallActivityIds)).filter(
+            (row) => String(row.OWNER_TYPE_ID) === "2"
+          )
+        : [];
+    const activityRows = Array.from(
+      new Map(
+        [...syncedActivityRows, ...missingCallActivityRows].map((row) => [
+          String(row.ID),
+          row
+        ])
+      ).values()
+    );
+    const missingCallStatsActivityIds =
+      input.repository.getCallActivityIdsMissingCallStats
+        ? await input.repository.getCallActivityIdsMissingCallStats(
+            MISSING_CALL_STATS_BACKFILL_LIMIT,
+            bootstrapModifiedAfter
+          )
+        : [];
+    const callStatsRefreshActivityIds =
+      shouldRefreshCallStatsCoverage &&
+      input.repository.getCallActivityIdsForCallStatsRefresh
+        ? await input.repository.getCallActivityIdsForCallStatsRefresh(
+            CALL_STATS_REFRESH_LIMIT,
+            bootstrapModifiedAfter
+          )
+        : [];
 
-    const activityIds = Array.from(new Set(activityRows.map((row) => row.ID)));
+    const activityIds = Array.from(
+      new Set(activityRows.map((row) => String(row.ID)))
+    );
     const previousActivities =
       activityIds.length > 0
         ? await input.repository.getActivitiesByIds(activityIds)
@@ -715,61 +1159,174 @@ export async function performManualSync(
     const deadlineChanges = buildDeadlineChanges(previousActivities, activities);
     const callActivityIds = Array.from(
       new Set(
-        activityRows
-          .filter((row) => row.PROVIDER_ID === "VOXIMPLANT_CALL")
-          .map((row) => row.ID)
+        [
+          ...activityRows
+            .filter((row) => row.PROVIDER_ID === "VOXIMPLANT_CALL")
+            .map((row) => String(row.ID)),
+          ...callStatsRefreshActivityIds,
+          ...missingCallStatsActivityIds
+        ]
       )
     );
-    const callRows = await input.client.listCalls({
-      activityIds: callActivityIds
-    });
+    const callRowsByActivity =
+      callActivityIds.length > 0
+        ? await input.client.listCalls({
+            activityIds: callActivityIds
+          })
+        : [];
+    const supplementalCallRows = shouldRefreshCallStatsCoverage
+      ? await input.client.listCalls({
+          callStartDateFrom: bootstrapModifiedAfter ?? FULL_COVERAGE_FROM,
+          callStartDateTo: startedAt,
+          portalUserIds: ATTRACTION_MANAGER_IDS
+        })
+      : [];
+    const callRows = Array.from(
+      new Map(
+        [...callRowsByActivity, ...supplementalCallRows].map((row) => [
+          String(row.ID),
+          row
+        ])
+      ).values()
+    );
     const managerIds = Array.from(
       new Set(
         [
           ...dealRows.map((row) => row.ASSIGNED_BY_ID),
           ...activityRows.map((row) => row.RESPONSIBLE_ID),
           ...callRows.map((row) => row.PORTAL_USER_ID)
-        ].filter((value): value is string => Boolean(value))
+        ]
+          .map(normalizeString)
+          .filter((value): value is string => Boolean(value))
       )
     );
 
     const managerDirectory = await fetchManagerDirectory(input.client, managerIds);
-
-    await Promise.all([
-      input.repository.upsertActivities(activities),
-      input.repository.upsertActivityDeadlineChanges(deadlineChanges),
-      input.repository.upsertCalls(callRows.map(mapCallRow)),
-      input.repository.upsertManagerDirectory(managerDirectory)
-    ]);
-
-    if (shouldBootstrapCallActivityHistory) {
-      await input.repository.markCallActivityHistoryBootstrapped?.(input.now());
-    }
-
-    if (shouldBootstrapMeetingActivityHistory) {
-      await input.repository.markMeetingActivityHistoryBootstrapped?.(input.now());
-    }
-
-    if (shouldBootstrapOperationalHistory) {
-      await input.repository.markOperationalHistoryBootstrapped(input.now());
-    }
-
     const stageHistoryRows = await input.client.listStageHistory({
       categoryIds: input.categoryIds
     });
-    await input.repository.upsertStageHistory(
-      stageHistoryRows.map(mapStageHistoryRow)
-    );
+    const stageHistory = stageHistoryRows.map(mapStageHistoryRow);
+    const calls = callRows.map(mapCallRow);
 
     const finishedAt = input.now();
+    const persistedAt = input.now();
 
-    await input.repository.finishSyncRun({
-      syncRunId,
-      finishedAt,
-      status: "success",
-      leadsSynced: 0,
-      dealsSynced,
-      modifiedAfter
+    runSnapshotTransaction(input.repository, () => {
+      void input.repository.replaceStageCatalog([...dealStages, ...sourceCatalog]);
+      void input.repository.upsertDeals(deals);
+
+      if (!callHistoryBootstrappedAt) {
+        void input.repository.markCallHistoryBootstrapped(persistedAt);
+      }
+
+      void input.repository.upsertActivities(activities);
+      void input.repository.upsertActivityDeadlineChanges(deadlineChanges);
+      void input.repository.upsertCalls(calls);
+      void input.repository.upsertManagerDirectory(managerDirectory);
+
+      if (input.repository.setSyncCursor) {
+        void input.repository.setSyncCursor({
+          key: dealCursorKey,
+          cursorValue: startedAt,
+          updatedAt: persistedAt
+        });
+        void input.repository.setSyncCursor({
+          key: activityCursorKey,
+          cursorValue: startedAt,
+          updatedAt: persistedAt
+        });
+      }
+
+      if (input.repository.upsertSyncCoverage && bootstrapModifiedAfter) {
+        for (const entry of historicalActivityRequests) {
+          void input.repository.upsertSyncCoverage({
+            scopeKey,
+            stream: "activity_history",
+            providerId: entry.providerId,
+            coveredFrom: bootstrapModifiedAfter,
+            coveredTo: null,
+            algorithmVersion: ACTIVITY_HISTORY_COVERAGE_VERSION,
+            syncedAt: persistedAt
+          });
+        }
+      }
+
+      if (input.repository.upsertSyncCoverage && shouldBootstrapDealCustomFields) {
+        void input.repository.upsertSyncCoverage({
+          scopeKey,
+          stream: DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
+          providerId: DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
+          coveredFrom: dealModifiedAfter ?? FULL_COVERAGE_FROM,
+          coveredTo: null,
+          algorithmVersion: DEAL_CUSTOM_FIELDS_COVERAGE_VERSION,
+          syncedAt: persistedAt
+        });
+      }
+
+      if (
+        input.repository.upsertSyncCoverage &&
+        input.meetingDateFieldName &&
+        shouldBootstrapDealMeetingDateField
+      ) {
+        void input.repository.upsertSyncCoverage({
+          scopeKey,
+          stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
+          providerId: input.meetingDateFieldName,
+          coveredFrom: dealModifiedAfter ?? FULL_COVERAGE_FROM,
+          coveredTo: null,
+          algorithmVersion: DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION,
+          syncedAt: persistedAt
+        });
+      }
+
+      if (input.repository.upsertSyncCoverage && shouldRefreshCallStatsCoverage) {
+        void input.repository.upsertSyncCoverage({
+          scopeKey,
+          stream: CALL_STATS_COVERAGE_STREAM,
+          providerId: CALL_STATS_COVERAGE_PROVIDER,
+          coveredFrom: bootstrapModifiedAfter ?? FULL_COVERAGE_FROM,
+          coveredTo: null,
+          algorithmVersion: CALL_STATS_COVERAGE_VERSION,
+          syncedAt: persistedAt
+        });
+      }
+
+      if (shouldBootstrapCallActivityHistory) {
+        void input.repository.markCallActivityHistoryBootstrapped?.(persistedAt);
+      }
+
+      if (shouldBootstrapMeetingActivityHistory) {
+        void input.repository.markMeetingActivityHistoryBootstrapped?.(
+          persistedAt
+        );
+      }
+
+      if (shouldBootstrapTaskActivityHistory) {
+        void input.repository.markTaskActivityHistoryBootstrapped?.(persistedAt);
+      }
+
+      if (shouldBootstrapDealCustomFields) {
+        void input.repository.markDealCustomFieldsBootstrapped?.(persistedAt);
+      }
+
+      if (shouldBootstrapDealMeetingDateField) {
+        void input.repository.markDealMeetingDateFieldBootstrapped?.(persistedAt);
+      }
+
+      if (shouldBootstrapOperationalHistory) {
+        void input.repository.markOperationalHistoryBootstrapped(persistedAt);
+      }
+
+      void input.repository.upsertStageHistory(stageHistory);
+
+      void input.repository.finishSyncRun({
+        syncRunId,
+        finishedAt,
+        status: "success",
+        leadsSynced: 0,
+        dealsSynced,
+        modifiedAfter: runModifiedAfter
+      });
     });
 
     return {
@@ -777,7 +1334,7 @@ export async function performManualSync(
       leadsSynced: 0,
       dealsSynced,
       mode,
-      modifiedAfter,
+      modifiedAfter: runModifiedAfter,
       finishedAt
     };
   } catch (error) {

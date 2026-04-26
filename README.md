@@ -5,7 +5,7 @@
 ## Что уже есть
 
 - `apps/api`: локальный Express API, SQLite storage, sync/reporting/security policy.
-- `apps/web`: Vite React dashboard shell.
+- `apps/web`: Vite React app with a single supported runtime entrypoint, `ProtoApp`.
 - `packages/contracts`: общие snapshot/report DTO types.
 
 ## Безопасностная модель
@@ -34,6 +34,8 @@
 - при первом запуске ставит зависимости, если `node_modules` еще нет
 - поднимает `api` и `web` одновременно
 - на macOS открывает браузер на `http://localhost:5173`
+
+Актуальный web runtime описан в [docs/architecture/web-runtime.md](/Users/vladislavbogdan/Documents/Вайб-проекты/Модуль%20%22Привлечение%22/Дашборды%20Привлечения/docs/architecture/web-runtime.md). В `apps/web/src` не должно быть альтернативных dashboard shells или demo UI entrypoints.
 
 ### Ручной запуск
 

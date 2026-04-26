@@ -138,17 +138,17 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders the production dashboard shell as the main app', async () => {
+  it('renders the prototype dashboard shell as the main app', async () => {
     render(<App />)
 
     expect(
-      await screen.findByRole('heading', { name: /операционный стол привлечения/i }),
+      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: /продажи по менеджерам/i }),
+      screen.getByRole('button', { name: /^comment mode$/i }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('heading', { name: /^pdca-дашборд метрик$/i }),
-    ).not.toBeInTheDocument()
+      screen.getByText(/фильтры периода и среза/i),
+    ).toBeInTheDocument()
   })
 })

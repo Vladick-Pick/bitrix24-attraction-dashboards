@@ -216,6 +216,8 @@ export function DashboardShell({ previewSnapshot = null }: DashboardShellProps) 
   const isMountedRef = useRef(true)
 
   useEffect(() => {
+    isMountedRef.current = true
+
     return () => {
       isMountedRef.current = false
     }

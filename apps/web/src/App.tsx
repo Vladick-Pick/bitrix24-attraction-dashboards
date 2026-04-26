@@ -1,7 +1,7 @@
-import { DashboardShell } from '@/features/dashboard/dashboard-shell'
+import { ProtoApp } from '@/proto/proto-app'
 
 function App() {
-  return <DashboardShell />
+  return <ProtoApp />
 }
 
 export default App

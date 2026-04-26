@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -153,6 +154,18 @@ describe('DashboardShell', () => {
     expect(screen.queryByText('ИП Бета')).not.toBeInTheDocument()
     expect(screen.queryByText(/top source/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/выбрать отчет/i)).not.toBeInTheDocument()
+  })
+
+  it('hydrates the dashboard under React StrictMode dev remount checks', async () => {
+    render(
+      <StrictMode>
+        <DashboardShell />
+      </StrictMode>,
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /продажи по менеджерам/i }),
+    ).toBeInTheDocument()
   })
 
   it('shows an explicit live error with retry instead of switching to preview data', async () => {

@@ -242,6 +242,7 @@ export function ProtoApp() {
     operationalStatus: 'idle',
     operationalError: null,
   })
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing'>('idle')
   const [draftComment, setDraftComment] = useState<{
     id: string | null
     x: number
@@ -484,6 +485,31 @@ export function ProtoApp() {
     }
   }, [appliedFilters])
 
+  async function handleRefreshData() {
+    if (syncStatus === 'syncing') {
+      return
+    }
+
+    setSyncStatus('syncing')
+    setRuntimeData((current) => ({
+      ...current,
+      operationalError: null,
+    }))
+
+    try {
+      await apiClient.triggerSync()
+      setAppliedFilters((current) => cloneFilters(current))
+    } catch (error) {
+      setRuntimeData((current) => ({
+        ...current,
+        operationalError:
+          error instanceof Error ? error.message : 'Не удалось синхронизировать данные',
+      }))
+    } finally {
+      setSyncStatus('idle')
+    }
+  }
+
   function patchFilters(next: Partial<ProtoFilterState>) {
     setFilters((current) => ({ ...current, ...next }))
   }
@@ -639,12 +665,11 @@ export function ProtoApp() {
           <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-3">
             <button
               className="btn btn-ghost"
-              onClick={() => {
-                setAppliedFilters(cloneFilters(filters))
-                setLastFiltersApply(new Date().toISOString())
-              }}
+              onClick={() => void handleRefreshData()}
+              disabled={syncStatus === 'syncing'}
+              aria-busy={syncStatus === 'syncing'}
             >
-              Обновить данные
+              {syncStatus === 'syncing' ? 'Синхронизация...' : 'Обновить данные'}
             </button>
             <button className="btn btn-ghost" onClick={() => setCommentsOpen((current) => !current)}>
               Комментарии

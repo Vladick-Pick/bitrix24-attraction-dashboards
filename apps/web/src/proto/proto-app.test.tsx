@@ -105,6 +105,14 @@ vi.mock('@/lib/api-client', () => ({
       bottleneck: null,
       comparisons: [],
     })),
+    triggerSync: vi.fn(async () => ({
+      syncRunId: 1,
+      leadsSynced: 0,
+      dealsSynced: 12,
+      mode: 'delta',
+      modifiedAfter: '2026-04-19T16:19:09.990Z',
+      finishedAt: '2026-04-26T16:00:00.000Z',
+    })),
   },
 }))
 
@@ -676,6 +684,25 @@ describe('ProtoApp', () => {
     expect(
       screen.queryByText('В выбранном периоде нет выигранных сделок.'),
     ).not.toBeInTheDocument()
+  })
+
+  it('uses the refresh button to synchronize Bitrix without applying draft filters', async () => {
+    render(<ProtoApp />)
+
+    expect(await screen.findByText('В выбранном периоде нет выигранных сделок.')).toBeInTheDocument()
+    vi.mocked(apiClient.getDashboard).mockClear()
+
+    const dateInputs = document.querySelectorAll<HTMLInputElement>('input[type="date"]')
+    fireEvent.change(dateInputs[0]!, { target: { value: '2026-01-01' } })
+
+    await userEvent.click(screen.getByRole('button', { name: /^обновить данные$/i }))
+
+    await waitFor(() => expect(apiClient.triggerSync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(apiClient.getDashboard).toHaveBeenCalled())
+
+    const [query] = vi.mocked(apiClient.getDashboard).mock.calls.at(-1)!
+    expect(query.preset).toBe('custom')
+    expect('from' in query ? query.from : '').not.toContain('2026-01-01')
   })
 
   it('loads cached operational reports while warning that sync health is stale', async () => {

@@ -678,7 +678,7 @@ describe('ProtoApp', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('blocks operational reports when sync health says local data is not trustworthy', async () => {
+  it('loads cached operational reports while warning that sync health is stale', async () => {
     vi.mocked(apiClient.getMeta).mockResolvedValueOnce({
       stageCatalog: [],
       managerCatalog: [],
@@ -701,14 +701,37 @@ describe('ProtoApp', () => {
         warnings: ['Нет подтвержденного покрытия локального snapshot.'],
       },
     })
+    vi.mocked(apiClient.getDashboard).mockResolvedValueOnce({
+      salesSummary: {
+        salesCount: 1,
+        salesAmount: 940_000,
+        averageSaleAmount: 940_000,
+        newDealsCount: 66,
+        conversionRate: 0,
+        meetingsCount: 1,
+      },
+      managerGroups: [
+        {
+          managerId: '78',
+          managerName: 'Потапова Мария',
+          totalWonDeals: 1,
+          totalSalesAmount: 940_000,
+          deals: [],
+        },
+      ],
+      comparisons: [],
+    })
 
     render(<ProtoApp />)
 
     expect(
-      await screen.findAllByText('Нет подтвержденного покрытия локального snapshot.'),
-    ).toHaveLength(2)
-    expect(apiClient.getDashboard).not.toHaveBeenCalled()
-    expect(apiClient.getCallsWorkloadReport).not.toHaveBeenCalled()
+      (await screen.findAllByText('Нет подтвержденного покрытия локального snapshot.')).length,
+    ).toBeGreaterThan(0)
+    expect(await screen.findByText('Потапова Мария')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('KPI продаж')).getAllByText('1').length).toBeGreaterThan(0)
+    expect(apiClient.getDashboard).toHaveBeenCalled()
+    expect(apiClient.getCallsWorkloadReport).toHaveBeenCalled()
+    expect(screen.queryByText(/live-данные недоступны/i)).not.toBeInTheDocument()
   })
 
   it('keeps scene filter signatures bound to applied filters until the user applies draft changes', async () => {

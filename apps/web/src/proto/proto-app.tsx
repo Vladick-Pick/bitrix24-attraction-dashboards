@@ -334,21 +334,11 @@ export function ProtoApp() {
           label: entry.label,
           meta: 'Источник',
         }))
-        if (meta.syncHealth?.blocking) {
-          const message =
-            meta.syncHealth.warnings[0] ??
-            meta.syncHealth.issues[0]?.message ??
-            'Локальный snapshot не подтвержден sync coverage.'
-
-          setRuntimeData((current) => ({
-            ...current,
-            managerOptions: managerPickerOptions,
-            sourceOptions: sourcePickerOptions,
-            operationalStatus: 'error',
-            operationalError: message,
-          }))
-          return
-        }
+        const syncHealthWarning =
+          meta.syncHealth?.warnings[0] ??
+          (meta.syncHealth?.blocking
+            ? meta.syncHealth.issues[0]?.message ?? 'Локальный snapshot не подтвержден sync coverage.'
+            : null)
 
         const query = buildDashboardQueryFromProtoFilters(appliedFilters)
         const [
@@ -471,7 +461,7 @@ export function ProtoApp() {
           }),
           tocFlow: mapTocFlowSceneData({ report: toc, managerBreakdowns: tocManagerBreakdowns }),
           operationalStatus: 'ready',
-          operationalError: null,
+          operationalError: syncHealthWarning,
         })
       } catch (error) {
         if (cancelled || runtimeRequestRef.current !== requestId) {

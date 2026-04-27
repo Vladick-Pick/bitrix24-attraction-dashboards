@@ -157,6 +157,40 @@ export interface DashboardData extends DashboardDataSnapshot {
   comparisons?: Array<ReportComparison<DashboardDataSnapshot>>
 }
 
+export interface SalesPlanRow {
+  periodStart: string
+  periodEnd: string
+  managerId: string
+  managerName: string | null
+  targetGroupKey: string
+  targetGroupLabel: string
+  plannedDeals: number
+  plannedAmount: number
+  updatedAt: string
+}
+
+export interface SalesPlanDraftRow {
+  managerId: string
+  managerName?: string | null | undefined
+  targetGroupKey: string
+  targetGroupLabel?: string | null | undefined
+  plannedDeals: number
+  plannedAmount: number
+}
+
+export interface SalesPlanData {
+  periodStart: string
+  periodEnd: string
+  rows: SalesPlanRow[]
+  updatedAt: string | null
+}
+
+export interface SalesPlanInput {
+  periodStart: string
+  periodEnd: string
+  rows: SalesPlanDraftRow[]
+}
+
 export interface StageSequenceEntry {
   stageId: string
   stageName: string

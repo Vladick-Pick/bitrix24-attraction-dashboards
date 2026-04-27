@@ -5,6 +5,8 @@ import type {
   CallsWorkloadReport,
   DashboardData,
   ManagerActionOutcomeReport,
+  SalesPlanData,
+  SalesPlanDraftRow,
   TargetGroupConversionReport,
 } from '@/lib/dashboard-types'
 
@@ -220,6 +222,9 @@ export interface SceneComponentProps {
   commentMode: boolean
   filters: ProtoFilterState
   runtimeData?: ProtoRuntimeData
+  salesPlanSaving?: boolean
+  salesPlanSaveError?: string | null
+  onSalesPlanSave?: (rows: SalesPlanDraftRow[]) => Promise<void>
 }
 
 export interface ProtoScene {
@@ -240,6 +245,7 @@ export interface ProtoRuntimeData {
   managerOptions: PickerOption[]
   sourceOptions: PickerOption[]
   salesDashboard?: DashboardData
+  salesPlan?: SalesPlanData
   activitiesWorkload?: ActivitiesWorkloadReport
   callsWorkload?: CallsWorkloadReport
   activitiesCalls?: ActivitiesCallsSceneData

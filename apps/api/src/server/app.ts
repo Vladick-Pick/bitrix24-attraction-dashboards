@@ -7,6 +7,8 @@ import type {
   ManagerActionOutcomeReport,
   ManagerDirectoryEntry,
   ManualSyncSummary,
+  SalesPlanData,
+  SalesPlanInput,
   SnapshotStats,
   SourceCatalogEntry,
   SourceQualityConversionReport,
@@ -74,6 +76,11 @@ interface AppService {
   getCallsWorkloadReport(input: RangeRequest): Promise<CallsWorkloadReport>;
   getCohortConversionReport(input: RangeRequest): Promise<CohortConversionReport>;
   getTocFlowReport(input: RangeRequest): Promise<TocFlowReport>;
+  getSalesPlan(input: {
+    periodStart: string;
+    periodEnd: string;
+  }): Promise<SalesPlanData>;
+  replaceSalesPlan(input: SalesPlanInput): Promise<SalesPlanData>;
   getMeta(): Promise<MetaResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
@@ -188,6 +195,46 @@ const updateWonStagesSchema = z.object({
   stageIds: z.array(z.string().min(1)).min(1)
 });
 
+const salesPlanQuerySchema = z
+  .object({
+    from: z.string().datetime({ offset: true }),
+    to: z.string().datetime({ offset: true })
+  })
+  .superRefine((value, context) => {
+    if (isLaterThan(value.from, value.to)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "from must be earlier than or equal to to.",
+        path: ["from"]
+      });
+    }
+  });
+
+const salesPlanBodySchema = z
+  .object({
+    periodStart: z.string().datetime({ offset: true }),
+    periodEnd: z.string().datetime({ offset: true }),
+    rows: z.array(
+      z.object({
+        managerId: z.string().min(1),
+        managerName: z.string().trim().min(1).nullable().optional(),
+        targetGroupKey: z.string().min(1),
+        targetGroupLabel: z.string().trim().min(1).nullable().optional(),
+        plannedDeals: z.number().int().nonnegative(),
+        plannedAmount: z.number().finite().nonnegative()
+      })
+    )
+  })
+  .superRefine((value, context) => {
+    if (isLaterThan(value.periodStart, value.periodEnd)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "periodStart must be earlier than or equal to periodEnd.",
+        path: ["periodStart"]
+      });
+    }
+  });
+
 function parseRangeRequest(query: unknown): RangeRequest {
   const parsed = reportQuerySchema.parse(query);
   const compareRanges = (parsed.compareFrom ?? []).map((from, index) => ({
@@ -282,6 +329,28 @@ function readBearerToken(value: string | undefined) {
   return match?.[1]?.trim();
 }
 
+const localWebHostnames = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function isAllowedWebOrigin(origin: string, webOrigin: string) {
+  if (origin === webOrigin) {
+    return true;
+  }
+
+  try {
+    const candidate = new URL(origin);
+    const configured = new URL(webOrigin);
+
+    return (
+      candidate.protocol === configured.protocol &&
+      candidate.port === configured.port &&
+      localWebHostnames.has(candidate.hostname) &&
+      localWebHostnames.has(configured.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function createApp(service: AppService, config: AppConfig = {}) {
   const app = express();
   let activeSync: Promise<ManualSyncSummary> | null = null;
@@ -296,7 +365,7 @@ export function createApp(service: AppService, config: AppConfig = {}) {
           return;
         }
 
-        callback(null, origin === webOrigin ? webOrigin : false);
+        callback(null, isAllowedWebOrigin(origin, webOrigin) ? origin : false);
       },
       methods: ["GET", "POST", "PUT"],
       allowedHeaders: ["Content-Type", "Authorization", "X-API-Token"]
@@ -439,6 +508,29 @@ export function createApp(service: AppService, config: AppConfig = {}) {
   app.get("/api/meta", async (_request, response, next) => {
     try {
       response.json(await service.getMeta());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/sales-plan", async (request, response, next) => {
+    try {
+      const query = salesPlanQuerySchema.parse(request.query);
+      response.json(
+        await service.getSalesPlan({
+          periodStart: query.from,
+          periodEnd: query.to
+        })
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/sales-plan", async (request, response, next) => {
+    try {
+      const payload = salesPlanBodySchema.parse(request.body);
+      response.json(await service.replaceSalesPlan(payload));
     } catch (error) {
       next(error);
     }

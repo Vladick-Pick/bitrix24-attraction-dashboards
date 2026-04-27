@@ -21,6 +21,7 @@ import { apiClient } from '@/lib/api-client'
 import type {
   LastSyncSummary,
   MetaResponse,
+  SalesPlanDraftRow,
   SnapshotStats,
   SyncChangeSummary,
   SyncDealChangeBreakdown,
@@ -321,6 +322,8 @@ export function ProtoApp() {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing'>('idle')
   const [syncProgress, setSyncProgress] = useState<SyncProgressEvent | null>(null)
   const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null)
+  const [salesPlanSaving, setSalesPlanSaving] = useState(false)
+  const [salesPlanSaveError, setSalesPlanSaveError] = useState<string | null>(null)
   const [snapshotStats, setSnapshotStats] = useState<SnapshotStats | null>(null)
   const [lastSync, setLastSync] = useState<LastSyncSummary | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
@@ -431,6 +434,7 @@ export function ProtoApp() {
           managerActionOutcomes,
           cohort,
           toc,
+          salesPlan,
         ] = await Promise.all([
           apiClient.getDashboard(query),
           apiClient.getActivitiesWorkloadReport(query),
@@ -440,6 +444,9 @@ export function ProtoApp() {
           apiClient.getManagerActionOutcomeReport(query),
           apiClient.getCohortConversionReport(query),
           apiClient.getTocFlowReport(query),
+          query.preset === 'custom'
+            ? apiClient.getSalesPlan({ from: query.from, to: query.to })
+            : Promise.resolve(undefined),
         ])
 
         if (cancelled || runtimeRequestRef.current !== requestId) {
@@ -529,6 +536,7 @@ export function ProtoApp() {
           managerOptions: managerPickerOptions,
           sourceOptions: sourcePickerOptions,
           salesDashboard: dashboard,
+          ...(salesPlan ? { salesPlan } : {}),
           activitiesWorkload: activities,
           callsWorkload: calls,
           activitiesCalls: mapActivitiesCallsSceneData({ activities, calls }),
@@ -629,6 +637,34 @@ export function ProtoApp() {
     } finally {
       await refreshSyncMeta().catch(() => undefined)
       setSyncStatus('idle')
+    }
+  }
+
+  async function handleSaveSalesPlan(rows: SalesPlanDraftRow[]) {
+    const query = buildDashboardQueryFromProtoFilters(appliedFilters)
+    if (query.preset !== 'custom') {
+      return
+    }
+
+    setSalesPlanSaving(true)
+    setSalesPlanSaveError(null)
+
+    try {
+      const saved = await apiClient.saveSalesPlan({
+        periodStart: query.from,
+        periodEnd: query.to,
+        rows,
+      })
+      setRuntimeData((current) => ({
+        ...current,
+        salesPlan: saved,
+      }))
+    } catch (error) {
+      setSalesPlanSaveError(
+        error instanceof Error ? error.message : 'Не удалось сохранить план продаж',
+      )
+    } finally {
+      setSalesPlanSaving(false)
     }
   }
 
@@ -1061,6 +1097,9 @@ export function ProtoApp() {
           commentMode={commentMode}
           filters={appliedFilters}
           runtimeData={runtimeData}
+          salesPlanSaving={salesPlanSaving}
+          salesPlanSaveError={salesPlanSaveError}
+          onSalesPlanSave={handleSaveSalesPlan}
         />
 
         <aside

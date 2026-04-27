@@ -10,6 +10,8 @@ import type {
   DealSnapshot,
   LeadSnapshot,
   ManagerDirectoryEntry,
+  SalesPlanDraftRow,
+  SalesPlanRow,
   SnapshotStats,
   StageCatalogEntry,
   StageHistorySnapshot,
@@ -59,6 +61,13 @@ export interface SuccessfulSyncScope {
   scopeKey: string;
   categoryIds: string[];
   assignedByIds: string[];
+}
+
+export interface ReplaceSalesPlanRowsInput {
+  periodStart: string;
+  periodEnd: string;
+  updatedAt: string;
+  rows: SalesPlanDraftRow[];
 }
 
 export interface SqliteRepository {
@@ -165,6 +174,8 @@ export interface SqliteRepository {
   getAllCalls(): Promise<CallSnapshot[]>;
   getManagerDirectory(): Promise<ManagerDirectoryEntry[]>;
   getStageCatalog(): Promise<StageCatalogEntry[]>;
+  getSalesPlanRows(periodStart: string, periodEnd: string): Promise<SalesPlanRow[]>;
+  replaceSalesPlanRows(input: ReplaceSalesPlanRowsInput): Promise<SalesPlanRow[]>;
   getWonStageIds(): Promise<string[]>;
   setWonStageIds(stageIds: string[]): Promise<void>;
   getLastSyncSummary(scopeKey?: string): Promise<LastSyncSummary | null>;
@@ -488,6 +499,19 @@ export function createSqliteRepository(
       enabled INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS sales_plan_rows (
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      manager_id TEXT NOT NULL,
+      manager_name TEXT,
+      target_group_key TEXT NOT NULL,
+      target_group_label TEXT NOT NULL,
+      planned_deals INTEGER NOT NULL,
+      planned_amount REAL NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (period_start, period_end, manager_id, target_group_key)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_deal_snapshots_category_id
       ON deal_snapshots (category_id);
     CREATE INDEX IF NOT EXISTS idx_stage_history_owner_id
@@ -809,6 +833,52 @@ export function createSqliteRepository(
       covered_to = excluded.covered_to,
       synced_at = excluded.synced_at
   `);
+  const insertSalesPlanRowStatement = database.prepare(`
+    INSERT INTO sales_plan_rows (
+      period_start,
+      period_end,
+      manager_id,
+      manager_name,
+      target_group_key,
+      target_group_label,
+      planned_deals,
+      planned_amount,
+      updated_at
+    ) VALUES (
+      @periodStart,
+      @periodEnd,
+      @managerId,
+      @managerName,
+      @targetGroupKey,
+      @targetGroupLabel,
+      @plannedDeals,
+      @plannedAmount,
+      @updatedAt
+    )
+  `);
+  const replaceSalesPlanRowsTransaction = database.transaction(
+    (input: ReplaceSalesPlanRowsInput) => {
+      database
+        .prepare(
+          "DELETE FROM sales_plan_rows WHERE period_start = ? AND period_end = ?"
+        )
+        .run(input.periodStart, input.periodEnd);
+
+      for (const row of input.rows) {
+        insertSalesPlanRowStatement.run({
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          managerId: row.managerId,
+          managerName: row.managerName ?? null,
+          targetGroupKey: row.targetGroupKey,
+          targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+          plannedDeals: row.plannedDeals,
+          plannedAmount: row.plannedAmount,
+          updatedAt: input.updatedAt
+        });
+      }
+    }
+  );
   const snapshotTransaction = database.transaction((task: () => unknown) =>
     task()
   );
@@ -1799,6 +1869,31 @@ export function createSqliteRepository(
           ORDER BY entity_type ASC, category_id ASC, sort_order ASC, status_id ASC`
         )
         .all() as StageCatalogEntry[];
+    },
+
+    async getSalesPlanRows(periodStart, periodEnd) {
+      return database
+        .prepare(
+          `SELECT
+            period_start AS periodStart,
+            period_end AS periodEnd,
+            manager_id AS managerId,
+            manager_name AS managerName,
+            target_group_key AS targetGroupKey,
+            target_group_label AS targetGroupLabel,
+            planned_deals AS plannedDeals,
+            planned_amount AS plannedAmount,
+            updated_at AS updatedAt
+          FROM sales_plan_rows
+          WHERE period_start = ? AND period_end = ?
+          ORDER BY manager_id ASC, target_group_label ASC, target_group_key ASC`
+        )
+        .all(periodStart, periodEnd) as SalesPlanRow[];
+    },
+
+    async replaceSalesPlanRows(input) {
+      replaceSalesPlanRowsTransaction(input);
+      return this.getSalesPlanRows(input.periodStart, input.periodEnd);
     },
 
     async getWonStageIds() {

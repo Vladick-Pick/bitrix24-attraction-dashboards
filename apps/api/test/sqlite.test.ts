@@ -15,6 +15,112 @@ afterEach(() => {
 });
 
 describe("createSqliteRepository", () => {
+  it("replaces and reads sales plan rows for a period", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await expect(
+      repository.getSalesPlanRows(
+        "2026-04-01T00:00:00.000+03:00",
+        "2026-04-30T23:59:59.999+03:00"
+      )
+    ).resolves.toEqual([]);
+
+    await repository.replaceSalesPlanRows({
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-04-30T23:59:59.999+03:00",
+      updatedAt: "2026-04-10T12:00:00.000Z",
+      rows: [
+        {
+          managerId: "78",
+          managerName: "Егоров Андрей",
+          targetGroupKey: "ClubFirst Russia",
+          targetGroupLabel: "ClubFirst Russia",
+          plannedDeals: 3,
+          plannedAmount: 2500000
+        },
+        {
+          managerId: "81",
+          managerName: "Ромашова Ольга",
+          targetGroupKey: "ClubFirst Future",
+          targetGroupLabel: "ClubFirst Future",
+          plannedDeals: 2,
+          plannedAmount: 1800000
+        }
+      ]
+    });
+
+    await expect(
+      repository.getSalesPlanRows(
+        "2026-04-01T00:00:00.000+03:00",
+        "2026-04-30T23:59:59.999+03:00"
+      )
+    ).resolves.toEqual([
+      {
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-04-30T23:59:59.999+03:00",
+        managerId: "78",
+        managerName: "Егоров Андрей",
+        targetGroupKey: "ClubFirst Russia",
+        targetGroupLabel: "ClubFirst Russia",
+        plannedDeals: 3,
+        plannedAmount: 2500000,
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      },
+      {
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-04-30T23:59:59.999+03:00",
+        managerId: "81",
+        managerName: "Ромашова Ольга",
+        targetGroupKey: "ClubFirst Future",
+        targetGroupLabel: "ClubFirst Future",
+        plannedDeals: 2,
+        plannedAmount: 1800000,
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }
+    ]);
+
+    await repository.replaceSalesPlanRows({
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-04-30T23:59:59.999+03:00",
+      updatedAt: "2026-04-11T12:00:00.000Z",
+      rows: [
+        {
+          managerId: "78",
+          managerName: "Егоров Андрей",
+          targetGroupKey: "ClubFirst Russia",
+          targetGroupLabel: "ClubFirst Russia",
+          plannedDeals: 4,
+          plannedAmount: 3000000
+        }
+      ]
+    });
+
+    await expect(
+      repository.getSalesPlanRows(
+        "2026-04-01T00:00:00.000+03:00",
+        "2026-04-30T23:59:59.999+03:00"
+      )
+    ).resolves.toEqual([
+      {
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-04-30T23:59:59.999+03:00",
+        managerId: "78",
+        managerName: "Егоров Андрей",
+        targetGroupKey: "ClubFirst Russia",
+        targetGroupLabel: "ClubFirst Russia",
+        plannedDeals: 4,
+        plannedAmount: 3000000,
+        updatedAt: "2026-04-11T12:00:00.000Z"
+      }
+    ]);
+  });
+
   it("finds a successful compatible scope when manager coverage expands", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

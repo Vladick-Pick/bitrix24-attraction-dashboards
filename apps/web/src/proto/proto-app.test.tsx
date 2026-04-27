@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/lib/api-client'
+import type { SalesPlanInput } from '@/lib/dashboard-types'
 import { createCompareRange, ProtoApp } from '@/proto/proto-app'
 import { createDefaultFilters } from '@/proto/scenes'
 
@@ -40,6 +41,28 @@ vi.mock('@/lib/api-client', () => ({
       },
       managerGroups: [],
       comparisons: [],
+    })),
+    getSalesPlan: vi.fn(async () => ({
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-04-30T23:59:59.999+03:00',
+      rows: [],
+      updatedAt: null,
+    })),
+    saveSalesPlan: vi.fn(async (input: SalesPlanInput) => ({
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      rows: input.rows.map((row) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        managerId: row.managerId,
+        managerName: row.managerName ?? null,
+        targetGroupKey: row.targetGroupKey,
+        targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+        plannedDeals: row.plannedDeals,
+        plannedAmount: row.plannedAmount,
+        updatedAt: '2026-04-10T12:05:00.000Z',
+      })),
+      updatedAt: '2026-04-10T12:05:00.000Z',
     })),
     getActivitiesWorkloadReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
@@ -301,6 +324,117 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).getByText(/Встреча 13 мар/i)).toBeInTheDocument()
     expect(within(salesSection!).getByText('Звонок-знакомство')).toBeInTheDocument()
     expect(within(salesSection!).getByText('24 ч')).toBeInTheDocument()
+  })
+
+  it('edits a saved sales plan and compares it with actual sales', async () => {
+    vi.mocked(apiClient.getDashboard).mockResolvedValueOnce({
+      salesSummary: {
+        salesCount: 1,
+        salesAmount: 1_250_000,
+        averageSaleAmount: 1_250_000,
+        newDealsCount: 12,
+        conversionRate: 8.33,
+      },
+      managerGroups: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          totalWonDeals: 1,
+          totalSalesAmount: 1_250_000,
+          deals: [
+            {
+              dealId: 'D-100',
+              dealTitle: 'ООО Альфа',
+              managerId: '78',
+              managerName: 'Егоров Андрей',
+              amount: 1_250_000,
+              dateCreate: '2026-03-12T09:00:00.000Z',
+              dateClosed: '2026-04-10T15:00:00.000Z',
+              cycleDays: 29,
+              sourceKey: 'STORE',
+              sourceLabel: 'Сайт',
+              qualityValue: null,
+              businessClubValue: 'ClubFirst Russia',
+              targetGroupValue: 'ClubFirst Russia',
+              meetingTypeValue: null,
+              tariffValue: null,
+              cohortContext: {
+                createdMonth: '2026-03',
+                cohortCreatedDeals: 42,
+                cohortWonDeals: 7,
+                cohortWonConversionRate: 16.67,
+              },
+              callSummary: {
+                total: 0,
+                incoming: 0,
+                outgoing: 0,
+                successful: 0,
+                failed: 0,
+                overThirtySeconds: 0,
+                connectedOverThirtySeconds: 0,
+              },
+              taskSummary: { created: 0, closed: 0 },
+              meetingSummary: { total: 0 },
+              stageTimeline: [],
+            },
+          ],
+        },
+      ],
+      comparisons: [],
+    })
+    vi.mocked(apiClient.getSalesPlan).mockResolvedValueOnce({
+      periodStart: '2026-04-06T00:00:00.000+03:00',
+      periodEnd: '2026-04-12T23:59:59.999+03:00',
+      updatedAt: '2026-04-10T12:00:00.000Z',
+      rows: [
+        {
+          periodStart: '2026-04-06T00:00:00.000+03:00',
+          periodEnd: '2026-04-12T23:59:59.999+03:00',
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          targetGroupKey: 'ClubFirst Russia',
+          targetGroupLabel: 'ClubFirst Russia',
+          plannedDeals: 3,
+          plannedAmount: 2_500_000,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+    })
+
+    render(<ProtoApp />)
+
+    const planFactHeading = await screen.findByRole('heading', {
+      name: /план \/ факт продаж/i,
+    })
+    const planFactSection = planFactHeading.closest('section')
+    expect(planFactSection).not.toBeNull()
+    expect(within(planFactSection as HTMLElement).getByText('ClubFirst Russia')).toBeInTheDocument()
+    expect(within(planFactSection as HTMLElement).getAllByText('33%').length).toBeGreaterThan(0)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^План продаж$/i }))
+
+    expect(await screen.findByRole('heading', { name: /^План продаж$/i })).toBeInTheDocument()
+    const dealsInput = screen.getByLabelText('План сделок Егоров Андрей ClubFirst Russia')
+    await userEvent.clear(dealsInput)
+    await userEvent.type(dealsInput, '4')
+    await userEvent.click(screen.getByRole('button', { name: /сохранить план/i }))
+
+    await waitFor(() => {
+      expect(apiClient.saveSalesPlan).toHaveBeenCalledWith({
+        periodStart: '2026-04-20T00:00:00.000+03:00',
+        periodEnd: '2026-04-26T23:59:59.999+03:00',
+        rows: [
+          {
+            managerId: '78',
+            managerName: 'Егоров Андрей',
+            targetGroupKey: 'ClubFirst Russia',
+            targetGroupLabel: 'ClubFirst Russia',
+            plannedDeals: 4,
+            plannedAmount: 2_500_000,
+          },
+        ],
+      })
+    })
   })
 
   it('moves the action-to-result block to cohorts without compare subrows', async () => {

@@ -8,6 +8,103 @@ describe('apiClient', () => {
     vi.restoreAllMocks()
   })
 
+  it('loads and saves sales plan rows by report range', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-04-30T23:59:59.999+03:00',
+          updatedAt: '2026-04-10T12:00:00.000Z',
+          rows: [
+            {
+              managerId: '78',
+              managerName: 'Егоров Андрей',
+              targetGroupKey: 'ClubFirst Russia',
+              targetGroupLabel: 'ClubFirst Russia',
+              plannedDeals: 3,
+              plannedAmount: 2500000,
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-04-30T23:59:59.999+03:00',
+          updatedAt: '2026-04-10T12:05:00.000Z',
+          rows: [
+            {
+              managerId: '78',
+              managerName: 'Егоров Андрей',
+              targetGroupKey: 'ClubFirst Russia',
+              targetGroupLabel: 'ClubFirst Russia',
+              plannedDeals: 4,
+              plannedAmount: 3000000,
+              updatedAt: '2026-04-10T12:05:00.000Z',
+            },
+          ],
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const loaded = await apiClient.getSalesPlan({
+      from: '2026-04-01T00:00:00.000+03:00',
+      to: '2026-04-30T23:59:59.999+03:00',
+    })
+
+    const [loadUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const parsedLoadUrl = new URL(loadUrl, window.location.origin)
+
+    expect(parsedLoadUrl.pathname).toBe('/api/sales-plan')
+    expect(parsedLoadUrl.searchParams.get('from')).toBe('2026-04-01T00:00:00.000+03:00')
+    expect(parsedLoadUrl.searchParams.get('to')).toBe('2026-04-30T23:59:59.999+03:00')
+    expect(loaded.rows[0]).toMatchObject({
+      managerId: '78',
+      targetGroupKey: 'ClubFirst Russia',
+      plannedDeals: 3,
+      plannedAmount: 2500000,
+    })
+
+    const saved = await apiClient.saveSalesPlan({
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-04-30T23:59:59.999+03:00',
+      rows: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          targetGroupKey: 'ClubFirst Russia',
+          targetGroupLabel: 'ClubFirst Russia',
+          plannedDeals: 4,
+          plannedAmount: 3000000,
+        },
+      ],
+    })
+
+    const [, saveInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(saveInit.method).toBe('PUT')
+    expect(JSON.parse(String(saveInit.body))).toEqual({
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-04-30T23:59:59.999+03:00',
+      rows: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          targetGroupKey: 'ClubFirst Russia',
+          targetGroupLabel: 'ClubFirst Russia',
+          plannedDeals: 4,
+          plannedAmount: 3000000,
+        },
+      ],
+    })
+    expect(saved.updatedAt).toBe('2026-04-10T12:05:00.000Z')
+    expect(saved.rows[0]?.plannedAmount).toBe(3000000)
+  })
+
   it('serializes compare ranges and normalizes comparison snapshots', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

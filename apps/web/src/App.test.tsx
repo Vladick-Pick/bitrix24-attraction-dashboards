@@ -38,6 +38,18 @@ vi.mock('@/lib/api-client', () => ({
       managerGroups: [],
       comparisons: [],
     })),
+    getSalesPlan: vi.fn(async () => ({
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-04-30T23:59:59.999+03:00',
+      rows: [],
+      updatedAt: null,
+    })),
+    saveSalesPlan: vi.fn(async (input) => ({
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      rows: [],
+      updatedAt: '2026-04-10T12:05:00.000Z',
+    })),
     getActivitiesWorkloadReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalDealCount: 0,
@@ -294,6 +306,12 @@ describe('App', () => {
     expect(
       throughput.compareDocumentPosition(distribution) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+    expect(screen.getByText(/карта маршрутов/i)).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', {
+        name: /визуальная карта фактических переходов/i,
+      }),
+    ).toBeInTheDocument()
     expect(
       screen.getByText(/Звонок-знакомство -> Контрактация/i),
     ).toBeInTheDocument()

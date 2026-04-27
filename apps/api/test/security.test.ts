@@ -157,6 +157,18 @@ function createCorsTestApp(config?: {
         cohortMonths: [],
         cohortStatusRows: []
       }),
+      getSalesPlan: async () => ({
+        periodStart: "2026-04-01T00:00:00.000Z",
+        periodEnd: "2026-04-30T23:59:59.999Z",
+        rows: [],
+        updatedAt: null
+      }),
+      replaceSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }),
       getMeta: async () => ({
         stageCatalog: [],
         managerCatalog: [],
@@ -282,6 +294,16 @@ describe("Bitrix transport security", () => {
           "http://localhost:5173"
         );
         expect(response.headers["access-control-allow-origin"]).not.toBe("*");
+      });
+
+    await request(app)
+      .get("/api/health")
+      .set("Origin", "http://127.0.0.1:5173")
+      .expect(200)
+      .expect((response) => {
+        expect(response.headers["access-control-allow-origin"]).toBe(
+          "http://127.0.0.1:5173"
+        );
       });
 
     await request(app)

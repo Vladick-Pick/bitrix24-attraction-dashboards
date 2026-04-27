@@ -5,6 +5,7 @@ import type {
   CohortConversionReport,
   DashboardData,
   ManagerActionOutcomeReport,
+  SalesPlanData,
   SourceQualityConversionReport,
   StageCatalogEntry,
   TargetGroupConversionReport,
@@ -99,6 +100,28 @@ function createTestApp(
         conversionRate: 0
       },
       managerGroups: []
+    }),
+    getSalesPlan: async () => ({
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-04-30T23:59:59.999+03:00",
+      rows: [],
+      updatedAt: null
+    }),
+    replaceSalesPlan: async (input) => ({
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      rows: input.rows.map((row) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        managerId: row.managerId,
+        managerName: row.managerName ?? null,
+        targetGroupKey: row.targetGroupKey,
+        targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+        plannedDeals: row.plannedDeals,
+        plannedAmount: row.plannedAmount,
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      })),
+      updatedAt: "2026-04-10T12:00:00.000Z"
     }),
     getSourceQualityConversionReport: async () => ({
       range: {
@@ -400,7 +423,7 @@ describe("createApp", () => {
       cohortMonths: [],
       cohortStatusRows: []
     };
-    const service = {
+    const service: Parameters<typeof createApp>[0] = {
       getDashboard: async () => dashboard,
       getSourceQualityConversionReport: async () => sourceQualityReport,
       getActivitiesWorkloadReport: async (input: unknown) => {
@@ -413,6 +436,18 @@ describe("createApp", () => {
       getAcquisitionOutcomesReport: async () => acquisitionOutcomesReport,
       getTargetGroupConversionReport: async () => targetGroupConversionReport,
       getManagerActionOutcomeReport: async () => managerActionOutcomeReport,
+      getSalesPlan: async () => ({
+        periodStart: "2026-04-01T00:00:00.000Z",
+        periodEnd: "2026-04-30T23:59:59.999Z",
+        rows: [],
+        updatedAt: null
+      }),
+      replaceSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }),
       getMeta: async () => ({
         stageCatalog,
         managerCatalog: [],
@@ -586,6 +621,107 @@ describe("createApp", () => {
       });
   });
 
+  it("reads and replaces the saved sales plan for a report period", async () => {
+    let receivedReplacement: unknown = null;
+    const plan: SalesPlanData = {
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-04-30T23:59:59.999+03:00",
+      rows: [
+        {
+          periodStart: "2026-04-01T00:00:00.000+03:00",
+          periodEnd: "2026-04-30T23:59:59.999+03:00",
+          managerId: "78",
+          managerName: "Егоров Андрей",
+          targetGroupKey: "ClubFirst Russia",
+          targetGroupLabel: "ClubFirst Russia",
+          plannedDeals: 3,
+          plannedAmount: 2500000,
+          updatedAt: "2026-04-10T12:00:00.000Z"
+        }
+      ],
+      updatedAt: "2026-04-10T12:00:00.000Z"
+    };
+    const app = createTestApp({
+      getSalesPlan: async (input) => ({
+        ...plan,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd
+      }),
+      replaceSalesPlan: async (input) => {
+        receivedReplacement = input;
+        return {
+          ...plan,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          rows: input.rows.map((row) => ({
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            managerId: row.managerId,
+            managerName: row.managerName ?? null,
+            targetGroupKey: row.targetGroupKey,
+            targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+            plannedDeals: row.plannedDeals,
+            plannedAmount: row.plannedAmount,
+            updatedAt: "2026-04-10T12:00:00.000Z"
+          }))
+        };
+      }
+    });
+
+    await request(app)
+      .get("/api/sales-plan")
+      .query({
+        from: "2026-04-01T00:00:00.000+03:00",
+        to: "2026-04-30T23:59:59.999+03:00"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.rows[0]).toMatchObject({
+          managerId: "78",
+          targetGroupKey: "ClubFirst Russia",
+          plannedDeals: 3,
+          plannedAmount: 2500000
+        });
+      });
+
+    await request(app)
+      .put("/api/sales-plan")
+      .send({
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-04-30T23:59:59.999+03:00",
+        rows: [
+          {
+            managerId: "78",
+            managerName: "Егоров Андрей",
+            targetGroupKey: "ClubFirst Russia",
+            targetGroupLabel: "ClubFirst Russia",
+            plannedDeals: 4,
+            plannedAmount: 3000000
+          }
+        ]
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.updatedAt).toBe("2026-04-10T12:00:00.000Z");
+        expect(body.rows[0].plannedDeals).toBe(4);
+      });
+
+    expect(receivedReplacement).toEqual({
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-04-30T23:59:59.999+03:00",
+      rows: [
+        {
+          managerId: "78",
+          managerName: "Егоров Андрей",
+          targetGroupKey: "ClubFirst Russia",
+          targetGroupLabel: "ClubFirst Russia",
+          plannedDeals: 4,
+          plannedAmount: 3000000
+        }
+      ]
+    });
+  });
+
   it("rejects concurrent sync requests while one refresh is already running", async () => {
     let resolveSync!: (value: ReturnType<typeof createSyncSummary>) => void;
 
@@ -701,6 +837,18 @@ describe("createApp", () => {
         rows: [],
         cohortMonths: [],
         cohortStatusRows: []
+      }),
+      getSalesPlan: async () => ({
+        periodStart: "2026-04-01T00:00:00.000Z",
+        periodEnd: "2026-04-30T23:59:59.999Z",
+        rows: [],
+        updatedAt: null
+      }),
+      replaceSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
       }),
       getMeta: async () => ({
         stageCatalog: [],
@@ -894,6 +1042,18 @@ describe("createApp", () => {
         rows: [],
         cohortMonths: [],
         cohortStatusRows: []
+      }),
+      getSalesPlan: async () => ({
+        periodStart: "2026-04-01T00:00:00.000Z",
+        periodEnd: "2026-04-30T23:59:59.999Z",
+        rows: [],
+        updatedAt: null
+      }),
+      replaceSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
       }),
       getMeta: async () => ({
         stageCatalog: [],

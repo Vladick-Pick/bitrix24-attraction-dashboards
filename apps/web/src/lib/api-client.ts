@@ -16,6 +16,8 @@ import type {
   MetaResponse,
   ReportComparison,
   ReportRange,
+  SalesPlanData,
+  SalesPlanInput,
   SourceQualityConversionReport,
   SourceQualityConversionReportSnapshot,
   SnapshotStats,
@@ -216,6 +218,34 @@ function normalizeDashboard(value: unknown): DashboardData {
   return {
     ...normalizeDashboardSnapshot(data),
     comparisons: normalizeComparisons(data.comparisons, normalizeDashboardSnapshot),
+  }
+}
+
+function normalizeSalesPlan(value: unknown): SalesPlanData {
+  const data = isRecord(value) ? value : {}
+  const periodStart = asString(data.periodStart)
+  const periodEnd = asString(data.periodEnd)
+
+  return {
+    periodStart,
+    periodEnd,
+    updatedAt: asNullableString(data.updatedAt),
+    rows: asArray(data.rows, (entry) => {
+      const row = isRecord(entry) ? entry : {}
+      const targetGroupKey = asString(row.targetGroupKey)
+
+      return {
+        periodStart: asString(row.periodStart, periodStart),
+        periodEnd: asString(row.periodEnd, periodEnd),
+        managerId: asString(row.managerId),
+        managerName: asNullableString(row.managerName),
+        targetGroupKey,
+        targetGroupLabel: asString(row.targetGroupLabel, targetGroupKey),
+        plannedDeals: asNumber(row.plannedDeals),
+        plannedAmount: asNumber(row.plannedAmount),
+        updatedAt: asString(row.updatedAt, asString(data.updatedAt)),
+      }
+    }),
   }
 }
 
@@ -1325,6 +1355,26 @@ export const apiClient = {
       buildUrl('/api/dashboard', buildQueryParams(query)),
       { method: 'GET' },
       normalizeDashboard,
+    )
+  },
+  async getSalesPlan(range: ReportRange) {
+    return requestJson(
+      buildUrl('/api/sales-plan', {
+        from: range.from,
+        to: range.to,
+      }),
+      { method: 'GET' },
+      normalizeSalesPlan,
+    )
+  },
+  async saveSalesPlan(input: SalesPlanInput) {
+    return requestJson(
+      buildUrl('/api/sales-plan'),
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      normalizeSalesPlan,
     )
   },
   async getMeta() {

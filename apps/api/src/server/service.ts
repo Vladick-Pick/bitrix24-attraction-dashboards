@@ -15,6 +15,8 @@ import type {
   ManualSyncSummary,
   ReportRange,
   ReportFilters,
+  SalesPlanData,
+  SalesPlanInput,
   SourceCatalogEntry,
   SourceQualityConversionReport,
   SourceQualityConversionReportSnapshot,
@@ -142,6 +144,11 @@ export interface ReportingService {
     compareRanges?: ReportRange[];
     filters?: ReportFilters;
   }): Promise<TocFlowReport>;
+  getSalesPlan(input: {
+    periodStart: string;
+    periodEnd: string;
+  }): Promise<SalesPlanData>;
+  replaceSalesPlan(input: SalesPlanInput): Promise<SalesPlanData>;
   getMeta(): Promise<{
     stageCatalog: StageCatalogEntry[];
     managerCatalog: ManagerDirectoryEntry[];
@@ -649,6 +656,36 @@ export function createReportingService(
   };
 
   return {
+    async getSalesPlan({ periodStart, periodEnd }) {
+      const rows = await input.repository.getSalesPlanRows(periodStart, periodEnd);
+      const updatedAt = rows.reduce<string | null>(
+        (latest, row) => (!latest || row.updatedAt > latest ? row.updatedAt : latest),
+        null
+      );
+
+      return {
+        periodStart,
+        periodEnd,
+        rows,
+        updatedAt
+      };
+    },
+
+    async replaceSalesPlan(planInput) {
+      const updatedAt = nowFactory().toISOString();
+      const rows = await input.repository.replaceSalesPlanRows({
+        ...planInput,
+        updatedAt
+      });
+
+      return {
+        periodStart: planInput.periodStart,
+        periodEnd: planInput.periodEnd,
+        rows,
+        updatedAt
+      };
+    },
+
     async getDashboard({ periodDays, range, compareRanges, filters }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
       const [deals, stageCatalog, wonStageIds, stageHistory, activities, calls] =

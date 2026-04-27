@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
   ActivitiesWorkloadReport,
@@ -6,6 +6,8 @@ import type {
   DashboardData,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeReport,
+  SalesPlanData,
+  SalesPlanDraftRow,
   SalesDealRow,
   SalesManagerGroup,
   TargetGroupConversionReport,
@@ -946,43 +948,99 @@ function formatDistributionPercent(value: number) {
   return `${Math.round(value)}%`
 }
 
-function splitStageLabel(value: string) {
-  const label = value.trim()
+type DistributionStageTone = 'process' | 'success' | 'loss'
 
-  if (label.length <= 18) {
-    return [label]
+function getDistributionStageTone(stage: string): DistributionStageTone {
+  if (/корзин|возврат|отказ|проиг|утер|лидген|неквал/i.test(stage)) {
+    return 'loss'
   }
 
-  const hyphenIndex = label.indexOf('-')
-  if (hyphenIndex > 0 && hyphenIndex < label.length - 1) {
-    return [label.slice(0, hyphenIndex + 1), label.slice(hyphenIndex + 1)]
+  if (/контракт|счет|счёт|успеш|won|оплат/i.test(stage)) {
+    return 'success'
   }
 
-  const words = label.split(' ')
-  if (words.length <= 1) {
-    return [label]
-  }
-
-  const midpoint = Math.ceil(words.length / 2)
-  return [words.slice(0, midpoint).join(' '), words.slice(midpoint).join(' ')]
+  return 'process'
 }
 
-function isSideDistributionStage(stage: string) {
-  return /корзин|возврат|отказ|проиг|утер|лидген/i.test(stage)
+function getDistributionToneOrder(stage: string) {
+  const tone = getDistributionStageTone(stage)
+
+  if (tone === 'process') {
+    return 0
+  }
+
+  if (tone === 'success') {
+    return 1
+  }
+
+  return 2
 }
 
-function buildDistributionPath(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-) {
-  const distance = Math.max(80, Math.abs(to.x - from.x) * 0.42)
+function getDistributionSvgTone(stage: string) {
+  const tone = getDistributionStageTone(stage)
 
-  return [
-    `M ${from.x} ${from.y}`,
-    `C ${from.x + distance} ${from.y}`,
-    `${to.x - distance} ${to.y}`,
-    `${to.x} ${to.y}`,
-  ].join(' ')
+  if (tone === 'loss') {
+    return {
+      accent: '#f97316',
+      fill: '#fff7ed',
+      ribbon: '#fb923c',
+      stroke: '#fed7aa',
+    }
+  }
+
+  if (tone === 'success') {
+    return {
+      accent: '#16a34a',
+      fill: '#ecfdf5',
+      ribbon: '#22c55e',
+      stroke: '#bbf7d0',
+    }
+  }
+
+  return {
+    accent: '#2563eb',
+    fill: '#eff6ff',
+    ribbon: '#2563eb',
+    stroke: '#bfdbfe',
+  }
+}
+
+function splitDistributionStageLabel(value: string) {
+  const words = value.trim().split(/\s+/)
+  const lines: string[] = []
+
+  for (const word of words) {
+    const lastLine = lines.at(-1)
+    if (!lastLine) {
+      lines.push(word)
+      continue
+    }
+
+    if (`${lastLine} ${word}`.length <= 21) {
+      lines[lines.length - 1] = `${lastLine} ${word}`
+    } else if (lines.length < 2) {
+      lines.push(word)
+    }
+  }
+
+  if (lines.length === 0) {
+    return ['Без этапа']
+  }
+
+  const lastLine = lines[lines.length - 1] ?? ''
+  if (lastLine.length > 24) {
+    lines[lines.length - 1] = `${lastLine.slice(0, 21)}...`
+  }
+
+  return lines.slice(0, 2)
+}
+
+function getDistributionTransitionLabel(edge: TocStageDistribution['edges'][number]) {
+  if (edge.fromStageId === null) {
+    return `Старт выборки -> ${edge.toStage}`
+  }
+
+  return `${edge.fromStage} -> ${edge.toStage}`
 }
 
 function FunnelStageDistributionChart({
@@ -992,10 +1050,11 @@ function FunnelStageDistributionChart({
 }) {
   const nodes = [...distribution.nodes].sort((left, right) => left.sortOrder - right.sortOrder)
   const nodeById = new Map(nodes.map((node) => [node.stageId, node]))
-  const edges = distribution.edges.filter((edge) => nodeById.has(edge.toStageId))
-  const visibleTransitions = edges
-    .filter((edge) => edge.fromStageId !== null)
-    .sort((left, right) => right.count - left.count)
+  const edges = distribution.edges.filter(
+    (edge) =>
+      nodeById.has(edge.toStageId) &&
+      (edge.fromStageId === null || nodeById.has(edge.fromStageId)),
+  )
   const hasData = nodes.length > 0 && edges.length > 0
 
   if (!hasData) {
@@ -1019,28 +1078,130 @@ function FunnelStageDistributionChart({
     )
   }
 
-  const nodeWidth = 156
-  const nodeHeight = 82
-  const sideLaneY = 244
-  const mainLaneTopY = 70
-  const mainLaneBottomY = 128
-  const chartWidth = Math.max(920, nodes.length * 190 + 80)
-  const chartHeight = 356
-  const maxCount = Math.max(...edges.map((edge) => edge.count), 1)
-  const colors = ['#2563eb', '#14b8a6', '#22c55e', '#f97316', '#8b5cf6', '#0f766e']
-  const nodePositions = new Map(
-    nodes.map((node, index) => {
-      const isSideStage = isSideDistributionStage(node.stage)
+  const incomingByToStage = new Map<string, typeof edges>()
+  for (const edge of edges) {
+    const incoming = incomingByToStage.get(edge.toStageId) ?? []
+    incoming.push(edge)
+    incomingByToStage.set(edge.toStageId, incoming)
+  }
 
-      return [
-        node.stageId,
-        {
-          x: 48 + index * 184,
-          y: isSideStage ? sideLaneY : index % 2 === 0 ? mainLaneTopY : mainLaneBottomY,
-        },
-      ] as const
-    }),
+  const rankCache = new Map<string, number>()
+  function getNodeRank(stageId: string, seen = new Set<string>()): number {
+    const cached = rankCache.get(stageId)
+    if (cached !== undefined) {
+      return cached
+    }
+
+    const incoming = incomingByToStage.get(stageId) ?? []
+    let rank = 0
+    for (const edge of incoming) {
+      if (!edge.fromStageId || seen.has(edge.fromStageId)) {
+        continue
+      }
+
+      const nextSeen = new Set(seen)
+      nextSeen.add(stageId)
+      rank = Math.max(rank, getNodeRank(edge.fromStageId, nextSeen) + 1)
+    }
+
+    rankCache.set(stageId, rank)
+    return rank
+  }
+
+  const rankedNodes = nodes.map((node) => ({
+    ...node,
+    rank: getNodeRank(node.stageId),
+  }))
+  const rankGroups = Array.from(
+    rankedNodes
+      .reduce((groups, node) => {
+        const group = groups.get(node.rank) ?? []
+        group.push(node)
+        groups.set(node.rank, group)
+        return groups
+      }, new Map<number, typeof rankedNodes>())
+      .entries(),
   )
+    .map(([rank, groupNodes]) => ({
+      rank,
+      nodes: groupNodes.sort((left, right) => {
+        const byTone = getDistributionToneOrder(left.stage) - getDistributionToneOrder(right.stage)
+        return byTone || left.sortOrder - right.sortOrder || left.stage.localeCompare(right.stage)
+      }),
+    }))
+    .sort((left, right) => left.rank - right.rank)
+
+  const nodeWidth = 178
+  const nodeHeight = 92
+  const columnGap = 126
+  const rowGap = 34
+  const paddingX = 50
+  const paddingY = 42
+  const maxRows = Math.max(...rankGroups.map((group) => group.nodes.length), 1)
+  const maxRank = Math.max(...rankGroups.map((group) => group.rank), 0)
+  const chartWidth = paddingX * 2 + (maxRank + 1) * nodeWidth + maxRank * columnGap
+  const chartHeight = Math.max(430, paddingY * 2 + maxRows * nodeHeight + (maxRows - 1) * rowGap)
+  const layoutNodes = new Map<
+    string,
+    (typeof rankedNodes)[number] & { x: number; y: number; width: number; height: number }
+  >()
+
+  for (const group of rankGroups) {
+    const groupHeight = group.nodes.length * nodeHeight + (group.nodes.length - 1) * rowGap
+    const startY = (chartHeight - groupHeight) / 2
+
+    group.nodes.forEach((node, index) => {
+      const tone = getDistributionStageTone(node.stage)
+      const singleNodeY =
+        tone === 'loss'
+          ? chartHeight - paddingY - nodeHeight - (group.rank % 2) * 20
+          : paddingY + 26 + (tone === 'process' ? (group.rank % 2) * 74 : 0)
+
+      layoutNodes.set(node.stageId, {
+        ...node,
+        x: paddingX + group.rank * (nodeWidth + columnGap),
+        y: group.nodes.length === 1 ? singleNodeY : startY + index * (nodeHeight + rowGap),
+        width: nodeWidth,
+        height: nodeHeight,
+      })
+    })
+  }
+
+  const maxEdgeCount = Math.max(...edges.map((edge) => edge.count), 1)
+  const visualEdges = edges.flatMap((edge) => {
+    const toNode = layoutNodes.get(edge.toStageId)
+    const fromNode = edge.fromStageId ? layoutNodes.get(edge.fromStageId) : null
+    if (!toNode) {
+      return []
+    }
+
+    const fromX = fromNode ? fromNode.x + fromNode.width : toNode.x - 68
+    const fromY = fromNode ? fromNode.y + fromNode.height / 2 : toNode.y + toNode.height / 2
+    const toX = toNode.x
+    const toY = toNode.y + toNode.height / 2
+    const direction = toX >= fromX ? 1 : -1
+    const curve = Math.max(64, Math.abs(toX - fromX) * 0.44)
+
+    return [
+      {
+        edge,
+        fromX,
+        fromY,
+        labelX: fromX + (toX - fromX) * 0.54,
+        labelY: fromY + (toY - fromY) * 0.54,
+        path: [
+          `M ${fromX} ${fromY}`,
+          `C ${fromX + curve * direction} ${fromY}`,
+          `${toX - curve * direction} ${toY}`,
+          `${toX} ${toY}`,
+        ].join(' '),
+        strokeWidth: Math.max(5, Math.min(24, (edge.count / maxEdgeCount) * 24)),
+        toNode,
+      },
+    ]
+  })
+  const drawnEdges = [...visualEdges].sort((left, right) => right.edge.count - left.edge.count)
+  const labeledEdges = visualEdges.filter((edge) => edge.edge.fromStageId !== null)
 
   return (
     <section className="panel p-4">
@@ -1056,7 +1217,7 @@ function FunnelStageDistributionChart({
         <div className="flex flex-wrap gap-2 text-xs font-medium text-slate-600">
           <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1">
             <span className="inline-flex h-2.5 w-8 rounded-full bg-blue-600" />
-            Фактический переход
+            Процент на линии от предыдущего этапа
           </span>
           <span className="rounded-full bg-white px-3 py-1">
             Создано: {formatNumber(distribution.totalCreatedDeals)}
@@ -1064,118 +1225,136 @@ function FunnelStageDistributionChart({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white/65">
-        <svg
-          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          className="h-[360px] min-w-[920px]"
-          role="img"
-          aria-label="Распределение фактических переходов по стадиям воронки"
-          style={{ width: `${chartWidth}px` }}
-        >
-          <defs>
-            <filter id="stage-card-shadow" x="-20%" y="-20%" width="140%" height="150%">
-              <feDropShadow dx="0" dy="8" stdDeviation="7" floodColor="#0f172a" floodOpacity="0.12" />
-            </filter>
-          </defs>
+      <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+          <p className="subtle-label">Карта маршрутов</p>
+          <p className="text-xs font-semibold text-slate-500">
+            {formatNumber(nodes.length)} этапов · {formatNumber(edges.length)} переходов
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <svg
+            role="img"
+            aria-label="Визуальная карта фактических переходов по стадиям воронки"
+            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+            className="block min-w-[920px]"
+            style={{ width: chartWidth, height: chartHeight }}
+          >
+            <title>Визуальная карта фактических переходов по стадиям воронки</title>
+            <defs>
+              <filter id="stage-distribution-node-shadow" x="-18%" y="-22%" width="136%" height="150%">
+                <feDropShadow dx="0" dy="10" stdDeviation="8" floodColor="#0f172a" floodOpacity="0.12" />
+              </filter>
+            </defs>
 
-          {edges.map((edge, index) => {
-            const toPosition = nodePositions.get(edge.toStageId)
-            const fromPosition =
-              edge.fromStageId === null ? null : nodePositions.get(edge.fromStageId)
-
-            if (!toPosition) {
-              return null
-            }
-
-            const fromPoint = fromPosition
-              ? {
-                  x: fromPosition.x + nodeWidth,
-                  y: fromPosition.y + nodeHeight / 2,
-                }
-              : {
-                  x: 22,
-                  y: toPosition.y + nodeHeight / 2,
-                }
-            const toPoint = {
-              x: toPosition.x,
-              y: toPosition.y + nodeHeight / 2,
-            }
-            const strokeWidth = Math.max(4, Math.min(20, (edge.count / maxCount) * 20))
-
-            return (
-              <g key={edge.id}>
+            {drawnEdges.map((visualEdge) => {
+              const tone = getDistributionSvgTone(visualEdge.edge.toStage)
+              return (
                 <path
-                  d={buildDistributionPath(fromPoint, toPoint)}
+                  key={`path-${visualEdge.edge.id}`}
+                  d={visualEdge.path}
                   fill="none"
-                  stroke={colors[index % colors.length]}
+                  stroke={tone.ribbon}
                   strokeLinecap="round"
-                  strokeOpacity="0.36"
-                  strokeWidth={strokeWidth}
+                  strokeOpacity={visualEdge.edge.fromStageId === null ? 0.22 : 0.34}
+                  strokeWidth={visualEdge.strokeWidth}
                 />
-              </g>
-            )
-          })}
+              )
+            })}
 
-          {nodes.map((node) => {
-            const position = nodePositions.get(node.stageId)
-            if (!position) {
-              return null
-            }
+            {labeledEdges.map((visualEdge, index) => {
+              const tone = getDistributionSvgTone(visualEdge.edge.toStage)
+              const label = formatDistributionPercent(visualEdge.edge.conversionRate)
+              const labelWidth = Math.max(42, label.length * 9 + 18)
+              const offsetY = ((index % 3) - 1) * 12
 
-            const isSideStage = isSideDistributionStage(node.stage)
-            const labelLines = splitStageLabel(node.stage)
-
-            return (
-              <g key={node.stageId} transform={`translate(${position.x} ${position.y})`}>
-                <rect
-                  width={nodeWidth}
-                  height={nodeHeight}
-                  rx="14"
-                  fill={isSideStage ? '#fff7ed' : '#ffffff'}
-                  stroke={isSideStage ? '#fed7aa' : '#dbe3ef'}
-                  filter="url(#stage-card-shadow)"
-                />
-                {labelLines.map((line, lineIndex) => (
+              return (
+                <g
+                  key={`label-${visualEdge.edge.id}`}
+                  transform={`translate(${visualEdge.labelX - labelWidth / 2} ${visualEdge.labelY - 13 + offsetY})`}
+                >
+                  <rect
+                    width={labelWidth}
+                    height="24"
+                    rx="12"
+                    fill="#ffffff"
+                    stroke={tone.stroke}
+                    strokeWidth="1"
+                  />
                   <text
-                    key={`${node.stageId}-${line}`}
-                    x="16"
-                    y={22 + lineIndex * 15}
+                    x={labelWidth / 2}
+                    y="16"
+                    textAnchor="middle"
                     fontSize="12"
-                    fontWeight="700"
-                    fill="#0f172a"
+                    fontWeight="800"
+                    fill={tone.accent}
                   >
-                    {line}
+                    {label}
                   </text>
-                ))}
-                <text x="16" y="58" fontSize="22" fontWeight="800" fill="#0f172a">
-                  {formatDistributionPercent(node.shareOfCreatedDeals)}
-                </text>
-                <text x="74" y="57" fontSize="11" fontWeight="700" fill="#64748b">
-                  {formatNumber(node.count)} сдел.
-                </text>
-              </g>
-            )
-          })}
-        </svg>
+                </g>
+              )
+            })}
+
+            {Array.from(layoutNodes.values()).map((node) => {
+              const tone = getDistributionSvgTone(node.stage)
+              const labelLines = splitDistributionStageLabel(node.stage)
+              const percentY = labelLines.length > 1 ? 62 : 58
+
+              return (
+                <g key={node.stageId} transform={`translate(${node.x} ${node.y})`}>
+                  <rect
+                    width={node.width}
+                    height={node.height}
+                    rx="16"
+                    fill={tone.fill}
+                    stroke={tone.stroke}
+                    strokeWidth="1.5"
+                    filter="url(#stage-distribution-node-shadow)"
+                  />
+                  <rect x="14" y="74" width={node.width - 28} height="4" rx="2" fill="#ffffff" />
+                  <rect
+                    x="14"
+                    y="74"
+                    width={(node.width - 28) * Math.max(0, Math.min(100, node.shareOfCreatedDeals)) / 100}
+                    height="4"
+                    rx="2"
+                    fill={tone.accent}
+                  />
+                  {labelLines.map((line, index) => (
+                    <text
+                      key={`${node.stageId}-${line}`}
+                      x="14"
+                      y={24 + index * 15}
+                      fontSize="12"
+                      fontWeight="800"
+                      fill="#0f172a"
+                    >
+                      {line}
+                    </text>
+                  ))}
+                  <text x="14" y={percentY} fontSize="25" fontWeight="900" fill="#0f172a">
+                    {formatDistributionPercent(node.shareOfCreatedDeals)}
+                  </text>
+                  <text x="88" y={percentY - 2} fontSize="11" fontWeight="800" fill="#64748b">
+                    {formatNumber(node.count)} сдел.
+                  </text>
+                </g>
+              )
+            })}
+          </svg>
+        </div>
       </div>
 
-      {visibleTransitions.length > 0 ? (
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {visibleTransitions.slice(0, 9).map((edge) => (
-            <div
-              key={`legend-${edge.id}`}
-              className="rounded-xl border border-slate-200 bg-slate-50/75 px-3 py-2 text-sm"
-            >
-              <div className="font-semibold text-slate-900">
-                {edge.fromStage} -&gt; {edge.toStage}
-              </div>
-              <div className="mt-1 text-xs font-medium text-slate-500">
-                {formatDistributionPercent(edge.conversionRate)} · {formatNumber(edge.count)} сдел.
-              </div>
-            </div>
+      <ul className="sr-only">
+        {edges
+          .filter((edge) => edge.fromStageId !== null)
+          .map((edge) => (
+            <li key={`route-text-${edge.id}`}>
+              {getDistributionTransitionLabel(edge)}: {formatDistributionPercent(edge.conversionRate)} ·{' '}
+              {formatNumber(edge.count)} сдел.
+            </li>
           ))}
-        </div>
-      ) : null}
+      </ul>
     </section>
   )
 }
@@ -1571,6 +1750,478 @@ function SalesManagersReport({
           ))}
         </div>
       )}
+    </section>
+  )
+}
+
+type SalesPlanFactRow = {
+  key: string
+  managerId: string
+  managerName: string
+  targetGroupKey: string
+  targetGroupLabel: string
+  plannedDeals: number
+  plannedAmount: number
+  actualDeals: number
+  actualAmount: number
+}
+
+type EditableSalesPlanRow = SalesPlanDraftRow & {
+  localId: string
+}
+
+function resolveDealTargetGroup(deal: SalesDealRow) {
+  const value = deal.targetGroupValue?.trim() || deal.businessClubValue?.trim()
+
+  return {
+    key: value || 'Без таргет-группы',
+    label: value || 'Без таргет-группы',
+  }
+}
+
+function buildSalesPlanFactRows(
+  dashboard: DashboardData | undefined,
+  salesPlan: SalesPlanData | undefined,
+) {
+  const rows = new Map<string, SalesPlanFactRow>()
+
+  function getOrCreateRow(input: {
+    managerId: string
+    managerName: string
+    targetGroupKey: string
+    targetGroupLabel: string
+  }) {
+    const key = `${input.managerId}::${input.targetGroupKey}`
+    const existing = rows.get(key)
+    if (existing) {
+      if (input.managerName && existing.managerName === input.managerId) {
+        existing.managerName = input.managerName
+      }
+      if (input.targetGroupLabel && existing.targetGroupLabel === input.targetGroupKey) {
+        existing.targetGroupLabel = input.targetGroupLabel
+      }
+      return existing
+    }
+
+    const row: SalesPlanFactRow = {
+      key,
+      managerId: input.managerId,
+      managerName: input.managerName || input.managerId,
+      targetGroupKey: input.targetGroupKey,
+      targetGroupLabel: input.targetGroupLabel || input.targetGroupKey,
+      plannedDeals: 0,
+      plannedAmount: 0,
+      actualDeals: 0,
+      actualAmount: 0,
+    }
+    rows.set(key, row)
+    return row
+  }
+
+  for (const planRow of salesPlan?.rows ?? []) {
+    const row = getOrCreateRow({
+      managerId: planRow.managerId,
+      managerName: planRow.managerName ?? planRow.managerId,
+      targetGroupKey: planRow.targetGroupKey,
+      targetGroupLabel: planRow.targetGroupLabel,
+    })
+    row.plannedDeals += planRow.plannedDeals
+    row.plannedAmount += planRow.plannedAmount
+  }
+
+  for (const group of dashboard?.managerGroups ?? []) {
+    for (const deal of group.deals) {
+      const targetGroup = resolveDealTargetGroup(deal)
+      const row = getOrCreateRow({
+        managerId: group.managerId,
+        managerName: group.managerName,
+        targetGroupKey: targetGroup.key,
+        targetGroupLabel: targetGroup.label,
+      })
+      row.actualDeals += 1
+      row.actualAmount += deal.amount
+    }
+  }
+
+  return Array.from(rows.values()).sort((left, right) => {
+    const byManager = left.managerName.localeCompare(right.managerName, 'ru-RU')
+    return byManager !== 0
+      ? byManager
+      : left.targetGroupLabel.localeCompare(right.targetGroupLabel, 'ru-RU')
+  })
+}
+
+function sumSalesPlanFactRows(rows: SalesPlanFactRow[]) {
+  return rows.reduce(
+    (total, row) => ({
+      plannedDeals: total.plannedDeals + row.plannedDeals,
+      plannedAmount: total.plannedAmount + row.plannedAmount,
+      actualDeals: total.actualDeals + row.actualDeals,
+      actualAmount: total.actualAmount + row.actualAmount,
+    }),
+    {
+      plannedDeals: 0,
+      plannedAmount: 0,
+      actualDeals: 0,
+      actualAmount: 0,
+    },
+  )
+}
+
+function formatPlanCompletion(actual: number, planned: number) {
+  if (planned <= 0) {
+    return actual > 0 ? 'вне плана' : '—'
+  }
+
+  return `${formatInteger(Math.round((actual / planned) * 100))}%`
+}
+
+function SalesPlanFactSection({
+  dashboard,
+  salesPlan,
+}: {
+  dashboard: DashboardData | undefined
+  salesPlan: SalesPlanData | undefined
+}) {
+  const rows = buildSalesPlanFactRows(dashboard, salesPlan)
+  const totals = sumSalesPlanFactRows(rows)
+
+  return (
+    <section className="panel p-5">
+      <PanelHeading
+        title="План / факт продаж"
+        description="Сверка сохраненного плана с выигранными сделками периода в разрезе менеджеров и таргет-группы/клуба заказчика."
+        right={
+          <span className="badge-chip badge-neutral">
+            {formatInteger(totals.actualDeals)} / {formatInteger(totals.plannedDeals)} сделок
+          </span>
+        }
+      />
+
+      {rows.length > 0 ? (
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
+                <th className="px-3 py-3">Менеджер</th>
+                <th className="px-3 py-3">Таргет-группа / клуб</th>
+                <th className="px-3 py-3">План сделок</th>
+                <th className="px-3 py-3">Факт сделок</th>
+                <th className="px-3 py-3">% выполнения</th>
+                <th className="px-3 py-3">План сумма</th>
+                <th className="px-3 py-3">Факт сумма</th>
+                <th className="px-3 py-3">Разрыв</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key} className="border-b border-slate-100 last:border-b-0">
+                  <td className="px-3 py-3 font-semibold text-slate-900">{row.managerName}</td>
+                  <td className="px-3 py-3">{row.targetGroupLabel}</td>
+                  <td className="px-3 py-3">{formatInteger(row.plannedDeals)}</td>
+                  <td className="px-3 py-3">{formatInteger(row.actualDeals)}</td>
+                  <td className="px-3 py-3 font-semibold text-slate-900">
+                    {formatPlanCompletion(row.actualDeals, row.plannedDeals)}
+                  </td>
+                  <td className="px-3 py-3">{formatAmount(row.plannedAmount)}</td>
+                  <td className="px-3 py-3">{formatAmount(row.actualAmount)}</td>
+                  <td className="px-3 py-3">{formatAmount(row.actualAmount - row.plannedAmount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-900">
+                <td className="px-3 py-3" colSpan={2}>Итого</td>
+                <td className="px-3 py-3">{formatInteger(totals.plannedDeals)}</td>
+                <td className="px-3 py-3">{formatInteger(totals.actualDeals)}</td>
+                <td className="px-3 py-3">
+                  {formatPlanCompletion(totals.actualDeals, totals.plannedDeals)}
+                </td>
+                <td className="px-3 py-3">{formatAmount(totals.plannedAmount)}</td>
+                <td className="px-3 py-3">{formatAmount(totals.actualAmount)}</td>
+                <td className="px-3 py-3">{formatAmount(totals.actualAmount - totals.plannedAmount)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ) : (
+        <OutcomeEmptyState message="План продаж еще не заполнен, и фактических продаж в выбранном периоде нет." />
+      )}
+    </section>
+  )
+}
+
+function toEditableSalesPlanRows(
+  salesPlan: SalesPlanData | undefined,
+  managers: PickerOption[],
+): EditableSalesPlanRow[] {
+  if (salesPlan?.rows.length) {
+    return salesPlan.rows.map((row, index) => ({
+      localId: `${row.managerId}-${row.targetGroupKey}-${index}`,
+      managerId: row.managerId,
+      managerName: row.managerName,
+      targetGroupKey: row.targetGroupKey,
+      targetGroupLabel: row.targetGroupLabel,
+      plannedDeals: row.plannedDeals,
+      plannedAmount: row.plannedAmount,
+    }))
+  }
+
+  const firstManager = managers[0]
+  return [
+    {
+      localId: crypto.randomUUID(),
+      managerId: firstManager?.id ?? '',
+      managerName: firstManager?.label ?? null,
+      targetGroupKey: '',
+      targetGroupLabel: '',
+      plannedDeals: 0,
+      plannedAmount: 0,
+    },
+  ]
+}
+
+function collectTargetGroupOptions(
+  dashboard: DashboardData | undefined,
+  salesPlan: SalesPlanData | undefined,
+) {
+  const options = new Map<string, string>()
+
+  for (const planRow of salesPlan?.rows ?? []) {
+    options.set(planRow.targetGroupKey, planRow.targetGroupLabel)
+  }
+
+  for (const group of dashboard?.managerGroups ?? []) {
+    for (const deal of group.deals) {
+      const targetGroup = resolveDealTargetGroup(deal)
+      options.set(targetGroup.key, targetGroup.label)
+    }
+  }
+
+  return Array.from(options.entries())
+    .map(([key, label]) => ({ key, label }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'ru-RU'))
+}
+
+function SalesPlanScene({
+  runtimeData,
+  salesPlanSaving,
+  salesPlanSaveError,
+  onSalesPlanSave,
+}: SceneComponentProps) {
+  const managers =
+    runtimeData?.managerOptions.length ? runtimeData.managerOptions : managerOptions
+  const salesPlan = runtimeData?.salesPlan
+  const targetGroups = useMemo(
+    () => collectTargetGroupOptions(runtimeData?.salesDashboard, salesPlan),
+    [runtimeData?.salesDashboard, salesPlan],
+  )
+  const [rows, setRows] = useState<EditableSalesPlanRow[]>(() =>
+    toEditableSalesPlanRows(salesPlan, managers),
+  )
+
+  useEffect(() => {
+    setRows(toEditableSalesPlanRows(salesPlan, managers))
+  }, [salesPlan, managers])
+
+  function patchRow(localId: string, patch: Partial<EditableSalesPlanRow>) {
+    setRows((current) =>
+      current.map((row) => (row.localId === localId ? { ...row, ...patch } : row)),
+    )
+  }
+
+  function addRow() {
+    const firstManager = managers[0]
+    const firstTargetGroup = targetGroups[0]
+    setRows((current) => [
+      ...current,
+      {
+        localId: crypto.randomUUID(),
+        managerId: firstManager?.id ?? '',
+        managerName: firstManager?.label ?? null,
+        targetGroupKey: firstTargetGroup?.key ?? '',
+        targetGroupLabel: firstTargetGroup?.label ?? '',
+        plannedDeals: 0,
+        plannedAmount: 0,
+      },
+    ])
+  }
+
+  function removeRow(localId: string) {
+    setRows((current) => current.filter((row) => row.localId !== localId))
+  }
+
+  async function saveRows() {
+    if (!onSalesPlanSave) {
+      return
+    }
+
+    await onSalesPlanSave(
+      rows
+        .map((row) => {
+          const targetGroupLabel = (row.targetGroupLabel ?? row.targetGroupKey).trim()
+          const managerName =
+            managers.find((manager) => manager.id === row.managerId)?.label ??
+            row.managerName ??
+            row.managerId
+
+          return {
+            managerId: row.managerId,
+            managerName,
+            targetGroupKey: (row.targetGroupKey || targetGroupLabel).trim(),
+            targetGroupLabel,
+            plannedDeals: Number.isFinite(row.plannedDeals) ? row.plannedDeals : 0,
+            plannedAmount: Number.isFinite(row.plannedAmount) ? row.plannedAmount : 0,
+          }
+        })
+        .filter(
+          (row) =>
+            row.managerId &&
+            row.targetGroupKey &&
+            (row.plannedDeals > 0 || row.plannedAmount > 0),
+        ),
+    )
+  }
+
+  return (
+    <section className="panel p-5">
+      <PanelHeading
+        title="План продаж"
+        description="План по количеству и сумме продаж в разрезе менеджера и таргет-группы/клуба заказчика. Сохраненные строки используются в отчете по продажам."
+        right={
+          <span className="badge-chip badge-neutral">
+            {salesPlan?.updatedAt ? `сохранено ${formatShortDate(salesPlan.updatedAt)}` : 'план не сохранен'}
+          </span>
+        }
+      />
+
+      {salesPlanSaveError ? (
+        <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {salesPlanSaveError}
+        </div>
+      ) : null}
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
+              <th className="px-3 py-3">Менеджер</th>
+              <th className="px-3 py-3">Таргет-группа / клуб</th>
+              <th className="px-3 py-3">План сделок</th>
+              <th className="px-3 py-3">План сумма</th>
+              <th className="px-3 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => {
+              const managerName =
+                managers.find((manager) => manager.id === row.managerId)?.label ??
+                row.managerName ??
+                row.managerId
+              const targetGroupLabel = row.targetGroupLabel ?? row.targetGroupKey
+              const fieldSuffix = `${managerName} ${targetGroupLabel}`.trim()
+
+              return (
+                <tr key={row.localId} className="border-b border-slate-100 last:border-b-0">
+                  <td className="px-3 py-3">
+                    <select
+                      className="field min-w-[210px]"
+                      aria-label={`Менеджер ${index + 1}`}
+                      value={row.managerId}
+                      onChange={(event) => {
+                        const manager = managers.find((entry) => entry.id === event.target.value)
+                        patchRow(row.localId, {
+                          managerId: event.target.value,
+                          managerName: manager?.label ?? event.target.value,
+                        })
+                      }}
+                    >
+                      {managers.map((manager) => (
+                        <option key={manager.id} value={manager.id}>
+                          {manager.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-3">
+                    <input
+                      className="field min-w-[240px]"
+                      list="sales-plan-target-groups"
+                      aria-label={`Таргет-группа ${index + 1}`}
+                      value={targetGroupLabel}
+                      onChange={(event) =>
+                        patchRow(row.localId, {
+                          targetGroupKey: event.target.value,
+                          targetGroupLabel: event.target.value,
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <input
+                      className="field w-32"
+                      type="number"
+                      min={0}
+                      aria-label={`План сделок ${fieldSuffix}`}
+                      value={row.plannedDeals}
+                      onChange={(event) =>
+                        patchRow(row.localId, {
+                          plannedDeals: Math.max(0, Number(event.target.value) || 0),
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <input
+                      className="field w-40"
+                      type="number"
+                      min={0}
+                      step={1000}
+                      aria-label={`План суммы ${fieldSuffix}`}
+                      value={row.plannedAmount}
+                      onChange={(event) =>
+                        patchRow(row.localId, {
+                          plannedAmount: Math.max(0, Number(event.target.value) || 0),
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => removeRow(row.localId)}
+                      disabled={rows.length === 1}
+                    >
+                      Удалить
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <datalist id="sales-plan-target-groups">
+        {targetGroups.map((targetGroup) => (
+          <option key={targetGroup.key} value={targetGroup.label} />
+        ))}
+      </datalist>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" className="btn btn-ghost" onClick={addRow}>
+          Добавить строку
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => void saveRows()}
+          disabled={salesPlanSaving}
+        >
+          {salesPlanSaving ? 'Сохраняю...' : 'Сохранить план'}
+        </button>
+      </div>
     </section>
   )
 }
@@ -2377,6 +3028,11 @@ function SalesScene({ filters, runtimeData }: SceneComponentProps) {
           filters={filters}
         />
       ) : null}
+
+      <SalesPlanFactSection
+        dashboard={runtimeData?.salesDashboard}
+        salesPlan={runtimeData?.salesPlan}
+      />
 
       <SalesManagersReport
         dashboard={runtimeData?.salesDashboard}
@@ -3737,6 +4393,20 @@ export const scenes: ProtoScene[] = [
       { label: 'Средний цикл', value: '28 дн.', note: 'успешная сделка' },
     ],
     component: SalesScene,
+  },
+  {
+    id: 'sales-plan',
+    label: 'План продаж',
+    description: 'План продаж по менеджерам и таргет-группам/клубам заказчика.',
+    focus: 'План / факт / клубы',
+    kpis: [
+      { label: 'Разрез плана', value: 'Менеджер × клуб', note: 'таргет-группа или клуб заказчика' },
+      { label: 'Поля плана', value: 'Сделки + ₽', note: 'количество и сумма продаж' },
+      { label: 'Источник факта', value: 'Won', note: 'выигранные сделки периода' },
+      { label: 'Сохранение', value: 'SQLite', note: 'локальный план для отчета' },
+      { label: 'Сверка', value: 'План/факт', note: 'на вкладке отчета продаж' },
+    ],
+    component: SalesPlanScene,
   },
   {
     id: 'activities-calls',

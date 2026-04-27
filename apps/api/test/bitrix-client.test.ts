@@ -354,7 +354,7 @@ describe("BitrixClient pagination", () => {
     });
   });
 
-  it("chunks activity owner filters narrowly to avoid broad Bitrix timeouts", async () => {
+  it("chunks activity owner filters to avoid one huge Bitrix binding filter", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       createResponse({
         result: []
@@ -370,7 +370,7 @@ describe("BitrixClient pagination", () => {
       requestIntervalMs: 0,
       dealCategoryIds: ["10"]
     });
-    const ownerIds = Array.from({ length: 11 }, (_, index) => String(index + 1));
+    const ownerIds = Array.from({ length: 51 }, (_, index) => String(index + 1));
 
     await expect(
       client.listActivities({
@@ -382,7 +382,7 @@ describe("BitrixClient pagination", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).filter).toEqual({
-      BINDINGS: ownerIds.slice(0, 10).map((ownerId) => ({
+      BINDINGS: ownerIds.slice(0, 50).map((ownerId) => ({
         OWNER_TYPE_ID: 2,
         OWNER_ID: ownerId
       })),
@@ -391,7 +391,7 @@ describe("BitrixClient pagination", () => {
     });
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).filter).toEqual({
       OWNER_TYPE_ID: 2,
-      OWNER_ID: "11",
+      OWNER_ID: "51",
       PROVIDER_ID: "CRM_TODO",
       ">=LAST_UPDATED": "2026-01-01T00:00:00.000Z"
     });
@@ -498,6 +498,42 @@ describe("BitrixClient pagination", () => {
       },
       start: 0
     });
+  });
+
+  it("reuses deal field metadata across concurrent field map requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createResponse({
+        result: {
+          UF_CRM_ALPHA: {
+            items: [{ ID: 1, VALUE: "Alpha" }]
+          },
+          UF_CRM_BETA: {
+            items: [{ ID: 2, VALUE: "Beta" }]
+          }
+        }
+      })
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      Promise.all([
+        client.fetchDealFieldValueMap("UF_CRM_ALPHA"),
+        client.fetchDealFieldValueMap("UF_CRM_BETA")
+      ])
+    ).resolves.toEqual([{ "1": "Alpha" }, { "2": "Beta" }]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({});
   });
 
   it("reads stage history rows from nested result.items payloads", async () => {

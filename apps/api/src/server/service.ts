@@ -18,9 +18,12 @@ import type {
   SourceCatalogEntry,
   SourceQualityConversionReport,
   SourceQualityConversionReportSnapshot,
+  SnapshotStats,
   StageCatalogEntry,
   SyncHealth,
   SyncHealthIssue,
+  SyncDealChangeBreakdown,
+  SyncProgressEvent,
   TargetGroupConversionReport,
   TargetGroupConversionReportSnapshot,
   TocFlowReport,
@@ -150,10 +153,14 @@ export interface ReportingService {
       leadsSynced: number;
       dealsSynced: number;
       mode: "full" | "delta";
+      dealBreakdown: SyncDealChangeBreakdown;
     } | null;
+    snapshotStats: SnapshotStats;
     syncHealth: SyncHealth;
   }>;
-  performSync(): Promise<ManualSyncSummary>;
+  performSync(input?: {
+    onProgress?: (event: SyncProgressEvent) => void;
+  }): Promise<ManualSyncSummary>;
   updateWonStages(stageIds: string[]): Promise<{ wonStageIds: string[] }>;
 }
 
@@ -209,6 +216,12 @@ const MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS = [
 ];
 const SYNC_HEALTH_STALE_RUN_HOURS = 2;
 const SYNC_HEALTH_STALE_SUCCESS_HOURS = 24;
+const EMPTY_SNAPSHOT_STATS = {
+  deals: 0,
+  activities: 0,
+  calls: 0,
+  stageHistory: 0
+};
 
 function addHours(date: Date, hours: number) {
   const copy = new Date(date);
@@ -225,11 +238,13 @@ function addDays(date: Date, days: number) {
 async function buildSyncHealth(input: {
   repository: SqliteRepository;
   categoryIds: string[];
+  assignedByIds: string[];
   lastSync: {
     finishedAt: string;
     leadsSynced: number;
     dealsSynced: number;
     mode: "full" | "delta";
+    dealBreakdown: SyncDealChangeBreakdown;
   } | null;
   now: Date;
   bootstrapLookbackDays: number;
@@ -283,7 +298,7 @@ async function buildSyncHealth(input: {
     input.now,
     -input.bootstrapLookbackDays
   ).toISOString();
-  const scopeKey = buildCategoryScopeKey(input.categoryIds);
+  const scopeKey = buildCategoryScopeKey(input.categoryIds, input.assignedByIds);
   const coverageChecks = [
     ...MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS.map((providerId) => ({
       stream: "activity_history",
@@ -351,14 +366,16 @@ async function buildSyncHealth(input: {
 async function buildManagerActionOutcomeWarnings(input: {
   repository: SqliteRepository;
   categoryIds: string[];
+  assignedByIds: string[];
   range: ReportRange;
   meetingDateFieldName?: string;
 }) {
   const warnings = new Set<string>();
   const repositoryWithCoverage = input.repository as Partial<SqliteRepository>;
+  let meetingDateFieldCoverageConfirmed = false;
 
   if (typeof repositoryWithCoverage.hasSyncCoverage === "function") {
-    const scopeKey = buildCategoryScopeKey(input.categoryIds);
+    const scopeKey = buildCategoryScopeKey(input.categoryIds, input.assignedByIds);
     const coverageResults = await Promise.all(
       MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS.map((providerId) =>
         repositoryWithCoverage.hasSyncCoverage?.({
@@ -376,34 +393,38 @@ async function buildManagerActionOutcomeWarnings(input: {
       warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
     }
 
-    const fieldCoverageResults = await Promise.all([
-      repositoryWithCoverage.hasSyncCoverage({
+    const dealCustomFieldCoverage = repositoryWithCoverage.hasSyncCoverage({
         scopeKey,
         stream: DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
         providerId: DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
         requiredFrom: input.range.from,
         requiredTo: input.range.to,
         algorithmVersion: DEAL_CUSTOM_FIELDS_COVERAGE_VERSION
-      }),
-      input.meetingDateFieldName
-        ? repositoryWithCoverage.hasSyncCoverage({
-            scopeKey,
-            stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
-            providerId: input.meetingDateFieldName,
-            requiredFrom: input.range.from,
-            requiredTo: input.range.to,
-            algorithmVersion: DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION
-          })
-        : true,
-      repositoryWithCoverage.hasSyncCoverage({
+    });
+    const meetingDateFieldCoverage = input.meetingDateFieldName
+      ? repositoryWithCoverage.hasSyncCoverage({
+          scopeKey,
+          stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
+          providerId: input.meetingDateFieldName,
+          requiredFrom: input.range.from,
+          requiredTo: input.range.to,
+          algorithmVersion: DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION
+        })
+      : Promise.resolve(true);
+    const callStatsCoverage = repositoryWithCoverage.hasSyncCoverage({
         scopeKey,
         stream: CALL_STATS_COVERAGE_STREAM,
         providerId: CALL_STATS_COVERAGE_PROVIDER,
         requiredFrom: input.range.from,
         requiredTo: input.range.to,
         algorithmVersion: CALL_STATS_COVERAGE_VERSION
-      })
+    });
+    const fieldCoverageResults = await Promise.all([
+      dealCustomFieldCoverage,
+      meetingDateFieldCoverage,
+      callStatsCoverage
     ]);
+    meetingDateFieldCoverageConfirmed = fieldCoverageResults[1] === true;
 
     if (fieldCoverageResults.some((covered) => covered !== true)) {
       warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
@@ -416,17 +437,31 @@ async function buildManagerActionOutcomeWarnings(input: {
   ) {
     const bootstrappedAt =
       await repositoryWithCoverage.getDealMeetingDateFieldBootstrappedAt();
-    if (!bootstrappedAt) {
+    if (
+      input.meetingDateFieldName &&
+      !bootstrappedAt &&
+      !meetingDateFieldCoverageConfirmed
+    ) {
       warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
     }
   }
 
   if (typeof repositoryWithCoverage.getCallActivityIdsMissingCallStats === "function") {
+    const ownerIds =
+      typeof input.repository.getDealIdsByCategoryIds === "function"
+        ? await input.repository.getDealIdsByCategoryIds(
+            input.categoryIds,
+            input.assignedByIds
+          )
+        : [];
     const missingCallStatActivityIds =
-      await repositoryWithCoverage.getCallActivityIdsMissingCallStats(
-        1,
-        input.range.from
-      );
+      ownerIds.length > 0
+        ? await repositoryWithCoverage.getCallActivityIdsMissingCallStats(
+            1,
+            input.range.from,
+            ownerIds
+          )
+        : [];
     if (missingCallStatActivityIds.length > 0) {
       warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
     }
@@ -727,13 +762,24 @@ export function createReportingService(
       filters
     }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
-      const [deals, stageCatalog, stageHistory, activities, deadlineChanges, calls] =
+      const [
+        deals,
+        stageCatalog,
+        stageHistory,
+        activities,
+        deadlineChanges,
+        meetingDateChanges,
+        calls
+      ] =
         await Promise.all([
           input.repository.getAllDeals(),
           getScopedStageCatalog(),
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
           input.repository.getAllActivityDeadlineChanges(),
+          input.repository.getAllDealMeetingDateChanges
+            ? input.repository.getAllDealMeetingDateChanges()
+            : Promise.resolve([]),
           input.repository.getAllCalls()
         ]);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
@@ -797,6 +843,7 @@ export function createReportingService(
           stageHistory: scopedStageHistory,
           activities: scopedActivities,
           deadlineChanges: scopedDeadlineChanges,
+          meetingDateChanges,
           calls: scopedCalls,
           managerDirectory
         });
@@ -968,6 +1015,7 @@ export function createReportingService(
       const warnings = await buildManagerActionOutcomeWarnings({
         repository: input.repository,
         categoryIds: input.dealCategoryIds,
+        assignedByIds: ATTRACTION_MANAGER_IDS,
         range: reportRange,
         ...(input.meetingDateFieldName
           ? { meetingDateFieldName: input.meetingDateFieldName }
@@ -997,7 +1045,6 @@ export function createReportingService(
       const scopedActivities = activities.filter((activity) => scopedDealIds.has(activity.ownerId));
       const activityById = new Map(scopedActivities.map((activity) => [activity.id, activity]));
       const managerIds = new Set(scopedFilters.managerIds ?? []);
-      const sourceKeys = new Set(scopedFilters.sourceKeys ?? []);
       const scopedCalls = calls.filter((call) => {
         const activity = call.crmActivityId ? activityById.get(call.crmActivityId) : null;
         const hasScopedDealLink =
@@ -1013,7 +1060,7 @@ export function createReportingService(
           return false;
         }
 
-        if (sourceKeys.size > 0 && !hasScopedDealLink) {
+        if (!hasScopedDealLink) {
           return false;
         }
 
@@ -1120,12 +1167,23 @@ export function createReportingService(
     },
 
     async getMeta() {
-      const [deals, stageCatalog, wonStageIds, lastSync] =
+      const repositoryWithStats = input.repository as Partial<SqliteRepository>;
+      const scopeKey = buildCategoryScopeKey(
+        input.dealCategoryIds,
+        ATTRACTION_MANAGER_IDS
+      );
+      const [deals, stageCatalog, wonStageIds, lastSync, snapshotStats] =
         await Promise.all([
           input.repository.getAllDeals(),
           getScopedStageCatalog(true),
           input.repository.getWonStageIds(),
-          input.repository.getLastSyncSummary()
+          input.repository.getLastSyncSummary(scopeKey),
+          typeof repositoryWithStats.getSnapshotStats === "function"
+            ? repositoryWithStats.getSnapshotStats({
+                categoryIds: input.dealCategoryIds,
+                assignedByIds: ATTRACTION_MANAGER_IDS
+              })
+            : Promise.resolve(EMPTY_SNAPSHOT_STATS)
         ]);
       const scopedDeals = filterDealsByFilters(
         deals,
@@ -1136,6 +1194,7 @@ export function createReportingService(
       const syncHealth = await buildSyncHealth({
         repository: input.repository,
         categoryIds: input.dealCategoryIds,
+        assignedByIds: ATTRACTION_MANAGER_IDS,
         lastSync,
         now: nowFactory(),
         bootstrapLookbackDays: input.bootstrapLookbackDays ?? 365,
@@ -1151,17 +1210,19 @@ export function createReportingService(
         wonStageIds,
         defaultPeriodDays: input.defaultPeriodDays,
         lastSync,
+        snapshotStats,
         syncHealth
       };
     },
 
-    async performSync() {
+    async performSync(syncInput) {
       return performManualSync({
         categoryIds: input.dealCategoryIds,
         qualityFieldName: input.qualityFieldName,
         client: input.client,
         repository: input.repository,
         now: () => nowFactory().toISOString(),
+        ...(syncInput?.onProgress ? { onProgress: syncInput.onProgress } : {}),
         ...(input.bootstrapLookbackDays
           ? { bootstrapLookbackDays: input.bootstrapLookbackDays }
           : {}),

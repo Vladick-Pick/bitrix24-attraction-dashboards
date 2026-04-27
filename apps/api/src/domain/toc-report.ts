@@ -4,6 +4,7 @@ import type {
   StageCatalogEntry,
   StageHistorySnapshot,
   TocFlowReport,
+  TocStageDistribution,
   TocFlowStageMetric
 } from "@bitrix24-reporting/contracts";
 
@@ -30,6 +31,8 @@ interface StageStay {
   leftAt: string | null;
 }
 
+type StageDistributionEdgeKey = `${string}->${string}`;
+
 function isWithinRange(value: string | null, fromMs: number, toMs: number) {
   if (!value) {
     return false;
@@ -45,6 +48,10 @@ function toAverage(total: number, count: number) {
   }
 
   return Number((total / count).toFixed(2));
+}
+
+function toRoundedNumber(value: number) {
+  return Number(value.toFixed(2));
 }
 
 function getAllowedCategoryIds(stageCatalog: StageCatalogEntry[]) {
@@ -84,6 +91,10 @@ function buildNextActiveStageMap(activeStages: StageDefinition[]) {
     activeStages
       .map((stage, index) => [stage.stageId, activeStages[index + 1]?.stageId ?? null] as const)
   );
+}
+
+function buildStageDefinitionMap(stages: StageDefinition[]) {
+  return new Map(stages.map((stage) => [stage.stageId, stage]));
 }
 
 function buildStageHistoryMap(stageHistory: StageHistorySnapshot[]) {
@@ -134,6 +145,152 @@ function buildStageStays(
   }));
 }
 
+function buildDistinctStagePath(
+  deal: DealSnapshot,
+  stageHistoryRows: StageHistorySnapshot[],
+  stageDefinitionById: Map<string, StageDefinition>
+) {
+  const rawStageIds =
+    stageHistoryRows.length > 0
+      ? stageHistoryRows.map((row) => row.stageId)
+      : [deal.stageId];
+  const stageIds: string[] = [];
+
+  for (const stageId of rawStageIds) {
+    if (!stageDefinitionById.has(stageId)) {
+      continue;
+    }
+
+    if (stageIds[stageIds.length - 1] !== stageId) {
+      stageIds.push(stageId);
+    }
+  }
+
+  return stageIds;
+}
+
+function edgeKey(fromStageId: string | null, toStageId: string): StageDistributionEdgeKey {
+  return `${fromStageId ?? "CREATED"}->${toStageId}`;
+}
+
+function buildStageDistribution(input: {
+  range: ReportRange;
+  deals: DealSnapshot[];
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>;
+  stages: StageDefinition[];
+}): TocStageDistribution {
+  const fromMs = Date.parse(input.range.from);
+  const toMs = Date.parse(input.range.to);
+  const stageDefinitionById = buildStageDefinitionMap(input.stages);
+  const createdDeals = input.deals.filter((deal) =>
+    isWithinRange(deal.dateCreate, fromMs, toMs)
+  );
+  const totalCreatedDeals = createdDeals.length;
+  const nodeDealIds = new Map<string, Set<string>>();
+  const edgeDealIds = new Map<StageDistributionEdgeKey, Set<string>>();
+
+  const addNode = (stageId: string, dealId: string) => {
+    const dealIds = nodeDealIds.get(stageId) ?? new Set<string>();
+    dealIds.add(dealId);
+    nodeDealIds.set(stageId, dealIds);
+  };
+
+  const addEdge = (fromStageId: string | null, toStageId: string, dealId: string) => {
+    const key = edgeKey(fromStageId, toStageId);
+    const dealIds = edgeDealIds.get(key) ?? new Set<string>();
+    dealIds.add(dealId);
+    edgeDealIds.set(key, dealIds);
+  };
+
+  for (const deal of createdDeals) {
+    const path = buildDistinctStagePath(
+      deal,
+      input.stageHistoryMap.get(deal.id) ?? [],
+      stageDefinitionById
+    );
+
+    if (path.length === 0) {
+      continue;
+    }
+
+    addEdge(null, path[0]!, deal.id);
+
+    for (const stageId of path) {
+      addNode(stageId, deal.id);
+    }
+
+    for (let index = 0; index < path.length - 1; index += 1) {
+      addEdge(path[index]!, path[index + 1]!, deal.id);
+    }
+  }
+
+  const nodes = input.stages
+    .map((stage) => {
+      const dealCount = nodeDealIds.get(stage.stageId)?.size ?? 0;
+
+      return {
+        stageId: stage.stageId,
+        stageName: stage.stageName,
+        sortOrder: stage.sortOrder,
+        dealCount,
+        shareOfCreatedDeals:
+          totalCreatedDeals > 0
+            ? toRoundedNumber((dealCount / totalCreatedDeals) * 100)
+            : 0
+      };
+    })
+    .filter((node) => node.dealCount > 0);
+
+  const nodeCountByStageId = new Map(nodes.map((node) => [node.stageId, node.dealCount]));
+  const sortOrderByStageId = new Map(input.stages.map((stage) => [stage.stageId, stage.sortOrder]));
+  const nameByStageId = new Map(input.stages.map((stage) => [stage.stageId, stage.stageName]));
+
+  const edges = Array.from(edgeDealIds.entries())
+    .map(([key, dealIds]) => {
+      const [rawFromStageId, toStageId] = key.split("->");
+      const fromStageId = rawFromStageId === "CREATED" ? null : rawFromStageId ?? null;
+      const dealCount = dealIds.size;
+      const denominator =
+        fromStageId === null
+          ? totalCreatedDeals
+          : nodeCountByStageId.get(fromStageId) ?? 0;
+
+      return {
+        fromStageId,
+        fromStageName: fromStageId ? nameByStageId.get(fromStageId) ?? fromStageId : null,
+        toStageId: toStageId ?? "",
+        toStageName: nameByStageId.get(toStageId ?? "") ?? toStageId ?? "",
+        dealCount,
+        conversionRate:
+          denominator > 0 ? toRoundedNumber((dealCount / denominator) * 100) : 0
+      };
+    })
+    .filter((edge) => edge.toStageId && edge.dealCount > 0)
+    .sort((left, right) => {
+      const leftFromOrder =
+        left.fromStageId === null ? -1 : sortOrderByStageId.get(left.fromStageId) ?? 0;
+      const rightFromOrder =
+        right.fromStageId === null ? -1 : sortOrderByStageId.get(right.fromStageId) ?? 0;
+      if (leftFromOrder !== rightFromOrder) {
+        return leftFromOrder - rightFromOrder;
+      }
+
+      const leftToOrder = sortOrderByStageId.get(left.toStageId) ?? 0;
+      const rightToOrder = sortOrderByStageId.get(right.toStageId) ?? 0;
+      if (leftToOrder !== rightToOrder) {
+        return leftToOrder - rightToOrder;
+      }
+
+      return left.toStageId.localeCompare(right.toStageId);
+    });
+
+  return {
+    totalCreatedDeals,
+    nodes,
+    edges
+  };
+}
+
 function countBusinessDays(range: ReportRange) {
   const from = new Date(range.from);
   const to = new Date(range.to);
@@ -176,6 +333,7 @@ export function buildTocFlowReport(input: TocFlowInput): TocFlowReport {
   const fromMs = Date.parse(input.range.from);
   const toMs = Date.parse(input.range.to);
   const allowedCategoryIds = getAllowedCategoryIds(input.stageCatalog);
+  const allStages = getAllStageDefinitions(input.stageCatalog);
   const activeStages = getActiveStageDefinitions(input.stageCatalog);
   const activeStageIds = new Set(activeStages.map((stage) => stage.stageId));
   const nextActiveStageById = buildNextActiveStageMap(activeStages);
@@ -314,8 +472,14 @@ export function buildTocFlowReport(input: TocFlowInput): TocFlowReport {
           throughputPerDay: bottleneck.throughputPerDay,
           queueEnd: bottleneck.queueEnd,
           queueBufferDays: bottleneck.queueBufferDays
-        }
+      }
       : null,
+    stageDistribution: buildStageDistribution({
+      range: input.range,
+      deals,
+      stageHistoryMap,
+      stages: allStages
+    }),
     rows
   };
 }

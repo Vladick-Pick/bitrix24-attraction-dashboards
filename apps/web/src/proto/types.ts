@@ -175,6 +175,30 @@ export interface TocStableLeaderRow {
   stabilityTone: 'positive' | 'negative' | 'neutral'
 }
 
+export interface TocStageDistributionNode {
+  stageId: string
+  stage: string
+  sortOrder: number
+  count: number
+  shareOfCreatedDeals: number
+}
+
+export interface TocStageDistributionEdge {
+  id: string
+  fromStageId: string | null
+  fromStage: string
+  toStageId: string
+  toStage: string
+  count: number
+  conversionRate: number
+}
+
+export interface TocStageDistribution {
+  totalCreatedDeals: number
+  nodes: TocStageDistributionNode[]
+  edges: TocStageDistributionEdge[]
+}
+
 export interface TocFlowSceneData {
   kpis: ProtoKpi[]
   warnings: string[]
@@ -182,6 +206,7 @@ export interface TocFlowSceneData {
   compareStages: FlowStageMetric[]
   managerConversionRows: TocManagerConversionRow[]
   stableLeaders: TocStableLeaderRow[]
+  stageDistribution: TocStageDistribution
   focus: TocFlowFocus
 }
 

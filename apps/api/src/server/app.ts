@@ -7,9 +7,13 @@ import type {
   ManagerActionOutcomeReport,
   ManagerDirectoryEntry,
   ManualSyncSummary,
+  SnapshotStats,
   SourceCatalogEntry,
   SourceQualityConversionReport,
   StageCatalogEntry,
+  SyncDealChangeBreakdown,
+  SyncHealth,
+  SyncProgressEvent,
   TargetGroupConversionReport,
   TocFlowReport
 } from "@bitrix24-reporting/contracts";
@@ -28,7 +32,10 @@ interface MetaResponse {
     leadsSynced: number;
     dealsSynced: number;
     mode: "full" | "delta";
+    dealBreakdown: SyncDealChangeBreakdown;
   } | null;
+  snapshotStats: SnapshotStats;
+  syncHealth: SyncHealth;
 }
 
 interface RangeRequest {
@@ -68,7 +75,9 @@ interface AppService {
   getCohortConversionReport(input: RangeRequest): Promise<CohortConversionReport>;
   getTocFlowReport(input: RangeRequest): Promise<TocFlowReport>;
   getMeta(): Promise<MetaResponse>;
-  performSync(): Promise<ManualSyncSummary>;
+  performSync(input?: {
+    onProgress?: (event: SyncProgressEvent) => void;
+  }): Promise<ManualSyncSummary>;
   updateWonStages(stageIds: string[]): Promise<{ wonStageIds: string[] }>;
 }
 
@@ -224,6 +233,44 @@ function createErrorResponse(code: string, details?: unknown) {
     code,
     ...(details === undefined ? {} : { details })
   };
+}
+
+function getErrorCauseCode(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "";
+  }
+
+  const cause = (error as Error & { cause?: unknown }).cause;
+  return cause && typeof cause === "object" && "code" in cause
+    ? String((cause as { code?: unknown }).code)
+    : "";
+}
+
+function createSyncErrorResponse(error: unknown) {
+  const causeCode = getErrorCauseCode(error);
+  const diagnostics =
+    causeCode.length > 0
+      ? [`network=${causeCode}`]
+      : error instanceof Error && error.name === "AbortError"
+        ? ["network=ABORT_TIMEOUT"]
+        : error instanceof Error && error.message.startsWith("Bitrix24 ")
+          ? [`bitrix=${error.message}`]
+          : ["error=SYNC_FAILED"];
+
+  return createErrorResponse("SYNC_FAILED", { diagnostics });
+}
+
+function wantsSyncStream(request: express.Request) {
+  return request.header("Accept")?.includes("text/event-stream") === true;
+}
+
+function writeSyncEvent(
+  response: express.Response,
+  event: "progress" | "complete" | "error",
+  data: unknown
+) {
+  response.write(`event: ${event}\n`);
+  response.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
 function readBearerToken(value: string | undefined) {
@@ -397,9 +444,34 @@ export function createApp(service: AppService, config: AppConfig = {}) {
     }
   });
 
-  app.post("/api/sync", async (_request, response, next) => {
+  app.post("/api/sync", async (request, response, next) => {
     if (activeSync) {
       response.status(409).json(createErrorResponse("SYNC_ALREADY_RUNNING"));
+      return;
+    }
+
+    if (wantsSyncStream(request)) {
+      response.status(200);
+      response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      response.setHeader("Cache-Control", "no-cache, no-transform");
+      response.setHeader("Connection", "keep-alive");
+      response.flushHeaders?.();
+
+      try {
+        activeSync = service.performSync({
+          onProgress: (event) => {
+            writeSyncEvent(response, "progress", event);
+          }
+        });
+        const summary = await activeSync;
+        writeSyncEvent(response, "complete", summary);
+        response.end();
+      } catch (error) {
+        writeSyncEvent(response, "error", createSyncErrorResponse(error));
+        response.end();
+      } finally {
+        activeSync = null;
+      }
       return;
     }
 

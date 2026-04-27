@@ -48,6 +48,7 @@ export const ALLOWED_BITRIX_METHODS = [
 
 interface SelectorOptions {
   categoryIds: string[];
+  assignedByIds?: string[];
   modifiedAfter?: string;
   start?: number;
   qualityFieldName?: string;
@@ -57,6 +58,7 @@ interface SelectorOptions {
 interface BackfillSelectorOptions {
   afterId: string;
   categoryIds: string[];
+  assignedByIds?: string[];
   qualityFieldName?: string;
   customFieldNames?: string[];
 }
@@ -70,6 +72,32 @@ function buildCategoryFilter(categoryIds: string[]) {
 
   return {
     "@CATEGORY_ID": categoryIds
+  };
+}
+
+function buildAssignedByFilter(assignedByIds: string[] | undefined) {
+  if (!assignedByIds || assignedByIds.length === 0) {
+    return {};
+  }
+
+  if (assignedByIds.length === 1) {
+    return {
+      ASSIGNED_BY_ID: assignedByIds[0]
+    };
+  }
+
+  return {
+    "@ASSIGNED_BY_ID": assignedByIds
+  };
+}
+
+function buildDealScopeFilter(options: {
+  categoryIds: string[];
+  assignedByIds?: string[];
+}) {
+  return {
+    ...buildCategoryFilter(options.categoryIds),
+    ...buildAssignedByFilter(options.assignedByIds)
   };
 }
 
@@ -93,10 +121,10 @@ export function buildDealListParams(options: SelectorOptions) {
     select: buildDealSelectFields(options),
     filter: options.modifiedAfter
       ? {
-          ...buildCategoryFilter(options.categoryIds),
+          ...buildDealScopeFilter(options),
           ">=DATE_MODIFY": options.modifiedAfter
         }
-      : buildCategoryFilter(options.categoryIds),
+      : buildDealScopeFilter(options),
     order: {
       ID: "ASC" as const
     },
@@ -108,7 +136,7 @@ export function buildDealBackfillParams(options: BackfillSelectorOptions) {
   return {
     select: buildDealSelectFields(options),
     filter: {
-      ...buildCategoryFilter(options.categoryIds),
+      ...buildDealScopeFilter(options),
       ">ID": options.afterId
     },
     order: {

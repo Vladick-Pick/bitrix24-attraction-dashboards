@@ -23,6 +23,7 @@ import type {
   TocManagerConversionRow,
   TocFlowSceneData,
   TocStableLeaderRow,
+  TocStageDistribution,
 } from '@/proto/types'
 
 type ManagerCohortBreakdown = {
@@ -43,6 +44,7 @@ type ManagerTocBreakdown = {
 }
 
 const STABLE_LEADER_RATE_THRESHOLD = 0.85
+const MOSCOW_TIMEZONE_OFFSET = '+03:00'
 
 const cohortBucketOrder = ['month_1', 'month_2', 'month_3', 'month_4_plus'] as const
 
@@ -56,10 +58,10 @@ const cohortBucketLabels = new Map<
   ['month_4_plus', 'В 4+ месяц'],
 ])
 
-function toUtcRangeBoundary(date: string, boundary: 'start' | 'end') {
+function toMoscowRangeBoundary(date: string, boundary: 'start' | 'end') {
   return boundary === 'start'
-    ? `${date}T00:00:00.000Z`
-    : `${date}T23:59:59.999Z`
+    ? `${date}T00:00:00.000${MOSCOW_TIMEZONE_OFFSET}`
+    : `${date}T23:59:59.999${MOSCOW_TIMEZONE_OFFSET}`
 }
 
 function formatSignedValue(value: number, suffix = '') {
@@ -558,13 +560,13 @@ export function buildDashboardQueryFromProtoFilters(
 ): DashboardQuery {
   return {
     preset: 'custom',
-    from: toUtcRangeBoundary(filters.rangeStart, 'start'),
-    to: toUtcRangeBoundary(filters.rangeEnd, 'end'),
+    from: toMoscowRangeBoundary(filters.rangeStart, 'start'),
+    to: toMoscowRangeBoundary(filters.rangeEnd, 'end'),
     managerIds: filters.managers,
     sourceKeys: filters.sources,
     compareRanges: filters.compareRanges.map((range) => ({
-      from: toUtcRangeBoundary(range.start, 'start'),
-      to: toUtcRangeBoundary(range.end, 'end'),
+      from: toMoscowRangeBoundary(range.start, 'start'),
+      to: toMoscowRangeBoundary(range.end, 'end'),
     })),
   }
 }
@@ -959,6 +961,42 @@ export function mapCohortSceneData(input: {
   }
 }
 
+function mapStageDistribution(
+  report: TocFlowReport,
+): TocStageDistribution {
+  const distribution = report.stageDistribution
+
+  if (!distribution) {
+    return {
+      totalCreatedDeals: 0,
+      nodes: [],
+      edges: [],
+    }
+  }
+
+  return {
+    totalCreatedDeals: distribution.totalCreatedDeals,
+    nodes: distribution.nodes
+      .map((node) => ({
+        stageId: node.stageId,
+        stage: node.stageName,
+        sortOrder: node.sortOrder,
+        count: node.dealCount,
+        shareOfCreatedDeals: node.shareOfCreatedDeals,
+      }))
+      .sort((left, right) => left.sortOrder - right.sortOrder),
+    edges: distribution.edges.map((edge, index) => ({
+      id: `${edge.fromStageId ?? 'created'}-${edge.toStageId}-${index}`,
+      fromStageId: edge.fromStageId,
+      fromStage: edge.fromStageName ?? 'Создано',
+      toStageId: edge.toStageId,
+      toStage: edge.toStageName,
+      count: edge.dealCount,
+      conversionRate: edge.conversionRate,
+    })),
+  }
+}
+
 export function mapTocFlowSceneData(input: {
   report: TocFlowReport
   managerBreakdowns?: ManagerTocBreakdown[]
@@ -1099,6 +1137,7 @@ export function mapTocFlowSceneData(input: {
     compareStages,
     managerConversionRows,
     stableLeaders: buildStableLeaderRows(managerBreakdowns),
+    stageDistribution: mapStageDistribution(report),
     focus: {
       bottleneckStage: report.bottleneck?.stageName ?? '—',
       compareBottleneckStage: compare?.bottleneck?.stageName ?? '—',

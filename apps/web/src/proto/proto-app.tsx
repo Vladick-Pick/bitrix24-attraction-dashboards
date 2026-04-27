@@ -18,6 +18,15 @@ import {
 } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { apiClient } from '@/lib/api-client'
+import type {
+  LastSyncSummary,
+  MetaResponse,
+  SnapshotStats,
+  SyncChangeSummary,
+  SyncDealChangeBreakdown,
+  SyncProgressEvent,
+  SyncSummary,
+} from '@/lib/dashboard-types'
 import { cn } from '@/lib/utils'
 import {
   createDefaultFilters,
@@ -47,6 +56,73 @@ function formatDateTime(value: string) {
     return value
   }
   return date.toLocaleString('ru-RU', { hour12: false })
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat('ru-RU').format(Math.round(value))
+}
+
+function formatSyncMode(value: 'full' | 'delta' | undefined) {
+  return value === 'full' ? 'full' : 'delta'
+}
+
+function resolveDealBreakdown(
+  changes: Pick<SyncChangeSummary, 'deals'> & {
+    dealBreakdown?: Partial<SyncDealChangeBreakdown>
+  },
+) {
+  const breakdown = changes.dealBreakdown ?? {}
+  return {
+    total: breakdown.total ?? changes.deals,
+    created: breakdown.created ?? 0,
+    updated: breakdown.updated ?? changes.deals,
+    closed: breakdown.closed ?? 0,
+    reopened: breakdown.reopened ?? 0,
+    unchanged: breakdown.unchanged ?? 0,
+  }
+}
+
+function formatDealBreakdown(
+  changes: Pick<SyncChangeSummary, 'deals'> & {
+    dealBreakdown?: Partial<SyncDealChangeBreakdown>
+  },
+) {
+  const breakdown = resolveDealBreakdown(changes)
+  const parts = [
+    `новых ${formatCount(breakdown.created)}`,
+    `обновлено ${formatCount(breakdown.updated)}`,
+    `закрыто ${formatCount(breakdown.closed)}`,
+    `переоткрыто ${formatCount(breakdown.reopened)}`,
+    `без изменений ${formatCount(breakdown.unchanged)}`,
+  ]
+  return parts.join(' · ')
+}
+
+function resolveSyncHealthWarning(meta: Pick<MetaResponse, 'syncHealth'>) {
+  return (
+    meta.syncHealth?.warnings[0] ??
+    (meta.syncHealth?.blocking
+      ? meta.syncHealth.issues[0]?.message ?? 'Локальный snapshot не подтвержден sync coverage.'
+      : null)
+  )
+}
+
+function formatSyncError(error: unknown) {
+  if (error instanceof Error) {
+    if (error.message === 'SYNC_ALREADY_RUNNING') {
+      return 'Синхронизация уже идет. Дождитесь завершения текущего запуска.'
+    }
+
+    if (error.message === 'UNAUTHORIZED') {
+      return 'Нет доступа к запуску синхронизации. Проверьте API token.'
+    }
+
+    if (error.message.startsWith('SYNC_FAILED: ')) {
+      return `Не удалось синхронизировать данные: ${error.message.slice('SYNC_FAILED: '.length)}`
+    }
+  }
+
+  return 'Не удалось синхронизировать данные'
 }
 
 function formatShortDate(value: string) {
@@ -243,6 +319,12 @@ export function ProtoApp() {
     operationalError: null,
   })
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing'>('idle')
+  const [syncProgress, setSyncProgress] = useState<SyncProgressEvent | null>(null)
+  const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null)
+  const [snapshotStats, setSnapshotStats] = useState<SnapshotStats | null>(null)
+  const [lastSync, setLastSync] = useState<LastSyncSummary | null>(null)
+  const [syncWarning, setSyncWarning] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
   const [draftComment, setDraftComment] = useState<{
     id: string | null
     x: number
@@ -335,11 +417,9 @@ export function ProtoApp() {
           label: entry.label,
           meta: 'Источник',
         }))
-        const syncHealthWarning =
-          meta.syncHealth?.warnings[0] ??
-          (meta.syncHealth?.blocking
-            ? meta.syncHealth.issues[0]?.message ?? 'Локальный snapshot не подтвержден sync coverage.'
-            : null)
+        setSnapshotStats(meta.snapshotStats)
+        setLastSync(meta.lastSync)
+        setSyncWarning(resolveSyncHealthWarning(meta))
 
         const query = buildDashboardQueryFromProtoFilters(appliedFilters)
         const [
@@ -462,7 +542,7 @@ export function ProtoApp() {
           }),
           tocFlow: mapTocFlowSceneData({ report: toc, managerBreakdowns: tocManagerBreakdowns }),
           operationalStatus: 'ready',
-          operationalError: syncHealthWarning,
+          operationalError: null,
         })
       } catch (error) {
         if (cancelled || runtimeRequestRef.current !== requestId) {
@@ -485,27 +565,69 @@ export function ProtoApp() {
     }
   }, [appliedFilters])
 
+  async function refreshSyncMeta() {
+    const meta = await apiClient.getMeta()
+    setSnapshotStats(meta.snapshotStats)
+    setLastSync(meta.lastSync)
+    setSyncWarning(resolveSyncHealthWarning(meta))
+  }
+
   async function handleRefreshData() {
     if (syncStatus === 'syncing') {
       return
     }
 
     setSyncStatus('syncing')
+    setSyncError(null)
+    setSyncProgress({
+      syncRunId: null,
+      phase: 'inspect_snapshot',
+      progress: 3,
+      message: 'Запускаем синхронизацию',
+    })
     setRuntimeData((current) => ({
       ...current,
       operationalError: null,
     }))
 
     try {
-      await apiClient.triggerSync()
+      const summary = await apiClient.triggerSync((event) => {
+        setSyncProgress(event)
+        if (event.snapshotBefore) {
+          setSnapshotStats(event.snapshotBefore)
+        }
+      })
+      setSyncSummary(summary)
+      setSnapshotStats(summary.snapshotAfter)
+      setLastSync({
+        finishedAt: summary.finishedAt,
+        leadsSynced: summary.leadsSynced,
+        dealsSynced: summary.dealsSynced,
+        mode: summary.mode,
+        dealBreakdown: resolveDealBreakdown(summary.changes),
+      })
+      setSyncProgress({
+        syncRunId: summary.syncRunId,
+        phase: 'complete',
+        progress: 100,
+        message: 'Синхронизация завершена',
+        snapshotBefore: summary.snapshotBefore,
+        snapshotAfter: summary.snapshotAfter,
+        changes: summary.changes,
+        mode: summary.mode,
+        modifiedAfter: summary.modifiedAfter,
+        finishedAt: summary.finishedAt,
+        diagnostics: summary.diagnostics,
+      })
       setAppliedFilters((current) => cloneFilters(current))
     } catch (error) {
+      setSyncError(formatSyncError(error))
       setRuntimeData((current) => ({
         ...current,
-        operationalError:
-          error instanceof Error ? error.message : 'Не удалось синхронизировать данные',
+        operationalError: null,
       }))
     } finally {
+      await refreshSyncMeta().catch(() => undefined)
       setSyncStatus('idle')
     }
   }
@@ -683,6 +805,78 @@ export function ProtoApp() {
             >
               {commentMode ? 'Выйти из comment mode' : 'Comment mode'}
             </button>
+          </div>
+
+          <div className="sync-strip mt-3" aria-live="polite">
+            <div className="sync-strip-grid">
+              <div>
+                <div className="sync-strip-label">Snapshot</div>
+                <div className="sync-strip-value">
+                  {snapshotStats
+                    ? `${formatCount(snapshotStats.deals)} сделок`
+                    : 'Нет данных'}
+                </div>
+                {snapshotStats ? (
+                  <div className="sync-strip-meta">
+                    {formatCount(snapshotStats.activities)} активностей ·{' '}
+                    {formatCount(snapshotStats.calls)} звонков ·{' '}
+                    {formatCount(snapshotStats.stageHistory)} стадий
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <div className="sync-strip-label">Последний sync</div>
+                <div className="sync-strip-value">
+                  {lastSync ? formatDateTime(lastSync.finishedAt) : 'Еще не было'}
+                </div>
+                <div className="sync-strip-meta">
+                  {lastSync
+                    ? `${formatSyncMode(lastSync.mode)} · ${formatDealBreakdown({
+                        deals: lastSync.dealsSynced,
+                        dealBreakdown: lastSync.dealBreakdown,
+                      })}`
+                    : 'Локальный snapshot ожидает первого успешного запуска'}
+                </div>
+              </div>
+              <div>
+                <div className="sync-strip-label">Текущий запуск</div>
+                <div className="sync-strip-value">
+                  {syncProgress?.message ??
+                    (syncSummary
+                      ? `${formatCount(syncSummary.changes.deals)} строк сделок из Bitrix за sync`
+                      : 'Готов к запуску')}
+                </div>
+                <div className="sync-strip-meta">
+                  {syncSummary
+                    ? `${formatDealBreakdown(syncSummary.changes)} · ${formatCount(
+                        syncSummary.changes.activities,
+                      )} активностей · ${formatCount(
+                        syncSummary.changes.calls,
+                      )} звонков`
+                    : 'Фазы: справочники, сделки, активности, звонки, SQLite'}
+                </div>
+              </div>
+            </div>
+            <div
+              className="sync-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={syncProgress?.progress ?? 0}
+            >
+              <div
+                className="sync-progress-fill"
+                style={{ width: `${syncProgress?.progress ?? 0}%` }}
+              />
+            </div>
+            {syncWarning ? (
+              <div className="sync-notice sync-notice-warning">{syncWarning}</div>
+            ) : null}
+            {syncError ? (
+              <div className="sync-notice sync-notice-error" role="alert">
+                {syncError}
+              </div>
+            ) : null}
           </div>
         </header>
 

@@ -267,6 +267,80 @@ describe("createReportingService", () => {
     );
   });
 
+  it("does not warn when manager action outcome coverage is confirmed without legacy bootstrap flags", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 10000,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          tariffValue: null,
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-04-01T10:00:00.000Z",
+          dateModify: "2026-04-01T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Preparation",
+          semanticId: "P",
+          sortOrder: 10
+        }
+      ],
+      getWonStageIds: async () => ["C10:WON"],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllCalls: async () => [],
+      getManagerDirectory: async () => [{ id: "78", name: "Андрей Егоров" }],
+      upsertManagerDirectory: async () => 1,
+      getLastSyncSummary: async () => null,
+      setWonStageIds: async () => undefined,
+      hasSyncCoverage: async () => true,
+      getDealMeetingDateFieldBootstrappedAt: async () => null,
+      getDealIdsByCategoryIds: async () => ["1"],
+      getCallActivityIdsMissingCallStats: async () => []
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      meetingDateFieldName: "UF_CRM_MEETING_DATE",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T12:00:00.000Z")
+    });
+
+    const report = await service.getManagerActionOutcomeReport({});
+
+    expect(report.warnings).not.toContain(
+      "Данные по делам/звонкам неполные: требуется историческая синхронизация за выбранный период."
+    );
+  });
+
   it("exposes blocking sync health from meta and recovers stale running sync runs", async () => {
     let recoveredBefore: string | null = null;
     const repository = {
@@ -313,6 +387,49 @@ describe("createReportingService", () => {
         expect.objectContaining({ code: "STALE_RUNNING_SYNC", severity: "blocking" }),
         expect.objectContaining({ code: "STALE_SUCCESSFUL_SYNC", severity: "blocking" }),
         expect.objectContaining({ code: "MISSING_COVERAGE", severity: "blocking" })
+      ])
+    );
+  });
+
+  it("does not require historical coverage to be rewritten by every delta sync", async () => {
+    const requiredSyncedAtValues: Array<string | null | undefined> = [];
+    const repository = {
+      getAllDeals: async () => [],
+      getStageCatalog: async () => [],
+      getWonStageIds: async () => ["C10:WON"],
+      getManagerDirectory: async () => [],
+      upsertManagerDirectory: async () => 0,
+      getLastSyncSummary: async () => ({
+        finishedAt: "2026-04-26T09:00:00.000Z",
+        leadsSynced: 0,
+        dealsSynced: 2,
+        mode: "delta" as const
+      }),
+      recoverStaleSyncRuns: async () => 0,
+      hasSyncCoverage: async (input: { requiredSyncedAt?: string | null }) => {
+        requiredSyncedAtValues.push(input.requiredSyncedAt);
+        return true;
+      }
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      bootstrapLookbackDays: 365,
+      now: () => new Date("2026-04-26T12:00:00.000Z")
+    });
+
+    const meta = await service.getMeta();
+
+    expect(requiredSyncedAtValues.every((value) => value == null)).toBe(true);
+    expect(meta.syncHealth.issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "MISSING_COVERAGE" })
       ])
     );
   });
@@ -446,6 +563,7 @@ describe("createReportingService", () => {
       "11234",
       "7824",
       "6994",
+      "7814",
       "72",
       "2236",
       "2764"
@@ -455,7 +573,7 @@ describe("createReportingService", () => {
     );
     expect(dashboard.salesSummary.newDealsCount).toBe(1);
     expect(calls.managerRows.map((row) => row.managerId)).not.toContain("999");
-    expect(calls.totalCalls).toBe(1);
+    expect(calls.totalCalls).toBe(0);
   });
 
   it("applies shared manager and source filters and exposes filter catalogs", async () => {
@@ -576,6 +694,7 @@ describe("createReportingService", () => {
       "11234",
       "7824",
       "6994",
+      "7814",
       "72",
       "2236",
       "2764"
@@ -943,7 +1062,7 @@ describe("createReportingService", () => {
     expect(report.comparisons).toBeUndefined();
   });
 
-  it("keeps manager call totals from broad call snapshots even when calls are not linked to funnel activities", async () => {
+  it("drops broad call snapshots when calls are not linked to scoped funnel deals or activities", async () => {
     const repository = {
       getAllDeals: async () => [
         {
@@ -1044,9 +1163,9 @@ describe("createReportingService", () => {
         managerId: "78",
         managerName: "Егоров Андрей",
         dealCount: 0,
-        totalCalls: 1,
-        outgoingCalls: 1,
-        connectedCallsOverThirtySeconds: 1,
+        totalCalls: 0,
+        outgoingCalls: 0,
+        connectedCallsOverThirtySeconds: 0,
         stageBreakdown: []
       })
     ]);

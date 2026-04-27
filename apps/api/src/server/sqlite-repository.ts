@@ -6,11 +6,14 @@ import type {
   ActivityDeadlineChangeSnapshot,
   ActivitySnapshot,
   CallSnapshot,
+  DealMeetingDateChangeSnapshot,
   DealSnapshot,
   LeadSnapshot,
   ManagerDirectoryEntry,
+  SnapshotStats,
   StageCatalogEntry,
-  StageHistorySnapshot
+  StageHistorySnapshot,
+  SyncDealChangeBreakdown
 } from "@bitrix24-reporting/contracts";
 
 export interface LastSyncSummary {
@@ -18,6 +21,7 @@ export interface LastSyncSummary {
   leadsSynced: number;
   dealsSynced: number;
   mode: "full" | "delta";
+  dealBreakdown: SyncDealChangeBreakdown;
 }
 
 export interface SyncCursorInput {
@@ -42,11 +46,30 @@ export interface SyncCoverageQuery {
   providerId: string | null;
   requiredFrom: string;
   requiredTo?: string | null;
+  requiredSyncedAt?: string | null;
   algorithmVersion: string;
 }
 
+export interface SnapshotStatsScope {
+  categoryIds?: string[];
+  assignedByIds?: string[];
+}
+
+export interface SuccessfulSyncScope {
+  scopeKey: string;
+  categoryIds: string[];
+  assignedByIds: string[];
+}
+
 export interface SqliteRepository {
-  getLatestSuccessCursor(categoryIds?: string[]): Promise<string | null>;
+  getLatestSuccessCursor(
+    categoryIds?: string[],
+    assignedByIds?: string[]
+  ): Promise<string | null>;
+  getLatestSuccessfulScope(
+    categoryIds?: string[],
+    assignedByIds?: string[]
+  ): Promise<SuccessfulSyncScope | null>;
   runSnapshotTransaction<T>(task: () => T): T;
   getSyncCursor(key: string): Promise<string | null>;
   setSyncCursor(input: SyncCursorInput): Promise<void>;
@@ -59,20 +82,32 @@ export interface SqliteRepository {
   getTaskActivityHistoryBootstrappedAt(): Promise<string | null>;
   getDealCustomFieldsBootstrappedAt(): Promise<string | null>;
   getDealMeetingDateFieldBootstrappedAt(): Promise<string | null>;
+  getSnapshotStats(scope?: SnapshotStatsScope): Promise<SnapshotStats>;
   getActivitySnapshotCount(): Promise<number>;
-  getDealIdsByCategoryIds(categoryIds: string[]): Promise<string[]>;
+  getDealIdsByCategoryIds(
+    categoryIds: string[],
+    assignedByIds?: string[]
+  ): Promise<string[]>;
+  getOpenDealIdsByCategoryIds(
+    categoryIds: string[],
+    assignedByIds?: string[]
+  ): Promise<string[]>;
+  getDealsByIds(dealIds: string[]): Promise<DealSnapshot[]>;
   getActivitiesByIds(activityIds: string[]): Promise<ActivitySnapshot[]>;
   getCallActivityIdsMissingActivities(
     limit?: number,
-    callStartDateFrom?: string | null
+    callStartDateFrom?: string | null,
+    ownerIds?: string[]
   ): Promise<string[]>;
   getCallActivityIdsMissingCallStats(
     limit?: number,
-    activityCreatedFrom?: string | null
+    activityCreatedFrom?: string | null,
+    ownerIds?: string[]
   ): Promise<string[]>;
   getCallActivityIdsForCallStatsRefresh(
     limit?: number,
-    activityCreatedFrom?: string | null
+    activityCreatedFrom?: string | null,
+    ownerIds?: string[]
   ): Promise<string[]>;
   replaceStageCatalog(rows: StageCatalogEntry[]): Promise<void>;
   upsertLeads(rows: LeadSnapshot[]): Promise<number>;
@@ -81,6 +116,9 @@ export interface SqliteRepository {
   upsertActivities(rows: ActivitySnapshot[]): Promise<number>;
   upsertActivityDeadlineChanges(
     rows: ActivityDeadlineChangeSnapshot[]
+  ): Promise<number>;
+  upsertDealMeetingDateChanges(
+    rows: DealMeetingDateChangeSnapshot[]
   ): Promise<number>;
   upsertCalls(rows: CallSnapshot[]): Promise<number>;
   upsertManagerDirectory(rows: ManagerDirectoryEntry[]): Promise<number>;
@@ -95,12 +133,18 @@ export interface SqliteRepository {
     startedAt: string;
     mode: "full" | "delta";
     modifiedAfter: string | null;
+    scopeKey: string;
   }): Promise<number>;
-  recoverStaleSyncRuns(input: { staleBefore: string; failedAt?: string }): Promise<number>;
+  recoverStaleSyncRuns(input: {
+    staleBefore: string;
+    failedAt?: string;
+    diagnostics?: string[];
+  }): Promise<number>;
   failSyncRun(input: {
     syncRunId: number;
     finishedAt: string;
     status: "failed";
+    diagnostics?: string[];
   }): Promise<void>;
   finishSyncRun(input: {
     syncRunId: number;
@@ -108,6 +152,8 @@ export interface SqliteRepository {
     status: "success";
     leadsSynced: number;
     dealsSynced: number;
+    dealBreakdown?: SyncDealChangeBreakdown;
+    diagnostics?: string[];
     modifiedAfter: string | null;
   }): Promise<void>;
   getAllLeads(): Promise<LeadSnapshot[]>;
@@ -115,12 +161,13 @@ export interface SqliteRepository {
   getAllStageHistory(): Promise<StageHistorySnapshot[]>;
   getAllActivities(): Promise<ActivitySnapshot[]>;
   getAllActivityDeadlineChanges(): Promise<ActivityDeadlineChangeSnapshot[]>;
+  getAllDealMeetingDateChanges(): Promise<DealMeetingDateChangeSnapshot[]>;
   getAllCalls(): Promise<CallSnapshot[]>;
   getManagerDirectory(): Promise<ManagerDirectoryEntry[]>;
   getStageCatalog(): Promise<StageCatalogEntry[]>;
   getWonStageIds(): Promise<string[]>;
   setWonStageIds(stageIds: string[]): Promise<void>;
-  getLastSyncSummary(): Promise<LastSyncSummary | null>;
+  getLastSyncSummary(scopeKey?: string): Promise<LastSyncSummary | null>;
   close(): void;
 }
 
@@ -138,19 +185,66 @@ function resolveDatabasePath(databaseUrl: string) {
   return isAbsolute(rawPath) ? rawPath : resolve(process.cwd(), rawPath);
 }
 
-function buildCategoryWhereClause(categoryIds: string[]) {
-  if (categoryIds.length === 0) {
-    return {
-      clause: "1 = 1",
-      values: [] as string[]
-    };
+function buildDealScopeWhereClause(scope: SnapshotStatsScope | undefined) {
+  const clauses: string[] = [];
+  const values: string[] = [];
+  const categoryIds = scope?.categoryIds ?? [];
+  const assignedByIds = scope?.assignedByIds ?? [];
+
+  if (categoryIds.length > 0) {
+    const placeholders = categoryIds.map(() => "?").join(", ");
+    clauses.push(`category_id IN (${placeholders})`);
+    values.push(...categoryIds);
   }
 
-  const placeholders = categoryIds.map(() => "?").join(", ");
+  if (assignedByIds.length > 0) {
+    const placeholders = assignedByIds.map(() => "?").join(", ");
+    clauses.push(`assigned_by_id IN (${placeholders})`);
+    values.push(...assignedByIds);
+  }
+
   return {
-    clause: `category_id IN (${placeholders})`,
-    values: categoryIds
+    clause: clauses.length > 0 ? clauses.join(" AND ") : "1 = 1",
+    hasScope: clauses.length > 0,
+    values
   };
+}
+
+function buildCategoryScopeKey(categoryIds: string[], assignedByIds: string[] = []) {
+  const categoryScope = `category:${[...categoryIds].sort().join(",")}`;
+
+  if (assignedByIds.length === 0) {
+    return categoryScope;
+  }
+
+  return `${categoryScope}:assigned:${[...assignedByIds].sort().join(",")}`;
+}
+
+function parseCategoryScopeKey(scopeKey: string): SuccessfulSyncScope | null {
+  const match = /^category:([^:]*)(?::assigned:(.*))?$/.exec(scopeKey);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    scopeKey,
+    categoryIds: (match[1] ?? "").split(",").filter(Boolean),
+    assignedByIds: (match[2] ?? "").split(",").filter(Boolean)
+  };
+}
+
+function sameStringSet(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const rightSet = new Set(right.map(String));
+  return left.every((value) => rightSet.has(String(value)));
+}
+
+function isSubset(values: string[], requestedValues: string[]) {
+  const requestedSet = new Set(requestedValues.map(String));
+  return values.every((value) => requestedSet.has(String(value)));
 }
 
 function chunkValues<T>(values: T[], chunkSize = 500) {
@@ -193,6 +287,40 @@ function ensureColumn(
   }
 }
 
+function buildLegacyDealBreakdown(total: number): SyncDealChangeBreakdown {
+  return {
+    total,
+    created: 0,
+    updated: total,
+    closed: 0,
+    reopened: 0,
+    unchanged: 0
+  };
+}
+
+function parseDealBreakdown(
+  value: string | null | undefined,
+  fallbackTotal: number
+): SyncDealChangeBreakdown {
+  if (!value) {
+    return buildLegacyDealBreakdown(fallbackTotal);
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<SyncDealChangeBreakdown>;
+    return {
+      total: Number(parsed.total ?? fallbackTotal),
+      created: Number(parsed.created ?? 0),
+      updated: Number(parsed.updated ?? fallbackTotal),
+      closed: Number(parsed.closed ?? 0),
+      reopened: Number(parsed.reopened ?? 0),
+      unchanged: Number(parsed.unchanged ?? 0)
+    };
+  } catch {
+    return buildLegacyDealBreakdown(fallbackTotal);
+  }
+}
+
 export function createSqliteRepository(
   input: CreateSqliteRepositoryInput
 ): SqliteRepository {
@@ -213,8 +341,11 @@ export function createSqliteRepository(
       status TEXT NOT NULL,
       mode TEXT NOT NULL,
       modified_after TEXT,
+      scope_key TEXT,
       leads_synced INTEGER DEFAULT 0,
-      deals_synced INTEGER DEFAULT 0
+      deals_synced INTEGER DEFAULT 0,
+      deal_breakdown_json TEXT,
+      diagnostics_json TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sync_state (
@@ -326,6 +457,15 @@ export function createSqliteRepository(
       changed_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS deal_meeting_date_changes (
+      id TEXT PRIMARY KEY,
+      deal_id TEXT NOT NULL,
+      assigned_by_id TEXT,
+      previous_meeting_date TEXT,
+      next_meeting_date TEXT,
+      changed_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS call_snapshots (
       id TEXT PRIMARY KEY,
       crm_activity_id TEXT,
@@ -356,6 +496,10 @@ export function createSqliteRepository(
       ON activity_snapshots (owner_id);
     CREATE INDEX IF NOT EXISTS idx_activity_provider_created
       ON activity_snapshots (provider_id, created_time);
+    CREATE INDEX IF NOT EXISTS idx_deal_meeting_date_changes_deal_id
+      ON deal_meeting_date_changes (deal_id);
+    CREATE INDEX IF NOT EXISTS idx_deal_meeting_date_changes_changed_at
+      ON deal_meeting_date_changes (changed_at);
     CREATE INDEX IF NOT EXISTS idx_call_crm_activity_id
       ON call_snapshots (crm_activity_id);
   `);
@@ -371,6 +515,9 @@ export function createSqliteRepository(
   ensureColumn(database, "deal_snapshots", "refusal_reason_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_detail", "TEXT");
   ensureColumn(database, "stage_catalog", "sort_order", "INTEGER");
+  ensureColumn(database, "sync_runs", "scope_key", "TEXT");
+  ensureColumn(database, "sync_runs", "deal_breakdown_json", "TEXT");
+  ensureColumn(database, "sync_runs", "diagnostics_json", "TEXT");
 
   const existingWonStages = database
     .prepare("SELECT COUNT(*) AS count FROM won_stage_config")
@@ -553,6 +700,30 @@ export function createSqliteRepository(
       changed_at = excluded.changed_at
   `);
 
+  const upsertDealMeetingDateChangeStatement = database.prepare(`
+    INSERT INTO deal_meeting_date_changes (
+      id,
+      deal_id,
+      assigned_by_id,
+      previous_meeting_date,
+      next_meeting_date,
+      changed_at
+    ) VALUES (
+      @id,
+      @dealId,
+      @assignedById,
+      @previousMeetingDate,
+      @nextMeetingDate,
+      @changedAt
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      deal_id = excluded.deal_id,
+      assigned_by_id = excluded.assigned_by_id,
+      previous_meeting_date = excluded.previous_meeting_date,
+      next_meeting_date = excluded.next_meeting_date,
+      changed_at = excluded.changed_at
+  `);
+
   const upsertCallStatement = database.prepare(`
     INSERT INTO call_snapshots (
       id,
@@ -647,8 +818,24 @@ export function createSqliteRepository(
       return snapshotTransaction(task) as T;
     },
 
-    async getLatestSuccessCursor(categoryIds = []) {
-      const where = buildCategoryWhereClause(categoryIds);
+    async getLatestSuccessCursor(categoryIds = [], assignedByIds = []) {
+      if (categoryIds.length > 0 || assignedByIds.length > 0) {
+        const scopeKey = buildCategoryScopeKey(categoryIds, assignedByIds);
+        const syncRun = database
+          .prepare(
+            `SELECT 1 AS value
+            FROM sync_runs
+            WHERE status = 'success' AND scope_key = ?
+            LIMIT 1`
+          )
+          .get(scopeKey) as { value: number } | undefined;
+
+        if (!syncRun) {
+          return null;
+        }
+      }
+
+      const where = buildDealScopeWhereClause({ categoryIds, assignedByIds });
       const row = database
         .prepare(
           `SELECT MAX(date_modify) AS value FROM deal_snapshots WHERE ${where.clause}`
@@ -656,6 +843,70 @@ export function createSqliteRepository(
         .get(...where.values) as { value: string | null };
 
       return row.value ?? null;
+    },
+
+    async getLatestSuccessfulScope(categoryIds = [], assignedByIds = []) {
+      const requestedCategoryIds = categoryIds.map(String);
+      const requestedAssignedByIds = assignedByIds.map(String);
+      if (requestedCategoryIds.length === 0) {
+        return null;
+      }
+
+      const rows = database
+        .prepare(
+          `SELECT id, scope_key AS scopeKey
+          FROM sync_runs
+          WHERE status = 'success' AND scope_key IS NOT NULL
+          ORDER BY id DESC`
+        )
+        .all() as Array<{ id: number; scopeKey: string | null }>;
+      const candidates = rows.flatMap((row) => {
+        if (!row.scopeKey) {
+          return [];
+        }
+
+        const parsed = parseCategoryScopeKey(row.scopeKey);
+        if (!parsed) {
+          return [];
+        }
+
+        if (!sameStringSet(parsed.categoryIds, requestedCategoryIds)) {
+          return [];
+        }
+
+        if (requestedAssignedByIds.length > 0) {
+          if (parsed.assignedByIds.length === 0) {
+            return [];
+          }
+
+          if (!isSubset(parsed.assignedByIds, requestedAssignedByIds)) {
+            return [];
+          }
+        } else if (parsed.assignedByIds.length > 0) {
+          return [];
+        }
+
+        return [{ ...parsed, id: row.id }];
+      });
+
+      candidates.sort((left, right) => {
+        if (right.assignedByIds.length !== left.assignedByIds.length) {
+          return right.assignedByIds.length - left.assignedByIds.length;
+        }
+
+        return right.id - left.id;
+      });
+
+      const candidate = candidates[0];
+      if (!candidate) {
+        return null;
+      }
+
+      return {
+        scopeKey: candidate.scopeKey,
+        categoryIds: candidate.categoryIds,
+        assignedByIds: candidate.assignedByIds
+      };
     },
 
     async getSyncCursor(key) {
@@ -693,9 +944,17 @@ export function createSqliteRepository(
             AND ${providerClause}
             AND algorithm_version = ?
             AND covered_from <= ?
-            AND (? IS NULL OR covered_to IS NULL OR covered_to >= ?)`
+            AND (? IS NULL OR covered_to IS NULL OR covered_to >= ?)
+            AND (? IS NULL OR synced_at >= ?)`
         )
-        .get(...values, inputRow.requiredFrom, requiredTo, requiredTo) as {
+        .get(
+          ...values,
+          inputRow.requiredFrom,
+          requiredTo,
+          requiredTo,
+          inputRow.requiredSyncedAt ?? null,
+          inputRow.requiredSyncedAt ?? null
+        ) as {
         count: number;
       };
 
@@ -777,6 +1036,69 @@ export function createSqliteRepository(
       return row?.value ?? null;
     },
 
+    async getSnapshotStats(scope) {
+      const where = buildDealScopeWhereClause(scope);
+
+      if (where.hasScope) {
+        const scopedDealSql = `SELECT id FROM deal_snapshots WHERE ${where.clause}`;
+        const deals = database
+          .prepare(`SELECT COUNT(*) AS count FROM deal_snapshots WHERE ${where.clause}`)
+          .get(...where.values) as { count: number };
+        const activities = database
+          .prepare(
+            `SELECT COUNT(*) AS count FROM activity_snapshots WHERE owner_id IN (${scopedDealSql})`
+          )
+          .get(...where.values) as { count: number };
+        const calls = database
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM call_snapshots
+             WHERE (
+               crm_entity_type = 'DEAL'
+               AND crm_entity_id IN (${scopedDealSql})
+             )
+             OR crm_activity_id IN (
+               SELECT id
+               FROM activity_snapshots
+               WHERE owner_id IN (${scopedDealSql})
+             )`
+          )
+          .get(...where.values, ...where.values) as { count: number };
+        const stageHistory = database
+          .prepare(
+            `SELECT COUNT(*) AS count FROM stage_history_snapshots WHERE owner_id IN (${scopedDealSql})`
+          )
+          .get(...where.values) as { count: number };
+
+        return {
+          deals: deals.count,
+          activities: activities.count,
+          calls: calls.count,
+          stageHistory: stageHistory.count
+        };
+      }
+
+      const deals = database
+        .prepare("SELECT COUNT(*) AS count FROM deal_snapshots")
+        .get() as { count: number };
+      const activities = database
+        .prepare("SELECT COUNT(*) AS count FROM activity_snapshots")
+        .get() as { count: number };
+      const calls = database
+        .prepare("SELECT COUNT(*) AS count FROM call_snapshots")
+        .get() as { count: number };
+      const stageHistory = database
+        .prepare("SELECT COUNT(*) AS count FROM stage_history_snapshots")
+        .get() as { count: number };
+
+      return {
+        deals: deals.count,
+        activities: activities.count,
+        calls: calls.count,
+        stageHistory: stageHistory.count
+      };
+    },
+
     async getActivitySnapshotCount() {
       const row = database
         .prepare("SELECT COUNT(*) AS count FROM activity_snapshots")
@@ -785,8 +1107,11 @@ export function createSqliteRepository(
       return row.count;
     },
 
-    async getDealIdsByCategoryIds(categoryIds) {
-      const where = buildCategoryWhereClause(categoryIds);
+    async getDealIdsByCategoryIds(categoryIds, assignedByIds) {
+      const where = buildDealScopeWhereClause({
+        categoryIds,
+        ...(assignedByIds ? { assignedByIds } : {})
+      });
       const rows = database
         .prepare(
           `SELECT id FROM deal_snapshots WHERE ${where.clause} ORDER BY id ASC`
@@ -794,6 +1119,66 @@ export function createSqliteRepository(
         .all(...where.values) as Array<{ id: string }>;
 
       return rows.map((row) => row.id);
+    },
+
+    async getOpenDealIdsByCategoryIds(categoryIds, assignedByIds) {
+      const where = buildDealScopeWhereClause({
+        categoryIds,
+        ...(assignedByIds ? { assignedByIds } : {})
+      });
+      const rows = database
+        .prepare(
+          `SELECT id
+          FROM deal_snapshots
+          WHERE ${where.clause} AND stage_semantic_id = 'P'
+          ORDER BY id ASC`
+        )
+        .all(...where.values) as Array<{ id: string }>;
+
+      return rows.map((row) => row.id);
+    },
+
+    async getDealsByIds(dealIds) {
+      if (dealIds.length === 0) {
+        return [];
+      }
+
+      return chunkValues(Array.from(new Set(dealIds))).flatMap((chunk) => {
+        const placeholders = chunk.map(() => "?").join(", ");
+        return database
+          .prepare(
+            `SELECT
+              id,
+              title,
+              lead_id AS leadId,
+              category_id AS categoryId,
+              stage_id AS stageId,
+              stage_semantic_id AS stageSemanticId,
+              opportunity,
+              assigned_by_id AS assignedById,
+              source_id AS sourceId,
+              quality_value AS qualityValue,
+              business_club_value AS businessClubValue,
+              target_group_value AS targetGroupValue,
+              meeting_type_value AS meetingTypeValue,
+              meeting_date_value AS meetingDateValue,
+              tariff_value AS tariffValue,
+              refusal_reason_value AS refusalReasonValue,
+              refusal_reason_detail AS refusalReasonDetail,
+              date_create AS dateCreate,
+              date_modify AS dateModify,
+              date_closed AS dateClosed,
+              utm_source AS utmSource,
+              utm_medium AS utmMedium,
+              utm_campaign AS utmCampaign,
+              utm_content AS utmContent,
+              utm_term AS utmTerm
+            FROM deal_snapshots
+            WHERE id IN (${placeholders})
+            ORDER BY id ASC`
+          )
+          .all(...chunk) as DealSnapshot[];
+      });
     },
 
     async getActivitiesByIds(activityIds) {
@@ -831,7 +1216,11 @@ export function createSqliteRepository(
       return mapActivityRows(rows);
     },
 
-    async getCallActivityIdsMissingActivities(limit = 20_000, callStartDateFrom = null) {
+    async getCallActivityIdsMissingActivities(
+      limit = 20_000,
+      callStartDateFrom = null,
+      ownerIds = []
+    ) {
       const safeLimit = Number.isFinite(limit)
         ? Math.max(0, Math.trunc(limit))
         : 20_000;
@@ -848,21 +1237,45 @@ export function createSqliteRepository(
         values.push(callStartDateFrom);
       }
 
-      const rows = database
-        .prepare(
-          `SELECT DISTINCT c.crm_activity_id AS activityId
-          FROM call_snapshots c
-          LEFT JOIN activity_snapshots a ON a.id = c.crm_activity_id
-          WHERE ${filters.join(" AND ")}
-          ORDER BY c.crm_activity_id ASC
-          LIMIT ?`
-        )
-        .all(...values, safeLimit) as Array<{ activityId: string }>;
+      const queryRows = (scopedOwnerIds: string[]) => {
+        const ownerFilters = [...filters];
+        const ownerValues: Array<string | number> = [...values];
 
-      return rows.map((row) => row.activityId);
+        if (scopedOwnerIds.length > 0) {
+          const placeholders = scopedOwnerIds.map(() => "?").join(", ");
+          ownerFilters.push("c.crm_entity_type = 'DEAL'");
+          ownerFilters.push(`c.crm_entity_id IN (${placeholders})`);
+          ownerValues.push(...scopedOwnerIds);
+        }
+
+        return database
+          .prepare(
+            `SELECT DISTINCT c.crm_activity_id AS activityId
+            FROM call_snapshots c
+            LEFT JOIN activity_snapshots a ON a.id = c.crm_activity_id
+            WHERE ${ownerFilters.join(" AND ")}
+            ORDER BY c.crm_activity_id ASC
+            LIMIT ?`
+          )
+          .all(...ownerValues, safeLimit) as Array<{ activityId: string }>;
+      };
+
+      const rows =
+        ownerIds.length > 0
+          ? chunkValues(ownerIds).flatMap((chunk) => queryRows(chunk))
+          : queryRows([]);
+
+      return Array.from(new Set(rows.map((row) => row.activityId))).slice(
+        0,
+        safeLimit
+      );
     },
 
-    async getCallActivityIdsMissingCallStats(limit = 20_000, activityCreatedFrom = null) {
+    async getCallActivityIdsMissingCallStats(
+      limit = 20_000,
+      activityCreatedFrom = null,
+      ownerIds = []
+    ) {
       const safeLimit = Number.isFinite(limit)
         ? Math.max(0, Math.trunc(limit))
         : 20_000;
@@ -878,23 +1291,43 @@ export function createSqliteRepository(
         values.push(activityCreatedFrom);
       }
 
-      const rows = database
-        .prepare(
-          `SELECT DISTINCT a.id AS activityId
-          FROM activity_snapshots a
-          LEFT JOIN call_snapshots c ON c.crm_activity_id = a.id
-          WHERE ${filters.join(" AND ")}
-          ORDER BY a.id ASC
-          LIMIT ?`
-        )
-        .all(...values, safeLimit) as Array<{ activityId: string }>;
+      const queryRows = (scopedOwnerIds: string[]) => {
+        const ownerFilters = [...filters];
+        const ownerValues: Array<string | number> = [...values];
 
-      return rows.map((row) => row.activityId);
+        if (scopedOwnerIds.length > 0) {
+          const placeholders = scopedOwnerIds.map(() => "?").join(", ");
+          ownerFilters.push(`a.owner_id IN (${placeholders})`);
+          ownerValues.push(...scopedOwnerIds);
+        }
+
+        return database
+          .prepare(
+            `SELECT DISTINCT a.id AS activityId
+            FROM activity_snapshots a
+            LEFT JOIN call_snapshots c ON c.crm_activity_id = a.id
+            WHERE ${ownerFilters.join(" AND ")}
+            ORDER BY a.id ASC
+            LIMIT ?`
+          )
+          .all(...ownerValues, safeLimit) as Array<{ activityId: string }>;
+      };
+
+      const rows =
+        ownerIds.length > 0
+          ? chunkValues(ownerIds).flatMap((chunk) => queryRows(chunk))
+          : queryRows([]);
+
+      return Array.from(new Set(rows.map((row) => row.activityId))).slice(
+        0,
+        safeLimit
+      );
     },
 
     async getCallActivityIdsForCallStatsRefresh(
       limit = 20_000,
-      activityCreatedFrom = null
+      activityCreatedFrom = null,
+      ownerIds = []
     ) {
       const safeLimit = Number.isFinite(limit)
         ? Math.max(0, Math.trunc(limit))
@@ -910,17 +1343,36 @@ export function createSqliteRepository(
         values.push(activityCreatedFrom);
       }
 
-      const rows = database
-        .prepare(
-          `SELECT DISTINCT id AS activityId
-          FROM activity_snapshots
-          WHERE ${filters.join(" AND ")}
-          ORDER BY id ASC
-          LIMIT ?`
-        )
-        .all(...values, safeLimit) as Array<{ activityId: string }>;
+      const queryRows = (scopedOwnerIds: string[]) => {
+        const ownerFilters = [...filters];
+        const ownerValues: Array<string | number> = [...values];
 
-      return rows.map((row) => row.activityId);
+        if (scopedOwnerIds.length > 0) {
+          const placeholders = scopedOwnerIds.map(() => "?").join(", ");
+          ownerFilters.push(`owner_id IN (${placeholders})`);
+          ownerValues.push(...scopedOwnerIds);
+        }
+
+        return database
+          .prepare(
+            `SELECT DISTINCT id AS activityId
+            FROM activity_snapshots
+            WHERE ${ownerFilters.join(" AND ")}
+            ORDER BY id ASC
+            LIMIT ?`
+          )
+          .all(...ownerValues, safeLimit) as Array<{ activityId: string }>;
+      };
+
+      const rows =
+        ownerIds.length > 0
+          ? chunkValues(ownerIds).flatMap((chunk) => queryRows(chunk))
+          : queryRows([]);
+
+      return Array.from(new Set(rows.map((row) => row.activityId))).slice(
+        0,
+        safeLimit
+      );
     },
 
     replaceStageCatalog(rows) {
@@ -997,6 +1449,18 @@ export function createSqliteRepository(
         (nextRows: ActivityDeadlineChangeSnapshot[]) => {
           for (const row of nextRows) {
             upsertDeadlineChangeStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    upsertDealMeetingDateChanges(rows) {
+      const transaction = database.transaction(
+        (nextRows: DealMeetingDateChangeSnapshot[]) => {
+          for (const row of nextRows) {
+            upsertDealMeetingDateChangeStatement.run(row);
           }
         }
       );
@@ -1083,12 +1547,13 @@ export function createSqliteRepository(
       const startedAt = inputRow?.startedAt ?? new Date().toISOString();
       const mode = inputRow?.mode ?? "full";
       const modifiedAfter = inputRow?.modifiedAfter ?? null;
+      const scopeKey = inputRow?.scopeKey ?? null;
       const result = database
         .prepare(`
-          INSERT INTO sync_runs (started_at, status, mode, modified_after)
-          VALUES (?, 'running', ?, ?)
+          INSERT INTO sync_runs (started_at, status, mode, modified_after, scope_key)
+          VALUES (?, 'running', ?, ?, ?)
         `)
-        .run(startedAt, mode, modifiedAfter);
+        .run(startedAt, mode, modifiedAfter, scopeKey);
       return Number(result.lastInsertRowid);
     },
 
@@ -1097,10 +1562,16 @@ export function createSqliteRepository(
       const result = database
         .prepare(`
           UPDATE sync_runs
-          SET finished_at = ?, status = 'failed'
+          SET finished_at = ?,
+              status = 'failed',
+              diagnostics_json = ?
           WHERE status = 'running' AND started_at < ?
         `)
-        .run(failedAt, inputRow.staleBefore);
+        .run(
+          failedAt,
+          JSON.stringify(inputRow.diagnostics ?? ["SYNC_FAILED", "error=STALE_RUNNING_SYNC"]),
+          inputRow.staleBefore
+        );
       return result.changes;
     },
 
@@ -1108,7 +1579,13 @@ export function createSqliteRepository(
       database
         .prepare(`
           UPDATE sync_runs
-          SET finished_at = ?, status = ?, leads_synced = ?, deals_synced = ?, modified_after = ?
+          SET finished_at = ?,
+              status = ?,
+              leads_synced = ?,
+              deals_synced = ?,
+              deal_breakdown_json = ?,
+              diagnostics_json = ?,
+              modified_after = ?
           WHERE id = ?
         `)
         .run(
@@ -1116,6 +1593,11 @@ export function createSqliteRepository(
           inputRow.status,
           inputRow.leadsSynced,
           inputRow.dealsSynced,
+          JSON.stringify(
+            inputRow.dealBreakdown ??
+              buildLegacyDealBreakdown(inputRow.dealsSynced)
+          ),
+          JSON.stringify(inputRow.diagnostics ?? []),
           inputRow.modifiedAfter,
           inputRow.syncRunId
         );
@@ -1126,10 +1608,15 @@ export function createSqliteRepository(
       database
         .prepare(`
           UPDATE sync_runs
-          SET finished_at = ?, status = ?
+          SET finished_at = ?, status = ?, diagnostics_json = ?
           WHERE id = ?
         `)
-        .run(inputRow.finishedAt, inputRow.status, inputRow.syncRunId);
+        .run(
+          inputRow.finishedAt,
+          inputRow.status,
+          JSON.stringify(inputRow.diagnostics ?? []),
+          inputRow.syncRunId
+        );
       return Promise.resolve();
     },
 
@@ -1251,6 +1738,22 @@ export function createSqliteRepository(
         .all() as ActivityDeadlineChangeSnapshot[];
     },
 
+    async getAllDealMeetingDateChanges() {
+      return database
+        .prepare(
+          `SELECT
+            id,
+            deal_id AS dealId,
+            assigned_by_id AS assignedById,
+            previous_meeting_date AS previousMeetingDate,
+            next_meeting_date AS nextMeetingDate,
+            changed_at AS changedAt
+          FROM deal_meeting_date_changes
+          ORDER BY changed_at ASC, id ASC`
+        )
+        .all() as DealMeetingDateChangeSnapshot[];
+    },
+
     async getAllCalls() {
       return database
         .prepare(
@@ -1321,18 +1824,41 @@ export function createSqliteRepository(
       transaction(stageIds);
     },
 
-    async getLastSyncSummary() {
+    async getLastSyncSummary(scopeKey) {
+      const scopeClause = scopeKey ? "AND scope_key = ?" : "";
+      const values = scopeKey ? [scopeKey] : [];
       const row = database
         .prepare(`
-          SELECT finished_at AS finishedAt, leads_synced AS leadsSynced, deals_synced AS dealsSynced, mode
+          SELECT
+            finished_at AS finishedAt,
+            leads_synced AS leadsSynced,
+            deals_synced AS dealsSynced,
+            deal_breakdown_json AS dealBreakdownJson,
+            mode
           FROM sync_runs
           WHERE status = 'success' AND finished_at IS NOT NULL
+          ${scopeClause}
           ORDER BY finished_at DESC
           LIMIT 1
         `)
-        .get() as LastSyncSummary | undefined;
+        .get(...values) as
+        | (Omit<LastSyncSummary, "dealBreakdown"> & {
+            dealBreakdownJson?: string | null;
+          })
+        | undefined;
 
-      return row ?? null;
+      return row
+        ? {
+            finishedAt: row.finishedAt,
+            leadsSynced: row.leadsSynced,
+            dealsSynced: row.dealsSynced,
+            mode: row.mode,
+            dealBreakdown: parseDealBreakdown(
+              row.dealBreakdownJson,
+              row.dealsSynced
+            )
+          }
+        : null;
     },
 
     close() {

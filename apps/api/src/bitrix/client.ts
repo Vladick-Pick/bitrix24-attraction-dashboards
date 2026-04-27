@@ -140,16 +140,23 @@ function isRateLimitMessage(message: string) {
   return /too many requests|query_limit_exceeded/i.test(message);
 }
 
+function getErrorCauseCode(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "";
+  }
+
+  const cause = (error as Error & { cause?: unknown }).cause;
+  return cause && typeof cause === "object" && "code" in cause
+    ? String((cause as { code?: unknown }).code)
+    : "";
+}
+
 function isTransientNetworkError(error: unknown) {
   if (!(error instanceof Error)) {
     return false;
   }
 
-  const cause = (error as Error & { cause?: unknown }).cause;
-  const causeCode =
-    cause && typeof cause === "object" && "code" in cause
-      ? String((cause as { code?: unknown }).code)
-      : "";
+  const causeCode = getErrorCauseCode(error);
 
   return (
     error.name === "AbortError" ||
@@ -158,6 +165,27 @@ function isTransientNetworkError(error: unknown) {
     causeCode === "UND_ERR_HEADERS_TIMEOUT" ||
     causeCode === "ECONNRESET"
   );
+}
+
+function describeBitrixError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "unknown";
+  }
+
+  const causeCode = getErrorCauseCode(error);
+  return causeCode ? `${error.name}:${causeCode}` : error.name;
+}
+
+function logBitrixRequest(
+  level: "info" | "warn" | "error",
+  event: string,
+  details: Record<string, unknown>
+) {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
+  console[level](`bitrix.${event}`, JSON.stringify(details));
 }
 
 function toNumber(value: string | number | null | undefined) {
@@ -207,6 +235,12 @@ export class BitrixClient {
   private readonly baseUrl: string | null;
   private lastRequestAt = 0;
   private requestQueue: Promise<void> = Promise.resolve();
+  private dealFieldsPromise: Promise<Record<string, DealFieldMetadata>> | null =
+    null;
+  private readonly dynamicItemTitleMaps = new Map<
+    number,
+    Promise<Record<string, string>>
+  >();
 
   constructor(private readonly config: BitrixClientConfig) {
     this.baseUrl =
@@ -262,15 +296,31 @@ export class BitrixClient {
             payload = (await response.json()) as BitrixResponse<T>;
           } catch {
             if (attempt < maxAttempts - 1) {
-              await delay(
-                Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1)
-              );
+              const delayMs =
+                Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1);
+              logBitrixRequest("warn", "request.retry", {
+                method,
+                attempt: attempt + 1,
+                maxAttempts,
+                status: response.status,
+                reason: "non_json_response",
+                delayMs
+              });
+              await delay(delayMs);
               continue;
             }
 
-            throw new Error(
+            const error = new Error(
               `Bitrix24 ${method} failed at ${redactWebhookUrl(url)}: non-JSON response (${response.status} ${response.statusText})`
             );
+            logBitrixRequest("error", "request.failed", {
+              method,
+              attempt: attempt + 1,
+              maxAttempts,
+              status: response.status,
+              reason: "non_json_response"
+            });
+            throw error;
           }
 
           const errorMessage =
@@ -280,26 +330,61 @@ export class BitrixClient {
               isRateLimitMessage(errorMessage) &&
               attempt < maxAttempts - 1
             ) {
-              await delay(
-                Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1)
-              );
+              const delayMs =
+                Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1);
+              logBitrixRequest("warn", "request.retry", {
+                method,
+                attempt: attempt + 1,
+                maxAttempts,
+                status: response.status,
+                reason: "rate_limit",
+                delayMs
+              });
+              await delay(delayMs);
               continue;
             }
 
-            throw new Error(
+            const error = new Error(
               `Bitrix24 ${method} failed at ${redactWebhookUrl(url)}: ${errorMessage}`
             );
+            logBitrixRequest("error", "request.failed", {
+              method,
+              attempt: attempt + 1,
+              maxAttempts,
+              status: response.status,
+              reason: payload.error ?? response.statusText
+            });
+            throw error;
           }
 
           return payload;
         } catch (error) {
           if (isTransientNetworkError(error) && attempt < maxAttempts - 1) {
-            await delay(
-              Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1)
-            );
+            const delayMs =
+              Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1);
+            logBitrixRequest("warn", "request.retry", {
+              method,
+              attempt: attempt + 1,
+              maxAttempts,
+              timeoutMs: this.config.timeoutMs,
+              reason: describeBitrixError(error),
+              delayMs
+            });
+            await delay(delayMs);
             continue;
           }
 
+          if (
+            !(error instanceof Error && error.message.startsWith("Bitrix24 "))
+          ) {
+            logBitrixRequest("error", "request.failed", {
+              method,
+              attempt: attempt + 1,
+              maxAttempts,
+              timeoutMs: this.config.timeoutMs,
+              reason: describeBitrixError(error)
+            });
+          }
           throw error;
         } finally {
           clearTimeout(timeout);
@@ -446,6 +531,7 @@ export class BitrixClient {
   async listDeals(cursor: {
     modifiedAfter: string | null;
     categoryIds?: string[];
+    assignedByIds?: string[];
     qualityFieldName?: string;
     customFieldNames?: string[];
   }) {
@@ -467,6 +553,9 @@ export class BitrixClient {
           buildDealBackfillParams({
             afterId,
             categoryIds,
+            ...(cursor.assignedByIds
+              ? { assignedByIds: cursor.assignedByIds }
+              : {}),
             customFieldNames
           }),
         {
@@ -482,6 +571,9 @@ export class BitrixClient {
       (start) =>
         buildDealListParams({
           categoryIds,
+          ...(cursor.assignedByIds
+            ? { assignedByIds: cursor.assignedByIds }
+            : {}),
           modifiedAfter,
           start,
           customFieldNames
@@ -543,16 +635,61 @@ export class BitrixClient {
     }));
   }
 
+  private fetchDealFieldsMetadata() {
+    if (!this.dealFieldsPromise) {
+      this.dealFieldsPromise = this.call<Record<string, DealFieldMetadata>>(
+        "crm.deal.fields",
+        {}
+      )
+        .then((response) => response.result ?? {})
+        .catch((error: unknown) => {
+          this.dealFieldsPromise = null;
+          throw error;
+        });
+    }
+
+    return this.dealFieldsPromise;
+  }
+
+  private fetchDynamicItemTitleMap(entityTypeId: number) {
+    const cached = this.dynamicItemTitleMaps.get(entityTypeId);
+    if (cached) {
+      return cached;
+    }
+
+    const request = this.collectPagedList<{
+      id: number | string;
+      title: string;
+    }>("crm.item.list", (start) => ({
+      entityTypeId,
+      select: ["id", "title"],
+      order: {
+        id: "ASC" as const
+      },
+      start
+    }))
+      .then(
+        (items) =>
+          Object.fromEntries(
+            items.map((item) => [String(item.id), item.title])
+          ) as Record<string, string>
+      )
+      .catch((error: unknown) => {
+        this.dynamicItemTitleMaps.delete(entityTypeId);
+        throw error;
+      });
+
+    this.dynamicItemTitleMaps.set(entityTypeId, request);
+    return request;
+  }
+
   async fetchDealFieldValueMap(fieldName: string) {
     if (!fieldName) {
       return {};
     }
 
-    const response = await this.call<Record<string, DealFieldMetadata>>(
-      "crm.deal.fields",
-      {}
-    );
-    const field = response.result?.[fieldName];
+    const fields = await this.fetchDealFieldsMetadata();
+    const field = fields[fieldName];
     if (field?.items && field.items.length > 0) {
       return Object.fromEntries(
         field.items.flatMap((item) => {
@@ -577,21 +714,7 @@ export class BitrixClient {
       return {};
     }
 
-    const items = await this.collectPagedList<{ id: number | string; title: string }>(
-      "crm.item.list",
-      (start) => ({
-        entityTypeId,
-        select: ["id", "title"],
-        order: {
-          id: "ASC" as const
-        },
-        start
-      })
-    );
-
-    return Object.fromEntries(
-      items.map((item) => [String(item.id), item.title])
-    ) as Record<string, string>;
+    return this.fetchDynamicItemTitleMap(entityTypeId);
   }
 
   async fetchDealQualityMap(fieldName: string) {
@@ -729,7 +852,7 @@ export class BitrixClient {
           ],
           start
         })),
-      10
+      50
     );
   }
 

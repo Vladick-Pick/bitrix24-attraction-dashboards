@@ -23,6 +23,7 @@ describe("buildActivitiesWorkloadReport", () => {
           businessClubValue: "ClubOne",
           targetGroupValue: "ClubFirst",
           meetingTypeValue: "Очная",
+          meetingDateValue: "2026-04-03T15:00:00.000Z",
           dateCreate: "2026-04-02T09:00:00.000Z",
           dateModify: "2026-04-05T11:00:00.000Z",
           dateClosed: "2026-04-05T11:00:00.000Z",
@@ -376,6 +377,119 @@ describe("buildActivitiesWorkloadReport", () => {
           businessClubBreakdown: [],
           slaMetrics: [],
           stageBreakdown: []
+        }
+      ]
+    });
+  });
+
+  it("counts deal meeting-date field values and retained overwrite history", () => {
+    const result = buildActivitiesWorkloadReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      deals: [
+        {
+          id: "1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: "Zoom",
+          meetingDateValue: "2026-05-01T10:00:00.000Z",
+          dateCreate: "2026-03-01T09:00:00.000Z",
+          dateModify: "2026-04-10T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:NEW",
+          name: "Новая",
+          semanticId: "P",
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [],
+      activities: [
+        {
+          id: "PLANNED_IN_PERIOD",
+          ownerTypeId: "2",
+          ownerId: "1",
+          typeId: "1",
+          providerId: "CRM_MEETING",
+          responsibleId: "7",
+          createdTime: "2026-04-05T10:00:00.000Z",
+          deadline: "2026-04-20T10:00:00.000Z",
+          lastUpdated: "2026-04-05T10:00:00.000Z",
+          completed: false,
+          completedTime: null
+        },
+        {
+          id: "COMPLETED_WITH_SCHEDULE_AFTER_PERIOD",
+          ownerTypeId: "2",
+          ownerId: "1",
+          typeId: "1",
+          providerId: "CRM_MEETING",
+          responsibleId: "7",
+          createdTime: "2026-04-06T10:00:00.000Z",
+          deadline: "2026-05-01T10:00:00.000Z",
+          lastUpdated: "2026-05-01T10:00:00.000Z",
+          completed: true,
+          completedTime: "2026-05-01T10:00:00.000Z"
+        },
+        {
+          id: "COMPLETED_WITH_SCHEDULE_IN_PERIOD",
+          ownerTypeId: "2",
+          ownerId: "1",
+          typeId: "1",
+          providerId: "CRM_MEETING",
+          responsibleId: "7",
+          createdTime: "2026-03-28T10:00:00.000Z",
+          deadline: "2026-04-10T10:00:00.000Z",
+          lastUpdated: "2026-05-01T11:00:00.000Z",
+          completed: true,
+          completedTime: "2026-05-01T11:00:00.000Z"
+        }
+      ],
+      deadlineChanges: [],
+      meetingDateChanges: [
+        {
+          id: "1:2026-04-12T10:00:00.000Z:meeting-date",
+          dealId: "1",
+          assignedById: "7",
+          previousMeetingDate: "2026-04-10T10:00:00.000Z",
+          nextMeetingDate: "2026-05-01T10:00:00.000Z",
+          changedAt: "2026-04-12T10:00:00.000Z"
+        }
+      ],
+      managerDirectory: [{ id: "7", name: "Анна Куратор" }]
+    });
+
+    const managerRow = result.managerRows.find((row) => row.managerId === "7");
+
+    expect(result.totalMeetingCount).toBe(1);
+    expect(managerRow).toMatchObject({
+      meetingCount: 1,
+      averageMeetingsPerDeal: 1,
+      meetingTypeBreakdown: [
+        {
+          meetingTypeKey: "Zoom",
+          meetingTypeLabel: "Zoom",
+          count: 1
         }
       ]
     });

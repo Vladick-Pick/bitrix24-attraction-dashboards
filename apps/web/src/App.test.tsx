@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '@/App'
@@ -12,6 +12,20 @@ vi.mock('@/lib/api-client', () => ({
       wonStageIds: [],
       defaultPeriodDays: 30,
       lastSync: null,
+      snapshotStats: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '2026-04-10T12:00:00.000Z',
+        lastSuccessfulSync: null,
+        issues: [],
+        warnings: [],
+      },
     })),
     getDashboard: vi.fn(async () => ({
       salesSummary: {
@@ -88,11 +102,106 @@ vi.mock('@/lib/api-client', () => ({
     })),
     getTocFlowReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
-      businessDays: 0,
+      businessDays: 10,
       warnings: [],
       estimatedGainPerDay: null,
-      rows: [],
-      bottleneck: null,
+      rows: [
+        {
+          stageId: 'CALL',
+          stageName: 'Звонок-знакомство',
+          stageSemanticId: 'P',
+          sortOrder: 1,
+          enteredDeals: 10,
+          movedNextDeals: 8,
+          throughputPerDay: 1,
+          queueEnd: 2,
+          queueBufferDays: 2,
+          averageStageDurationDays: 1.1,
+        },
+        {
+          stageId: 'MEETING',
+          stageName: 'Встреча-знакомство',
+          stageSemanticId: 'P',
+          sortOrder: 2,
+          enteredDeals: 5,
+          movedNextDeals: 4,
+          throughputPerDay: 0.5,
+          queueEnd: 1,
+          queueBufferDays: 2,
+          averageStageDurationDays: 1.4,
+        },
+        {
+          stageId: 'CONTRACT',
+          stageName: 'Контрактация',
+          stageSemanticId: 'P',
+          sortOrder: 3,
+          enteredDeals: 3,
+          movedNextDeals: 2,
+          throughputPerDay: 0.3,
+          queueEnd: 1,
+          queueBufferDays: 3.3,
+          averageStageDurationDays: 2.1,
+        },
+      ],
+      bottleneck: {
+        stageId: 'CONTRACT',
+        stageName: 'Контрактация',
+        throughputPerDay: 0.3,
+        queueEnd: 1,
+        queueBufferDays: 3.3,
+      },
+      stageDistribution: {
+        totalCreatedDeals: 10,
+        nodes: [
+          {
+            stageId: 'CALL',
+            stageName: 'Звонок-знакомство',
+            sortOrder: 1,
+            dealCount: 10,
+            shareOfCreatedDeals: 100,
+          },
+          {
+            stageId: 'MEETING',
+            stageName: 'Встреча-знакомство',
+            sortOrder: 2,
+            dealCount: 5,
+            shareOfCreatedDeals: 50,
+          },
+          {
+            stageId: 'CONTRACT',
+            stageName: 'Контрактация',
+            sortOrder: 3,
+            dealCount: 3,
+            shareOfCreatedDeals: 30,
+          },
+        ],
+        edges: [
+          {
+            fromStageId: null,
+            fromStageName: null,
+            toStageId: 'CALL',
+            toStageName: 'Звонок-знакомство',
+            dealCount: 10,
+            conversionRate: 100,
+          },
+          {
+            fromStageId: 'CALL',
+            fromStageName: 'Звонок-знакомство',
+            toStageId: 'MEETING',
+            toStageName: 'Встреча-знакомство',
+            dealCount: 5,
+            conversionRate: 50,
+          },
+          {
+            fromStageId: 'CALL',
+            fromStageName: 'Звонок-знакомство',
+            toStageId: 'CONTRACT',
+            toStageName: 'Контрактация',
+            dealCount: 3,
+            conversionRate: 30,
+          },
+        ],
+      },
       comparisons: [],
     })),
     triggerSync: vi.fn(async () => ({
@@ -102,6 +211,26 @@ vi.mock('@/lib/api-client', () => ({
       mode: 'delta',
       modifiedAfter: null,
       finishedAt: '2026-04-19T12:00:00.000Z',
+      snapshotBefore: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
+      snapshotAfter: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
+      changes: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+        managers: 0,
+      },
+      diagnostics: [],
     })),
   },
 }))
@@ -149,6 +278,24 @@ describe('App', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(/фильтры периода и среза/i),
+    ).toBeInTheDocument()
+  })
+
+  it('renders factual stage distribution below the funnel throughput report', async () => {
+    render(<App />)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /движение по воронке/i }),
+    )
+
+    const throughput = await screen.findByText(/пропускная способность и очереди/i)
+    const distribution = await screen.findByText(/распределение этапов воронки/i)
+
+    expect(
+      throughput.compareDocumentPosition(distribution) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/Звонок-знакомство -> Контрактация/i),
     ).toBeInTheDocument()
   })
 })

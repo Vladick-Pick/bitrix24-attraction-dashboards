@@ -18,11 +18,15 @@ import type {
   ReportRange,
   SourceQualityConversionReport,
   SourceQualityConversionReportSnapshot,
+  SnapshotStats,
+  SyncChangeSummary,
+  SyncProgressEvent,
   SyncSummary,
   TargetGroupConversionReport,
   TargetGroupConversionReportSnapshot,
   TocFlowReport,
   TocFlowReportSnapshot,
+  TocStageDistribution,
 } from '@/lib/dashboard-types'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
@@ -255,6 +259,38 @@ function normalizeSyncHealth(value: unknown): MetaResponse['syncHealth'] {
   }
 }
 
+function normalizeSnapshotStats(value: unknown): SnapshotStats {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    deals: asNumber(data.deals),
+    activities: asNumber(data.activities),
+    calls: asNumber(data.calls),
+    stageHistory: asNumber(data.stageHistory),
+  }
+}
+
+function normalizeSyncChanges(value: unknown): SyncChangeSummary {
+  const data = isRecord(value) ? value : {}
+  const breakdown = isRecord(data.dealBreakdown) ? data.dealBreakdown : {}
+
+  return {
+    deals: asNumber(data.deals),
+    dealBreakdown: {
+      total: asNumber(breakdown.total, asNumber(data.deals)),
+      created: asNumber(breakdown.created),
+      updated: asNumber(breakdown.updated, asNumber(data.deals)),
+      closed: asNumber(breakdown.closed),
+      reopened: asNumber(breakdown.reopened),
+      unchanged: asNumber(breakdown.unchanged),
+    },
+    activities: asNumber(data.activities),
+    calls: asNumber(data.calls),
+    stageHistory: asNumber(data.stageHistory),
+    managers: asNumber(data.managers),
+  }
+}
+
 function normalizeMeta(value: unknown): MetaResponse {
   const data = isRecord(value) ? value : {}
   const lastSync = isRecord(data.lastSync) ? data.lastSync : null
@@ -290,13 +326,20 @@ function normalizeMeta(value: unknown): MetaResponse {
     }),
     defaultPeriodDays: asNumber(data.defaultPeriodDays, 30),
     lastSync: lastSync
-      ? {
-          finishedAt: asString(lastSync.finishedAt),
-          leadsSynced: asNumber(lastSync.leadsSynced),
-          dealsSynced: asNumber(lastSync.dealsSynced),
-          mode: lastSync.mode === 'full' ? 'full' : 'delta',
-        }
-      : null,
+        ? {
+            finishedAt: asString(lastSync.finishedAt),
+            leadsSynced: asNumber(lastSync.leadsSynced),
+            dealsSynced: asNumber(lastSync.dealsSynced),
+            mode: lastSync.mode === 'full' ? 'full' : 'delta',
+            dealBreakdown: normalizeSyncChanges({
+              deals: lastSync.dealsSynced,
+              dealBreakdown: isRecord(lastSync.dealBreakdown)
+                ? lastSync.dealBreakdown
+                : undefined,
+            }).dealBreakdown,
+          }
+        : null,
+    snapshotStats: normalizeSnapshotStats(data.snapshotStats),
     syncHealth: normalizeSyncHealth(data.syncHealth),
   }
 }
@@ -311,6 +354,46 @@ function normalizeSyncSummary(value: unknown): SyncSummary {
     mode: data.mode === 'full' ? 'full' : 'delta',
     modifiedAfter: asNullableString(data.modifiedAfter),
     finishedAt: asString(data.finishedAt),
+    snapshotBefore: normalizeSnapshotStats(data.snapshotBefore),
+    snapshotAfter: normalizeSnapshotStats(data.snapshotAfter),
+    changes: normalizeSyncChanges(data.changes),
+    diagnostics: asArray(data.diagnostics, (entry) => asString(entry)).filter(Boolean),
+  }
+}
+
+function normalizeSyncProgressEvent(value: unknown): SyncProgressEvent {
+  const data = isRecord(value) ? value : {}
+  const phase = asString(data.phase)
+
+  return {
+    syncRunId: typeof data.syncRunId === 'number' ? data.syncRunId : null,
+    phase:
+      phase === 'inspect_snapshot' ||
+      phase === 'fetch_catalogs' ||
+      phase === 'fetch_deals' ||
+      phase === 'fetch_activities' ||
+      phase === 'fetch_calls' ||
+      phase === 'persist_snapshot' ||
+      phase === 'complete' ||
+      phase === 'failed'
+        ? phase
+        : 'inspect_snapshot',
+    progress: Math.min(100, Math.max(0, asNumber(data.progress))),
+    message: asString(data.message),
+    ...(isRecord(data.snapshotBefore)
+      ? { snapshotBefore: normalizeSnapshotStats(data.snapshotBefore) }
+      : {}),
+    ...(isRecord(data.snapshotAfter)
+      ? { snapshotAfter: normalizeSnapshotStats(data.snapshotAfter) }
+      : {}),
+    ...(isRecord(data.changes) ? { changes: normalizeSyncChanges(data.changes) } : {}),
+    ...(data.mode === 'full' || data.mode === 'delta' ? { mode: data.mode } : {}),
+    ...(typeof data.modifiedAfter === 'string' || data.modifiedAfter === null
+      ? { modifiedAfter: data.modifiedAfter }
+      : {}),
+    ...(typeof data.startedAt === 'string' ? { startedAt: data.startedAt } : {}),
+    ...(typeof data.finishedAt === 'string' ? { finishedAt: data.finishedAt } : {}),
+    diagnostics: asArray(data.diagnostics, (entry) => asString(entry)).filter(Boolean),
   }
 }
 
@@ -1025,6 +1108,47 @@ function normalizeTocFlowSnapshot(value: unknown): TocFlowReportSnapshot {
               : null,
         }
       : null,
+    stageDistribution: normalizeTocStageDistribution(data.stageDistribution),
+  }
+}
+
+function normalizeTocStageDistribution(value: unknown): TocStageDistribution | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  return {
+    totalCreatedDeals: asNumber(value.totalCreatedDeals),
+    nodes: asArray(value.nodes, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+
+      return {
+        stageId: asString(item.stageId),
+        stageName: asString(item.stageName, asString(item.stageId)),
+        sortOrder: asNumber(item.sortOrder),
+        dealCount: asNumber(item.dealCount),
+        shareOfCreatedDeals: asNumber(item.shareOfCreatedDeals),
+      }
+    }).filter((node) => node.stageId || node.stageName),
+    edges: asArray(value.edges, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      const fromStageId = asNullableString(item.fromStageId ?? item.sourceStageId)
+      const fromStageName = asNullableString(item.fromStageName ?? item.sourceStageName)
+      const toStageId = asString(item.toStageId ?? item.targetStageId)
+      const toStageName = asString(
+        item.toStageName ?? item.targetStageName,
+        toStageId,
+      )
+
+      return {
+        fromStageId,
+        fromStageName,
+        toStageId,
+        toStageName,
+        dealCount: asNumber(item.dealCount),
+        conversionRate: asNumber(item.conversionRate),
+      }
+    }).filter((edge) => edge.toStageId || edge.toStageName),
   }
 }
 
@@ -1080,11 +1204,119 @@ async function requestJson<T>(
   })
 
   if (!response.ok) {
-    throw new ApiClientError('Local API request failed', response.status)
+    let message = 'Local API request failed'
+    try {
+      const errorBody = (await response.json()) as unknown
+      if (isRecord(errorBody)) {
+        message = asString(errorBody.code, asString(errorBody.error, message))
+      }
+    } catch {
+      // Keep the stable fallback when the server did not return JSON.
+    }
+
+    throw new ApiClientError(message, response.status)
   }
 
   const data = (await response.json()) as unknown
   return normalize(data)
+}
+
+function parseSyncStreamBlock(block: string) {
+  let event = 'message'
+  const dataLines: string[] = []
+
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) {
+      event = line.slice('event:'.length).trim()
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice('data:'.length).trimStart())
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return null
+  }
+
+  return {
+    event,
+    data: JSON.parse(dataLines.join('\n')) as unknown,
+  }
+}
+
+async function requestSyncStream(
+  onProgress: (event: SyncProgressEvent) => void,
+) {
+  const response = await fetch(buildUrl('/api/sync'), {
+    method: 'POST',
+    headers: {
+      Accept: 'text/event-stream',
+    },
+  })
+
+  if (!response.ok || !response.body) {
+    if (!response.ok) {
+      let message = 'Local API request failed'
+      try {
+        const errorBody = (await response.json()) as unknown
+        if (isRecord(errorBody)) {
+          message = asString(errorBody.code, asString(errorBody.error, message))
+        }
+      } catch {
+        // Keep fallback.
+      }
+      throw new ApiClientError(message, response.status)
+    }
+
+    return requestJson(buildUrl('/api/sync'), { method: 'POST' }, normalizeSyncSummary)
+  }
+
+  const decoder = new TextDecoder()
+  const reader = response.body.getReader()
+  let buffer = ''
+  let summary: SyncSummary | null = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (value) {
+      buffer += decoder.decode(value, { stream: !done })
+      const blocks = buffer.split('\n\n')
+      buffer = blocks.pop() ?? ''
+
+      for (const block of blocks) {
+        const parsed = parseSyncStreamBlock(block.trim())
+        if (!parsed) {
+          continue
+        }
+
+        if (parsed.event === 'progress') {
+          onProgress(normalizeSyncProgressEvent(parsed.data))
+        } else if (parsed.event === 'complete') {
+          summary = normalizeSyncSummary(parsed.data)
+        } else if (parsed.event === 'error') {
+          const errorData = isRecord(parsed.data) ? parsed.data : {}
+          const details = isRecord(errorData.details) ? errorData.details : {}
+          const diagnostics = asArray(details.diagnostics, (entry) => asString(entry)).filter(
+            Boolean,
+          )
+          const code = asString(errorData.code, 'SYNC_FAILED')
+          throw new ApiClientError(
+            [code, ...diagnostics].filter(Boolean).join(': '),
+            response.status,
+          )
+        }
+      }
+    }
+
+    if (done) {
+      break
+    }
+  }
+
+  if (summary) {
+    return summary
+  }
+
+  throw new ApiClientError('SYNC_STREAM_INCOMPLETE', response.status)
 }
 
 export const apiClient = {
@@ -1154,12 +1386,12 @@ export const apiClient = {
       normalizeTocFlowReport,
     )
   },
-  async triggerSync() {
-    return requestJson(
-      buildUrl('/api/sync'),
-      { method: 'POST' },
-      normalizeSyncSummary,
-    )
+  async triggerSync(onProgress?: (event: SyncProgressEvent) => void) {
+    if (onProgress) {
+      return requestSyncStream(onProgress)
+    }
+
+    return requestJson(buildUrl('/api/sync'), { method: 'POST' }, normalizeSyncSummary)
   },
 }
 

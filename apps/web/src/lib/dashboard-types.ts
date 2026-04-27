@@ -631,6 +631,29 @@ export interface TocFlowBottleneck {
   queueBufferDays: number | null
 }
 
+export interface TocStageDistributionNode {
+  stageId: string
+  stageName: string
+  sortOrder: number
+  dealCount: number
+  shareOfCreatedDeals: number
+}
+
+export interface TocStageDistributionEdge {
+  fromStageId: string | null
+  fromStageName: string | null
+  toStageId: string
+  toStageName: string
+  dealCount: number
+  conversionRate: number
+}
+
+export interface TocStageDistribution {
+  totalCreatedDeals: number
+  nodes: TocStageDistributionNode[]
+  edges: TocStageDistributionEdge[]
+}
+
 export interface TocFlowReportSnapshot {
   range: ReportRange
   businessDays: number
@@ -638,6 +661,7 @@ export interface TocFlowReportSnapshot {
   estimatedGainPerDay: number | null
   rows: TocFlowStageMetric[]
   bottleneck: TocFlowBottleneck | null
+  stageDistribution?: TocStageDistribution | null
 }
 
 export interface TocFlowReport extends TocFlowReportSnapshot {
@@ -667,6 +691,57 @@ export interface LastSyncSummary {
   leadsSynced: number
   dealsSynced: number
   mode: 'full' | 'delta'
+  dealBreakdown: SyncDealChangeBreakdown
+}
+
+export interface SnapshotStats {
+  deals: number
+  activities: number
+  calls: number
+  stageHistory: number
+}
+
+export interface SyncChangeSummary {
+  deals: number
+  dealBreakdown: SyncDealChangeBreakdown
+  activities: number
+  calls: number
+  stageHistory: number
+  managers: number
+}
+
+export interface SyncDealChangeBreakdown {
+  total: number
+  created: number
+  updated: number
+  closed: number
+  reopened: number
+  unchanged: number
+}
+
+export type SyncProgressPhase =
+  | 'inspect_snapshot'
+  | 'fetch_catalogs'
+  | 'fetch_deals'
+  | 'fetch_activities'
+  | 'fetch_calls'
+  | 'persist_snapshot'
+  | 'complete'
+  | 'failed'
+
+export interface SyncProgressEvent {
+  syncRunId: number | null
+  phase: SyncProgressPhase
+  progress: number
+  message: string
+  snapshotBefore?: SnapshotStats
+  snapshotAfter?: SnapshotStats
+  changes?: SyncChangeSummary
+  mode?: 'full' | 'delta'
+  modifiedAfter?: string | null
+  startedAt?: string
+  finishedAt?: string
+  diagnostics?: string[]
 }
 
 export type SyncHealthStatus = 'ready' | 'warning' | 'blocked'
@@ -698,6 +773,7 @@ export interface MetaResponse {
   wonStageIds: string[]
   defaultPeriodDays: number
   lastSync: LastSyncSummary | null
+  snapshotStats: SnapshotStats
   syncHealth: SyncHealth
 }
 
@@ -708,6 +784,10 @@ export interface SyncSummary {
   mode: 'full' | 'delta'
   modifiedAfter: string | null
   finishedAt: string
+  snapshotBefore: SnapshotStats
+  snapshotAfter: SnapshotStats
+  changes: SyncChangeSummary
+  diagnostics: string[]
 }
 
 export interface TimelineBucket {

@@ -9,6 +9,7 @@ import type {
   CohortRelativeBucketKey,
   CohortConversionReport,
   DealCallSummary,
+  DealMeetingDateChangeSnapshot,
   DealMeetingEvent,
   DealMeetingSummary,
   DealSnapshot,
@@ -63,6 +64,7 @@ interface ActivitiesWorkloadInput {
   stageHistory: StageHistorySnapshot[];
   activities: ActivitySnapshot[];
   deadlineChanges: ActivityDeadlineChangeSnapshot[];
+  meetingDateChanges?: DealMeetingDateChangeSnapshot[];
   calls?: CallSnapshot[];
   managerDirectory?: ManagerDirectoryEntry[];
 }
@@ -370,6 +372,56 @@ function isCompletedMeetingActivity(activity: ActivitySnapshot) {
 
 function getMeetingCommunicationTime(activity: ActivitySnapshot) {
   return activity.completedTime ?? activity.lastUpdated ?? activity.createdTime;
+}
+
+function buildDealMeetingDateWorkloadEvents(input: {
+  deals: DealSnapshot[];
+  meetingDateChanges?: DealMeetingDateChangeSnapshot[] | undefined;
+  fromMs: number;
+  toMs: number;
+}) {
+  const dealById = new Map(input.deals.map((deal) => [deal.id, deal]));
+  const eventsByDealId = new Map<
+    string,
+    {
+      deal: DealSnapshot;
+      managerId: string;
+      meetingAt: string;
+    }
+  >();
+
+  const addCandidate = (
+    deal: DealSnapshot | undefined,
+    meetingAt: string | null | undefined,
+    managerId: string | null | undefined
+  ) => {
+    if (!deal || !isWithinRange(meetingAt ?? null, input.fromMs, input.toMs)) {
+      return;
+    }
+
+    const current = eventsByDealId.get(deal.id);
+    if (current && Date.parse(current.meetingAt) >= Date.parse(meetingAt as string)) {
+      return;
+    }
+
+    eventsByDealId.set(deal.id, {
+      deal,
+      managerId: managerId ?? deal.assignedById ?? "UNASSIGNED",
+      meetingAt: meetingAt as string
+    });
+  };
+
+  for (const deal of input.deals) {
+    addCandidate(deal, deal.meetingDateValue, deal.assignedById);
+  }
+
+  for (const change of input.meetingDateChanges ?? []) {
+    const deal = dealById.get(change.dealId);
+    addCandidate(deal, change.previousMeetingDate, change.assignedById);
+    addCandidate(deal, change.nextMeetingDate, change.assignedById);
+  }
+
+  return Array.from(eventsByDealId.values());
 }
 
 function toRoundedNumber(value: number) {
@@ -1326,7 +1378,12 @@ export function buildActivitiesWorkloadReport(
     (activity) => activity.ownerTypeId === "2" && dealMap.has(activity.ownerId)
   );
   const taskActivities = activities.filter(isTaskActivity);
-  const meetingActivities = activities.filter(isMeetingActivity);
+  const meetingDateEvents = buildDealMeetingDateWorkloadEvents({
+    deals,
+    meetingDateChanges: input.meetingDateChanges,
+    fromMs,
+    toMs
+  });
   const slaMetricsByManager = buildSlaMetricsByManager({
     range: input.range,
     deals,
@@ -1456,17 +1513,8 @@ export function buildActivitiesWorkloadReport(
     }
   }
 
-  for (const activity of meetingActivities) {
-    if (!isWithinRange(activity.createdTime, fromMs, toMs)) {
-      continue;
-    }
-
-    const deal = dealMap.get(activity.ownerId);
-    if (!deal) {
-      continue;
-    }
-
-    const managerId = activity.responsibleId ?? "UNASSIGNED";
+  for (const event of meetingDateEvents) {
+    const { deal, managerId } = event;
     const current = ensureManagerRow(managerId);
     registerDealForManager(managerId, deal);
     current.meetingCount += 1;

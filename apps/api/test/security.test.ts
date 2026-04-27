@@ -163,7 +163,21 @@ function createCorsTestApp(config?: {
         sourceCatalog: [],
         wonStageIds: [],
         defaultPeriodDays: 30,
-        lastSync: null
+        lastSync: null,
+        snapshotStats: {
+          deals: 0,
+          activities: 0,
+          calls: 0,
+          stageHistory: 0
+        },
+        syncHealth: {
+          status: "ready" as const,
+          blocking: false,
+          checkedAt: "2026-04-09T00:00:00.000Z",
+          lastSuccessfulSync: null,
+          issues: [],
+          warnings: []
+        }
       }),
       performSync: async () => ({
         syncRunId: 1,
@@ -171,7 +185,35 @@ function createCorsTestApp(config?: {
         dealsSynced: 0,
         mode: "delta" as const,
         modifiedAfter: null,
-        finishedAt: "2026-04-09T00:00:00.000Z"
+        finishedAt: "2026-04-09T00:00:00.000Z",
+        snapshotBefore: {
+          deals: 0,
+          activities: 0,
+          calls: 0,
+          stageHistory: 0
+        },
+        snapshotAfter: {
+          deals: 0,
+          activities: 0,
+          calls: 0,
+          stageHistory: 0
+        },
+        changes: {
+          deals: 0,
+          dealBreakdown: {
+            total: 0,
+            created: 0,
+            updated: 0,
+            closed: 0,
+            reopened: 0,
+            unchanged: 0
+          },
+          activities: 0,
+          calls: 0,
+          stageHistory: 0,
+          managers: 0
+        },
+        diagnostics: []
       }),
       updateWonStages: async (stageIds: string[]) => ({
         wonStageIds: stageIds

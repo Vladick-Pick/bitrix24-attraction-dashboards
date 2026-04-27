@@ -125,4 +125,26 @@ describe("Bitrix24 selector whitelist", () => {
       start: 0
     });
   });
+
+  it("adds the attraction manager scope to deal requests when provided", () => {
+    expect(
+      buildDealListParams({
+        modifiedAfter: "2026-04-08T10:00:00.000Z",
+        start: 0,
+        categoryIds: ["10"],
+        assignedByIds: ["78", "11234"]
+      })
+    ).toEqual({
+      select: ALLOWED_DEAL_FIELDS,
+      filter: {
+        ">=DATE_MODIFY": "2026-04-08T10:00:00.000Z",
+        CATEGORY_ID: "10",
+        "@ASSIGNED_BY_ID": ["78", "11234"]
+      },
+      order: {
+        ID: "ASC"
+      },
+      start: 0
+    });
+  });
 });

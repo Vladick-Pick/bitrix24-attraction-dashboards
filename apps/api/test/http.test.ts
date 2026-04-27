@@ -32,6 +32,56 @@ const emptyLinkedDealCalls = {
   totalDealCount: 0
 };
 
+const emptySnapshotStats = {
+  deals: 0,
+  activities: 0,
+  calls: 0,
+  stageHistory: 0
+};
+
+const emptyDealBreakdown = {
+  total: 0,
+  created: 0,
+  updated: 0,
+  closed: 0,
+  reopened: 0,
+  unchanged: 0
+};
+
+const emptySyncChanges = {
+  deals: 0,
+  dealBreakdown: emptyDealBreakdown,
+  activities: 0,
+  calls: 0,
+  stageHistory: 0,
+  managers: 0
+};
+
+function createSyncSummary(
+  overrides: Partial<{
+    syncRunId: number;
+    leadsSynced: number;
+    dealsSynced: number;
+    mode: "full" | "delta";
+    modifiedAfter: string | null;
+    finishedAt: string;
+  }> = {}
+) {
+  return {
+    syncRunId: 1,
+    leadsSynced: 0,
+    dealsSynced: 0,
+    mode: "delta" as const,
+    modifiedAfter: null,
+    finishedAt: "2026-04-09T00:00:00.000Z",
+    snapshotBefore: emptySnapshotStats,
+    snapshotAfter: emptySnapshotStats,
+    changes: emptySyncChanges,
+    diagnostics: [],
+    ...overrides
+  };
+}
+
 function createTestApp(
   serviceOverrides: Partial<Parameters<typeof createApp>[0]> = {},
   config?: {
@@ -158,16 +208,18 @@ function createTestApp(
       sourceCatalog: [],
       wonStageIds: [],
       defaultPeriodDays: 30,
-      lastSync: null
+      lastSync: null,
+      snapshotStats: emptySnapshotStats,
+      syncHealth: {
+        status: "ready" as const,
+        blocking: false,
+        checkedAt: "2026-04-09T00:00:00.000Z",
+        lastSuccessfulSync: null,
+        issues: [],
+        warnings: []
+      }
     }),
-    performSync: async () => ({
-      syncRunId: 1,
-      leadsSynced: 0,
-      dealsSynced: 0,
-      mode: "delta",
-      modifiedAfter: null,
-      finishedAt: "2026-04-09T00:00:00.000Z"
-    }),
+    performSync: async () => createSyncSummary(),
     updateWonStages: async (stageIds: string[]) => ({
       wonStageIds: stageIds
     }),
@@ -371,17 +423,40 @@ describe("createApp", () => {
           finishedAt: "2026-04-08T12:00:00.000Z",
           leadsSynced: 8,
           dealsSynced: 5,
-          mode: "delta" as const
+          mode: "delta" as const,
+          dealBreakdown: {
+            total: 5,
+            created: 1,
+            updated: 4,
+            closed: 0,
+            reopened: 0,
+            unchanged: 0
+          }
+        },
+        snapshotStats: {
+          deals: 42,
+          activities: 12,
+          calls: 7,
+          stageHistory: 18
+        },
+        syncHealth: {
+          status: "ready" as const,
+          blocking: false,
+          checkedAt: "2026-04-08T12:00:00.000Z",
+          lastSuccessfulSync: "2026-04-08T12:00:00.000Z",
+          issues: [],
+          warnings: []
         }
       }),
-      performSync: async () => ({
-        syncRunId: 18,
-        leadsSynced: 8,
-        dealsSynced: 5,
-        mode: "delta" as const,
-        modifiedAfter: "2026-04-08T00:00:00.000Z",
-        finishedAt: "2026-04-08T12:00:00.000Z"
-      }),
+      performSync: async () =>
+        createSyncSummary({
+          syncRunId: 18,
+          leadsSynced: 8,
+          dealsSynced: 5,
+          mode: "delta",
+          modifiedAfter: "2026-04-08T00:00:00.000Z",
+          finishedAt: "2026-04-08T12:00:00.000Z"
+        }),
       updateWonStages: async (stageIds: string[]) => ({
         wonStageIds: stageIds
       })
@@ -487,6 +562,12 @@ describe("createApp", () => {
         expect(body.stageCatalog).toEqual(stageCatalog);
         expect(body.managerCatalog).toEqual([]);
         expect(body.sourceCatalog).toEqual([]);
+        expect(body.snapshotStats).toEqual({
+          deals: 42,
+          activities: 12,
+          calls: 7,
+          stageHistory: 18
+        });
       });
 
     await request(app)
@@ -506,14 +587,7 @@ describe("createApp", () => {
   });
 
   it("rejects concurrent sync requests while one refresh is already running", async () => {
-    let resolveSync!: (value: {
-      syncRunId: number;
-      leadsSynced: number;
-      dealsSynced: number;
-      mode: "full";
-      modifiedAfter: null;
-      finishedAt: string;
-    }) => void;
+    let resolveSync!: (value: ReturnType<typeof createSyncSummary>) => void;
 
     const app = createApp({
       getDashboard: async () => ({
@@ -634,17 +708,19 @@ describe("createApp", () => {
         sourceCatalog: [],
         wonStageIds: [],
         defaultPeriodDays: 30,
-        lastSync: null
+        lastSync: null,
+        snapshotStats: emptySnapshotStats,
+        syncHealth: {
+          status: "ready" as const,
+          blocking: false,
+          checkedAt: "2026-04-09T00:00:00.000Z",
+          lastSuccessfulSync: null,
+          issues: [],
+          warnings: []
+        }
       }),
       performSync: () =>
-        new Promise<{
-          syncRunId: number;
-          leadsSynced: number;
-          dealsSynced: number;
-          mode: "full";
-          modifiedAfter: null;
-          finishedAt: string;
-        }>((resolve) => {
+        new Promise<ReturnType<typeof createSyncSummary>>((resolve) => {
           resolveSync = resolve;
         }),
       updateWonStages: async (stageIds: string[]) => ({
@@ -664,18 +740,49 @@ describe("createApp", () => {
         expect(body.error).toBe("SYNC_ALREADY_RUNNING");
       });
 
-    resolveSync({
+    resolveSync(createSyncSummary({
       syncRunId: 91,
       leadsSynced: 0,
       dealsSynced: 0,
       mode: "full",
       modifiedAfter: null,
       finishedAt: "2026-04-09T00:00:00.000Z"
-    });
+    }));
 
     await expect(firstRequest).resolves.toMatchObject({
       status: 200
     });
+  });
+
+  it("streams sync progress events when requested by the web client", async () => {
+    const app = createTestApp({
+      performSync: async (input) => {
+        input?.onProgress?.({
+          syncRunId: 18,
+          phase: "fetch_deals",
+          progress: 35,
+          message: "Получено обновлений сделок: 5"
+        });
+
+        return createSyncSummary({
+          syncRunId: 18,
+          dealsSynced: 5,
+          finishedAt: "2026-04-09T12:00:00.000Z"
+        });
+      }
+    });
+
+    await request(app)
+      .post("/api/sync")
+      .set("Accept", "text/event-stream")
+      .expect(200)
+      .expect("Content-Type", /text\/event-stream/)
+      .expect(({ text }) => {
+        expect(text).toContain("event: progress");
+        expect(text).toContain("\"phase\":\"fetch_deals\"");
+        expect(text).toContain("event: complete");
+        expect(text).toContain("\"syncRunId\":18");
+      });
   });
 
   it("validates compare range query shape", async () => {
@@ -794,16 +901,18 @@ describe("createApp", () => {
         sourceCatalog: [],
         wonStageIds: [],
         defaultPeriodDays: 30,
-        lastSync: null
+        lastSync: null,
+        snapshotStats: emptySnapshotStats,
+        syncHealth: {
+          status: "ready" as const,
+          blocking: false,
+          checkedAt: "2026-04-09T00:00:00.000Z",
+          lastSuccessfulSync: null,
+          issues: [],
+          warnings: []
+        }
       }),
-      performSync: async () => ({
-        syncRunId: 1,
-        leadsSynced: 0,
-        dealsSynced: 0,
-        mode: "delta",
-        modifiedAfter: null,
-        finishedAt: "2026-04-09T00:00:00.000Z"
-      }),
+      performSync: async () => createSyncSummary(),
       updateWonStages: async (stageIds: string[]) => ({
         wonStageIds: stageIds
       })

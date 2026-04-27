@@ -221,6 +221,12 @@ describe('apiClient', () => {
         wonStageIds: [],
         defaultPeriodDays: 30,
         lastSync: null,
+        snapshotStats: {
+          deals: 42,
+          activities: 12,
+          calls: 7,
+          stageHistory: 18,
+        },
         syncHealth: {
           status: 'blocked',
           blocking: true,
@@ -253,6 +259,130 @@ describe('apiClient', () => {
           },
         ],
       },
+      snapshotStats: {
+        deals: 42,
+        activities: 12,
+        calls: 7,
+        stageHistory: 18,
+      },
     })
+  })
+
+  it('normalizes sync summary counters and snapshot stats', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        syncRunId: 18,
+        leadsSynced: 0,
+        dealsSynced: 5,
+        mode: 'delta',
+        modifiedAfter: '2026-04-08T00:00:00.000Z',
+        finishedAt: '2026-04-08T12:00:00.000Z',
+        snapshotBefore: {
+          deals: 40,
+          activities: 10,
+          calls: 5,
+          stageHistory: 16,
+        },
+        snapshotAfter: {
+          deals: 42,
+          activities: 12,
+          calls: 7,
+          stageHistory: 18,
+        },
+        changes: {
+          deals: 5,
+          activities: 2,
+          calls: 2,
+          stageHistory: 2,
+          managers: 1,
+        },
+        diagnostics: ['dealCursor=2026-04-08T12:00:00.000Z'],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(apiClient.triggerSync()).resolves.toMatchObject({
+      syncRunId: 18,
+      dealsSynced: 5,
+      snapshotAfter: {
+        deals: 42,
+        activities: 12,
+        calls: 7,
+        stageHistory: 18,
+      },
+      changes: {
+        deals: 5,
+        activities: 2,
+        calls: 2,
+        stageHistory: 2,
+        managers: 1,
+      },
+    })
+  })
+
+  it('streams sync progress events when a progress callback is provided', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder()
+        controller.enqueue(
+          encoder.encode(
+            'event: progress\ndata: {"syncRunId":18,"phase":"fetch_deals","progress":35,"message":"Получено обновлений сделок: 5"}\n\n',
+          ),
+        )
+        controller.enqueue(
+          encoder.encode(
+            'event: complete\ndata: {"syncRunId":18,"leadsSynced":0,"dealsSynced":5,"mode":"delta","modifiedAfter":null,"finishedAt":"2026-04-08T12:00:00.000Z","snapshotBefore":{"deals":40,"activities":10,"calls":5,"stageHistory":16},"snapshotAfter":{"deals":42,"activities":12,"calls":7,"stageHistory":18},"changes":{"deals":5,"activities":2,"calls":2,"stageHistory":2,"managers":1},"diagnostics":[]}\n\n',
+          ),
+        )
+        controller.close()
+      },
+    })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: stream,
+    })
+    const progress = vi.fn()
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const summary = await apiClient.triggerSync(progress)
+
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: 'fetch_deals',
+        progress: 35,
+        message: 'Получено обновлений сделок: 5',
+      }),
+    )
+    expect(summary.syncRunId).toBe(18)
+    expect(summary.changes.deals).toBe(5)
+  })
+
+  it('surfaces safe sync stream diagnostics from error events', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder()
+        controller.enqueue(
+          encoder.encode(
+            'event: error\ndata: {"error":"SYNC_FAILED","code":"SYNC_FAILED","details":{"diagnostics":["network=UND_ERR_CONNECT_TIMEOUT"]}}\n\n',
+          ),
+        )
+        controller.close()
+      },
+    })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: stream,
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(apiClient.triggerSync(vi.fn())).rejects.toThrow(
+      'SYNC_FAILED: network=UND_ERR_CONNECT_TIMEOUT',
+    )
   })
 })

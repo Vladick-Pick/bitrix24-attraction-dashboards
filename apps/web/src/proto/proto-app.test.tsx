@@ -15,6 +15,12 @@ vi.mock('@/lib/api-client', () => ({
       wonStageIds: [],
       defaultPeriodDays: 30,
       lastSync: null,
+      snapshotStats: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
       syncHealth: {
         status: 'ready',
         blocking: false,
@@ -112,6 +118,26 @@ vi.mock('@/lib/api-client', () => ({
       mode: 'delta',
       modifiedAfter: '2026-04-19T16:19:09.990Z',
       finishedAt: '2026-04-26T16:00:00.000Z',
+      snapshotBefore: {
+        deals: 10,
+        activities: 20,
+        calls: 30,
+        stageHistory: 40,
+      },
+      snapshotAfter: {
+        deals: 22,
+        activities: 25,
+        calls: 34,
+        stageHistory: 45,
+      },
+      changes: {
+        deals: 12,
+        activities: 5,
+        calls: 4,
+        stageHistory: 5,
+        managers: 1,
+      },
+      diagnostics: ['dealCursor=2026-04-26T16:00:00.000Z'],
     })),
   },
 }))
@@ -713,6 +739,12 @@ describe('ProtoApp', () => {
       wonStageIds: [],
       defaultPeriodDays: 30,
       lastSync: null,
+      snapshotStats: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
       syncHealth: {
         status: 'blocked',
         blocking: true,
@@ -981,6 +1013,12 @@ describe('ProtoApp', () => {
       wonStageIds: [],
       defaultPeriodDays: 30,
       lastSync: null,
+      snapshotStats: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
       syncHealth: {
         status: 'ready',
         blocking: false,

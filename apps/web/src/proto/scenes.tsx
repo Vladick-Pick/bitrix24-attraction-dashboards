@@ -28,6 +28,7 @@ import type {
   ProtoFilterState,
   ProtoScene,
   SceneComponentProps,
+  TocStageDistribution,
 } from '@/proto/types'
 
 type SalesRow = {
@@ -268,6 +269,41 @@ const funnelFlowCompare: FlowStageMetric[] = [
   { stage: 'На передаче', entered: 12, throughputPerDay: 3, queueEnd: 8, avgCycleDays: 4.0, note: 'Прошлый период' },
 ]
 
+const emptyStageDistribution: TocStageDistribution = {
+  totalCreatedDeals: 0,
+  nodes: [],
+  edges: [],
+}
+
+const funnelStageDistribution: TocStageDistribution = {
+  totalCreatedDeals: 128,
+  nodes: [
+    { stageId: 'BASE', stage: 'База входящая', sortOrder: 1, count: 128, shareOfCreatedDeals: 100 },
+    { stageId: 'CALL', stage: 'Звонок-знакомство', sortOrder: 2, count: 112, shareOfCreatedDeals: 88 },
+    { stageId: 'MEETING', stage: 'Встреча-знакомство', sortOrder: 3, count: 86, shareOfCreatedDeals: 67 },
+    { stageId: 'ACTIVATION', stage: 'Активация', sortOrder: 4, count: 61, shareOfCreatedDeals: 48 },
+    { stageId: 'DEMO', stage: 'Демонстрация', sortOrder: 5, count: 43, shareOfCreatedDeals: 34 },
+    { stageId: 'CONTRACT', stage: 'Контрактация', sortOrder: 6, count: 27, shareOfCreatedDeals: 21 },
+    { stageId: 'HANDOFF', stage: 'На передаче', sortOrder: 7, count: 14, shareOfCreatedDeals: 11 },
+    { stageId: 'BASKET', stage: 'Корзина', sortOrder: 8, count: 28, shareOfCreatedDeals: 22 },
+    { stageId: 'RETURN', stage: 'Возврат в лидген', sortOrder: 9, count: 16, shareOfCreatedDeals: 13 },
+  ],
+  edges: [
+    { id: 'created-BASE-0', fromStageId: null, fromStage: 'Создано', toStageId: 'BASE', toStage: 'База входящая', count: 128, conversionRate: 100 },
+    { id: 'BASE-CALL-1', fromStageId: 'BASE', fromStage: 'База входящая', toStageId: 'CALL', toStage: 'Звонок-знакомство', count: 112, conversionRate: 88 },
+    { id: 'BASE-RETURN-2', fromStageId: 'BASE', fromStage: 'База входящая', toStageId: 'RETURN', toStage: 'Возврат в лидген', count: 16, conversionRate: 13 },
+    { id: 'CALL-MEETING-3', fromStageId: 'CALL', fromStage: 'Звонок-знакомство', toStageId: 'MEETING', toStage: 'Встреча-знакомство', count: 86, conversionRate: 77 },
+    { id: 'CALL-BASKET-4', fromStageId: 'CALL', fromStage: 'Звонок-знакомство', toStageId: 'BASKET', toStage: 'Корзина', count: 18, conversionRate: 16 },
+    { id: 'CALL-CONTRACT-5', fromStageId: 'CALL', fromStage: 'Звонок-знакомство', toStageId: 'CONTRACT', toStage: 'Контрактация', count: 8, conversionRate: 7 },
+    { id: 'MEETING-ACTIVATION-6', fromStageId: 'MEETING', fromStage: 'Встреча-знакомство', toStageId: 'ACTIVATION', toStage: 'Активация', count: 61, conversionRate: 71 },
+    { id: 'MEETING-DEMO-7', fromStageId: 'MEETING', fromStage: 'Встреча-знакомство', toStageId: 'DEMO', toStage: 'Демонстрация', count: 12, conversionRate: 14 },
+    { id: 'ACTIVATION-DEMO-8', fromStageId: 'ACTIVATION', fromStage: 'Активация', toStageId: 'DEMO', toStage: 'Демонстрация', count: 31, conversionRate: 51 },
+    { id: 'ACTIVATION-BASKET-9', fromStageId: 'ACTIVATION', fromStage: 'Активация', toStageId: 'BASKET', toStage: 'Корзина', count: 10, conversionRate: 16 },
+    { id: 'DEMO-CONTRACT-10', fromStageId: 'DEMO', fromStage: 'Демонстрация', toStageId: 'CONTRACT', toStage: 'Контрактация', count: 19, conversionRate: 44 },
+    { id: 'CONTRACT-HANDOFF-11', fromStageId: 'CONTRACT', fromStage: 'Контрактация', toStageId: 'HANDOFF', toStage: 'На передаче', count: 14, conversionRate: 52 },
+  ],
+}
+
 function getManagerPickerOptions(runtimeData?: SceneComponentProps['runtimeData']) {
   return runtimeData?.managerOptions.length ? runtimeData.managerOptions : managerOptions
 }
@@ -478,6 +514,7 @@ function getTocSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
       compareStages: [],
       managerConversionRows: [],
       stableLeaders: [],
+      stageDistribution: emptyStageDistribution,
       focus: {
         bottleneckStage: '',
         compareBottleneckStage: '',
@@ -495,6 +532,7 @@ function getTocSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
       compareStages: funnelFlowCompare,
       managerConversionRows: [],
       stableLeaders: [],
+      stageDistribution: funnelStageDistribution,
       focus: {
         bottleneckStage: 'Проблематизация',
         compareBottleneckStage: 'Проблематизация',
@@ -896,11 +934,258 @@ function FunnelTocChart({
   )
 }
 
+function formatDistributionPercent(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0%'
+  }
+
+  if (value < 1) {
+    return '<1%'
+  }
+
+  return `${Math.round(value)}%`
+}
+
+function splitStageLabel(value: string) {
+  const label = value.trim()
+
+  if (label.length <= 18) {
+    return [label]
+  }
+
+  const hyphenIndex = label.indexOf('-')
+  if (hyphenIndex > 0 && hyphenIndex < label.length - 1) {
+    return [label.slice(0, hyphenIndex + 1), label.slice(hyphenIndex + 1)]
+  }
+
+  const words = label.split(' ')
+  if (words.length <= 1) {
+    return [label]
+  }
+
+  const midpoint = Math.ceil(words.length / 2)
+  return [words.slice(0, midpoint).join(' '), words.slice(midpoint).join(' ')]
+}
+
+function isSideDistributionStage(stage: string) {
+  return /корзин|возврат|отказ|проиг|утер|лидген/i.test(stage)
+}
+
+function buildDistributionPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  const distance = Math.max(80, Math.abs(to.x - from.x) * 0.42)
+
+  return [
+    `M ${from.x} ${from.y}`,
+    `C ${from.x + distance} ${from.y}`,
+    `${to.x - distance} ${to.y}`,
+    `${to.x} ${to.y}`,
+  ].join(' ')
+}
+
+function FunnelStageDistributionChart({
+  distribution,
+}: {
+  distribution: TocStageDistribution
+}) {
+  const nodes = [...distribution.nodes].sort((left, right) => left.sortOrder - right.sortOrder)
+  const nodeById = new Map(nodes.map((node) => [node.stageId, node]))
+  const edges = distribution.edges.filter((edge) => nodeById.has(edge.toStageId))
+  const visibleTransitions = edges
+    .filter((edge) => edge.fromStageId !== null)
+    .sort((left, right) => right.count - left.count)
+  const hasData = nodes.length > 0 && edges.length > 0
+
+  if (!hasData) {
+    return (
+      <section className="panel p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">
+              Распределение этапов воронки
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Фактические переходы по созданным сделкам за выбранный период.
+            </p>
+          </div>
+          <span className="badge-chip badge-neutral">ожидает stage-history</span>
+        </div>
+        <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-5 text-sm text-slate-500">
+          API пока не передал фактические переходы между этапами для этого отчета.
+        </div>
+      </section>
+    )
+  }
+
+  const nodeWidth = 156
+  const nodeHeight = 82
+  const sideLaneY = 244
+  const mainLaneTopY = 70
+  const mainLaneBottomY = 128
+  const chartWidth = Math.max(920, nodes.length * 190 + 80)
+  const chartHeight = 356
+  const maxCount = Math.max(...edges.map((edge) => edge.count), 1)
+  const colors = ['#2563eb', '#14b8a6', '#22c55e', '#f97316', '#8b5cf6', '#0f766e']
+  const nodePositions = new Map(
+    nodes.map((node, index) => {
+      const isSideStage = isSideDistributionStage(node.stage)
+
+      return [
+        node.stageId,
+        {
+          x: 48 + index * 184,
+          y: isSideStage ? sideLaneY : index % 2 === 0 ? mainLaneTopY : mainLaneBottomY,
+        },
+      ] as const
+    }),
+  )
+
+  return (
+    <section className="panel p-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">
+            Распределение этапов воронки
+          </h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Проценты считаются от фактического предыдущего этапа; пропущенные этапы не докидываются.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs font-medium text-slate-600">
+          <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1">
+            <span className="inline-flex h-2.5 w-8 rounded-full bg-blue-600" />
+            Фактический переход
+          </span>
+          <span className="rounded-full bg-white px-3 py-1">
+            Создано: {formatNumber(distribution.totalCreatedDeals)}
+          </span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white/65">
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          className="h-[360px] min-w-[920px]"
+          role="img"
+          aria-label="Распределение фактических переходов по стадиям воронки"
+          style={{ width: `${chartWidth}px` }}
+        >
+          <defs>
+            <filter id="stage-card-shadow" x="-20%" y="-20%" width="140%" height="150%">
+              <feDropShadow dx="0" dy="8" stdDeviation="7" floodColor="#0f172a" floodOpacity="0.12" />
+            </filter>
+          </defs>
+
+          {edges.map((edge, index) => {
+            const toPosition = nodePositions.get(edge.toStageId)
+            const fromPosition =
+              edge.fromStageId === null ? null : nodePositions.get(edge.fromStageId)
+
+            if (!toPosition) {
+              return null
+            }
+
+            const fromPoint = fromPosition
+              ? {
+                  x: fromPosition.x + nodeWidth,
+                  y: fromPosition.y + nodeHeight / 2,
+                }
+              : {
+                  x: 22,
+                  y: toPosition.y + nodeHeight / 2,
+                }
+            const toPoint = {
+              x: toPosition.x,
+              y: toPosition.y + nodeHeight / 2,
+            }
+            const strokeWidth = Math.max(4, Math.min(20, (edge.count / maxCount) * 20))
+
+            return (
+              <g key={edge.id}>
+                <path
+                  d={buildDistributionPath(fromPoint, toPoint)}
+                  fill="none"
+                  stroke={colors[index % colors.length]}
+                  strokeLinecap="round"
+                  strokeOpacity="0.36"
+                  strokeWidth={strokeWidth}
+                />
+              </g>
+            )
+          })}
+
+          {nodes.map((node) => {
+            const position = nodePositions.get(node.stageId)
+            if (!position) {
+              return null
+            }
+
+            const isSideStage = isSideDistributionStage(node.stage)
+            const labelLines = splitStageLabel(node.stage)
+
+            return (
+              <g key={node.stageId} transform={`translate(${position.x} ${position.y})`}>
+                <rect
+                  width={nodeWidth}
+                  height={nodeHeight}
+                  rx="14"
+                  fill={isSideStage ? '#fff7ed' : '#ffffff'}
+                  stroke={isSideStage ? '#fed7aa' : '#dbe3ef'}
+                  filter="url(#stage-card-shadow)"
+                />
+                {labelLines.map((line, lineIndex) => (
+                  <text
+                    key={`${node.stageId}-${line}`}
+                    x="16"
+                    y={22 + lineIndex * 15}
+                    fontSize="12"
+                    fontWeight="700"
+                    fill="#0f172a"
+                  >
+                    {line}
+                  </text>
+                ))}
+                <text x="16" y="58" fontSize="22" fontWeight="800" fill="#0f172a">
+                  {formatDistributionPercent(node.shareOfCreatedDeals)}
+                </text>
+                <text x="74" y="57" fontSize="11" fontWeight="700" fill="#64748b">
+                  {formatNumber(node.count)} сдел.
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+      </div>
+
+      {visibleTransitions.length > 0 ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {visibleTransitions.slice(0, 9).map((edge) => (
+            <div
+              key={`legend-${edge.id}`}
+              className="rounded-xl border border-slate-200 bg-slate-50/75 px-3 py-2 text-sm"
+            >
+              <div className="font-semibold text-slate-900">
+                {edge.fromStage} -&gt; {edge.toStage}
+              </div>
+              <div className="mt-1 text-xs font-medium text-slate-500">
+                {formatDistributionPercent(edge.conversionRate)} · {formatNumber(edge.count)} сдел.
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 export const managerOptions: PickerOption[] = [
   { id: '78', label: 'Егоров Андрей', meta: 'Менеджер' },
   { id: '11234', label: 'Ромашова Ольга', meta: 'Менеджер' },
   { id: '7824', label: 'Мусальникова Кристина', meta: 'Менеджер' },
   { id: '6994', label: 'Кузнецова Анастасия', meta: 'Менеджер' },
+  { id: '7814', label: 'Дарья Бычкова', meta: 'Менеджер' },
   { id: '72', label: 'Крохалева Мария', meta: 'Менеджер' },
   { id: '2236', label: 'Потапова Мария', meta: 'Менеджер' },
   { id: '2764', label: 'Каньков Вячеслав', meta: 'Менеджер' },
@@ -3296,6 +3581,8 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
           </div>
         </div>
       </section>
+
+      <FunnelStageDistributionChart distribution={sceneData.stageDistribution} />
 
       <section className="panel overflow-auto p-3">
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">

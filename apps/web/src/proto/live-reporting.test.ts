@@ -13,7 +13,7 @@ import {
 } from '@/proto/live-reporting'
 
 describe('live-reporting', () => {
-  it('builds a dashboard query from prototype filters', () => {
+  it('builds a dashboard query from prototype filters in the Bitrix business timezone', () => {
     const query = buildDashboardQueryFromProtoFilters({
       rangeStart: '2026-04-01',
       rangeEnd: '2026-04-30',
@@ -30,14 +30,14 @@ describe('live-reporting', () => {
 
     expect(query).toEqual({
       preset: 'custom',
-      from: '2026-04-01T00:00:00.000Z',
-      to: '2026-04-30T23:59:59.999Z',
+      from: '2026-04-01T00:00:00.000+03:00',
+      to: '2026-04-30T23:59:59.999+03:00',
       managerIds: ['7', '9'],
       sourceKeys: ['WEB', 'REFERRAL'],
       compareRanges: [
         {
-          from: '2026-03-01T00:00:00.000Z',
-          to: '2026-03-31T23:59:59.999Z',
+          from: '2026-03-01T00:00:00.000+03:00',
+          to: '2026-03-31T23:59:59.999+03:00',
         },
       ],
     })

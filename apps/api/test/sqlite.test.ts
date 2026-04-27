@@ -15,6 +15,53 @@ afterEach(() => {
 });
 
 describe("createSqliteRepository", () => {
+  it("finds a successful compatible scope when manager coverage expands", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    const oldScopeRunId = await repository.createSyncRun({
+      startedAt: "2026-04-26T21:00:00.000Z",
+      mode: "delta",
+      modifiedAfter: "2026-04-26T20:00:00.000Z",
+      scopeKey: "category:10:assigned:78"
+    });
+    await repository.finishSyncRun({
+      syncRunId: oldScopeRunId,
+      finishedAt: "2026-04-26T21:00:05.000Z",
+      status: "success",
+      leadsSynced: 0,
+      dealsSynced: 0,
+      modifiedAfter: "2026-04-26T20:00:00.000Z"
+    });
+    const failedExpandedRunId = await repository.createSyncRun({
+      startedAt: "2026-04-27T05:00:00.000Z",
+      mode: "full",
+      modifiedAfter: null,
+      scopeKey: "category:10:assigned:78,7814"
+    });
+    await repository.failSyncRun({
+      syncRunId: failedExpandedRunId,
+      finishedAt: "2026-04-27T05:15:00.000Z",
+      status: "failed"
+    });
+
+    await expect(
+      repository.getLatestSuccessfulScope(["10"], ["78", "7814"])
+    ).resolves.toEqual({
+      scopeKey: "category:10:assigned:78",
+      categoryIds: ["10"],
+      assignedByIds: ["78"]
+    });
+    await expect(
+      repository.getLatestSuccessfulScope(["10"], ["7814"])
+    ).resolves.toBe(null);
+  });
+
   it("rolls back snapshot writes when the transaction callback throws", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);
@@ -288,6 +335,7 @@ describe("createSqliteRepository", () => {
     expect(await repository.getDealMeetingDateFieldBootstrappedAt()).toBe(null);
     expect((await repository.getStageCatalog())[0]?.name).toBe("Won");
     expect(await repository.getDealIdsByCategoryIds(["1"])).toEqual(["D1"]);
+    expect(await repository.getDealIdsByCategoryIds(["1"], ["78"])).toEqual([]);
     expect(await repository.getActivitiesByIds(["A1"])).toEqual([
       {
         id: "A1",
@@ -403,6 +451,23 @@ describe("createSqliteRepository", () => {
         callFailedCode: null
       }
     ]);
+    await expect(repository.getSnapshotStats()).resolves.toEqual({
+      deals: 1,
+      activities: 2,
+      calls: 3,
+      stageHistory: 1
+    });
+    await expect(
+      repository.getSnapshotStats({
+        categoryIds: ["1"],
+        assignedByIds: ["78"]
+      })
+    ).resolves.toEqual({
+      deals: 0,
+      activities: 0,
+      calls: 0,
+      stageHistory: 0
+    });
     expect(await repository.getManagerDirectory()).toEqual([
       {
         id: "7",
@@ -459,6 +524,17 @@ describe("createSqliteRepository", () => {
         stream: "activity_history",
         providerId: "CRM_TODO",
         requiredFrom: "2026-02-01T00:00:00.000Z",
+        requiredSyncedAt: "2026-04-25T10:01:00.000Z",
+        algorithmVersion: "activity-bindings-v2"
+      })
+    ).resolves.toBe(false);
+    await expect(
+      repository.hasSyncCoverage({
+        scopeKey: "category:10",
+        stream: "activity_history",
+        providerId: "CRM_TODO",
+        requiredFrom: "2026-02-01T00:00:00.000Z",
+        requiredSyncedAt: "2026-04-25T09:59:00.000Z",
         algorithmVersion: "activity-bindings-v2"
       })
     ).resolves.toBe(true);

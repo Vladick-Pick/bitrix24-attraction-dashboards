@@ -9,6 +9,21 @@ const repository = createSqliteRepository({
   databaseUrl: env.DATABASE_URL,
   defaultWonStageIds: env.reportWonStageIds
 });
+const startupRecoveredAt = new Date().toISOString();
+await repository
+  .recoverStaleSyncRuns({
+    staleBefore: startupRecoveredAt,
+    failedAt: startupRecoveredAt,
+    diagnostics: ["SYNC_FAILED", "error=API_RESTART_RECOVERED_RUNNING_SYNC"]
+  })
+  .then((count) => {
+    if (count > 0) {
+      console.warn(
+        "sync.recovered_orphaned_runs",
+        JSON.stringify({ count, failedAt: startupRecoveredAt })
+      );
+    }
+  });
 const clientConfig = {
   timeoutMs: env.BITRIX24_TIMEOUT_MS,
   requestIntervalMs: env.BITRIX24_REQUEST_INTERVAL_MS,

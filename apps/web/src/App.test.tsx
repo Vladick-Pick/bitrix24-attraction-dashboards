@@ -213,6 +213,62 @@ vi.mock('@/lib/api-client', () => ({
             conversionRate: 30,
           },
         ],
+        routeNodes: [
+          {
+            step: 0,
+            stageId: 'CALL',
+            stageName: 'Звонок-знакомство',
+            sortOrder: 1,
+            dealCount: 10,
+            shareOfCreatedDeals: 100,
+          },
+          {
+            step: 1,
+            stageId: 'MEETING',
+            stageName: 'Встреча-знакомство',
+            sortOrder: 2,
+            dealCount: 5,
+            shareOfCreatedDeals: 50,
+          },
+          {
+            step: 1,
+            stageId: 'CALL',
+            stageName: 'Звонок-знакомство',
+            sortOrder: 1,
+            dealCount: 5,
+            shareOfCreatedDeals: 50,
+          },
+          {
+            step: 2,
+            stageId: 'CONTRACT',
+            stageName: 'Контрактация',
+            sortOrder: 3,
+            dealCount: 3,
+            shareOfCreatedDeals: 30,
+          },
+        ],
+        routeEdges: [
+          {
+            fromStep: 0,
+            fromStageId: 'CALL',
+            fromStageName: 'Звонок-знакомство',
+            toStep: 1,
+            toStageId: 'MEETING',
+            toStageName: 'Встреча-знакомство',
+            dealCount: 5,
+            conversionRate: 50,
+          },
+          {
+            fromStep: 1,
+            fromStageId: 'CALL',
+            fromStageName: 'Звонок-знакомство',
+            toStep: 2,
+            toStageId: 'CONTRACT',
+            toStageName: 'Контрактация',
+            dealCount: 3,
+            conversionRate: 60,
+          },
+        ],
       },
       comparisons: [],
     })),
@@ -307,13 +363,15 @@ describe('App', () => {
       throughput.compareDocumentPosition(distribution) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     expect(screen.getByText(/карта маршрутов/i)).toBeInTheDocument()
+    const routeMap = screen.getByRole('img', {
+      name: /визуальная карта фактических переходов/i,
+    })
+    expect(routeMap).toBeInTheDocument()
+    expect(Number.parseFloat(routeMap.style.width)).toBeGreaterThan(980)
+    expect(screen.getByText(/1-й этап/i)).toBeInTheDocument()
+    expect(screen.getByText(/2-й этап/i)).toBeInTheDocument()
     expect(
-      screen.getByRole('img', {
-        name: /визуальная карта фактических переходов/i,
-      }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/Звонок-знакомство -> Контрактация/i),
+      screen.getByText(/Звонок-знакомство -> Контрактация: 60% · 3 сдел/i),
     ).toBeInTheDocument()
   })
 })

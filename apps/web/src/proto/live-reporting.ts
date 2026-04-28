@@ -994,6 +994,26 @@ function mapStageDistribution(
       count: edge.dealCount,
       conversionRate: edge.conversionRate,
     })),
+    routeNodes: (distribution.routeNodes ?? []).map((node) => ({
+      id: `step-${node.step}-${node.stageId}`,
+      step: node.step,
+      stageId: node.stageId,
+      stage: node.stageName,
+      sortOrder: node.sortOrder,
+      count: node.dealCount,
+      shareOfCreatedDeals: node.shareOfCreatedDeals,
+    })),
+    routeEdges: (distribution.routeEdges ?? []).map((edge, index) => ({
+      id: `step-${edge.fromStep}-${edge.fromStageId}-${edge.toStep}-${edge.toStageId}-${index}`,
+      fromStep: edge.fromStep,
+      fromStageId: edge.fromStageId,
+      fromStage: edge.fromStageName,
+      toStep: edge.toStep,
+      toStageId: edge.toStageId,
+      toStage: edge.toStageName,
+      count: edge.dealCount,
+      conversionRate: edge.conversionRate,
+    })),
   }
 }
 

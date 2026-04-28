@@ -791,10 +791,32 @@ export interface TocStageDistributionEdge {
   conversionRate: number;
 }
 
+export interface TocStageDistributionRouteNode {
+  step: number;
+  stageId: string;
+  stageName: string;
+  sortOrder: number;
+  dealCount: number;
+  shareOfCreatedDeals: number;
+}
+
+export interface TocStageDistributionRouteEdge {
+  fromStep: number;
+  fromStageId: string;
+  fromStageName: string;
+  toStep: number;
+  toStageId: string;
+  toStageName: string;
+  dealCount: number;
+  conversionRate: number;
+}
+
 export interface TocStageDistribution {
   totalCreatedDeals: number;
   nodes: TocStageDistributionNode[];
   edges: TocStageDistributionEdge[];
+  routeNodes: TocStageDistributionRouteNode[];
+  routeEdges: TocStageDistributionRouteEdge[];
 }
 
 export interface TocFlowReportSnapshot {

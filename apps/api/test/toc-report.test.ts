@@ -264,6 +264,72 @@ describe("buildTocFlowReport", () => {
             dealCount: 1,
             conversionRate: 50
           }
+        ],
+        routeNodes: [
+          {
+            step: 0,
+            stageId: "C10:NEW",
+            stageName: "База входящая",
+            sortOrder: 10,
+            dealCount: 3,
+            shareOfCreatedDeals: 100
+          },
+          {
+            step: 1,
+            stageId: "C10:PREPARATION",
+            stageName: "Звонок-знакомство",
+            sortOrder: 20,
+            dealCount: 3,
+            shareOfCreatedDeals: 100
+          },
+          {
+            step: 2,
+            stageId: "C10:DEMO",
+            stageName: "Демонстрация",
+            sortOrder: 30,
+            dealCount: 2,
+            shareOfCreatedDeals: 66.67
+          },
+          {
+            step: 3,
+            stageId: "C10:WON",
+            stageName: "Успешно реализовано",
+            sortOrder: 40,
+            dealCount: 1,
+            shareOfCreatedDeals: 33.33
+          }
+        ],
+        routeEdges: [
+          {
+            fromStep: 0,
+            fromStageId: "C10:NEW",
+            fromStageName: "База входящая",
+            toStep: 1,
+            toStageId: "C10:PREPARATION",
+            toStageName: "Звонок-знакомство",
+            dealCount: 3,
+            conversionRate: 100
+          },
+          {
+            fromStep: 1,
+            fromStageId: "C10:PREPARATION",
+            fromStageName: "Звонок-знакомство",
+            toStep: 2,
+            toStageId: "C10:DEMO",
+            toStageName: "Демонстрация",
+            dealCount: 2,
+            conversionRate: 66.67
+          },
+          {
+            fromStep: 2,
+            fromStageId: "C10:DEMO",
+            fromStageName: "Демонстрация",
+            toStep: 3,
+            toStageId: "C10:WON",
+            toStageName: "Успешно реализовано",
+            dealCount: 1,
+            conversionRate: 50
+          }
         ]
       }
     });
@@ -428,7 +494,155 @@ describe("buildTocFlowReport", () => {
           dealCount: 1,
           conversionRate: 100
         }
+      ],
+      routeNodes: [
+        {
+          step: 0,
+          stageId: "C10:NEW",
+          stageName: "База входящая",
+          sortOrder: 10,
+          dealCount: 2,
+          shareOfCreatedDeals: 100
+        },
+        {
+          step: 1,
+          stageId: "C10:PREPARATION",
+          stageName: "Звонок-знакомство",
+          sortOrder: 20,
+          dealCount: 1,
+          shareOfCreatedDeals: 50
+        },
+        {
+          step: 1,
+          stageId: "C10:DEMO",
+          stageName: "Демонстрация",
+          sortOrder: 30,
+          dealCount: 1,
+          shareOfCreatedDeals: 50
+        },
+        {
+          step: 2,
+          stageId: "C10:DEMO",
+          stageName: "Демонстрация",
+          sortOrder: 30,
+          dealCount: 1,
+          shareOfCreatedDeals: 50
+        }
+      ],
+      routeEdges: [
+        {
+          fromStep: 0,
+          fromStageId: "C10:NEW",
+          fromStageName: "База входящая",
+          toStep: 1,
+          toStageId: "C10:PREPARATION",
+          toStageName: "Звонок-знакомство",
+          dealCount: 1,
+          conversionRate: 50
+        },
+        {
+          fromStep: 0,
+          fromStageId: "C10:NEW",
+          fromStageName: "База входящая",
+          toStep: 1,
+          toStageId: "C10:DEMO",
+          toStageName: "Демонстрация",
+          dealCount: 1,
+          conversionRate: 50
+        },
+        {
+          fromStep: 1,
+          fromStageId: "C10:PREPARATION",
+          fromStageName: "Звонок-знакомство",
+          toStep: 2,
+          toStageId: "C10:DEMO",
+          toStageName: "Демонстрация",
+          dealCount: 1,
+          conversionRate: 100
+        }
       ]
     });
+  });
+
+  it("calculates route transition rates from the visible source step", () => {
+    const result = buildTocFlowReport({
+      range,
+      deals: [
+        createDeal({
+          id: "1",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          dateCreate: "2026-04-01T09:00:00.000Z",
+          dateModify: "2026-04-03T09:00:00.000Z"
+        }),
+        createDeal({
+          id: "2",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          dateCreate: "2026-04-01T10:00:00.000Z",
+          dateModify: "2026-04-02T10:00:00.000Z"
+        }),
+        createDeal({
+          id: "3",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          dateCreate: "2026-04-01T11:00:00.000Z",
+          dateModify: "2026-04-03T11:00:00.000Z"
+        }),
+        createDeal({
+          id: "4",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          dateCreate: "2026-04-01T12:00:00.000Z",
+          dateModify: "2026-04-03T12:00:00.000Z"
+        })
+      ],
+      stageCatalog,
+      stageHistory: [
+        createHistory("H1", "1", "C10:NEW", "P", "2026-04-01T09:00:00.000Z"),
+        createHistory("H2", "1", "C10:LOSE", "F", "2026-04-02T09:00:00.000Z"),
+        createHistory("H3", "1", "C10:PREPARATION", "P", "2026-04-03T09:00:00.000Z"),
+        createHistory("H4", "2", "C10:NEW", "P", "2026-04-01T10:00:00.000Z"),
+        createHistory("H5", "2", "C10:LOSE", "F", "2026-04-02T10:00:00.000Z"),
+        createHistory("H6", "3", "C10:NEW", "P", "2026-04-01T11:00:00.000Z"),
+        createHistory("H7", "3", "C10:PREPARATION", "P", "2026-04-02T11:00:00.000Z"),
+        createHistory("H8", "3", "C10:LOSE", "F", "2026-04-03T11:00:00.000Z"),
+        createHistory("H9", "4", "C10:NEW", "P", "2026-04-01T12:00:00.000Z"),
+        createHistory("H10", "4", "C10:PREPARATION", "P", "2026-04-02T12:00:00.000Z"),
+        createHistory("H11", "4", "C10:LOSE", "F", "2026-04-03T12:00:00.000Z")
+      ]
+    });
+
+    const aggregateReturnToCall = result.stageDistribution?.edges.find(
+      (edge) =>
+        edge.fromStageId === "C10:LOSE" && edge.toStageId === "C10:PREPARATION"
+    );
+
+    expect(aggregateReturnToCall).toMatchObject({
+      dealCount: 1,
+      conversionRate: 25
+    });
+    expect((result.stageDistribution as any).routeNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          step: 1,
+          stageId: "C10:LOSE",
+          dealCount: 2,
+          shareOfCreatedDeals: 50
+        })
+      ])
+    );
+    expect((result.stageDistribution as any).routeEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fromStep: 1,
+          fromStageId: "C10:LOSE",
+          toStep: 2,
+          toStageId: "C10:PREPARATION",
+          dealCount: 1,
+          conversionRate: 50
+        })
+      ])
+    );
   });
 });

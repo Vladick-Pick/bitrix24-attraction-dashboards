@@ -1179,6 +1179,32 @@ function normalizeTocStageDistribution(value: unknown): TocStageDistribution | n
         conversionRate: asNumber(item.conversionRate),
       }
     }).filter((edge) => edge.toStageId || edge.toStageName),
+    routeNodes: asArray(value.routeNodes, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+
+      return {
+        step: asNumber(item.step),
+        stageId: asString(item.stageId),
+        stageName: asString(item.stageName, asString(item.stageId)),
+        sortOrder: asNumber(item.sortOrder),
+        dealCount: asNumber(item.dealCount),
+        shareOfCreatedDeals: asNumber(item.shareOfCreatedDeals),
+      }
+    }).filter((node) => node.stageId || node.stageName),
+    routeEdges: asArray(value.routeEdges, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+
+      return {
+        fromStep: asNumber(item.fromStep),
+        fromStageId: asString(item.fromStageId),
+        fromStageName: asString(item.fromStageName, asString(item.fromStageId)),
+        toStep: asNumber(item.toStep),
+        toStageId: asString(item.toStageId),
+        toStageName: asString(item.toStageName, asString(item.toStageId)),
+        dealCount: asNumber(item.dealCount),
+        conversionRate: asNumber(item.conversionRate),
+      }
+    }).filter((edge) => edge.fromStageId && edge.toStageId),
   }
 }
 

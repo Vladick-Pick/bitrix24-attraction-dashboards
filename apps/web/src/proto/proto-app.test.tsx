@@ -383,13 +383,13 @@ describe('ProtoApp', () => {
       comparisons: [],
     })
     vi.mocked(apiClient.getSalesPlan).mockResolvedValueOnce({
-      periodStart: '2026-04-06T00:00:00.000+03:00',
-      periodEnd: '2026-04-12T23:59:59.999+03:00',
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-04-30T23:59:59.999+03:00',
       updatedAt: '2026-04-10T12:00:00.000Z',
       rows: [
         {
-          periodStart: '2026-04-06T00:00:00.000+03:00',
-          periodEnd: '2026-04-12T23:59:59.999+03:00',
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-04-30T23:59:59.999+03:00',
           managerId: '78',
           managerName: 'Егоров Андрей',
           targetGroupKey: 'ClubFirst Russia',
@@ -403,17 +403,28 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp />)
 
+    await waitFor(() => {
+      expect(apiClient.getSalesPlan).toHaveBeenCalledWith({
+        from: '2026-04-01T00:00:00.000+03:00',
+        to: '2026-04-30T23:59:59.999+03:00',
+      })
+    })
+
     const planFactHeading = await screen.findByRole('heading', {
       name: /план \/ факт продаж/i,
     })
     const planFactSection = planFactHeading.closest('section')
     expect(planFactSection).not.toBeNull()
-    expect(within(planFactSection as HTMLElement).getByText('ClubFirst Russia')).toBeInTheDocument()
-    expect(within(planFactSection as HTMLElement).getAllByText('33%').length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(within(planFactSection as HTMLElement).getByText('ClubFirst Russia')).toBeInTheDocument()
+      expect(within(planFactSection as HTMLElement).getAllByText('33%').length).toBeGreaterThan(0)
+    })
 
     await userEvent.click(await screen.findByRole('button', { name: /^План продаж$/i }))
 
     expect(await screen.findByRole('heading', { name: /^План продаж$/i })).toBeInTheDocument()
+    expect(screen.getByLabelText('Месяц плана')).toHaveValue('2026-04')
+    expect(screen.getByLabelText('Таргет-группа 1').tagName).toBe('SELECT')
     const dealsInput = screen.getByLabelText('План сделок Егоров Андрей ClubFirst Russia')
     await userEvent.clear(dealsInput)
     await userEvent.type(dealsInput, '4')
@@ -421,8 +432,8 @@ describe('ProtoApp', () => {
 
     await waitFor(() => {
       expect(apiClient.saveSalesPlan).toHaveBeenCalledWith({
-        periodStart: '2026-04-20T00:00:00.000+03:00',
-        periodEnd: '2026-04-26T23:59:59.999+03:00',
+        periodStart: '2026-04-01T00:00:00.000+03:00',
+        periodEnd: '2026-04-30T23:59:59.999+03:00',
         rows: [
           {
             managerId: '78',
@@ -434,6 +445,88 @@ describe('ProtoApp', () => {
           },
         ],
       })
+    })
+  })
+
+  it('offers target-group choices for the first monthly plan even when the report slice is empty', async () => {
+    vi.mocked(apiClient.getSalesPlan).mockResolvedValueOnce({
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-04-30T23:59:59.999+03:00',
+      updatedAt: null,
+      rows: [],
+    })
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^План продаж$/i }))
+
+    const targetGroupSelect = await screen.findByLabelText('Таргет-группа 1')
+    expect(
+      within(targetGroupSelect).getByRole('option', { name: 'ClubFirst Russia' }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not allow saving the previous month plan while another month is loading', async () => {
+    let resolveNextPlan: (value: Awaited<ReturnType<typeof apiClient.getSalesPlan>>) => void =
+      () => undefined
+    const nextPlanPromise = new Promise<Awaited<ReturnType<typeof apiClient.getSalesPlan>>>(
+      (resolve) => {
+        resolveNextPlan = resolve
+      },
+    )
+
+    vi.mocked(apiClient.getSalesPlan)
+      .mockResolvedValueOnce({
+        periodStart: '2026-04-01T00:00:00.000+03:00',
+        periodEnd: '2026-04-30T23:59:59.999+03:00',
+        updatedAt: '2026-04-10T12:00:00.000Z',
+        rows: [
+          {
+            periodStart: '2026-04-01T00:00:00.000+03:00',
+            periodEnd: '2026-04-30T23:59:59.999+03:00',
+            managerId: '78',
+            managerName: 'Егоров Андрей',
+            targetGroupKey: 'ClubFirst Russia',
+            targetGroupLabel: 'ClubFirst Russia',
+            plannedDeals: 3,
+            plannedAmount: 2_500_000,
+            updatedAt: '2026-04-10T12:00:00.000Z',
+          },
+        ],
+      })
+      .mockImplementationOnce(async () => nextPlanPromise)
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^План продаж$/i }))
+    expect(
+      await screen.findByLabelText('План сделок Егоров Андрей ClubFirst Russia'),
+    ).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Месяц плана'), {
+      target: { value: '2026-05' },
+    })
+
+    await waitFor(() => {
+      expect(apiClient.getSalesPlan).toHaveBeenLastCalledWith({
+        from: '2026-05-01T00:00:00.000+03:00',
+        to: '2026-05-31T23:59:59.999+03:00',
+      })
+    })
+    expect(screen.getByRole('button', { name: /загружаю план/i })).toBeDisabled()
+    expect(
+      screen.queryByLabelText('План сделок Егоров Андрей ClubFirst Russia'),
+    ).not.toBeInTheDocument()
+
+    resolveNextPlan({
+      periodStart: '2026-05-01T00:00:00.000+03:00',
+      periodEnd: '2026-05-31T23:59:59.999+03:00',
+      updatedAt: null,
+      rows: [],
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /сохранить план/i })).toBeEnabled()
     })
   })
 

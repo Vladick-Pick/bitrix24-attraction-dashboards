@@ -32,6 +32,8 @@ interface StageStay {
 }
 
 type StageDistributionEdgeKey = `${string}->${string}`;
+type StageDistributionRouteNodeKey = `${number}->${string}`;
+type StageDistributionRouteEdgeKey = `${number}->${string}->${number}->${string}`;
 
 function isWithinRange(value: string | null, fromMs: number, toMs: number) {
   if (!value) {
@@ -173,6 +175,19 @@ function edgeKey(fromStageId: string | null, toStageId: string): StageDistributi
   return `${fromStageId ?? "CREATED"}->${toStageId}`;
 }
 
+function routeNodeKey(step: number, stageId: string): StageDistributionRouteNodeKey {
+  return `${step}->${stageId}`;
+}
+
+function routeEdgeKey(
+  fromStep: number,
+  fromStageId: string,
+  toStep: number,
+  toStageId: string
+): StageDistributionRouteEdgeKey {
+  return `${fromStep}->${fromStageId}->${toStep}->${toStageId}`;
+}
+
 function buildStageDistribution(input: {
   range: ReportRange;
   deals: DealSnapshot[];
@@ -188,6 +203,8 @@ function buildStageDistribution(input: {
   const totalCreatedDeals = createdDeals.length;
   const nodeDealIds = new Map<string, Set<string>>();
   const edgeDealIds = new Map<StageDistributionEdgeKey, Set<string>>();
+  const routeNodeDealIds = new Map<StageDistributionRouteNodeKey, Set<string>>();
+  const routeEdgeDealIds = new Map<StageDistributionRouteEdgeKey, Set<string>>();
 
   const addNode = (stageId: string, dealId: string) => {
     const dealIds = nodeDealIds.get(stageId) ?? new Set<string>();
@@ -200,6 +217,24 @@ function buildStageDistribution(input: {
     const dealIds = edgeDealIds.get(key) ?? new Set<string>();
     dealIds.add(dealId);
     edgeDealIds.set(key, dealIds);
+  };
+  const addRouteNode = (step: number, stageId: string, dealId: string) => {
+    const key = routeNodeKey(step, stageId);
+    const dealIds = routeNodeDealIds.get(key) ?? new Set<string>();
+    dealIds.add(dealId);
+    routeNodeDealIds.set(key, dealIds);
+  };
+  const addRouteEdge = (
+    fromStep: number,
+    fromStageId: string,
+    toStep: number,
+    toStageId: string,
+    dealId: string
+  ) => {
+    const key = routeEdgeKey(fromStep, fromStageId, toStep, toStageId);
+    const dealIds = routeEdgeDealIds.get(key) ?? new Set<string>();
+    dealIds.add(dealId);
+    routeEdgeDealIds.set(key, dealIds);
   };
 
   for (const deal of createdDeals) {
@@ -221,6 +256,14 @@ function buildStageDistribution(input: {
 
     for (let index = 0; index < path.length - 1; index += 1) {
       addEdge(path[index]!, path[index + 1]!, deal.id);
+    }
+
+    for (let step = 0; step < path.length; step += 1) {
+      addRouteNode(step, path[step]!, deal.id);
+
+      if (step < path.length - 1) {
+        addRouteEdge(step, path[step]!, step + 1, path[step + 1]!, deal.id);
+      }
     }
   }
 
@@ -284,10 +327,91 @@ function buildStageDistribution(input: {
       return left.toStageId.localeCompare(right.toStageId);
     });
 
+  const routeNodes = Array.from(routeNodeDealIds.entries())
+    .map(([key, dealIds]) => {
+      const [rawStep, stageId] = key.split("->");
+      const step = Number(rawStep);
+      const dealCount = dealIds.size;
+
+      return {
+        step,
+        stageId: stageId ?? "",
+        stageName: nameByStageId.get(stageId ?? "") ?? stageId ?? "",
+        sortOrder: sortOrderByStageId.get(stageId ?? "") ?? 0,
+        dealCount,
+        shareOfCreatedDeals:
+          totalCreatedDeals > 0
+            ? toRoundedNumber((dealCount / totalCreatedDeals) * 100)
+            : 0
+      };
+    })
+    .filter((node) => node.stageId && node.dealCount > 0)
+    .sort((left, right) => {
+      if (left.step !== right.step) {
+        return left.step - right.step;
+      }
+
+      return (
+        right.dealCount - left.dealCount ||
+        left.sortOrder - right.sortOrder ||
+        left.stageName.localeCompare(right.stageName)
+      );
+    });
+
+  const routeEdges = Array.from(routeEdgeDealIds.entries())
+    .map(([key, dealIds]) => {
+      const [rawFromStep, fromStageId, rawToStep, toStageId] = key.split("->");
+      const fromStep = Number(rawFromStep);
+      const toStep = Number(rawToStep);
+      const dealCount = dealIds.size;
+      const denominator =
+        routeNodeDealIds.get(routeNodeKey(fromStep, fromStageId ?? ""))?.size ?? 0;
+
+      return {
+        fromStep,
+        fromStageId: fromStageId ?? "",
+        fromStageName: nameByStageId.get(fromStageId ?? "") ?? fromStageId ?? "",
+        toStep,
+        toStageId: toStageId ?? "",
+        toStageName: nameByStageId.get(toStageId ?? "") ?? toStageId ?? "",
+        dealCount,
+        conversionRate:
+          denominator > 0 ? toRoundedNumber((dealCount / denominator) * 100) : 0
+      };
+    })
+    .filter(
+      (edge) =>
+        Number.isFinite(edge.fromStep) &&
+        Number.isFinite(edge.toStep) &&
+        edge.fromStageId &&
+        edge.toStageId &&
+        edge.dealCount > 0
+    )
+    .sort((left, right) => {
+      if (left.fromStep !== right.fromStep) {
+        return left.fromStep - right.fromStep;
+      }
+
+      const leftFromOrder = sortOrderByStageId.get(left.fromStageId) ?? 0;
+      const rightFromOrder = sortOrderByStageId.get(right.fromStageId) ?? 0;
+      if (leftFromOrder !== rightFromOrder) {
+        return leftFromOrder - rightFromOrder;
+      }
+
+      return (
+        right.dealCount - left.dealCount ||
+        (sortOrderByStageId.get(left.toStageId) ?? 0) -
+          (sortOrderByStageId.get(right.toStageId) ?? 0) ||
+        left.toStageName.localeCompare(right.toStageName)
+      );
+    });
+
   return {
     totalCreatedDeals,
     nodes,
-    edges
+    edges,
+    routeNodes,
+    routeEdges
   };
 }
 

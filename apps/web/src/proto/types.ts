@@ -195,10 +195,34 @@ export interface TocStageDistributionEdge {
   conversionRate: number
 }
 
+export interface TocStageDistributionRouteNode {
+  id: string
+  step: number
+  stageId: string
+  stage: string
+  sortOrder: number
+  count: number
+  shareOfCreatedDeals: number
+}
+
+export interface TocStageDistributionRouteEdge {
+  id: string
+  fromStep: number
+  fromStageId: string
+  fromStage: string
+  toStep: number
+  toStageId: string
+  toStage: string
+  count: number
+  conversionRate: number
+}
+
 export interface TocStageDistribution {
   totalCreatedDeals: number
   nodes: TocStageDistributionNode[]
   edges: TocStageDistributionEdge[]
+  routeNodes?: TocStageDistributionRouteNode[]
+  routeEdges?: TocStageDistributionRouteEdge[]
 }
 
 export interface TocFlowSceneData {
@@ -222,8 +246,11 @@ export interface SceneComponentProps {
   commentMode: boolean
   filters: ProtoFilterState
   runtimeData?: ProtoRuntimeData
+  salesPlanMonth?: string
+  salesPlanLoading?: boolean
   salesPlanSaving?: boolean
   salesPlanSaveError?: string | null
+  onSalesPlanMonthChange?: (month: string) => void
   onSalesPlanSave?: (rows: SalesPlanDraftRow[]) => Promise<void>
 }
 

@@ -1035,12 +1035,22 @@ function splitDistributionStageLabel(value: string) {
   return lines.slice(0, 2)
 }
 
-function getDistributionTransitionLabel(edge: TocStageDistribution['edges'][number]) {
+function getDistributionTransitionLabel(
+  edge: Pick<TocStageDistribution['edges'][number], 'fromStageId' | 'fromStage' | 'toStage'>,
+) {
   if (edge.fromStageId === null) {
     return `Старт выборки -> ${edge.toStage}`
   }
 
   return `${edge.fromStage} -> ${edge.toStage}`
+}
+
+function getDistributionStepLabel(step: number) {
+  if (step === 0) {
+    return 'Старт'
+  }
+
+  return `${step}-й этап`
 }
 
 function FunnelStageDistributionChart({
@@ -1078,130 +1088,311 @@ function FunnelStageDistributionChart({
     )
   }
 
-  const incomingByToStage = new Map<string, typeof edges>()
-  for (const edge of edges) {
-    const incoming = incomingByToStage.get(edge.toStageId) ?? []
-    incoming.push(edge)
-    incomingByToStage.set(edge.toStageId, incoming)
+  type StepVisualNode = {
+    id: string
+    stageId: string | null
+    stage: string
+    step: number
+    count: number
+    shareOfCreatedDeals: number
+    sortOrder: number
+  }
+  type StepVisualEdge = {
+    id: string
+    edge: TocStageDistribution['edges'][number]
+    fromVisualId: string
+    toVisualId: string
+    step: number
   }
 
-  const rankCache = new Map<string, number>()
-  function getNodeRank(stageId: string, seen = new Set<string>()): number {
-    const cached = rankCache.get(stageId)
-    if (cached !== undefined) {
-      return cached
-    }
+  let visualColumns: StepVisualNode[][] = []
+  let visualEdgeLinks: StepVisualEdge[] = []
+  const routeNodes = distribution.routeNodes ?? []
+  const routeEdges = distribution.routeEdges ?? []
 
-    const incoming = incomingByToStage.get(stageId) ?? []
-    let rank = 0
-    for (const edge of incoming) {
-      if (!edge.fromStageId || seen.has(edge.fromStageId)) {
+  if (routeNodes.length > 0 && routeEdges.length > 0) {
+    const routeColumnsByStep = new Map<number, StepVisualNode[]>()
+    const routeNodeByKey = new Map<string, StepVisualNode>()
+
+    for (const node of routeNodes) {
+      if (!node.stageId || node.count <= 0) {
         continue
       }
 
-      const nextSeen = new Set(seen)
-      nextSeen.add(stageId)
-      rank = Math.max(rank, getNodeRank(edge.fromStageId, nextSeen) + 1)
+      const visualNode: StepVisualNode = {
+        id: node.id,
+        stageId: node.stageId,
+        stage: node.stage,
+        step: node.step,
+        count: node.count,
+        shareOfCreatedDeals: node.shareOfCreatedDeals,
+        sortOrder: node.sortOrder,
+      }
+      const column = routeColumnsByStep.get(node.step) ?? []
+      column.push(visualNode)
+      routeColumnsByStep.set(node.step, column)
+      routeNodeByKey.set(`${node.step}->${node.stageId}`, visualNode)
     }
 
-    rankCache.set(stageId, rank)
-    return rank
+    visualColumns = Array.from(routeColumnsByStep.entries())
+      .sort(([leftStep], [rightStep]) => leftStep - rightStep)
+      .map(([, column]) =>
+        column.sort((left, right) => {
+          const byCount = right.count - left.count
+          const byTone = getDistributionToneOrder(left.stage) - getDistributionToneOrder(right.stage)
+          return byCount || byTone || left.sortOrder - right.sortOrder || left.stage.localeCompare(right.stage)
+        }),
+      )
+
+    visualEdgeLinks = routeEdges.flatMap((edge) => {
+      const fromNode = routeNodeByKey.get(`${edge.fromStep}->${edge.fromStageId}`)
+      const toNode = routeNodeByKey.get(`${edge.toStep}->${edge.toStageId}`)
+
+      if (!fromNode || !toNode) {
+        return []
+      }
+
+      return [
+        {
+          id: edge.id,
+          edge: {
+            id: edge.id,
+            fromStageId: edge.fromStageId,
+            fromStage: edge.fromStage,
+            toStageId: edge.toStageId,
+            toStage: edge.toStage,
+            count: edge.count,
+            conversionRate: edge.conversionRate,
+          },
+          fromVisualId: fromNode.id,
+          toVisualId: toNode.id,
+          step: edge.toStep,
+        },
+      ]
+    })
   }
 
-  const rankedNodes = nodes.map((node) => ({
-    ...node,
-    rank: getNodeRank(node.stageId),
-  }))
-  const rankGroups = Array.from(
-    rankedNodes
-      .reduce((groups, node) => {
-        const group = groups.get(node.rank) ?? []
-        group.push(node)
-        groups.set(node.rank, group)
-        return groups
-      }, new Map<number, typeof rankedNodes>())
-      .entries(),
-  )
-    .map(([rank, groupNodes]) => ({
-      rank,
-      nodes: groupNodes.sort((left, right) => {
-        const byTone = getDistributionToneOrder(left.stage) - getDistributionToneOrder(right.stage)
-        return byTone || left.sortOrder - right.sortOrder || left.stage.localeCompare(right.stage)
-      }),
-    }))
-    .sort((left, right) => left.rank - right.rank)
+  if (visualColumns.length === 0 || visualEdgeLinks.length === 0) {
+    const rootEdges = edges
+      .filter((edge) => edge.fromStageId === null)
+      .sort((left, right) => {
+        const leftStage = nodeById.get(left.toStageId)
+        const rightStage = nodeById.get(right.toStageId)
+
+        return right.count - left.count || (leftStage?.sortOrder ?? 0) - (rightStage?.sortOrder ?? 0)
+      })
+    const outgoingByStage = new Map<string, typeof edges>()
+    for (const edge of edges) {
+      if (!edge.fromStageId) {
+        continue
+      }
+
+      const outgoing = outgoingByStage.get(edge.fromStageId) ?? []
+      outgoing.push(edge)
+      outgoingByStage.set(edge.fromStageId, outgoing)
+    }
+    const rootAnchorEdge =
+      rootEdges.length === 1 &&
+      /база|входящ/i.test(rootEdges[0]?.toStage ?? '') &&
+      outgoingByStage.has(rootEdges[0]?.toStageId ?? '')
+        ? rootEdges[0]
+        : null
+    const rootNode: StepVisualNode = {
+      id: 'step-0-root',
+      stageId: rootAnchorEdge?.toStageId ?? null,
+      stage: rootAnchorEdge?.toStage ?? 'База входящая',
+      step: 0,
+      count: rootAnchorEdge?.count ?? distribution.totalCreatedDeals,
+      shareOfCreatedDeals: rootAnchorEdge?.conversionRate ?? 100,
+      sortOrder: rootAnchorEdge ? nodeById.get(rootAnchorEdge.toStageId)?.sortOrder ?? 0 : 0,
+    }
+
+    visualColumns = [[rootNode]]
+    visualEdgeLinks = []
+    const usedTransitionIds = new Set<string>()
+    let previousStepNodes: StepVisualNode[] = [rootNode]
+    const maxStepColumns = Math.min(6, nodes.length + 1)
+
+    for (let step = 1; step <= maxStepColumns; step += 1) {
+      const stepCandidates: Array<{
+        edge: (typeof edges)[number]
+        parentNode: StepVisualNode
+      }> = []
+
+      if (step === 1) {
+        const firstStepEdges = rootAnchorEdge?.toStageId
+          ? outgoingByStage.get(rootAnchorEdge.toStageId) ?? []
+          : rootEdges
+
+        for (const edge of firstStepEdges) {
+          if (usedTransitionIds.has(edge.id)) {
+            continue
+          }
+          stepCandidates.push({ edge, parentNode: rootNode })
+        }
+      } else {
+        for (const parentNode of previousStepNodes) {
+          if (!parentNode.stageId) {
+            continue
+          }
+
+          for (const edge of outgoingByStage.get(parentNode.stageId) ?? []) {
+            if (usedTransitionIds.has(edge.id)) {
+              continue
+            }
+            stepCandidates.push({ edge, parentNode })
+          }
+        }
+      }
+
+      if (stepCandidates.length === 0) {
+        break
+      }
+
+      const stepGroups = new Map<
+        string,
+        {
+          count: number
+          incoming: typeof stepCandidates
+        }
+      >()
+      for (const candidate of stepCandidates) {
+        const group = stepGroups.get(candidate.edge.toStageId) ?? {
+          count: 0,
+          incoming: [],
+        }
+        group.count += candidate.edge.count
+        group.incoming.push(candidate)
+        stepGroups.set(candidate.edge.toStageId, group)
+      }
+
+      const stepNodes = Array.from(stepGroups.entries())
+        .map(([stageId, group]) => {
+          const stageNode = nodeById.get(stageId)
+          return {
+            id: `step-${step}-${stageId}`,
+            stageId,
+            stage: stageNode?.stage ?? group.incoming[0]?.edge.toStage ?? stageId,
+            step,
+            count: group.count,
+            shareOfCreatedDeals:
+              distribution.totalCreatedDeals > 0 ? (group.count / distribution.totalCreatedDeals) * 100 : 0,
+            sortOrder: stageNode?.sortOrder ?? step,
+          } satisfies StepVisualNode
+        })
+        .sort((left, right) => {
+          const byCount = right.count - left.count
+          const byTone = getDistributionToneOrder(left.stage) - getDistributionToneOrder(right.stage)
+          return byCount || byTone || left.sortOrder - right.sortOrder || left.stage.localeCompare(right.stage)
+        })
+
+      if (stepNodes.length === 0) {
+        break
+      }
+
+      visualColumns.push(stepNodes)
+      const stepNodeByStageId = new Map(stepNodes.map((stepNode) => [stepNode.stageId, stepNode]))
+      for (const [stageId, group] of stepGroups.entries()) {
+        const toNode = stepNodeByStageId.get(stageId)
+        if (!toNode) {
+          continue
+        }
+
+        for (const incoming of group.incoming) {
+          if (usedTransitionIds.has(incoming.edge.id)) {
+            continue
+          }
+
+          usedTransitionIds.add(incoming.edge.id)
+          visualEdgeLinks.push({
+            id: `step-${step}-${incoming.parentNode.id}-${incoming.edge.id}`,
+            edge: incoming.edge,
+            fromVisualId: incoming.parentNode.id,
+            toVisualId: toNode.id,
+            step,
+          })
+        }
+      }
+
+      previousStepNodes = stepNodes
+    }
+  }
 
   const nodeWidth = 178
   const nodeHeight = 92
-  const columnGap = 126
-  const rowGap = 34
+  const columnGap = 190
+  const rowGap = 58
   const paddingX = 50
-  const paddingY = 42
-  const maxRows = Math.max(...rankGroups.map((group) => group.nodes.length), 1)
-  const maxRank = Math.max(...rankGroups.map((group) => group.rank), 0)
-  const chartWidth = paddingX * 2 + (maxRank + 1) * nodeWidth + maxRank * columnGap
-  const chartHeight = Math.max(430, paddingY * 2 + maxRows * nodeHeight + (maxRows - 1) * rowGap)
+  const columnTopY = 82
+  const chartBottomPadding = 56
+  const maxRows = Math.max(...visualColumns.map((column) => column.length), 1)
+  const chartWidth =
+    paddingX * 2 + visualColumns.length * nodeWidth + (visualColumns.length - 1) * columnGap
+  const chartHeight = Math.max(
+    430,
+    columnTopY + maxRows * nodeHeight + (maxRows - 1) * rowGap + chartBottomPadding,
+  )
   const layoutNodes = new Map<
     string,
-    (typeof rankedNodes)[number] & { x: number; y: number; width: number; height: number }
+    StepVisualNode & { x: number; y: number; width: number; height: number }
   >()
 
-  for (const group of rankGroups) {
-    const groupHeight = group.nodes.length * nodeHeight + (group.nodes.length - 1) * rowGap
-    const startY = (chartHeight - groupHeight) / 2
+  visualColumns.forEach((columnNodes, columnIndex) => {
+    const firstStepHeight =
+      (visualColumns[1]?.length ?? 0) > 0
+        ? (visualColumns[1]?.length ?? 0) * nodeHeight +
+          ((visualColumns[1]?.length ?? 1) - 1) * rowGap
+        : nodeHeight
+    const startY =
+      columnIndex === 0
+        ? columnTopY + Math.min(180, Math.max(0, (firstStepHeight - nodeHeight) / 2))
+        : columnTopY
 
-    group.nodes.forEach((node, index) => {
-      const tone = getDistributionStageTone(node.stage)
-      const singleNodeY =
-        tone === 'loss'
-          ? chartHeight - paddingY - nodeHeight - (group.rank % 2) * 20
-          : paddingY + 26 + (tone === 'process' ? (group.rank % 2) * 74 : 0)
-
-      layoutNodes.set(node.stageId, {
+    columnNodes.forEach((node, index) => {
+      layoutNodes.set(node.id, {
         ...node,
-        x: paddingX + group.rank * (nodeWidth + columnGap),
-        y: group.nodes.length === 1 ? singleNodeY : startY + index * (nodeHeight + rowGap),
+        x: paddingX + columnIndex * (nodeWidth + columnGap),
+        y: startY + index * (nodeHeight + rowGap),
         width: nodeWidth,
         height: nodeHeight,
       })
     })
-  }
+  })
 
-  const maxEdgeCount = Math.max(...edges.map((edge) => edge.count), 1)
-  const visualEdges = edges.flatMap((edge) => {
-    const toNode = layoutNodes.get(edge.toStageId)
-    const fromNode = edge.fromStageId ? layoutNodes.get(edge.fromStageId) : null
-    if (!toNode) {
+  const maxEdgeCount = Math.max(...visualEdgeLinks.map((link) => link.edge.count), 1)
+  const visualEdges = visualEdgeLinks.flatMap((link) => {
+    const fromNode = layoutNodes.get(link.fromVisualId)
+    const toNode = layoutNodes.get(link.toVisualId)
+    if (!fromNode || !toNode) {
       return []
     }
 
-    const fromX = fromNode ? fromNode.x + fromNode.width : toNode.x - 68
-    const fromY = fromNode ? fromNode.y + fromNode.height / 2 : toNode.y + toNode.height / 2
+    const fromX = fromNode.x + fromNode.width
+    const fromY = fromNode.y + fromNode.height / 2
     const toX = toNode.x
     const toY = toNode.y + toNode.height / 2
-    const direction = toX >= fromX ? 1 : -1
-    const curve = Math.max(64, Math.abs(toX - fromX) * 0.44)
+    const curve = Math.max(84, Math.abs(toX - fromX) * 0.5)
 
     return [
       {
-        edge,
+        edge: link.edge,
         fromX,
         fromY,
         labelX: fromX + (toX - fromX) * 0.54,
         labelY: fromY + (toY - fromY) * 0.54,
         path: [
           `M ${fromX} ${fromY}`,
-          `C ${fromX + curve * direction} ${fromY}`,
-          `${toX - curve * direction} ${toY}`,
+          `C ${fromX + curve} ${fromY}`,
+          `${toX - curve} ${toY}`,
           `${toX} ${toY}`,
         ].join(' '),
-        strokeWidth: Math.max(5, Math.min(24, (edge.count / maxEdgeCount) * 24)),
+        strokeWidth: Math.max(5, Math.min(24, (link.edge.count / maxEdgeCount) * 24)),
         toNode,
       },
     ]
   })
   const drawnEdges = [...visualEdges].sort((left, right) => right.edge.count - left.edge.count)
-  const labeledEdges = visualEdges.filter((edge) => edge.edge.fromStageId !== null)
+  const labeledEdges = visualEdges
 
   return (
     <section className="panel p-4">
@@ -1247,6 +1438,26 @@ function FunnelStageDistributionChart({
               </filter>
             </defs>
 
+            {visualColumns.map((column, columnIndex) => {
+              const x = paddingX + columnIndex * (nodeWidth + columnGap)
+              return (
+                <g key={`column-${columnIndex}`}>
+                  <line
+                    x1={x + nodeWidth / 2}
+                    y1="36"
+                    x2={x + nodeWidth / 2}
+                    y2={chartHeight - 18}
+                    stroke="#e2e8f0"
+                    strokeDasharray="4 12"
+                    strokeWidth="1"
+                  />
+                  <text x={x} y="24" fontSize="12" fontWeight="800" fill="#64748b">
+                    {getDistributionStepLabel(column[0]?.step ?? columnIndex)}
+                  </text>
+                </g>
+              )
+            })}
+
             {drawnEdges.map((visualEdge) => {
               const tone = getDistributionSvgTone(visualEdge.edge.toStage)
               return (
@@ -1256,7 +1467,7 @@ function FunnelStageDistributionChart({
                   fill="none"
                   stroke={tone.ribbon}
                   strokeLinecap="round"
-                  strokeOpacity={visualEdge.edge.fromStageId === null ? 0.22 : 0.34}
+                  strokeOpacity={visualEdge.edge.fromStageId === null ? 0.2 : 0.28}
                   strokeWidth={visualEdge.strokeWidth}
                 />
               )
@@ -1266,7 +1477,7 @@ function FunnelStageDistributionChart({
               const tone = getDistributionSvgTone(visualEdge.edge.toStage)
               const label = formatDistributionPercent(visualEdge.edge.conversionRate)
               const labelWidth = Math.max(42, label.length * 9 + 18)
-              const offsetY = ((index % 3) - 1) * 12
+              const offsetY = ((index % 5) - 2) * 13
 
               return (
                 <g
@@ -1301,7 +1512,7 @@ function FunnelStageDistributionChart({
               const percentY = labelLines.length > 1 ? 62 : 58
 
               return (
-                <g key={node.stageId} transform={`translate(${node.x} ${node.y})`}>
+                <g key={node.id} transform={`translate(${node.x} ${node.y})`}>
                   <rect
                     width={node.width}
                     height={node.height}
@@ -1322,7 +1533,7 @@ function FunnelStageDistributionChart({
                   />
                   {labelLines.map((line, index) => (
                     <text
-                      key={`${node.stageId}-${line}`}
+                      key={`${node.id}-${line}`}
                       x="14"
                       y={24 + index * 15}
                       fontSize="12"
@@ -1346,14 +1557,12 @@ function FunnelStageDistributionChart({
       </div>
 
       <ul className="sr-only">
-        {edges
-          .filter((edge) => edge.fromStageId !== null)
-          .map((edge) => (
-            <li key={`route-text-${edge.id}`}>
-              {getDistributionTransitionLabel(edge)}: {formatDistributionPercent(edge.conversionRate)} ·{' '}
-              {formatNumber(edge.count)} сдел.
-            </li>
-          ))}
+        {visualEdgeLinks.map((link) => (
+          <li key={`route-text-${link.id}`}>
+            {getDistributionTransitionLabel(link.edge)}: {formatDistributionPercent(link.edge.conversionRate)} ·{' '}
+            {formatNumber(link.edge.count)} сдел.
+          </li>
+        ))}
       </ul>
     </section>
   )
@@ -1770,6 +1979,33 @@ type EditableSalesPlanRow = SalesPlanDraftRow & {
   localId: string
 }
 
+const defaultSalesPlanTargetGroups = [
+  'ClubFirst Russia',
+  'ClubFirst Future',
+  'ClubFirst One',
+  'ClubFirst Guest',
+  'ClubFirst Ladies',
+  'ClubFirst GlobAll',
+  'ClubFirst Kazakstan',
+  'Атланты',
+  'Маркетплейсы',
+  'CTU',
+].map((label) => ({ key: label, label }))
+
+function addSalesPlanTargetGroupOption(
+  options: Map<string, string>,
+  key: string | null | undefined,
+  label = key,
+) {
+  const normalizedKey = key?.trim()
+  const normalizedLabel = label?.trim()
+  if (!normalizedKey || !normalizedLabel) {
+    return
+  }
+
+  options.set(normalizedKey, normalizedLabel)
+}
+
 function resolveDealTargetGroup(deal: SalesDealRow) {
   const value = deal.targetGroupValue?.trim() || deal.businessClubValue?.trim()
 
@@ -1954,6 +2190,7 @@ function SalesPlanFactSection({
 function toEditableSalesPlanRows(
   salesPlan: SalesPlanData | undefined,
   managers: PickerOption[],
+  targetGroups: Array<{ key: string; label: string }> = [],
 ): EditableSalesPlanRow[] {
   if (salesPlan?.rows.length) {
     return salesPlan.rows.map((row, index) => ({
@@ -1968,13 +2205,14 @@ function toEditableSalesPlanRows(
   }
 
   const firstManager = managers[0]
+  const firstTargetGroup = targetGroups[0]
   return [
     {
       localId: crypto.randomUUID(),
       managerId: firstManager?.id ?? '',
       managerName: firstManager?.label ?? null,
-      targetGroupKey: '',
-      targetGroupLabel: '',
+      targetGroupKey: firstTargetGroup?.key ?? '',
+      targetGroupLabel: firstTargetGroup?.label ?? '',
       plannedDeals: 0,
       plannedAmount: 0,
     },
@@ -1984,18 +2222,37 @@ function toEditableSalesPlanRows(
 function collectTargetGroupOptions(
   dashboard: DashboardData | undefined,
   salesPlan: SalesPlanData | undefined,
+  acquisitionOutcomes: AcquisitionOutcomesReport | undefined,
+  targetGroupConversion: TargetGroupConversionReport | undefined,
 ) {
   const options = new Map<string, string>()
 
+  for (const targetGroup of defaultSalesPlanTargetGroups) {
+    addSalesPlanTargetGroupOption(options, targetGroup.key, targetGroup.label)
+  }
+
   for (const planRow of salesPlan?.rows ?? []) {
-    options.set(planRow.targetGroupKey, planRow.targetGroupLabel)
+    addSalesPlanTargetGroupOption(options, planRow.targetGroupKey, planRow.targetGroupLabel)
   }
 
   for (const group of dashboard?.managerGroups ?? []) {
     for (const deal of group.deals) {
       const targetGroup = resolveDealTargetGroup(deal)
-      options.set(targetGroup.key, targetGroup.label)
+      addSalesPlanTargetGroupOption(options, targetGroup.key, targetGroup.label)
     }
+  }
+
+  for (const managerRow of acquisitionOutcomes?.businessClubByManager ?? []) {
+    for (const club of managerRow.businessClubs) {
+      addSalesPlanTargetGroupOption(options, club.businessClubKey, club.businessClubLabel)
+    }
+    for (const targetGroup of managerRow.targetGroups) {
+      addSalesPlanTargetGroupOption(options, targetGroup.targetGroupKey, targetGroup.targetGroupLabel)
+    }
+  }
+
+  for (const row of targetGroupConversion?.rows ?? []) {
+    addSalesPlanTargetGroupOption(options, row.targetGroupKey, row.targetGroupLabel)
   }
 
   return Array.from(options.entries())
@@ -2005,24 +2262,39 @@ function collectTargetGroupOptions(
 
 function SalesPlanScene({
   runtimeData,
+  salesPlanMonth,
+  salesPlanLoading,
   salesPlanSaving,
   salesPlanSaveError,
+  onSalesPlanMonthChange,
   onSalesPlanSave,
 }: SceneComponentProps) {
   const managers =
     runtimeData?.managerOptions.length ? runtimeData.managerOptions : managerOptions
   const salesPlan = runtimeData?.salesPlan
+  const isPlanLocked = Boolean(salesPlanLoading || salesPlanSaving)
   const targetGroups = useMemo(
-    () => collectTargetGroupOptions(runtimeData?.salesDashboard, salesPlan),
-    [runtimeData?.salesDashboard, salesPlan],
+    () =>
+      collectTargetGroupOptions(
+        runtimeData?.salesDashboard,
+        salesPlan,
+        runtimeData?.acquisitionOutcomes,
+        runtimeData?.targetGroupConversion,
+      ),
+    [
+      runtimeData?.salesDashboard,
+      runtimeData?.acquisitionOutcomes,
+      runtimeData?.targetGroupConversion,
+      salesPlan,
+    ],
   )
   const [rows, setRows] = useState<EditableSalesPlanRow[]>(() =>
-    toEditableSalesPlanRows(salesPlan, managers),
+    toEditableSalesPlanRows(salesPlan, managers, targetGroups),
   )
 
   useEffect(() => {
-    setRows(toEditableSalesPlanRows(salesPlan, managers))
-  }, [salesPlan, managers])
+    setRows(toEditableSalesPlanRows(salesPlan, managers, targetGroups))
+  }, [salesPlan, managers, targetGroups])
 
   function patchRow(localId: string, patch: Partial<EditableSalesPlanRow>) {
     setRows((current) =>
@@ -2059,7 +2331,14 @@ function SalesPlanScene({
     await onSalesPlanSave(
       rows
         .map((row) => {
-          const targetGroupLabel = (row.targetGroupLabel ?? row.targetGroupKey).trim()
+          const selectedTargetGroup = targetGroups.find(
+            (targetGroup) => targetGroup.key === row.targetGroupKey,
+          )
+          const targetGroupLabel = (
+            selectedTargetGroup?.label ??
+            row.targetGroupLabel ??
+            row.targetGroupKey
+          ).trim()
           const managerName =
             managers.find((manager) => manager.id === row.managerId)?.label ??
             row.managerName ??
@@ -2090,10 +2369,27 @@ function SalesPlanScene({
         description="План по количеству и сумме продаж в разрезе менеджера и таргет-группы/клуба заказчика. Сохраненные строки используются в отчете по продажам."
         right={
           <span className="badge-chip badge-neutral">
-            {salesPlan?.updatedAt ? `сохранено ${formatShortDate(salesPlan.updatedAt)}` : 'план не сохранен'}
+            {salesPlanLoading
+              ? 'загрузка плана'
+              : salesPlan?.updatedAt
+                ? `сохранено ${formatShortDate(salesPlan.updatedAt)}`
+                : 'план не сохранен'}
           </span>
         }
       />
+
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="subtle-label">Месяц плана</span>
+          <input
+            className="field w-44"
+            type="month"
+            aria-label="Месяц плана"
+            value={salesPlanMonth ?? ''}
+            onChange={(event) => onSalesPlanMonthChange?.(event.target.value)}
+          />
+        </label>
+      </div>
 
       {salesPlanSaveError ? (
         <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -2118,7 +2414,11 @@ function SalesPlanScene({
                 managers.find((manager) => manager.id === row.managerId)?.label ??
                 row.managerName ??
                 row.managerId
-              const targetGroupLabel = row.targetGroupLabel ?? row.targetGroupKey
+              const targetGroupOption = targetGroups.find(
+                (targetGroup) => targetGroup.key === row.targetGroupKey,
+              )
+              const targetGroupLabel =
+                targetGroupOption?.label ?? row.targetGroupLabel ?? row.targetGroupKey
               const fieldSuffix = `${managerName} ${targetGroupLabel}`.trim()
 
               return (
@@ -2128,6 +2428,7 @@ function SalesPlanScene({
                       className="field min-w-[210px]"
                       aria-label={`Менеджер ${index + 1}`}
                       value={row.managerId}
+                      disabled={isPlanLocked}
                       onChange={(event) => {
                         const manager = managers.find((entry) => entry.id === event.target.value)
                         patchRow(row.localId, {
@@ -2144,18 +2445,34 @@ function SalesPlanScene({
                     </select>
                   </td>
                   <td className="px-3 py-3">
-                    <input
+                    <select
                       className="field min-w-[240px]"
-                      list="sales-plan-target-groups"
                       aria-label={`Таргет-группа ${index + 1}`}
-                      value={targetGroupLabel}
-                      onChange={(event) =>
+                      value={row.targetGroupKey}
+                      disabled={isPlanLocked}
+                      onChange={(event) => {
+                        const targetGroup = targetGroups.find(
+                          (entry) => entry.key === event.target.value,
+                        )
                         patchRow(row.localId, {
                           targetGroupKey: event.target.value,
-                          targetGroupLabel: event.target.value,
+                          targetGroupLabel: targetGroup?.label ?? event.target.value,
                         })
-                      }
-                    />
+                      }}
+                    >
+                      {targetGroups.length === 0 ? (
+                        <option value="">Нет таргет-групп</option>
+                      ) : (
+                        <option value="" disabled>
+                          Выберите таргет-группу
+                        </option>
+                      )}
+                      {targetGroups.map((targetGroup) => (
+                        <option key={targetGroup.key} value={targetGroup.key}>
+                          {targetGroup.label}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-3 py-3">
                     <input
@@ -2164,6 +2481,7 @@ function SalesPlanScene({
                       min={0}
                       aria-label={`План сделок ${fieldSuffix}`}
                       value={row.plannedDeals}
+                      disabled={isPlanLocked}
                       onChange={(event) =>
                         patchRow(row.localId, {
                           plannedDeals: Math.max(0, Number(event.target.value) || 0),
@@ -2179,6 +2497,7 @@ function SalesPlanScene({
                       step={1000}
                       aria-label={`План суммы ${fieldSuffix}`}
                       value={row.plannedAmount}
+                      disabled={isPlanLocked}
                       onChange={(event) =>
                         patchRow(row.localId, {
                           plannedAmount: Math.max(0, Number(event.target.value) || 0),
@@ -2191,7 +2510,7 @@ function SalesPlanScene({
                       type="button"
                       className="btn btn-ghost"
                       onClick={() => removeRow(row.localId)}
-                      disabled={rows.length === 1}
+                      disabled={isPlanLocked || rows.length === 1}
                     >
                       Удалить
                     </button>
@@ -2203,23 +2522,17 @@ function SalesPlanScene({
         </table>
       </div>
 
-      <datalist id="sales-plan-target-groups">
-        {targetGroups.map((targetGroup) => (
-          <option key={targetGroup.key} value={targetGroup.label} />
-        ))}
-      </datalist>
-
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" className="btn btn-ghost" onClick={addRow}>
+        <button type="button" className="btn btn-ghost" onClick={addRow} disabled={isPlanLocked}>
           Добавить строку
         </button>
         <button
           type="button"
           className="btn btn-primary"
           onClick={() => void saveRows()}
-          disabled={salesPlanSaving}
+          disabled={isPlanLocked}
         >
-          {salesPlanSaving ? 'Сохраняю...' : 'Сохранить план'}
+          {salesPlanLoading ? 'Загружаю план...' : salesPlanSaving ? 'Сохраняю...' : 'Сохранить план'}
         </button>
       </div>
     </section>

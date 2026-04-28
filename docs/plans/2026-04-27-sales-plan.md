@@ -60,3 +60,17 @@
 2. Add editable `План продаж` scene.
 3. Add plan/fact summary to `Отчет по продажам`.
 4. Test that the new tab renders and saved plan appears in sales comparison.
+
+### Task 5: Monthly Planning UX
+
+**Files:**
+- Modify: `apps/web/src/proto/proto-app.tsx`
+- Modify: `apps/web/src/proto/scenes.tsx`
+- Modify: `apps/web/src/proto/types.ts`
+- Modify: `apps/web/src/proto/proto-app.test.tsx`
+
+**Steps:**
+1. Keep sales-plan period as an explicit calendar month independent from the report filter range.
+2. Load and save plan rows by Moscow month boundaries.
+3. Replace free-form target-group entry with a controlled dropdown populated from saved plan rows, actual target/customer-club values, and the baseline known clubs.
+4. Clear and lock the plan editor while a newly selected month is loading so rows from one month cannot be saved into another month.

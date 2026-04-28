@@ -277,7 +277,9 @@ vi.mock('@/lib/api-client', () => ({
     getRevenueVelocityReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       asOf: '2026-05-15T00:00:00.000Z',
+      previousAsOf: '2026-03-31T23:59:59.999Z',
       dimension: 'manager',
+      view: 'systemState',
       actionWeights: {
         connectedCallOverThirtySeconds: 1,
         meeting: 3,
@@ -286,6 +288,7 @@ vi.mock('@/lib/api-client', () => ({
       },
       totals: {
         dimension: 'manager',
+        view: 'systemState',
         key: 'total',
         label: 'Итого',
         managerId: null,
@@ -305,6 +308,24 @@ vi.mock('@/lib/api-client', () => ({
         averageCycleDays: 15,
         medianCycleDays: 15,
         revenueVelocityPerDay: 20000,
+        activePipelineAmount: 500000,
+        expectedPipelineAmount: 420000,
+        previousExpectedPipelineAmount: 300000,
+        expectedPipelineDelta: 120000,
+        liveRevenueVelocity: 20000,
+        previousLiveRevenueVelocity: 12000,
+        velocityDelta: 8000,
+        velocityDeltaPercent: 0.67,
+        averageRemainingDays: 21,
+        realizedWonAmountInPeriod: 300000,
+        wonDealsInPeriod: 2,
+        lostDealsInPeriod: 1,
+        systemValueCreated: 420000,
+        actionPointsDelta: 5,
+        systemValuePerActionPoint: 27096.77,
+        realizedMoneyPerActionPoint: 19354.84,
+        historicalMoneyPerActionPoint: 18000,
+        estimatedFutureMoneyFromPeriodActions: 279000,
         actions: {
           totalCalls: 9,
           connectedCallsOverThirtySeconds: 4,
@@ -333,6 +354,7 @@ vi.mock('@/lib/api-client', () => ({
       rows: [
         {
           dimension: 'manager',
+          view: 'systemState',
           key: 'slow',
           label: 'Медленная строка',
           managerId: '91',
@@ -352,6 +374,24 @@ vi.mock('@/lib/api-client', () => ({
           averageCycleDays: 25,
           medianCycleDays: 25,
           revenueVelocityPerDay: 2000,
+          activePipelineAmount: 100000,
+          expectedPipelineAmount: 50000,
+          previousExpectedPipelineAmount: 60000,
+          expectedPipelineDelta: -10000,
+          liveRevenueVelocity: 2000,
+          previousLiveRevenueVelocity: 3000,
+          velocityDelta: -1000,
+          velocityDeltaPercent: -0.33,
+          averageRemainingDays: 25,
+          realizedWonAmountInPeriod: 50000,
+          wonDealsInPeriod: 1,
+          lostDealsInPeriod: 0,
+          systemValueCreated: 40000,
+          actionPointsDelta: 1,
+          systemValuePerActionPoint: 8888.89,
+          realizedMoneyPerActionPoint: 11111.11,
+          historicalMoneyPerActionPoint: 12000,
+          estimatedFutureMoneyFromPeriodActions: 54000,
           actions: {
             totalCalls: 2,
             connectedCallsOverThirtySeconds: 1,
@@ -377,6 +417,7 @@ vi.mock('@/lib/api-client', () => ({
         },
         {
           dimension: 'manager',
+          view: 'systemState',
           key: 'fast',
           label: 'Быстрая строка',
           managerId: '78',
@@ -396,6 +437,24 @@ vi.mock('@/lib/api-client', () => ({
           averageCycleDays: 12,
           medianCycleDays: 12,
           revenueVelocityPerDay: 20833.33,
+          activePipelineAmount: 400000,
+          expectedPipelineAmount: 370000,
+          previousExpectedPipelineAmount: 240000,
+          expectedPipelineDelta: 130000,
+          liveRevenueVelocity: 20833.33,
+          previousLiveRevenueVelocity: 9000,
+          velocityDelta: 11833.33,
+          velocityDeltaPercent: 1.31,
+          averageRemainingDays: 18,
+          realizedWonAmountInPeriod: 250000,
+          wonDealsInPeriod: 1,
+          lostDealsInPeriod: 1,
+          systemValueCreated: 380000,
+          actionPointsDelta: 4,
+          systemValuePerActionPoint: 34545.45,
+          realizedMoneyPerActionPoint: 22727.27,
+          historicalMoneyPerActionPoint: 20000,
+          estimatedFutureMoneyFromPeriodActions: 220000,
           actions: {
             totalCalls: 7,
             connectedCallsOverThirtySeconds: 3,
@@ -479,7 +538,9 @@ function createEmptyRevenueVelocityReport(
   const base: RevenueVelocityReport = {
     range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
     asOf: '2026-05-15T00:00:00.000Z',
+    previousAsOf: '2026-03-31T23:59:59.999Z',
     dimension: 'manager',
+    view: 'systemState',
     actionWeights: {
       connectedCallOverThirtySeconds: 1,
       meeting: 3,
@@ -488,6 +549,7 @@ function createEmptyRevenueVelocityReport(
     },
     totals: {
       dimension: 'manager',
+      view: 'systemState',
       key: 'total',
       label: 'Итого',
       createdDeals: 0,
@@ -501,6 +563,24 @@ function createEmptyRevenueVelocityReport(
       averageCycleDays: null,
       medianCycleDays: null,
       revenueVelocityPerDay: null,
+      activePipelineAmount: 0,
+      expectedPipelineAmount: 0,
+      previousExpectedPipelineAmount: null,
+      expectedPipelineDelta: null,
+      liveRevenueVelocity: null,
+      previousLiveRevenueVelocity: null,
+      velocityDelta: null,
+      velocityDeltaPercent: null,
+      averageRemainingDays: null,
+      realizedWonAmountInPeriod: 0,
+      wonDealsInPeriod: 0,
+      lostDealsInPeriod: 0,
+      systemValueCreated: null,
+      actionPointsDelta: null,
+      systemValuePerActionPoint: null,
+      realizedMoneyPerActionPoint: null,
+      historicalMoneyPerActionPoint: null,
+      estimatedFutureMoneyFromPeriodActions: null,
       actions: {
         totalCalls: 0,
         connectedCallsOverThirtySeconds: 0,
@@ -568,6 +648,7 @@ describe('App', () => {
     expect(
       screen.getByText(/фильтры периода и среза/i),
     ).toBeInTheDocument()
+    expect(apiClient.getRevenueVelocityReport).not.toHaveBeenCalled()
   })
 
   it('renders factual stage distribution below the funnel throughput report', async () => {
@@ -602,10 +683,17 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
 
     expect(await screen.findByRole('heading', { name: /денежная скорость/i })).toBeInTheDocument()
+    expect(apiClient.getRevenueVelocityReport).toHaveBeenCalledWith(
+      expect.objectContaining({ view: 'systemState', dimension: 'manager' }),
+    )
+    expect(screen.getByRole('button', { name: /состояние системы/i })).toBeInTheDocument()
+    expect(screen.queryByText(/сумма выигранных сделок когорты/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Факт денег периода/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Expected pipeline сейчас/i).length).toBeGreaterThan(0)
     expect(screen.getByText('300 000 ₽')).toBeInTheDocument()
     expect(screen.getByText('20 000 ₽/день')).toBeInTheDocument()
     expect(
-      screen.getAllByTitle(/Средний чек × Количество возможностей × Конверсия/i).length,
+      screen.getAllByTitle(/Факт денег периода \+ Expected pipeline сейчас/i).length,
     ).toBeGreaterThan(0)
     expect(
       screen.getByText(/Конверсионные мероприятия пока не подключены/i),
@@ -617,37 +705,54 @@ describe('App', () => {
       fastRow.compareDocumentPosition(slowRow) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: /Revenue Velocity, ₽\/день/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Live velocity сейчас/i }))
     expect(
       slowRow.compareDocumentPosition(fastRow) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   })
 
   it('shows an empty cohort state in the revenue velocity tab', async () => {
-    vi.mocked(apiClient.getRevenueVelocityReport).mockResolvedValueOnce(
-      createEmptyRevenueVelocityReport(),
-    )
+    vi.mocked(apiClient.getRevenueVelocityReport)
+      .mockResolvedValueOnce(createEmptyRevenueVelocityReport())
+      .mockResolvedValueOnce(
+        createEmptyRevenueVelocityReport({
+          view: 'createdCohort',
+          totals: {
+            ...createEmptyRevenueVelocityReport().totals,
+            view: 'createdCohort',
+          },
+        }),
+      )
 
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^когорты$/i }))
 
     expect(await screen.findByText(/Нет сделок в выбранной когорте/i)).toBeInTheDocument()
+    expect(apiClient.getRevenueVelocityReport).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: 'createdCohort' }),
+    )
   })
 
   it('shows a no-won-deals state in the revenue velocity tab', async () => {
-    vi.mocked(apiClient.getRevenueVelocityReport).mockResolvedValueOnce(
-      createEmptyRevenueVelocityReport({
-        totals: {
-          ...createEmptyRevenueVelocityReport().totals,
-          createdDeals: 3,
-          wipDeals: 3,
-        },
-        rows: [],
-      }),
-    )
+    vi.mocked(apiClient.getRevenueVelocityReport)
+      .mockResolvedValueOnce(createEmptyRevenueVelocityReport())
+      .mockResolvedValueOnce(
+        createEmptyRevenueVelocityReport({
+          view: 'createdCohort',
+          totals: {
+            ...createEmptyRevenueVelocityReport().totals,
+            view: 'createdCohort',
+            createdDeals: 3,
+            wipDeals: 3,
+          },
+          rows: [],
+        }),
+      )
 
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^когорты$/i }))
 
     expect(
       await screen.findByText(/пока нет выигранных сделок/i),

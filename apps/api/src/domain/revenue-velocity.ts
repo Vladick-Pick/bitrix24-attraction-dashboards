@@ -12,6 +12,7 @@ import type {
   RevenueVelocityMoneyPerAction,
   RevenueVelocityReportSnapshot,
   RevenueVelocityRow,
+  RevenueVelocityView,
   SourceCatalogEntry,
   StageCatalogEntry,
   StageHistorySnapshot
@@ -29,6 +30,7 @@ export interface RevenueVelocityReportInput {
   range: ReportRange;
   asOf: string;
   dimension: RevenueVelocityDimension;
+  view?: RevenueVelocityView;
   wonStageIds: string[];
   deals: DealSnapshot[];
   stageCatalog: StageCatalogEntry[];
@@ -64,6 +66,84 @@ const EMPTY_CONVERSION_EVENTS_WARNING =
   "Конверсионные мероприятия пока не подключены. Колонка зарезервирована под будущие данные на этапах Активация и Демонстрация.";
 
 export const REVENUE_VELOCITY_FORMULA_TOOLTIPS: RevenueVelocityFormulaTooltip[] = [
+  {
+    key: "realizedWonAmountInPeriod",
+    label: "Факт денег периода",
+    formula: "Сумма opportunity по won deals с dateClosed внутри периода",
+    description:
+      "Показывает фактически выигранные деньги окна наблюдения, независимо от даты создания сделки."
+  },
+  {
+    key: "activePipelineAmount",
+    label: "Pipeline amount сейчас",
+    formula: "Сумма opportunity активных сделок на asOf",
+    description:
+      "Показывает полный денежный объём активной базы, которая была создана до asOf и не была выиграна или проиграна до asOf."
+  },
+  {
+    key: "expectedPipelineAmount",
+    label: "Expected pipeline сейчас",
+    formula: "Σ opportunity × stageWinProbability по активным сделкам",
+    description:
+      "Ожидаемая денежная стоимость активного pipeline на конец периода."
+  },
+  {
+    key: "expectedPipelineDelta",
+    label: "Δ Expected pipeline",
+    formula: "Expected pipeline сейчас - Expected pipeline прошлого периода",
+    description:
+      "Показывает, стала ли активная база денежно богаче или беднее относительно прошлого периода."
+  },
+  {
+    key: "liveRevenueVelocity",
+    label: "Live Revenue Velocity",
+    formula: "Σ expectedDealAmount / expectedRemainingDays",
+    description:
+      "Текущая денежная скорость активной базы: сколько ожидаемых денег в день несёт pipeline."
+  },
+  {
+    key: "velocityDelta",
+    label: "Δ Velocity",
+    formula: "Live Revenue Velocity сейчас - Live Revenue Velocity прошлого периода",
+    description:
+      "Показывает, ускорилась или замедлилась денежная система."
+  },
+  {
+    key: "systemValueCreated",
+    label: "Системный прирост",
+    formula: "Факт денег периода + Expected pipeline сейчас - Expected pipeline прошлого периода",
+    description:
+      "Учитывает закрытые деньги и изменение ожидаемой стоимости активного pipeline."
+  },
+  {
+    key: "systemValuePerActionPoint",
+    label: "₽ системного прироста / балл",
+    formula: "Системный прирост / Взвешенные баллы действий периода",
+    description:
+      "Показывает, сколько денежного прироста системы пришлось на один балл действий.",
+    emptyState: "Если действий нет, метрика не считается."
+  },
+  {
+    key: "realizedMoneyPerActionPoint",
+    label: "Реализованные ₽ / балл",
+    formula: "Факт денег периода / Взвешенные баллы действий периода",
+    description:
+      "Оперативная метрика факта периода. Она не доказывает причинно-следственную связь действий и закрытий."
+  },
+  {
+    key: "historicalMoneyPerActionPoint",
+    label: "Исторический ₽ / балл",
+    formula: "Won amount созревших сделок / Баллы действий по этим сделкам",
+    description:
+      "Историческая калибровка: сколько денег приносил один балл действий на закрытых сделках."
+  },
+  {
+    key: "estimatedFutureMoneyFromPeriodActions",
+    label: "Оценка будущих денег от действий",
+    formula: "Взвешенные баллы действий периода × Исторический ₽ / балл",
+    description:
+      "Оценивает будущий денежный вклад действий периода через историческую калибровку."
+  },
   {
     key: "createdDeals",
     label: "Возможности",
@@ -229,8 +309,29 @@ function isWithinRange(value: string | null | undefined, fromMs: number, toMs: n
   return Number.isFinite(timestamp) && timestamp >= fromMs && timestamp <= toMs;
 }
 
+function getDealActionWindowEndMs(deal: DealSnapshot, asOfMs: number) {
+  const closedMs = toTimestamp(deal.dateClosed);
+  return Number.isFinite(closedMs) && closedMs < asOfMs ? closedMs : asOfMs;
+}
+
 function isLifecycleTimestamp(value: string | null | undefined, deal: DealSnapshot, asOfMs: number) {
-  return isWithinRange(value, Date.parse(deal.dateCreate), asOfMs);
+  return isWithinRange(value, Date.parse(deal.dateCreate), getDealActionWindowEndMs(deal, asOfMs));
+}
+
+function isDealActionInPeriod(
+  value: string | null | undefined,
+  deal: DealSnapshot,
+  fromMs: number,
+  toMs: number
+) {
+  const timestamp = toTimestamp(value);
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+
+  const startMs = Math.max(Date.parse(deal.dateCreate), fromMs);
+  const endMs = Math.min(getDealActionWindowEndMs(deal, toMs), toMs);
+  return timestamp >= startMs && timestamp <= endMs;
 }
 
 function round(value: number, digits = 2) {
@@ -896,6 +997,7 @@ function resolveBottleneckStage(input: {
 
 function finalizeRow(input: {
   accumulator: Accumulator;
+  view: RevenueVelocityView;
   weights: RevenueVelocityActionWeights;
   teamMoneyPerWeightedActionPoint: number | null;
   stageHistoryMap: Map<string, StageHistorySnapshot[]>;
@@ -937,6 +1039,7 @@ function finalizeRow(input: {
 
   return {
     dimension: accumulator.dimension,
+    view: input.view,
     key: accumulator.key,
     label: accumulator.label,
     managerId: accumulator.managerId,
@@ -956,6 +1059,24 @@ function finalizeRow(input: {
     averageCycleDays,
     medianCycleDays,
     revenueVelocityPerDay,
+    activePipelineAmount: 0,
+    expectedPipelineAmount: 0,
+    previousExpectedPipelineAmount: null,
+    expectedPipelineDelta: null,
+    liveRevenueVelocity: null,
+    previousLiveRevenueVelocity: null,
+    velocityDelta: null,
+    velocityDeltaPercent: null,
+    averageRemainingDays: null,
+    realizedWonAmountInPeriod: 0,
+    wonDealsInPeriod: 0,
+    lostDealsInPeriod: 0,
+    systemValueCreated: null,
+    actionPointsDelta: null,
+    systemValuePerActionPoint: null,
+    realizedMoneyPerActionPoint: null,
+    historicalMoneyPerActionPoint: null,
+    estimatedFutureMoneyFromPeriodActions: null,
     actions,
     moneyPerAction: buildMoneyPerAction(
       accumulator.salesAmount,
@@ -982,7 +1103,7 @@ function rowSort(left: RevenueVelocityRow, right: RevenueVelocityRow) {
   return left.label.localeCompare(right.label, "ru");
 }
 
-export function buildRevenueVelocityReport(
+function buildCreatedCohortReport(
   input: RevenueVelocityReportInput
 ): RevenueVelocityReportSnapshot {
   const fromMs = Date.parse(input.range.from);
@@ -1143,6 +1264,7 @@ export function buildRevenueVelocityReport(
     .map((accumulator) =>
       finalizeRow({
         accumulator,
+        view: "createdCohort",
         weights: actionWeights,
         teamMoneyPerWeightedActionPoint,
         stageHistoryMap,
@@ -1152,6 +1274,7 @@ export function buildRevenueVelocityReport(
     .sort(rowSort);
   const totals = finalizeRow({
     accumulator: totalsAccumulator,
+    view: "createdCohort",
     weights: actionWeights,
     teamMoneyPerWeightedActionPoint,
     stageHistoryMap,
@@ -1162,7 +1285,9 @@ export function buildRevenueVelocityReport(
   return {
     range: input.range,
     asOf: new Date(effectiveAsOfMs).toISOString(),
+    previousAsOf: null,
     dimension: input.dimension,
+    view: "createdCohort",
     actionWeights,
     totals: {
       ...totals,
@@ -1172,4 +1297,843 @@ export function buildRevenueVelocityReport(
     formulaTooltips: REVENUE_VELOCITY_FORMULA_TOOLTIPS,
     warnings
   };
+}
+
+interface StageBenchmark {
+  probability: number;
+  remainingDays: number;
+  sampleSize: number;
+}
+
+interface ActiveDealState {
+  deal: DealSnapshot;
+  stageId: string;
+  stageName: string;
+  amount: number;
+  expectedAmount: number;
+  velocityPerDay: number;
+  remainingDays: number;
+}
+
+interface SystemAccumulator {
+  dimension: RevenueVelocityDimension;
+  key: string;
+  label: string;
+  managerId: string | null;
+  managerName: string | null;
+  sourceKey: string | null;
+  sourceLabel: string | null;
+  customerKey: string | null;
+  customerLabel: string | null;
+  deals: DealSnapshot[];
+  createdDeals: number;
+  activeDeals: number;
+  wonDealsInPeriod: number;
+  lostDealsInPeriod: number;
+  activePipelineAmount: number;
+  expectedPipelineAmount: number;
+  previousExpectedPipelineAmount: number;
+  liveRevenueVelocity: number;
+  previousLiveRevenueVelocity: number;
+  remainingDays: number[];
+  realizedWonAmountInPeriod: number;
+  actions: RevenueVelocityActionSummary;
+  previousActions: RevenueVelocityActionSummary;
+  historicalWonAmount: number;
+  historicalActionPoints: number;
+  warnings: Set<string>;
+}
+
+function previousRangeFor(range: ReportRange) {
+  const fromMs = Date.parse(range.from);
+  const toMs = Date.parse(range.to);
+  const previousToMs = fromMs - 1;
+  const previousFromMs = previousToMs - (toMs - fromMs);
+
+  return {
+    range: {
+      from: new Date(previousFromMs).toISOString(),
+      to: new Date(previousToMs).toISOString()
+    },
+    fromMs: previousFromMs,
+    toMs: previousToMs
+  };
+}
+
+function resolveStageIdAtAsOf(
+  deal: DealSnapshot,
+  asOfMs: number,
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>
+) {
+  let stageId: string | null = null;
+  for (const row of stageHistoryMap.get(deal.id) ?? []) {
+    const rowMs = Date.parse(row.createdTime);
+    if (!Number.isFinite(rowMs) || rowMs > asOfMs) {
+      break;
+    }
+
+    stageId = row.stageId;
+  }
+
+  return stageId ?? deal.stageId;
+}
+
+function resolveStageSemanticAtAsOf(
+  deal: DealSnapshot,
+  stageId: string,
+  stageLookup: Map<string, { stageName: string; semanticId: string | null; sortOrder: number }>
+) {
+  return stageLookup.get(stageId)?.semanticId ?? (stageId === deal.stageId ? deal.stageSemanticId : null);
+}
+
+function isDealWonAtAsOf(
+  deal: DealSnapshot,
+  asOfMs: number,
+  wonStageIds: Set<string>,
+  stageLookup: Map<string, { stageName: string; semanticId: string | null; sortOrder: number }>,
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>
+) {
+  const stageId = resolveStageIdAtAsOf(deal, asOfMs, stageHistoryMap);
+  const semanticId = resolveStageSemanticAtAsOf(deal, stageId, stageLookup);
+  const closedMs = Date.parse(deal.dateClosed ?? "");
+
+  if (Number.isFinite(closedMs)) {
+    if (closedMs > asOfMs) {
+      return false;
+    }
+
+    return isWonDeal(deal, wonStageIds) || wonStageIds.has(stageId) || semanticId === "S";
+  }
+
+  return (
+    wonStageIds.has(stageId) ||
+    semanticId === "S"
+  );
+}
+
+function isDealLostAtAsOf(
+  deal: DealSnapshot,
+  asOfMs: number,
+  stageLookup: Map<string, { stageName: string; semanticId: string | null; sortOrder: number }>,
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>
+) {
+  const stageId = resolveStageIdAtAsOf(deal, asOfMs, stageHistoryMap);
+  const semanticId = resolveStageSemanticAtAsOf(deal, stageId, stageLookup);
+  const closedMs = Date.parse(deal.dateClosed ?? "");
+
+  if (Number.isFinite(closedMs)) {
+    if (closedMs > asOfMs) {
+      return false;
+    }
+
+    return isLostDeal(deal, stageLookup) || semanticId === "F";
+  }
+
+  return semanticId === "F";
+}
+
+function isActiveDealAtAsOf(input: {
+  deal: DealSnapshot;
+  asOfMs: number;
+  wonStageIds: Set<string>;
+  stageLookup: Map<string, { stageName: string; semanticId: string | null; sortOrder: number }>;
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>;
+}) {
+  if (Date.parse(input.deal.dateCreate) > input.asOfMs) {
+    return false;
+  }
+
+  return (
+    !isDealWonAtAsOf(
+      input.deal,
+      input.asOfMs,
+      input.wonStageIds,
+      input.stageLookup,
+      input.stageHistoryMap
+    ) &&
+    !isDealLostAtAsOf(
+      input.deal,
+      input.asOfMs,
+      input.stageLookup,
+      input.stageHistoryMap
+    )
+  );
+}
+
+function buildStageBenchmarks(input: {
+  deals: DealSnapshot[];
+  asOfMs: number;
+  wonStageIds: Set<string>;
+  stageLookup: Map<string, { stageName: string; semanticId: string | null; sortOrder: number }>;
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>;
+}) {
+  const stageStats = new Map<
+    string,
+    {
+      reached: number;
+      won: number;
+      remainingDays: number[];
+    }
+  >();
+  const wonCycles: number[] = [];
+  let closedDeals = 0;
+  let wonDeals = 0;
+
+  for (const deal of input.deals) {
+    const closedMs = Date.parse(deal.dateClosed ?? "");
+    if (!Number.isFinite(closedMs) || closedMs > input.asOfMs) {
+      continue;
+    }
+
+    const won = isWonDeal(deal, input.wonStageIds);
+    const lost = isLostDeal(deal, input.stageLookup);
+    if (!won && !lost) {
+      continue;
+    }
+
+    closedDeals += 1;
+    if (won) {
+      wonDeals += 1;
+      const cycle = calculateCycleDays(deal, new Set());
+      if (cycle !== null) {
+        wonCycles.push(cycle);
+      }
+    }
+
+    const rows = input.stageHistoryMap.get(deal.id) ?? [];
+    const path = buildStagePath({
+      deal,
+      stageHistoryRows: rows,
+      stageLookup: input.stageLookup
+    });
+
+    for (const stageId of path) {
+      const stage = input.stageLookup.get(stageId);
+      if (!stage || stage.semanticId === "S" || stage.semanticId === "F") {
+        continue;
+      }
+
+      const stats = stageStats.get(stageId) ?? {
+        reached: 0,
+        won: 0,
+        remainingDays: []
+      };
+      stats.reached += 1;
+      if (won) {
+        stats.won += 1;
+        const stageRow = rows.find((row) => row.stageId === stageId);
+        const enteredMs = Date.parse(stageRow?.createdTime ?? deal.dateCreate);
+        if (Number.isFinite(enteredMs) && closedMs >= enteredMs) {
+          stats.remainingDays.push((closedMs - enteredMs) / 86_400_000);
+        }
+      }
+      stageStats.set(stageId, stats);
+    }
+  }
+
+  const globalProbability = closedDeals > 0 ? wonDeals / closedDeals : 0.5;
+  const globalRemainingDays = average(wonCycles) ?? 30;
+
+  return {
+    get(stageId: string): StageBenchmark {
+      const stats = stageStats.get(stageId);
+      if (!stats || stats.reached === 0) {
+        return {
+          probability: globalProbability,
+          remainingDays: globalRemainingDays,
+          sampleSize: 0
+        };
+      }
+
+      return {
+        probability: stats.won / stats.reached,
+        remainingDays: average(stats.remainingDays) ?? globalRemainingDays,
+        sampleSize: stats.reached
+      };
+    }
+  };
+}
+
+function buildActiveDealState(input: {
+  deal: DealSnapshot;
+  asOfMs: number;
+  wonStageIds: Set<string>;
+  stageLookup: Map<string, { stageName: string; semanticId: string | null; sortOrder: number }>;
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>;
+  benchmarks: ReturnType<typeof buildStageBenchmarks>;
+}): ActiveDealState | null {
+  if (
+    !isActiveDealAtAsOf({
+      deal: input.deal,
+      asOfMs: input.asOfMs,
+      wonStageIds: input.wonStageIds,
+      stageLookup: input.stageLookup,
+      stageHistoryMap: input.stageHistoryMap
+    })
+  ) {
+    return null;
+  }
+
+  const stageId = resolveStageIdAtAsOf(input.deal, input.asOfMs, input.stageHistoryMap);
+  const stage = input.stageLookup.get(stageId);
+  const benchmark = input.benchmarks.get(stageId);
+  const amount = input.deal.opportunity ?? 0;
+  const expectedAmount = round(amount * benchmark.probability);
+  const remainingDays = benchmark.remainingDays > 0 ? benchmark.remainingDays : 30;
+
+  return {
+    deal: input.deal,
+    stageId,
+    stageName: stage?.stageName ?? stageId,
+    amount,
+    expectedAmount,
+    velocityPerDay: round(expectedAmount / remainingDays),
+    remainingDays
+  };
+}
+
+function createSystemAccumulator(
+  dimension: RevenueVelocityDimension,
+  key: string,
+  label: string,
+  dealDimension?: DealDimension
+): SystemAccumulator {
+  const base = createAccumulator(dimension, key, label, dealDimension);
+
+  return {
+    dimension,
+    key,
+    label,
+    managerId: base.managerId,
+    managerName: base.managerName,
+    sourceKey: base.sourceKey,
+    sourceLabel: base.sourceLabel,
+    customerKey: base.customerKey,
+    customerLabel: base.customerLabel,
+    deals: [],
+    createdDeals: 0,
+    activeDeals: 0,
+    wonDealsInPeriod: 0,
+    lostDealsInPeriod: 0,
+    activePipelineAmount: 0,
+    expectedPipelineAmount: 0,
+    previousExpectedPipelineAmount: 0,
+    liveRevenueVelocity: 0,
+    previousLiveRevenueVelocity: 0,
+    remainingDays: [],
+    realizedWonAmountInPeriod: 0,
+    actions: createEmptyActionSummary(),
+    previousActions: createEmptyActionSummary(),
+    historicalWonAmount: 0,
+    historicalActionPoints: 0,
+    warnings: new Set()
+  };
+}
+
+function addActiveState(accumulator: SystemAccumulator, state: ActiveDealState, previous = false) {
+  accumulator.deals.push(state.deal);
+
+  if (previous) {
+    accumulator.previousExpectedPipelineAmount += state.expectedAmount;
+    accumulator.previousLiveRevenueVelocity += state.velocityPerDay;
+    return;
+  }
+
+  accumulator.activeDeals += 1;
+  accumulator.activePipelineAmount += state.amount;
+  accumulator.expectedPipelineAmount += state.expectedAmount;
+  accumulator.liveRevenueVelocity += state.velocityPerDay;
+  accumulator.remainingDays.push(state.remainingDays);
+}
+
+function buildPeriodActionSummary(input: {
+  deal: DealSnapshot;
+  activities: ActivitySnapshot[];
+  calls: CallSnapshot[];
+  conversionEventsCount: number;
+  fromMs: number;
+  toMs: number;
+}) {
+  const actions = createEmptyActionSummary();
+  const periodActivities = input.activities.filter((activity) =>
+    isDealActionInPeriod(activity.createdTime, input.deal, input.fromMs, input.toMs)
+  );
+  const taskActivities = input.activities.filter(isTaskActivity);
+  const meetingActivities = periodActivities.filter(isMeetingActivity);
+  const periodCalls = input.calls.filter((call) =>
+    isDealActionInPeriod(call.callStartDate, input.deal, input.fromMs, input.toMs)
+  );
+
+  actions.totalCalls = periodCalls.length;
+  actions.connectedCallsOverThirtySeconds = periodCalls.filter(
+    (call) => call.callDurationSeconds > 30 && isCallSuccessful(call)
+  ).length;
+  actions.meetingsCount = meetingActivities.length;
+  actions.conversionEventsCount = input.conversionEventsCount;
+  actions.createdTasks = periodActivities.filter(isTaskActivity).length;
+  actions.closedTasks = taskActivities.filter((activity) => {
+    if (!activity.completed) {
+      return false;
+    }
+
+    return activity.completedTime
+      ? isDealActionInPeriod(activity.completedTime, input.deal, input.fromMs, input.toMs)
+      : false;
+  }).length;
+
+  return actions;
+}
+
+function countPeriodConversionEvents(input: {
+  deal: DealSnapshot;
+  conversionEvents: ConversionEventSnapshot[];
+  fromMs: number;
+  toMs: number;
+  stageLookup: Map<string, { stageName: string; semanticId: string | null; sortOrder: number }>;
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>;
+  warnings: Set<string>;
+}) {
+  let count = 0;
+  let unresolved = 0;
+
+  for (const event of input.conversionEvents) {
+    if (event.dealId !== input.deal.id) {
+      continue;
+    }
+
+    if (!isDealActionInPeriod(event.occurredAt, input.deal, input.fromMs, input.toMs)) {
+      continue;
+    }
+
+    const stageName = resolveConversionEventStage({
+      event,
+      stageLookup: input.stageLookup,
+      stageHistoryMap: input.stageHistoryMap
+    });
+
+    if (!stageName) {
+      unresolved += 1;
+      continue;
+    }
+
+    if (isConversionEventStage(stageName)) {
+      count += 1;
+    }
+  }
+
+  if (unresolved > 0) {
+    input.warnings.add(UNRESOLVED_CONVERSION_EVENT_STAGE_WARNING);
+  }
+
+  return count;
+}
+
+function finalizeSystemRow(input: {
+  accumulator: SystemAccumulator;
+  view: RevenueVelocityView;
+  weights: RevenueVelocityActionWeights;
+  teamMoneyPerWeightedActionPoint: number | null;
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>;
+  stageLookup: Map<string, { stageName: string; semanticId: string | null; sortOrder: number }>;
+}): RevenueVelocityRow {
+  const { accumulator } = input;
+  const actions: RevenueVelocityActionSummary = {
+    ...accumulator.actions,
+    weightedActionPoints: calculateWeightedActionPoints(
+      accumulator.actions,
+      input.weights
+    ),
+    weightedActionPointsPerDeal: safeDivide(
+      calculateWeightedActionPoints(accumulator.actions, input.weights),
+      accumulator.createdDeals
+    ),
+    weightedActionPointsPerWin: safeDivide(
+      calculateWeightedActionPoints(accumulator.actions, input.weights),
+      accumulator.wonDealsInPeriod
+    )
+  };
+  const previousActionPoints = calculateWeightedActionPoints(
+    accumulator.previousActions,
+    input.weights
+  );
+  const expectedPipelineDelta = round(
+    accumulator.expectedPipelineAmount - accumulator.previousExpectedPipelineAmount
+  );
+  const liveRevenueVelocity = round(accumulator.liveRevenueVelocity);
+  const previousLiveRevenueVelocity = round(accumulator.previousLiveRevenueVelocity);
+  const velocityDelta = round(liveRevenueVelocity - previousLiveRevenueVelocity);
+  const systemValueCreated = round(
+    accumulator.realizedWonAmountInPeriod + expectedPipelineDelta
+  );
+  const historicalMoneyPerActionPoint = safeDivide(
+    accumulator.historicalWonAmount,
+    accumulator.historicalActionPoints
+  );
+  const bottleneck = resolveBottleneckStage({
+    deals: accumulator.deals,
+    stageHistoryMap: input.stageHistoryMap,
+    stageLookup: input.stageLookup
+  });
+
+  return {
+    dimension: accumulator.dimension,
+    view: input.view,
+    key: accumulator.key,
+    label: accumulator.label,
+    managerId: accumulator.managerId,
+    managerName: accumulator.managerName,
+    sourceKey: accumulator.sourceKey,
+    sourceLabel: accumulator.sourceLabel,
+    customerKey: accumulator.customerKey,
+    customerLabel: accumulator.customerLabel,
+    createdDeals: accumulator.createdDeals,
+    activeDeals: accumulator.activeDeals,
+    wonDeals: accumulator.wonDealsInPeriod,
+    lostDeals: accumulator.lostDealsInPeriod,
+    wipDeals: accumulator.activeDeals,
+    salesAmount: round(accumulator.realizedWonAmountInPeriod),
+    averageCheck: safeDivide(
+      accumulator.realizedWonAmountInPeriod,
+      accumulator.wonDealsInPeriod
+    ),
+    winRate: safeDivide(accumulator.wonDealsInPeriod, accumulator.createdDeals),
+    averageCycleDays: null,
+    medianCycleDays: null,
+    revenueVelocityPerDay: liveRevenueVelocity,
+    activePipelineAmount: round(accumulator.activePipelineAmount),
+    expectedPipelineAmount: round(accumulator.expectedPipelineAmount),
+    previousExpectedPipelineAmount: round(accumulator.previousExpectedPipelineAmount),
+    expectedPipelineDelta,
+    liveRevenueVelocity,
+    previousLiveRevenueVelocity,
+    velocityDelta,
+    velocityDeltaPercent: safeDivide(velocityDelta, previousLiveRevenueVelocity),
+    averageRemainingDays: average(accumulator.remainingDays),
+    realizedWonAmountInPeriod: round(accumulator.realizedWonAmountInPeriod),
+    wonDealsInPeriod: accumulator.wonDealsInPeriod,
+    lostDealsInPeriod: accumulator.lostDealsInPeriod,
+    systemValueCreated,
+    actionPointsDelta: round(actions.weightedActionPoints - previousActionPoints),
+    systemValuePerActionPoint: safeDivide(
+      systemValueCreated,
+      actions.weightedActionPoints
+    ),
+    realizedMoneyPerActionPoint: safeDivide(
+      accumulator.realizedWonAmountInPeriod,
+      actions.weightedActionPoints
+    ),
+    historicalMoneyPerActionPoint,
+    estimatedFutureMoneyFromPeriodActions:
+      historicalMoneyPerActionPoint !== null
+        ? round(actions.weightedActionPoints * historicalMoneyPerActionPoint)
+        : null,
+    actions,
+    moneyPerAction: buildMoneyPerAction(
+      accumulator.realizedWonAmountInPeriod,
+      actions,
+      input.teamMoneyPerWeightedActionPoint
+    ),
+    bottleneckStageId: bottleneck.bottleneckStageId,
+    bottleneckStageName: bottleneck.bottleneckStageName,
+    warnings: Array.from(accumulator.warnings)
+  };
+}
+
+function buildSystemStateReport(
+  input: RevenueVelocityReportInput,
+  view: RevenueVelocityView
+): RevenueVelocityReportSnapshot {
+  const fromMs = Date.parse(input.range.from);
+  const toMs = Date.parse(input.range.to);
+  const asOfMs = Number.isFinite(Date.parse(input.asOf)) ? Date.parse(input.asOf) : toMs;
+  const previous = previousRangeFor(input.range);
+  const actionWeights = input.actionWeights ?? DEFAULT_REVENUE_VELOCITY_ACTION_WEIGHTS;
+  const wonStageIds = new Set(input.wonStageIds);
+  const stageLookup = buildStageLookup(input.stageCatalog);
+  const stageHistoryMap = buildStageHistoryMap(input.stageHistory);
+  const sourceLabels = new Map(input.sourceCatalog.map((source) => [source.key, source.label]));
+  const managerNames = new Map(input.managerDirectory.map((manager) => [manager.id, manager.name]));
+  const allowedCategoryIds = new Set(
+    input.stageCatalog
+      .filter((stage) => stage.entityType === "deal" && stage.categoryId)
+      .map((stage) => normalizeCategoryId(stage.categoryId))
+  );
+  const reportWarnings = new Set<string>();
+
+  if (input.conversionEvents.length === 0) {
+    reportWarnings.add(EMPTY_CONVERSION_EVENTS_WARNING);
+  }
+
+  const managerFilter = new Set(input.filters?.managerIds ?? []);
+  const sourceFilter = new Set(input.filters?.sourceKeys ?? []);
+  const customerFilter = new Set(input.filters?.customerKeys ?? []);
+  const qualityFilter = new Set(input.filters?.qualityKeys ?? []);
+  const tariffFilter = new Set(input.filters?.tariffKeys ?? []);
+  const dimensionsByDeal = new Map<string, DealDimension>();
+  const scopedDeals = input.deals.filter((deal) => {
+    if (
+      allowedCategoryIds.size > 0 &&
+      !allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
+    ) {
+      return false;
+    }
+
+    const dealDimension = resolveDealDimension(deal, managerNames, sourceLabels);
+    dimensionsByDeal.set(deal.id, dealDimension);
+
+    if (managerFilter.size > 0 && !managerFilter.has(dealDimension.managerId)) {
+      return false;
+    }
+    if (sourceFilter.size > 0 && !sourceFilter.has(dealDimension.sourceKey)) {
+      return false;
+    }
+    if (customerFilter.size > 0 && !customerFilter.has(dealDimension.customerKey)) {
+      return false;
+    }
+    if (qualityFilter.size > 0 && !qualityFilter.has(deal.qualityValue ?? "")) {
+      return false;
+    }
+    if (tariffFilter.size > 0 && !tariffFilter.has(deal.tariffValue ?? "")) {
+      return false;
+    }
+
+    return true;
+  });
+  const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+  const activitiesByDeal = groupActivitiesByDeal(input.activities, scopedDealIds);
+  const activityById = new Map(input.activities.map((activity) => [activity.id, activity]));
+  const callsByDeal = groupCallsByDeal({
+    calls: input.calls,
+    dealIds: scopedDealIds,
+    activitiesById: activityById
+  });
+  const eventsByDeal = new Map<string, ConversionEventSnapshot[]>();
+  for (const event of input.conversionEvents) {
+    if (event.dealId && scopedDealIds.has(event.dealId)) {
+      const current = eventsByDeal.get(event.dealId) ?? [];
+      current.push(event);
+      eventsByDeal.set(event.dealId, current);
+    }
+  }
+  const benchmarks = buildStageBenchmarks({
+    deals: scopedDeals,
+    asOfMs,
+    wonStageIds,
+    stageLookup,
+    stageHistoryMap
+  });
+  const accumulators = new Map<string, SystemAccumulator>();
+  const totalsAccumulator = createSystemAccumulator(input.dimension, "total", "Итого");
+  const ensureAccumulator = (deal: DealSnapshot) => {
+    const dealDimension =
+      dimensionsByDeal.get(deal.id) ?? resolveDealDimension(deal, managerNames, sourceLabels);
+    const dimensionKey = getDimensionKey(input.dimension, dealDimension);
+    const current =
+      accumulators.get(dimensionKey.key) ??
+      createSystemAccumulator(
+        input.dimension,
+        dimensionKey.key,
+        dimensionKey.label,
+        dealDimension
+      );
+    accumulators.set(dimensionKey.key, current);
+    return current;
+  };
+  const addToRowAndTotals = (
+    deal: DealSnapshot,
+    callback: (accumulator: SystemAccumulator) => void
+  ) => {
+    callback(ensureAccumulator(deal));
+    callback(totalsAccumulator);
+  };
+
+  for (const deal of scopedDeals) {
+    if (isWithinRange(deal.dateCreate, fromMs, toMs)) {
+      addToRowAndTotals(deal, (accumulator) => {
+        accumulator.createdDeals += 1;
+      });
+    }
+
+    const currentState = buildActiveDealState({
+      deal,
+      asOfMs,
+      wonStageIds,
+      stageLookup,
+      stageHistoryMap,
+      benchmarks
+    });
+    if (currentState) {
+      addToRowAndTotals(deal, (accumulator) => addActiveState(accumulator, currentState));
+    }
+
+    const previousState = buildActiveDealState({
+      deal,
+      asOfMs: previous.toMs,
+      wonStageIds,
+      stageLookup,
+      stageHistoryMap,
+      benchmarks
+    });
+    if (previousState) {
+      addToRowAndTotals(deal, (accumulator) => addActiveState(accumulator, previousState, true));
+    }
+
+    if (deal.dateClosed && isWithinRange(deal.dateClosed, fromMs, toMs)) {
+      if (isWonDeal(deal, wonStageIds)) {
+        addToRowAndTotals(deal, (accumulator) => {
+          accumulator.wonDealsInPeriod += 1;
+          accumulator.realizedWonAmountInPeriod += deal.opportunity ?? 0;
+        });
+      } else if (isLostDeal(deal, stageLookup)) {
+        addToRowAndTotals(deal, (accumulator) => {
+          accumulator.lostDealsInPeriod += 1;
+        });
+      }
+    }
+
+    const conversionEvents = eventsByDeal.get(deal.id) ?? [];
+    const actions = buildPeriodActionSummary({
+      deal,
+      activities: activitiesByDeal.get(deal.id) ?? [],
+      calls: callsByDeal.get(deal.id) ?? [],
+      conversionEventsCount: countPeriodConversionEvents({
+        deal,
+        conversionEvents,
+        fromMs,
+        toMs,
+        stageLookup,
+        stageHistoryMap,
+        warnings: reportWarnings
+      }),
+      fromMs,
+      toMs
+    });
+    const previousActions = buildPeriodActionSummary({
+      deal,
+      activities: activitiesByDeal.get(deal.id) ?? [],
+      calls: callsByDeal.get(deal.id) ?? [],
+      conversionEventsCount: countPeriodConversionEvents({
+        deal,
+        conversionEvents,
+        fromMs: previous.fromMs,
+        toMs: previous.toMs,
+        stageLookup,
+        stageHistoryMap,
+        warnings: reportWarnings
+      }),
+      fromMs: previous.fromMs,
+      toMs: previous.toMs
+    });
+
+    if (
+      actions.totalCalls > 0 ||
+      actions.meetingsCount > 0 ||
+      actions.createdTasks > 0 ||
+      actions.closedTasks > 0 ||
+      actions.conversionEventsCount > 0
+    ) {
+      addToRowAndTotals(deal, (accumulator) => addActions(accumulator.actions, actions));
+    }
+    if (
+      previousActions.totalCalls > 0 ||
+      previousActions.meetingsCount > 0 ||
+      previousActions.createdTasks > 0 ||
+      previousActions.closedTasks > 0 ||
+      previousActions.conversionEventsCount > 0
+    ) {
+      addToRowAndTotals(deal, (accumulator) =>
+        addActions(accumulator.previousActions, previousActions)
+      );
+    }
+
+    const closedMs = Date.parse(deal.dateClosed ?? "");
+    const benchmarkWindowStart = asOfMs - 180 * 86_400_000;
+    if (
+      isWonDeal(deal, wonStageIds) &&
+      Number.isFinite(closedMs) &&
+      closedMs <= asOfMs &&
+      closedMs >= benchmarkWindowStart
+    ) {
+      const dealActions = buildDealActionSummary({
+        deal,
+        activities: activitiesByDeal.get(deal.id) ?? [],
+        calls: callsByDeal.get(deal.id) ?? [],
+        conversionEventsCount: countPeriodConversionEvents({
+          deal,
+          conversionEvents,
+          fromMs: Date.parse(deal.dateCreate),
+          toMs: Math.min(closedMs, asOfMs),
+          stageLookup,
+          stageHistoryMap,
+          warnings: reportWarnings
+        }),
+        asOfMs
+      });
+      const actionPoints = calculateWeightedActionPoints(dealActions, actionWeights);
+      addToRowAndTotals(deal, (accumulator) => {
+        accumulator.historicalWonAmount += deal.opportunity ?? 0;
+        accumulator.historicalActionPoints += actionPoints;
+      });
+    }
+  }
+
+  const totalsActions = {
+    ...totalsAccumulator.actions,
+    weightedActionPoints: calculateWeightedActionPoints(
+      totalsAccumulator.actions,
+      actionWeights
+    ),
+    weightedActionPointsPerDeal: null,
+    weightedActionPointsPerWin: null
+  };
+  const teamMoneyPerWeightedActionPoint = safeDivide(
+    totalsAccumulator.realizedWonAmountInPeriod,
+    totalsActions.weightedActionPoints
+  );
+  const rows = Array.from(accumulators.values())
+    .map((accumulator) =>
+      finalizeSystemRow({
+        accumulator,
+        view,
+        weights: actionWeights,
+        teamMoneyPerWeightedActionPoint,
+        stageHistoryMap,
+        stageLookup
+      })
+    )
+    .sort(rowSort);
+  const totals = finalizeSystemRow({
+    accumulator: totalsAccumulator,
+    view,
+    weights: actionWeights,
+    teamMoneyPerWeightedActionPoint,
+    stageHistoryMap,
+    stageLookup
+  });
+  const warnings = Array.from(reportWarnings);
+
+  return {
+    range: input.range,
+    asOf: new Date(asOfMs).toISOString(),
+    previousAsOf: new Date(previous.toMs).toISOString(),
+    dimension: input.dimension,
+    view,
+    actionWeights,
+    totals: {
+      ...totals,
+      warnings
+    },
+    rows,
+    formulaTooltips: REVENUE_VELOCITY_FORMULA_TOOLTIPS,
+    warnings
+  };
+}
+
+export function buildRevenueVelocityReport(
+  input: RevenueVelocityReportInput
+): RevenueVelocityReportSnapshot {
+  const view = input.view ?? "systemState";
+  return view === "createdCohort"
+    ? buildCreatedCohortReport(input)
+    : buildSystemStateReport(input, view);
 }

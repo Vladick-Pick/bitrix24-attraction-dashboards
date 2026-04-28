@@ -96,6 +96,7 @@ function createReport(overrides: Partial<Parameters<typeof buildRevenueVelocityR
     range,
     asOf,
     dimension: "manager",
+    view: "createdCohort",
     wonStageIds: ["C10:WON"],
     deals: [],
     stageCatalog,
@@ -110,6 +111,268 @@ function createReport(overrides: Partial<Parameters<typeof buildRevenueVelocityR
 }
 
 describe("buildRevenueVelocityReport", () => {
+  it("builds system state from active pipeline even when the week has no new deals or wins", () => {
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      deals: [
+        {
+          ...baseDeal,
+          id: "BENCH",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: "2026-04-11T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "ACTIVE",
+          assignedById: "78",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          opportunity: 250000,
+          dateCreate: "2026-03-15T00:00:00.000Z",
+          dateClosed: null
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H_BENCH_ACT",
+          ownerId: "BENCH",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-01T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_WON",
+          ownerId: "BENCH",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-11T00:00:00.000Z"
+        },
+        {
+          id: "H_ACTIVE_ACT",
+          ownerId: "ACTIVE",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-03-15T00:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(report.view).toBe("systemState");
+    expect(report.previousAsOf).toBe("2026-04-19T23:59:59.999Z");
+    expect(report.totals.createdDeals).toBe(0);
+    expect(report.totals.wonDealsInPeriod).toBe(0);
+    expect(report.totals.realizedWonAmountInPeriod).toBe(0);
+    expect(report.totals.activeDeals).toBe(1);
+    expect(report.totals.activePipelineAmount).toBe(250000);
+    expect(report.totals.expectedPipelineAmount).toBe(250000);
+    expect(report.totals.liveRevenueVelocity).toBe(25000);
+  });
+
+  it("calculates system value, velocity delta and period actions for old wins and current pipeline", () => {
+    const weeklyRange = {
+      from: "2026-04-20T00:00:00.000Z",
+      to: "2026-04-26T23:59:59.999Z"
+    };
+    const report = createReport({
+      view: "systemState",
+      range: weeklyRange,
+      asOf: weeklyRange.to,
+      deals: [
+        {
+          ...baseDeal,
+          id: "BENCH",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: "2026-04-11T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "OLD_WIN",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 300000,
+          dateCreate: "2026-03-20T00:00:00.000Z",
+          dateClosed: "2026-04-22T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "CURRENT_ONLY",
+          assignedById: "78",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          opportunity: 100000,
+          dateCreate: "2026-04-23T00:00:00.000Z",
+          dateClosed: null
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H_BENCH_ACT",
+          ownerId: "BENCH",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-01T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_WON",
+          ownerId: "BENCH",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-11T00:00:00.000Z"
+        },
+        {
+          id: "H_OLD_ACT",
+          ownerId: "OLD_WIN",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-01T00:00:00.000Z"
+        },
+        {
+          id: "H_OLD_WON",
+          ownerId: "OLD_WIN",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-22T00:00:00.000Z"
+        },
+        {
+          id: "H_CURRENT_ACT",
+          ownerId: "CURRENT_ONLY",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-23T00:00:00.000Z"
+        }
+      ],
+      activities: [
+        {
+          id: "M_CURRENT",
+          ownerTypeId: "2",
+          ownerId: "CURRENT_ONLY",
+          typeId: "1",
+          providerId: "CRM_MEETING",
+          responsibleId: "78",
+          createdTime: "2026-04-24T12:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-04-24T12:30:00.000Z",
+          completed: true,
+          completedTime: "2026-04-24T12:30:00.000Z"
+        },
+        {
+          id: "T_CURRENT",
+          ownerTypeId: "2",
+          ownerId: "CURRENT_ONLY",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "78",
+          createdTime: "2026-04-24T12:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-04-25T12:00:00.000Z",
+          completed: true,
+          completedTime: "2026-04-25T12:00:00.000Z"
+        }
+      ],
+      calls: [
+        {
+          id: "CALL_PREVIOUS",
+          crmActivityId: null,
+          portalUserId: "78",
+          callType: "1",
+          callStartDate: "2026-04-15T12:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "DEAL",
+          crmEntityId: "OLD_WIN",
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_CURRENT",
+          crmActivityId: null,
+          portalUserId: "78",
+          callType: "1",
+          callStartDate: "2026-04-24T12:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "DEAL",
+          crmEntityId: "CURRENT_ONLY",
+          callFailedCode: "200"
+        }
+      ]
+    });
+
+    expect(report.totals.realizedWonAmountInPeriod).toBe(300000);
+    expect(report.totals.wonDealsInPeriod).toBe(1);
+    expect(report.totals.activePipelineAmount).toBe(100000);
+    expect(report.totals.expectedPipelineAmount).toBe(100000);
+    expect(report.totals.previousExpectedPipelineAmount).toBe(300000);
+    expect(report.totals.expectedPipelineDelta).toBe(-200000);
+    expect(report.totals.systemValueCreated).toBe(100000);
+    expect(report.totals.velocityDelta).toBe(
+      Number(((report.totals.liveRevenueVelocity ?? 0) - (report.totals.previousLiveRevenueVelocity ?? 0)).toFixed(2))
+    );
+    expect(report.totals.actions.connectedCallsOverThirtySeconds).toBe(1);
+    expect(report.totals.actions.meetingsCount).toBe(1);
+    expect(report.totals.actions.closedTasks).toBe(1);
+    expect(report.totals.actions.weightedActionPoints).toBe(4.5);
+    expect(report.totals.actionPointsDelta).toBe(3.5);
+    expect(report.totals.systemValuePerActionPoint).toBe(22222.22);
+    expect(report.totals.realizedMoneyPerActionPoint).toBe(66666.67);
+  });
+
+  it("treats deals closed after previous as-of as previous active pipeline without stage history", () => {
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      deals: [
+        {
+          ...baseDeal,
+          id: "OLD_WIN_NO_HISTORY",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 300000,
+          dateCreate: "2026-03-20T00:00:00.000Z",
+          dateClosed: "2026-04-22T00:00:00.000Z"
+        }
+      ],
+      stageHistory: []
+    });
+
+    expect(report.totals.realizedWonAmountInPeriod).toBe(300000);
+    expect(report.totals.previousExpectedPipelineAmount).toBe(300000);
+    expect(report.totals.expectedPipelineDelta).toBe(-300000);
+    expect(report.totals.systemValueCreated).toBe(0);
+  });
+
   it("calculates cohort revenue velocity, money per action, weighted actions and conversion-event stages", () => {
     const report = createReport({
       deals: [
@@ -606,5 +869,63 @@ describe("buildRevenueVelocityReport", () => {
     expect(report.warnings).toContain(
       "Часть конверсионных мероприятий не учтена: не удалось определить этап сделки на момент события."
     );
+  });
+
+  it("keeps createdCohort on dateCreate and ignores post-close lifetime actions", () => {
+    const report = createReport({
+      view: "createdCohort",
+      deals: [
+        {
+          ...baseDeal,
+          id: "D1",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: "2026-04-10T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "D2",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 500000,
+          dateCreate: "2026-03-01T00:00:00.000Z",
+          dateClosed: "2026-04-05T00:00:00.000Z"
+        }
+      ],
+      calls: [
+        {
+          id: "PRE_CLOSE",
+          crmActivityId: null,
+          portalUserId: "78",
+          callType: "1",
+          callStartDate: "2026-04-09T12:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "DEAL",
+          crmEntityId: "D1",
+          callFailedCode: "200"
+        },
+        {
+          id: "POST_CLOSE",
+          crmActivityId: null,
+          portalUserId: "78",
+          callType: "1",
+          callStartDate: "2026-04-11T12:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "DEAL",
+          crmEntityId: "D1",
+          callFailedCode: "200"
+        }
+      ]
+    });
+
+    expect(report.view).toBe("createdCohort");
+    expect(report.totals.createdDeals).toBe(1);
+    expect(report.totals.salesAmount).toBe(100000);
+    expect(report.totals.actions.totalCalls).toBe(1);
+    expect(report.totals.actions.connectedCallsOverThirtySeconds).toBe(1);
   });
 });

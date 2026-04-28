@@ -1,6 +1,73 @@
 import type { RevenueVelocityFormulaTooltip } from '@/lib/dashboard-types'
 
 export const revenueVelocityTooltips: Record<string, RevenueVelocityFormulaTooltip> = {
+  realizedWonAmountInPeriod: {
+    key: 'realizedWonAmountInPeriod',
+    label: 'Факт денег периода',
+    formula: 'Сумма выигранных сделок с dateClosed внутри периода',
+    description: 'Показывает деньги, фактически закрытые в окне наблюдения, даже если сделки были созданы раньше.',
+  },
+  activePipelineAmount: {
+    key: 'activePipelineAmount',
+    label: 'Pipeline amount сейчас',
+    formula: 'Сумма opportunity активных сделок на конец периода',
+    description: 'Показывает полный денежный объём активной базы, которая ещё не выиграна и не проиграна.',
+  },
+  expectedPipelineAmount: {
+    key: 'expectedPipelineAmount',
+    label: 'Expected pipeline сейчас',
+    formula: 'Σ opportunity × вероятность выигрыша текущей стадии',
+    description: 'Показывает ожидаемую стоимость активного pipeline на конец периода.',
+  },
+  expectedPipelineDelta: {
+    key: 'expectedPipelineDelta',
+    label: 'Δ Expected pipeline',
+    formula: 'Expected pipeline сейчас - Expected pipeline прошлого периода',
+    description: 'Показывает, стала ли активная база денежно богаче или беднее за период.',
+  },
+  liveRevenueVelocity: {
+    key: 'liveRevenueVelocity',
+    label: 'Live Revenue Velocity',
+    formula: 'Σ expected amount активной сделки / ожидаемые дни до выигрыша',
+    description: 'Показывает текущую денежную скорость активного pipeline.',
+  },
+  velocityDelta: {
+    key: 'velocityDelta',
+    label: 'Δ Velocity',
+    formula: 'Live Revenue Velocity сейчас - Live Revenue Velocity прошлого периода',
+    description: 'Показывает, ускорилась или замедлилась денежная система.',
+  },
+  systemValueCreated: {
+    key: 'systemValueCreated',
+    label: 'Системный прирост',
+    formula: 'Факт денег периода + Expected pipeline сейчас - Expected pipeline прошлого периода',
+    description: 'Учитывает не только закрытые деньги, но и изменение ожидаемой стоимости активного pipeline.',
+  },
+  systemValuePerActionPoint: {
+    key: 'systemValuePerActionPoint',
+    label: '₽ системного прироста / балл',
+    formula: 'Системный прирост / Взвешенные баллы действий периода',
+    description: 'Показывает, сколько денежного прироста системы пришлось на один балл действий.',
+    emptyState: 'Если действий нет, метрика не считается.',
+  },
+  realizedMoneyPerActionPoint: {
+    key: 'realizedMoneyPerActionPoint',
+    label: 'Реализованные ₽ / балл',
+    formula: 'Факт денег периода / Взвешенные баллы действий периода',
+    description: 'Оперативная метрика факта периода, не точная причинно-следственная связь.',
+  },
+  historicalMoneyPerActionPoint: {
+    key: 'historicalMoneyPerActionPoint',
+    label: 'Исторический ₽ / балл',
+    formula: 'Деньги won созревших сделок / Баллы действий по этим сделкам',
+    description: 'Калибрует, сколько денег исторически приносил один балл действий.',
+  },
+  estimatedFutureMoneyFromPeriodActions: {
+    key: 'estimatedFutureMoneyFromPeriodActions',
+    label: 'Оценка будущих денег от действий',
+    formula: 'Баллы действий периода × Исторический ₽ / балл',
+    description: 'Оценивает будущий денежный вклад действий периода через историческую калибровку.',
+  },
   averageCheck: {
     key: 'averageCheck',
     label: 'Средний чек',

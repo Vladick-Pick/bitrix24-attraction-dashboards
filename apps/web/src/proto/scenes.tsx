@@ -9,6 +9,7 @@ import type {
   RevenueVelocityDimension,
   RevenueVelocityReport,
   RevenueVelocityRow,
+  RevenueVelocityView,
   SalesPlanData,
   SalesPlanDraftRow,
   SalesDealRow,
@@ -4252,6 +4253,7 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
 
 type RevenueVelocitySortKey =
   | 'createdDeals'
+  | 'activeDeals'
   | 'wonDeals'
   | 'lostDeals'
   | 'wipDeals'
@@ -4260,6 +4262,16 @@ type RevenueVelocitySortKey =
   | 'winRate'
   | 'averageCycleDays'
   | 'revenueVelocityPerDay'
+  | 'activePipelineAmount'
+  | 'expectedPipelineAmount'
+  | 'expectedPipelineDelta'
+  | 'liveRevenueVelocity'
+  | 'velocityDelta'
+  | 'realizedWonAmountInPeriod'
+  | 'systemValueCreated'
+  | 'systemValuePerActionPoint'
+  | 'historicalMoneyPerActionPoint'
+  | 'estimatedFutureMoneyFromPeriodActions'
   | 'connectedCallsOverThirtySeconds'
   | 'meetingsCount'
   | 'conversionEventsCount'
@@ -4271,6 +4283,28 @@ type RevenueVelocitySortKey =
   | 'moneyPerWeightedActionPoint'
   | 'weightedActionPointsPerWin'
   | 'actionEfficiencyIndex'
+
+const revenueVelocityViews: Array<{
+  key: RevenueVelocityView
+  label: string
+  description: string
+}> = [
+  {
+    key: 'systemState',
+    label: 'Состояние системы',
+    description: 'Период — окно наблюдения: состояние pipeline на конец периода и изменение к прошлой неделе.',
+  },
+  {
+    key: 'operationalPeriod',
+    label: 'Оперативно',
+    description: 'События периода: действия, закрытия, изменение expected pipeline и системный прирост.',
+  },
+  {
+    key: 'createdCohort',
+    label: 'Когорты',
+    description: 'Когорта создания: период выбирает сделки по dateCreate и считает их lifetime действия до закрытия/asOf.',
+  },
+]
 
 const revenueVelocityDimensions: Array<{
   key: RevenueVelocityDimension
@@ -4351,6 +4385,36 @@ function readRevenueVelocitySortValue(
   if (key === 'weightedActionPoints') {
     return row.actions.weightedActionPoints
   }
+  if (key === 'activePipelineAmount') {
+    return row.activePipelineAmount
+  }
+  if (key === 'expectedPipelineAmount') {
+    return row.expectedPipelineAmount
+  }
+  if (key === 'expectedPipelineDelta') {
+    return row.expectedPipelineDelta ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'liveRevenueVelocity') {
+    return row.liveRevenueVelocity ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'velocityDelta') {
+    return row.velocityDelta ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'realizedWonAmountInPeriod') {
+    return row.realizedWonAmountInPeriod
+  }
+  if (key === 'systemValueCreated') {
+    return row.systemValueCreated ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'systemValuePerActionPoint') {
+    return row.systemValuePerActionPoint ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'historicalMoneyPerActionPoint') {
+    return row.historicalMoneyPerActionPoint ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'estimatedFutureMoneyFromPeriodActions') {
+    return row.estimatedFutureMoneyFromPeriodActions ?? Number.NEGATIVE_INFINITY
+  }
   if (key === 'moneyPerMeeting') {
     return row.moneyPerAction.moneyPerMeeting ?? Number.NEGATIVE_INFINITY
   }
@@ -4404,41 +4468,50 @@ function RevenueVelocityHeader({
 }
 
 function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
+  const [view, setView] = useState<RevenueVelocityView>('systemState')
   const [dimension, setDimension] = useState<RevenueVelocityDimension>('manager')
   const [sort, setSort] = useState<{
     key: RevenueVelocitySortKey
     direction: 'asc' | 'desc'
-  }>({ key: 'revenueVelocityPerDay', direction: 'desc' })
+  }>({ key: 'liveRevenueVelocity', direction: 'desc' })
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [fetchedReport, setFetchedReport] = useState<{
+    view: RevenueVelocityView
     dimension: RevenueVelocityDimension
     runtimeKey: string
     report: RevenueVelocityReport
   } | null>(null)
   const [dimensionError, setDimensionError] = useState<{
+    view: RevenueVelocityView
     dimension: RevenueVelocityDimension
     runtimeKey: string
     message: string
   } | null>(null)
-  const runtimeKey = runtimeData?.revenueVelocity
-    ? `${runtimeData.revenueVelocity.range.from}:${runtimeData.revenueVelocity.range.to}:${runtimeData.revenueVelocity.asOf}`
-    : 'no-revenue-velocity-report'
-  const baseReport =
-    runtimeData?.revenueVelocity?.dimension === dimension
-      ? runtimeData.revenueVelocity
-      : null
+  const query = useMemo(() => buildDashboardQueryFromProtoFilters(filters), [filters])
+  const runtimeKey = JSON.stringify({
+    preset: query.preset,
+    from: 'from' in query ? query.from : null,
+    to: 'to' in query ? query.to : null,
+    managers: query.managerIds,
+    sources: query.sourceKeys,
+    view,
+    dimension,
+  })
   const fetchedDimensionReport =
-    fetchedReport?.dimension === dimension && fetchedReport.runtimeKey === runtimeKey
+    fetchedReport?.view === view &&
+    fetchedReport.dimension === dimension &&
+    fetchedReport.runtimeKey === runtimeKey
       ? fetchedReport.report
       : null
-  const report = fetchedDimensionReport ?? baseReport
+  const report = fetchedDimensionReport
   const dimensionErrorMessage =
-    dimensionError?.dimension === dimension && dimensionError.runtimeKey === runtimeKey
+    dimensionError?.view === view &&
+    dimensionError.dimension === dimension &&
+    dimensionError.runtimeKey === runtimeKey
       ? dimensionError.message
       : null
   const needsDimensionFetch =
     Boolean(runtimeData && runtimeData.operationalStatus === 'ready') &&
-    !baseReport &&
     !fetchedDimensionReport
   const loadingDimension = needsDimensionFetch && !dimensionErrorMessage
   const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !report
@@ -4452,18 +4525,20 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
 
     apiClient
       .getRevenueVelocityReport({
-        ...buildDashboardQueryFromProtoFilters(filters),
+        ...query,
+        view,
         dimension,
         compareRanges: [],
       })
       .then((nextReport) => {
         if (!cancelled) {
-          setFetchedReport({ dimension, runtimeKey, report: nextReport })
+          setFetchedReport({ view, dimension, runtimeKey, report: nextReport })
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           setDimensionError({
+            view,
             dimension,
             runtimeKey,
             message:
@@ -4477,7 +4552,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
     return () => {
       cancelled = true
     }
-  }, [dimension, filters, needsDimensionFetch, runtimeKey])
+  }, [dimension, needsDimensionFetch, query, runtimeKey, view])
 
   const sortedRows = useMemo(() => {
     const rows = [...(report?.rows ?? [])]
@@ -4518,48 +4593,92 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
 
   const totals = report?.totals
   const warnings = Array.from(new Set([...(report?.warnings ?? []), ...(totals?.warnings ?? [])]))
-  const hasNoDeals = (totals?.createdDeals ?? 0) === 0
-  const hasNoWonDeals = !hasNoDeals && (totals?.wonDeals ?? 0) === 0
-  const hasNoActions = (totals?.actions.weightedActionPoints ?? 0) === 0
-  const kpis = [
-    {
-      label: 'Денег принесено',
-      value: formatRubles(totals?.salesAmount ?? 0),
-      tooltipKey: 'salesAmount',
-    },
-    {
-      label: 'Revenue Velocity, ₽/день',
-      value: formatOptionalRublesPerDay(totals?.revenueVelocityPerDay ?? null),
-      tooltipKey: 'revenueVelocityPerDay',
-    },
-    {
-      label: 'Средний чек',
-      value: formatOptionalRubles(totals?.averageCheck ?? null),
-      tooltipKey: 'averageCheck',
-    },
-    {
-      label: 'Конверсия',
-      value: formatOptionalPercent(totals?.winRate ?? null),
-      tooltipKey: 'winRate',
-    },
-    {
-      label: 'Средний цикл',
-      value: formatOptionalDays(totals?.averageCycleDays ?? null),
-      tooltipKey: 'averageCycleDays',
-    },
-    {
-      label: '₽ / балл действий',
-      value: formatOptionalRubles(totals?.moneyPerAction.moneyPerWeightedActionPoint ?? null),
-      tooltipKey: 'moneyPerWeightedActionPoint',
-    },
-  ]
+  const isCohortView = view === 'createdCohort'
+  const activeView = revenueVelocityViews.find((item) => item.key === view) ?? revenueVelocityViews[0]
+  const hasNoDeals = isCohortView
+    ? (totals?.createdDeals ?? 0) === 0
+    : (totals?.activeDeals ?? 0) === 0 &&
+      (totals?.wonDealsInPeriod ?? 0) === 0 &&
+      (totals?.actions.weightedActionPoints ?? 0) === 0
+  const hasNoWonDeals = isCohortView && !hasNoDeals && (totals?.wonDeals ?? 0) === 0
+  const hasNoActions = isCohortView && (totals?.actions.weightedActionPoints ?? 0) === 0
+  const kpis = isCohortView
+    ? [
+        {
+          label: 'Денег принесено',
+          value: formatRubles(totals?.salesAmount ?? 0),
+          tooltipKey: 'salesAmount',
+        },
+        {
+          label: 'Revenue Velocity, ₽/день',
+          value: formatOptionalRublesPerDay(totals?.revenueVelocityPerDay ?? null),
+          tooltipKey: 'revenueVelocityPerDay',
+        },
+        {
+          label: 'Средний чек',
+          value: formatOptionalRubles(totals?.averageCheck ?? null),
+          tooltipKey: 'averageCheck',
+        },
+        {
+          label: 'Конверсия',
+          value: formatOptionalPercent(totals?.winRate ?? null),
+          tooltipKey: 'winRate',
+        },
+        {
+          label: '₽ / балл действий',
+          value: formatOptionalRubles(totals?.moneyPerAction.moneyPerWeightedActionPoint ?? null),
+          tooltipKey: 'moneyPerWeightedActionPoint',
+        },
+      ]
+    : [
+        {
+          label: 'Факт денег периода',
+          value: formatRubles(totals?.realizedWonAmountInPeriod ?? 0),
+          tooltipKey: 'realizedWonAmountInPeriod',
+        },
+        {
+          label: 'Expected pipeline сейчас',
+          value: formatRubles(totals?.expectedPipelineAmount ?? 0),
+          tooltipKey: 'expectedPipelineAmount',
+        },
+        {
+          label: 'Live Revenue Velocity',
+          value: formatOptionalRublesPerDay(totals?.liveRevenueVelocity ?? null),
+          tooltipKey: 'liveRevenueVelocity',
+        },
+        {
+          label: 'Δ Velocity',
+          value: formatOptionalRublesPerDay(totals?.velocityDelta ?? null),
+          tooltipKey: 'velocityDelta',
+        },
+        {
+          label: 'Системный прирост',
+          value: formatOptionalRubles(totals?.systemValueCreated ?? null),
+          tooltipKey: 'systemValueCreated',
+        },
+        {
+          label: 'Взвешенные действия периода',
+          value: formatNumber(totals?.actions.weightedActionPoints ?? 0),
+          tooltipKey: 'weightedActionPoints',
+        },
+        {
+          label: '₽ системного прироста / балл',
+          value: formatOptionalRubles(totals?.systemValuePerActionPoint ?? null),
+          tooltipKey: 'systemValuePerActionPoint',
+        },
+        {
+          label: 'Оценка будущих денег от действий',
+          value: formatOptionalRubles(totals?.estimatedFutureMoneyFromPeriodActions ?? null),
+          tooltipKey: 'estimatedFutureMoneyFromPeriodActions',
+        },
+      ]
 
   return (
     <div className="space-y-6">
       <section className="panel p-5">
         <PanelHeading
           title="Денежная скорость"
-          description="Когортный отчёт: период выбирает сделки по дате создания, а действия считаются только по этим сделкам."
+          description={activeView?.description ?? ''}
           right={
             <div className="flex flex-wrap gap-2">
               <span className="badge-chip badge-neutral">{report?.rows.length ?? 0} строк</span>
@@ -4567,6 +4686,30 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
             </div>
           }
         />
+
+        <div className="mb-3 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2 text-sm">
+          {revenueVelocityViews.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => {
+                setView(item.key)
+                setExpandedKey(null)
+                setSort({
+                  key: item.key === 'createdCohort' ? 'revenueVelocityPerDay' : 'liveRevenueVelocity',
+                  direction: 'desc',
+                })
+              }}
+              className={
+                view === item.key
+                  ? 'rounded-full bg-slate-900 px-3 py-1.5 font-bold text-white'
+                  : 'rounded-full border border-slate-200 bg-white px-3 py-1.5 font-bold text-slate-600 transition hover:border-slate-300'
+              }
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
 
         <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2 text-sm">
           {revenueVelocityDimensions.map((item) => (
@@ -4602,7 +4745,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
           </div>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
           {kpis.map((metric) => (
             <div
               key={metric.label}
@@ -4619,7 +4762,9 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
       <section className="panel overflow-auto p-3">
         {hasNoDeals ? (
           <div className="p-4 text-sm text-slate-600">
-            Нет сделок в выбранной когорте.
+            {isCohortView
+              ? 'Нет сделок в выбранной когорте.'
+              : 'Нет активного pipeline, закрытий или действий в выбранном окне наблюдения.'}
           </div>
         ) : hasNoWonDeals ? (
           <div className="p-4 text-sm text-slate-600">
@@ -4630,10 +4775,18 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
             По сделкам когорты не найдено связанных действий.
           </div>
         ) : (
-          <table className="min-w-[1780px] text-sm">
+          <table className="min-w-[2380px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
                 <th className="px-2 py-2">Название строки</th>
+                <RevenueVelocityHeader label="Активные сделки сейчас" sortKey="activeDeals" activeSort={sort} onSort={handleSort} />
+                <RevenueVelocityHeader label="Pipeline amount сейчас" sortKey="activePipelineAmount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('activePipelineAmount', report)} />
+                <RevenueVelocityHeader label="Expected pipeline сейчас" sortKey="expectedPipelineAmount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('expectedPipelineAmount', report)} />
+                <RevenueVelocityHeader label="Δ Expected pipeline" sortKey="expectedPipelineDelta" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('expectedPipelineDelta', report)} />
+                <RevenueVelocityHeader label="Live velocity сейчас" sortKey="liveRevenueVelocity" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('liveRevenueVelocity', report)} />
+                <RevenueVelocityHeader label="Δ velocity" sortKey="velocityDelta" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('velocityDelta', report)} />
+                <RevenueVelocityHeader label="Факт продаж периода" sortKey="realizedWonAmountInPeriod" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('realizedWonAmountInPeriod', report)} />
+                <RevenueVelocityHeader label="Системный прирост" sortKey="systemValueCreated" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('systemValueCreated', report)} />
                 <RevenueVelocityHeader label="Возможности" sortKey="createdDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('createdDeals', report)} />
                 <RevenueVelocityHeader label="Выиграно" sortKey="wonDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('wonDeals', report)} />
                 <RevenueVelocityHeader label="Проиграно" sortKey="lostDeals" activeSort={sort} onSort={handleSort} />
@@ -4654,6 +4807,8 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
                 <RevenueVelocityHeader label="₽ / балл действий" sortKey="moneyPerWeightedActionPoint" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerWeightedActionPoint', report)} />
                 <RevenueVelocityHeader label="Балл действий / выигрыш" sortKey="weightedActionPointsPerWin" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('weightedActionPointsPerWin', report)} />
                 <RevenueVelocityHeader label="Индекс эффективности действий" sortKey="actionEfficiencyIndex" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('actionEfficiencyIndex', report)} />
+                <RevenueVelocityHeader label="Исторический ₽ / балл" sortKey="historicalMoneyPerActionPoint" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('historicalMoneyPerActionPoint', report)} />
+                <RevenueVelocityHeader label="Оценка будущих денег" sortKey="estimatedFutureMoneyFromPeriodActions" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('estimatedFutureMoneyFromPeriodActions', report)} />
                 <th className="px-2 py-2">Узкое место</th>
               </tr>
             </thead>
@@ -4671,6 +4826,14 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
                         <span>{row.label}</span>
                       </button>
                     </td>
+                    <td className="px-2 py-2">{formatInteger(row.activeDeals)}</td>
+                    <td className="px-2 py-2">{formatRubles(row.activePipelineAmount)}</td>
+                    <td className="px-2 py-2">{formatRubles(row.expectedPipelineAmount)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.expectedPipelineDelta)}</td>
+                    <td className="px-2 py-2 font-semibold text-slate-900">{formatOptionalRublesPerDay(row.liveRevenueVelocity)}</td>
+                    <td className="px-2 py-2">{formatOptionalRublesPerDay(row.velocityDelta)}</td>
+                    <td className="px-2 py-2">{formatRubles(row.realizedWonAmountInPeriod)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.systemValueCreated)}</td>
                     <td className="px-2 py-2">{formatInteger(row.createdDeals)}</td>
                     <td className="px-2 py-2">{formatInteger(row.wonDeals)}</td>
                     <td className="px-2 py-2">{formatInteger(row.lostDeals)}</td>
@@ -4691,11 +4854,13 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
                     <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerWeightedActionPoint)}</td>
                     <td className="px-2 py-2">{formatOptionalDecimal(row.actions.weightedActionPointsPerWin)}</td>
                     <td className="px-2 py-2">{formatOptionalDecimal(row.moneyPerAction.actionEfficiencyIndex)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.historicalMoneyPerActionPoint)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.estimatedFutureMoneyFromPeriodActions)}</td>
                     <td className="px-2 py-2">{row.bottleneckStageName ?? '—'}</td>
                   </tr>
                   {expandedKey === row.key ? (
                     <tr className="border-b border-slate-100 bg-slate-50/70">
-                      <td className="px-3 py-3" colSpan={22}>
+                      <td className="px-3 py-3" colSpan={32}>
                         <div className="grid gap-3 md:grid-cols-4">
                           {[
                             ['Всего звонков', formatInteger(row.actions.totalCalls)],
@@ -5240,15 +5405,9 @@ export const scenes: ProtoScene[] = [
   {
     id: 'revenue-velocity',
     label: 'Денежная скорость',
-    description: 'Деньги, скорость сделки и деньги на действие по когортам.',
+    description: 'Состояние денежной системы, оперативные действия и когортная эффективность.',
     focus: 'Revenue Velocity / действия / клубы',
-    kpis: [
-      { label: 'Денег принесено', value: '—', note: 'сумма выигранных сделок когорты' },
-      { label: 'Revenue Velocity', value: '—', note: '₽/день по формуле скорости' },
-      { label: 'Средний чек', value: '—', note: 'сумма / выигранные' },
-      { label: 'Конверсия', value: '—', note: 'выигранные / созданные' },
-      { label: '₽ / балл действий', value: '—', note: 'деньги на условный балл' },
-    ],
+    kpis: [],
     component: RevenueVelocityScene,
   },
   {

@@ -104,6 +104,19 @@ describe("createReportingService", () => {
           lastUpdated: "2026-04-07T12:00:00.000Z",
           completed: true,
           completedTime: "2026-04-07T12:10:00.000Z"
+        },
+        {
+          id: "A_CONTACT_WITH_DEAL_ID",
+          ownerTypeId: "3",
+          ownerId: "1",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "78",
+          createdTime: "2026-04-07T13:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-04-07T13:00:00.000Z",
+          completed: true,
+          completedTime: "2026-04-07T13:10:00.000Z"
         }
       ],
       getAllActivityDeadlineChanges: async () => [],
@@ -127,6 +140,17 @@ describe("createReportingService", () => {
           callStartDate: "2026-04-07T11:00:00.000Z",
           callDurationSeconds: 45,
           crmEntityType: "DEAL",
+          crmEntityId: "1",
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_NUMERIC_DEAL_ENTITY",
+          crmActivityId: null,
+          portalUserId: "78",
+          callType: "1",
+          callStartDate: "2026-04-08T10:00:00.000Z",
+          callDurationSeconds: 45,
+          crmEntityType: "2",
           crmEntityId: "1",
           callFailedCode: "200"
         }
@@ -171,6 +195,8 @@ describe("createReportingService", () => {
     expect(reportManagerIds).not.toContain("999");
     expect(activities.totalDealCount).toBe(1);
     expect(revenueVelocity.totals.createdDeals).toBe(1);
+    expect(revenueVelocity.totals.actions.totalCalls).toBe(3);
+    expect(revenueVelocity.totals.actions.closedTasks).toBe(2);
     expect(actionOutcomes.rows.find((row) => row.managerId === "78")?.createdTasks).toBe(1);
     expect(
       actionOutcomes.cohortStatusRows

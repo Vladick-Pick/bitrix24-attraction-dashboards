@@ -22,6 +22,7 @@ import type {
   RevenueVelocityQuery,
   RevenueVelocityReport,
   RevenueVelocityReportSnapshot,
+  RevenueVelocityView,
   SalesPlanData,
   SalesPlanInput,
   SourceQualityConversionReport,
@@ -1237,6 +1238,12 @@ function normalizeRevenueVelocityDimension(value: unknown): RevenueVelocityDimen
     : 'manager'
 }
 
+function normalizeRevenueVelocityView(value: unknown): RevenueVelocityView {
+  return value === 'operationalPeriod' || value === 'createdCohort'
+    ? value
+    : 'systemState'
+}
+
 function normalizeRevenueVelocityActionSummary(
   value: unknown,
 ): RevenueVelocityActionSummary {
@@ -1277,11 +1284,13 @@ function normalizeRevenueVelocitySnapshot(
 ): RevenueVelocityReportSnapshot {
   const data = isRecord(value) ? value : {}
   const dimension = normalizeRevenueVelocityDimension(data.dimension)
+  const view = normalizeRevenueVelocityView(data.view)
   const normalizeRow = (entry: unknown) => {
     const row = isRecord(entry) ? entry : {}
 
     return {
       dimension: normalizeRevenueVelocityDimension(row.dimension ?? dimension),
+      view: normalizeRevenueVelocityView(row.view ?? view),
       key: asString(row.key),
       label: asString(row.label, asString(row.key)),
       managerId: asNullableString(row.managerId),
@@ -1301,6 +1310,26 @@ function normalizeRevenueVelocitySnapshot(
       averageCycleDays: asNullableNumber(row.averageCycleDays),
       medianCycleDays: asNullableNumber(row.medianCycleDays),
       revenueVelocityPerDay: asNullableNumber(row.revenueVelocityPerDay),
+      activePipelineAmount: asNumber(row.activePipelineAmount),
+      expectedPipelineAmount: asNumber(row.expectedPipelineAmount),
+      previousExpectedPipelineAmount: asNullableNumber(row.previousExpectedPipelineAmount),
+      expectedPipelineDelta: asNullableNumber(row.expectedPipelineDelta),
+      liveRevenueVelocity: asNullableNumber(row.liveRevenueVelocity),
+      previousLiveRevenueVelocity: asNullableNumber(row.previousLiveRevenueVelocity),
+      velocityDelta: asNullableNumber(row.velocityDelta),
+      velocityDeltaPercent: asNullableNumber(row.velocityDeltaPercent),
+      averageRemainingDays: asNullableNumber(row.averageRemainingDays),
+      realizedWonAmountInPeriod: asNumber(row.realizedWonAmountInPeriod),
+      wonDealsInPeriod: asNumber(row.wonDealsInPeriod),
+      lostDealsInPeriod: asNumber(row.lostDealsInPeriod),
+      systemValueCreated: asNullableNumber(row.systemValueCreated),
+      actionPointsDelta: asNullableNumber(row.actionPointsDelta),
+      systemValuePerActionPoint: asNullableNumber(row.systemValuePerActionPoint),
+      realizedMoneyPerActionPoint: asNullableNumber(row.realizedMoneyPerActionPoint),
+      historicalMoneyPerActionPoint: asNullableNumber(row.historicalMoneyPerActionPoint),
+      estimatedFutureMoneyFromPeriodActions: asNullableNumber(
+        row.estimatedFutureMoneyFromPeriodActions,
+      ),
       actions: normalizeRevenueVelocityActionSummary(row.actions),
       moneyPerAction: normalizeRevenueVelocityMoneyPerAction(row.moneyPerAction),
       bottleneckStageId: asNullableString(row.bottleneckStageId),
@@ -1313,7 +1342,9 @@ function normalizeRevenueVelocitySnapshot(
   return {
     range: normalizeRange(data.range),
     asOf: asString(data.asOf),
+    previousAsOf: asNullableString(data.previousAsOf),
     dimension,
+    view,
     actionWeights: {
       connectedCallOverThirtySeconds: asNumber(
         weights.connectedCallOverThirtySeconds,
@@ -1381,6 +1412,7 @@ function buildRevenueVelocityQueryParams(query: RevenueVelocityQuery) {
   return {
     ...buildQueryParams(query),
     dimension: query.dimension,
+    view: query.view,
     asOf: query.asOf,
     customerKeys: query.customerKeys,
     qualityKeys: query.qualityKeys,

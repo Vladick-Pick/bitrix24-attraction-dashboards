@@ -732,6 +732,11 @@ export type RevenueVelocityDimension =
   | 'sourceCustomer'
   | 'managerCustomer'
 
+export type RevenueVelocityView =
+  | 'systemState'
+  | 'operationalPeriod'
+  | 'createdCohort'
+
 export interface RevenueVelocityActionWeights {
   connectedCallOverThirtySeconds: number
   meeting: number
@@ -762,6 +767,7 @@ export interface RevenueVelocityMoneyPerAction {
 
 export interface RevenueVelocityRow {
   dimension: RevenueVelocityDimension
+  view: RevenueVelocityView
   key: string
   label: string
   managerId?: string | null
@@ -781,6 +787,24 @@ export interface RevenueVelocityRow {
   averageCycleDays: number | null
   medianCycleDays: number | null
   revenueVelocityPerDay: number | null
+  activePipelineAmount: number
+  expectedPipelineAmount: number
+  previousExpectedPipelineAmount: number | null
+  expectedPipelineDelta: number | null
+  liveRevenueVelocity: number | null
+  previousLiveRevenueVelocity: number | null
+  velocityDelta: number | null
+  velocityDeltaPercent: number | null
+  averageRemainingDays: number | null
+  realizedWonAmountInPeriod: number
+  wonDealsInPeriod: number
+  lostDealsInPeriod: number
+  systemValueCreated: number | null
+  actionPointsDelta: number | null
+  systemValuePerActionPoint: number | null
+  realizedMoneyPerActionPoint: number | null
+  historicalMoneyPerActionPoint: number | null
+  estimatedFutureMoneyFromPeriodActions: number | null
   actions: RevenueVelocityActionSummary
   moneyPerAction: RevenueVelocityMoneyPerAction
   bottleneckStageId: string | null
@@ -799,7 +823,9 @@ export interface RevenueVelocityFormulaTooltip {
 export interface RevenueVelocityReportSnapshot {
   range: ReportRange
   asOf: string
+  previousAsOf: string | null
   dimension: RevenueVelocityDimension
+  view: RevenueVelocityView
   actionWeights: RevenueVelocityActionWeights
   totals: RevenueVelocityRow
   rows: RevenueVelocityRow[]
@@ -813,6 +839,7 @@ export interface RevenueVelocityReport extends RevenueVelocityReportSnapshot {
 
 export type RevenueVelocityQuery = DashboardQuery & {
   dimension?: RevenueVelocityDimension
+  view?: RevenueVelocityView
   asOf?: string
   customerKeys?: string[]
   qualityKeys?: string[]

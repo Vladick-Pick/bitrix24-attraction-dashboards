@@ -66,7 +66,9 @@ function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
       to: "2026-04-30T23:59:59.999Z"
     },
     asOf: "2026-04-30T23:59:59.999Z",
+    previousAsOf: null,
     dimension: "manager",
+    view: "systemState",
     actionWeights: {
       connectedCallOverThirtySeconds: 1,
       meeting: 3,
@@ -75,6 +77,7 @@ function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
     },
     totals: {
       dimension: "manager",
+      view: "systemState",
       key: "total",
       label: "Итого",
       managerId: null,
@@ -94,6 +97,24 @@ function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
       averageCycleDays: null,
       medianCycleDays: null,
       revenueVelocityPerDay: null,
+      activePipelineAmount: 0,
+      expectedPipelineAmount: 0,
+      previousExpectedPipelineAmount: null,
+      expectedPipelineDelta: null,
+      liveRevenueVelocity: null,
+      previousLiveRevenueVelocity: null,
+      velocityDelta: null,
+      velocityDeltaPercent: null,
+      averageRemainingDays: null,
+      realizedWonAmountInPeriod: 0,
+      wonDealsInPeriod: 0,
+      lostDealsInPeriod: 0,
+      systemValueCreated: null,
+      actionPointsDelta: null,
+      systemValuePerActionPoint: null,
+      realizedMoneyPerActionPoint: null,
+      historicalMoneyPerActionPoint: null,
+      estimatedFutureMoneyFromPeriodActions: null,
       actions: {
         totalCalls: 0,
         connectedCallsOverThirtySeconds: 0,
@@ -493,9 +514,11 @@ describe("createApp", () => {
     const revenueVelocityReport: RevenueVelocityReport = {
       ...createEmptyRevenueVelocityReport(),
       dimension: "source",
+      view: "createdCohort",
       totals: {
         ...createEmptyRevenueVelocityReport().totals,
         dimension: "source",
+        view: "createdCohort",
         createdDeals: 4,
         wonDeals: 1,
         salesAmount: 125000,
@@ -509,6 +532,7 @@ describe("createApp", () => {
         {
           ...createEmptyRevenueVelocityReport().totals,
           dimension: "source",
+          view: "createdCohort",
           key: "WEB",
           label: "Сайт",
           sourceKey: "WEB",
@@ -688,6 +712,7 @@ describe("createApp", () => {
         from: "2026-04-01T00:00:00.000Z",
         to: "2026-04-30T23:59:59.999Z",
         dimension: "source",
+        view: "createdCohort",
         asOf: "2026-05-15T00:00:00.000Z",
         managerIds: "7,9",
         sourceKeys: "WEB",
@@ -715,6 +740,7 @@ describe("createApp", () => {
         tariffKeys: ["Premium"]
       },
       dimension: "source",
+      view: "createdCohort",
       asOf: "2026-05-15T00:00:00.000Z"
     });
 

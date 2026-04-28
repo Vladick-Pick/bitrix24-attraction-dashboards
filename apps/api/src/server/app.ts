@@ -9,6 +9,7 @@ import type {
   ManualSyncSummary,
   RevenueVelocityDimension,
   RevenueVelocityReport,
+  RevenueVelocityView,
   SalesPlanData,
   SalesPlanInput,
   SnapshotStats,
@@ -60,6 +61,7 @@ interface RangeRequest {
 
 interface RevenueVelocityRequest extends RangeRequest {
   dimension: RevenueVelocityDimension;
+  view: RevenueVelocityView;
   asOf?: string;
   filters?: RangeRequest["filters"] & {
     customerKeys?: string[];
@@ -221,6 +223,9 @@ const revenueVelocityExtraQuerySchema = z.object({
       "managerCustomer"
     ])
     .optional(),
+  view: z
+    .enum(["systemState", "operationalPeriod", "createdCohort"])
+    .optional(),
   asOf: z.string().datetime({ offset: true }).optional(),
   customerKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
   qualityKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
@@ -325,6 +330,7 @@ function parseRevenueVelocityRequest(query: unknown): RevenueVelocityRequest {
   return {
     ...base,
     dimension: extra.dimension ?? "manager",
+    view: extra.view ?? "systemState",
     ...(extra.asOf ? { asOf: extra.asOf } : {}),
     ...(filters ? { filters } : {})
   };

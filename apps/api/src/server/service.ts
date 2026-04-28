@@ -18,6 +18,7 @@ import type {
   RevenueVelocityDimension,
   RevenueVelocityReport,
   RevenueVelocityReportSnapshot,
+  RevenueVelocityView,
   SalesPlanData,
   SalesPlanInput,
   SourceCatalogEntry,
@@ -158,6 +159,7 @@ export interface ReportingService {
       tariffKeys?: string[];
     };
     dimension?: RevenueVelocityDimension;
+    view?: RevenueVelocityView;
     asOf?: string;
   }): Promise<RevenueVelocityReport>;
   getSalesPlan(input: {
@@ -1232,6 +1234,7 @@ export function createReportingService(
       compareRanges,
       filters,
       dimension = "manager",
+      view = "systemState",
       asOf
     }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters) as ReportFilters & {
@@ -1253,15 +1256,16 @@ export function createReportingService(
       const scopedStageHistory = stageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
-      const scopedActivities = activities.filter((activity) =>
-        scopedDealIds.has(activity.ownerId)
+      const scopedActivities = activities.filter(
+        (activity) =>
+          isDealOwnerType(activity.ownerTypeId) && scopedDealIds.has(activity.ownerId)
       );
       const activityById = new Map(
         scopedActivities.map((activity) => [activity.id, activity])
       );
       const scopedCalls = calls.filter((call) => {
         if (
-          call.crmEntityType === "DEAL" &&
+          isDealCallEntity(call.crmEntityType) &&
           call.crmEntityId &&
           scopedDealIds.has(call.crmEntityId)
         ) {
@@ -1276,14 +1280,16 @@ export function createReportingService(
         uniqueStrings(scopedDeals.map((deal) => deal.assignedById))
       );
       const sourceCatalog = buildSourceCatalog(scopedDeals, stageCatalog);
-      const resolvedAsOf = asOf ?? nowFactory().toISOString();
       const buildSnapshot = (
         targetRange: ReportRange
-      ): RevenueVelocityReportSnapshot =>
-        buildRevenueVelocityReport({
+      ): RevenueVelocityReportSnapshot => {
+        const snapshotAsOf = asOf ?? targetRange.to;
+
+        return buildRevenueVelocityReport({
           range: targetRange,
-          asOf: resolvedAsOf,
+          asOf: snapshotAsOf,
           dimension,
+          view,
           wonStageIds,
           deals: scopedDeals,
           stageCatalog,
@@ -1295,6 +1301,7 @@ export function createReportingService(
           sourceCatalog,
           filters: scopedFilters
         });
+      };
       const resolvedRange = resolveRange(
         periodDays,
         range,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
   ActivitiesWorkloadReport,
@@ -6,18 +6,24 @@ import type {
   DashboardData,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeReport,
+  RevenueVelocityDimension,
+  RevenueVelocityReport,
+  RevenueVelocityRow,
   SalesPlanData,
   SalesPlanDraftRow,
   SalesDealRow,
   SalesManagerGroup,
   TargetGroupConversionReport,
 } from '@/lib/dashboard-types'
+import { apiClient } from '@/lib/api-client'
 import {
   formatAmount,
   formatInteger,
   formatPercent,
   formatShortDate,
 } from '@/lib/formatters'
+import { revenueVelocityTooltips } from '@/lib/revenue-velocity-tooltips'
+import { buildDashboardQueryFromProtoFilters } from '@/proto/live-reporting'
 import type {
   ActivityMatrixRow,
   ActivityMatrixStageRow,
@@ -4244,6 +4250,487 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
   )
 }
 
+type RevenueVelocitySortKey =
+  | 'createdDeals'
+  | 'wonDeals'
+  | 'lostDeals'
+  | 'wipDeals'
+  | 'salesAmount'
+  | 'averageCheck'
+  | 'winRate'
+  | 'averageCycleDays'
+  | 'revenueVelocityPerDay'
+  | 'connectedCallsOverThirtySeconds'
+  | 'meetingsCount'
+  | 'conversionEventsCount'
+  | 'closedTasks'
+  | 'weightedActionPoints'
+  | 'moneyPerMeeting'
+  | 'moneyPerConnectedCallOverThirtySeconds'
+  | 'moneyPerConversionEvent'
+  | 'moneyPerWeightedActionPoint'
+  | 'weightedActionPointsPerWin'
+  | 'actionEfficiencyIndex'
+
+const revenueVelocityDimensions: Array<{
+  key: RevenueVelocityDimension
+  label: string
+}> = [
+  { key: 'manager', label: 'Менеджеры' },
+  { key: 'source', label: 'Источники' },
+  { key: 'customer', label: 'Заказчики' },
+  { key: 'managerSource', label: 'Менеджер × источник' },
+  { key: 'sourceCustomer', label: 'Источник × заказчик' },
+  { key: 'managerCustomer', label: 'Менеджер × заказчик' },
+]
+
+function formatRubles(value: number) {
+  return `${formatInteger(Math.round(value))} ₽`
+}
+
+function formatRublesPerDay(value: number) {
+  return `${formatInteger(Math.round(value))} ₽/день`
+}
+
+function formatOptionalRubles(value: number | null) {
+  return typeof value === 'number' && Number.isFinite(value) ? formatRubles(value) : '—'
+}
+
+function formatOptionalRublesPerDay(value: number | null) {
+  return typeof value === 'number' && Number.isFinite(value) ? formatRublesPerDay(value) : '—'
+}
+
+function formatOptionalPercent(value: number | null) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${formatPercent(value * 100)}%`
+    : '—'
+}
+
+function formatOptionalDays(value: number | null) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${formatNumber(value)} дн.` : '—'
+}
+
+function formatOptionalDecimal(value: number | null) {
+  return typeof value === 'number' && Number.isFinite(value) ? formatNumber(value) : '—'
+}
+
+function getRevenueVelocityTooltip(
+  key: string,
+  report: RevenueVelocityReport | null,
+) {
+  const fromReport = report?.formulaTooltips.find((tooltip) => tooltip.key === key)
+  const fromRegistry =
+    revenueVelocityTooltips[key as keyof typeof revenueVelocityTooltips]
+  const tooltip = fromReport ?? fromRegistry
+
+  if (!tooltip) {
+    return undefined
+  }
+
+  return [tooltip.formula, tooltip.description, tooltip.emptyState]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function readRevenueVelocitySortValue(
+  row: RevenueVelocityRow,
+  key: RevenueVelocitySortKey,
+) {
+  if (key === 'connectedCallsOverThirtySeconds') {
+    return row.actions.connectedCallsOverThirtySeconds
+  }
+  if (key === 'meetingsCount') {
+    return row.actions.meetingsCount
+  }
+  if (key === 'conversionEventsCount') {
+    return row.actions.conversionEventsCount
+  }
+  if (key === 'closedTasks') {
+    return row.actions.closedTasks
+  }
+  if (key === 'weightedActionPoints') {
+    return row.actions.weightedActionPoints
+  }
+  if (key === 'moneyPerMeeting') {
+    return row.moneyPerAction.moneyPerMeeting ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'moneyPerConnectedCallOverThirtySeconds') {
+    return row.moneyPerAction.moneyPerConnectedCallOverThirtySeconds ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'moneyPerConversionEvent') {
+    return row.moneyPerAction.moneyPerConversionEvent ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'moneyPerWeightedActionPoint') {
+    return row.moneyPerAction.moneyPerWeightedActionPoint ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'weightedActionPointsPerWin') {
+    return row.actions.weightedActionPointsPerWin ?? Number.NEGATIVE_INFINITY
+  }
+  if (key === 'actionEfficiencyIndex') {
+    return row.moneyPerAction.actionEfficiencyIndex ?? Number.NEGATIVE_INFINITY
+  }
+
+  return row[key] ?? Number.NEGATIVE_INFINITY
+}
+
+function RevenueVelocityHeader({
+  label,
+  sortKey,
+  activeSort,
+  tooltip,
+  onSort,
+}: {
+  label: string
+  sortKey: RevenueVelocitySortKey
+  activeSort: { key: RevenueVelocitySortKey; direction: 'asc' | 'desc' }
+  tooltip?: string | undefined
+  onSort: (key: RevenueVelocitySortKey) => void
+}) {
+  return (
+    <th className="px-2 py-2">
+      <button
+        type="button"
+        className="group inline-flex items-center gap-1 text-left"
+        onClick={() => onSort(sortKey)}
+        title={tooltip}
+      >
+        <span>{label}</span>
+        <span className="text-slate-400">
+          {activeSort.key === sortKey ? (activeSort.direction === 'desc' ? '↓' : '↑') : '↕'}
+        </span>
+      </button>
+    </th>
+  )
+}
+
+function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
+  const [dimension, setDimension] = useState<RevenueVelocityDimension>('manager')
+  const [sort, setSort] = useState<{
+    key: RevenueVelocitySortKey
+    direction: 'asc' | 'desc'
+  }>({ key: 'revenueVelocityPerDay', direction: 'desc' })
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const [fetchedReport, setFetchedReport] = useState<{
+    dimension: RevenueVelocityDimension
+    runtimeKey: string
+    report: RevenueVelocityReport
+  } | null>(null)
+  const [dimensionError, setDimensionError] = useState<{
+    dimension: RevenueVelocityDimension
+    runtimeKey: string
+    message: string
+  } | null>(null)
+  const runtimeKey = runtimeData?.revenueVelocity
+    ? `${runtimeData.revenueVelocity.range.from}:${runtimeData.revenueVelocity.range.to}:${runtimeData.revenueVelocity.asOf}`
+    : 'no-revenue-velocity-report'
+  const baseReport =
+    runtimeData?.revenueVelocity?.dimension === dimension
+      ? runtimeData.revenueVelocity
+      : null
+  const fetchedDimensionReport =
+    fetchedReport?.dimension === dimension && fetchedReport.runtimeKey === runtimeKey
+      ? fetchedReport.report
+      : null
+  const report = fetchedDimensionReport ?? baseReport
+  const dimensionErrorMessage =
+    dimensionError?.dimension === dimension && dimensionError.runtimeKey === runtimeKey
+      ? dimensionError.message
+      : null
+  const needsDimensionFetch =
+    Boolean(runtimeData && runtimeData.operationalStatus === 'ready') &&
+    !baseReport &&
+    !fetchedDimensionReport
+  const loadingDimension = needsDimensionFetch && !dimensionErrorMessage
+  const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !report
+
+  useEffect(() => {
+    if (!needsDimensionFetch) {
+      return
+    }
+
+    let cancelled = false
+
+    apiClient
+      .getRevenueVelocityReport({
+        ...buildDashboardQueryFromProtoFilters(filters),
+        dimension,
+        compareRanges: [],
+      })
+      .then((nextReport) => {
+        if (!cancelled) {
+          setFetchedReport({ dimension, runtimeKey, report: nextReport })
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setDimensionError({
+            dimension,
+            runtimeKey,
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Не удалось загрузить разрез денежной скорости',
+          })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [dimension, filters, needsDimensionFetch, runtimeKey])
+
+  const sortedRows = useMemo(() => {
+    const rows = [...(report?.rows ?? [])]
+    return rows.sort((left, right) => {
+      const leftValue = readRevenueVelocitySortValue(left, sort.key)
+      const rightValue = readRevenueVelocitySortValue(right, sort.key)
+      const result =
+        leftValue === rightValue
+          ? left.label.localeCompare(right.label, 'ru-RU')
+          : leftValue - rightValue
+
+      return sort.direction === 'asc' ? result : -result
+    })
+  }, [report?.rows, sort])
+
+  function handleSort(key: RevenueVelocitySortKey) {
+    setSort((current) => ({
+      key,
+      direction:
+        current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
+    }))
+  }
+
+  if (isUnavailable) {
+    return (
+      <section className="panel p-5">
+        <PanelHeading
+          title="Денежная скорость"
+          description={
+            runtimeData?.operationalStatus === 'loading'
+              ? 'Загружаю live-данные revenue velocity.'
+              : 'Live-данные revenue velocity сейчас недоступны.'
+          }
+        />
+      </section>
+    )
+  }
+
+  const totals = report?.totals
+  const warnings = Array.from(new Set([...(report?.warnings ?? []), ...(totals?.warnings ?? [])]))
+  const hasNoDeals = (totals?.createdDeals ?? 0) === 0
+  const hasNoWonDeals = !hasNoDeals && (totals?.wonDeals ?? 0) === 0
+  const hasNoActions = (totals?.actions.weightedActionPoints ?? 0) === 0
+  const kpis = [
+    {
+      label: 'Денег принесено',
+      value: formatRubles(totals?.salesAmount ?? 0),
+      tooltipKey: 'salesAmount',
+    },
+    {
+      label: 'Revenue Velocity, ₽/день',
+      value: formatOptionalRublesPerDay(totals?.revenueVelocityPerDay ?? null),
+      tooltipKey: 'revenueVelocityPerDay',
+    },
+    {
+      label: 'Средний чек',
+      value: formatOptionalRubles(totals?.averageCheck ?? null),
+      tooltipKey: 'averageCheck',
+    },
+    {
+      label: 'Конверсия',
+      value: formatOptionalPercent(totals?.winRate ?? null),
+      tooltipKey: 'winRate',
+    },
+    {
+      label: 'Средний цикл',
+      value: formatOptionalDays(totals?.averageCycleDays ?? null),
+      tooltipKey: 'averageCycleDays',
+    },
+    {
+      label: '₽ / балл действий',
+      value: formatOptionalRubles(totals?.moneyPerAction.moneyPerWeightedActionPoint ?? null),
+      tooltipKey: 'moneyPerWeightedActionPoint',
+    },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <section className="panel p-5">
+        <PanelHeading
+          title="Денежная скорость"
+          description="Когортный отчёт: период выбирает сделки по дате создания, а действия считаются только по этим сделкам."
+          right={
+            <div className="flex flex-wrap gap-2">
+              <span className="badge-chip badge-neutral">{report?.rows.length ?? 0} строк</span>
+              <span className="badge-chip badge-neutral">{getFilterScopeLabel(filters)}</span>
+            </div>
+          }
+        />
+
+        <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2 text-sm">
+          {revenueVelocityDimensions.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setDimension(item.key)}
+              className={
+                dimension === item.key
+                  ? 'rounded-full bg-slate-900 px-3 py-1.5 font-bold text-white'
+                  : 'rounded-full border border-slate-200 bg-white px-3 py-1.5 font-bold text-slate-600 transition hover:border-slate-300'
+              }
+            >
+              {item.label}
+            </button>
+          ))}
+          {loadingDimension ? (
+            <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-500">
+              обновляю разрез
+            </span>
+          ) : null}
+        </div>
+
+        {dimensionErrorMessage ? (
+          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            {dimensionErrorMessage}
+          </div>
+        ) : null}
+
+        {warnings.length > 0 ? (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {warnings.join(' · ')}
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          {kpis.map((metric) => (
+            <div
+              key={metric.label}
+              className="rounded-xl border border-slate-200 bg-white p-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
+              title={getRevenueVelocityTooltip(metric.tooltipKey, report)}
+            >
+              <p className="subtle-label">{metric.label}</p>
+              <p className="mt-1 text-xl font-bold text-slate-900">{metric.value}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel overflow-auto p-3">
+        {hasNoDeals ? (
+          <div className="p-4 text-sm text-slate-600">
+            Нет сделок в выбранной когорте.
+          </div>
+        ) : hasNoWonDeals ? (
+          <div className="p-4 text-sm text-slate-600">
+            В выбранной когорте пока нет выигранных сделок. Денежные метрики появятся после первых успешных закрытий.
+          </div>
+        ) : hasNoActions ? (
+          <div className="p-4 text-sm text-slate-600">
+            По сделкам когорты не найдено связанных действий.
+          </div>
+        ) : (
+          <table className="min-w-[1780px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
+                <th className="px-2 py-2">Название строки</th>
+                <RevenueVelocityHeader label="Возможности" sortKey="createdDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('createdDeals', report)} />
+                <RevenueVelocityHeader label="Выиграно" sortKey="wonDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('wonDeals', report)} />
+                <RevenueVelocityHeader label="Проиграно" sortKey="lostDeals" activeSort={sort} onSort={handleSort} />
+                <RevenueVelocityHeader label="WIP" sortKey="wipDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('wipDeals', report)} />
+                <RevenueVelocityHeader label="Сумма" sortKey="salesAmount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('salesAmount', report)} />
+                <RevenueVelocityHeader label="Ср. чек" sortKey="averageCheck" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('averageCheck', report)} />
+                <RevenueVelocityHeader label="Конверсия" sortKey="winRate" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('winRate', report)} />
+                <RevenueVelocityHeader label="Цикл, дни" sortKey="averageCycleDays" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('averageCycleDays', report)} />
+                <RevenueVelocityHeader label="Revenue Velocity, ₽/день" sortKey="revenueVelocityPerDay" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('revenueVelocityPerDay', report)} />
+                <RevenueVelocityHeader label="Звонки >30 сек" sortKey="connectedCallsOverThirtySeconds" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerConnectedCallOverThirtySeconds', report)} />
+                <RevenueVelocityHeader label="Встречи" sortKey="meetingsCount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerMeeting', report)} />
+                <RevenueVelocityHeader label="Конв. мероприятия" sortKey="conversionEventsCount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerConversionEvent', report)} />
+                <RevenueVelocityHeader label="Закрытые задачи" sortKey="closedTasks" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerClosedTask', report)} />
+                <RevenueVelocityHeader label="Взвешенные баллы" sortKey="weightedActionPoints" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('weightedActionPoints', report)} />
+                <RevenueVelocityHeader label="₽ / встречу" sortKey="moneyPerMeeting" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerMeeting', report)} />
+                <RevenueVelocityHeader label="₽ / звонок >30 сек" sortKey="moneyPerConnectedCallOverThirtySeconds" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerConnectedCallOverThirtySeconds', report)} />
+                <RevenueVelocityHeader label="₽ / конв. мероприятие" sortKey="moneyPerConversionEvent" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerConversionEvent', report)} />
+                <RevenueVelocityHeader label="₽ / балл действий" sortKey="moneyPerWeightedActionPoint" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerWeightedActionPoint', report)} />
+                <RevenueVelocityHeader label="Балл действий / выигрыш" sortKey="weightedActionPointsPerWin" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('weightedActionPointsPerWin', report)} />
+                <RevenueVelocityHeader label="Индекс эффективности действий" sortKey="actionEfficiencyIndex" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('actionEfficiencyIndex', report)} />
+                <th className="px-2 py-2">Узкое место</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((row) => (
+                <Fragment key={row.key}>
+                  <tr className="border-b border-slate-100 last:border-b-0">
+                    <td className="px-2 py-2 font-semibold text-slate-900">
+                      <button
+                        type="button"
+                        className="group inline-flex items-center gap-2 text-left"
+                        onClick={() => setExpandedKey((current) => current === row.key ? null : row.key)}
+                      >
+                        <DisclosureIndicator expanded={expandedKey === row.key} />
+                        <span>{row.label}</span>
+                      </button>
+                    </td>
+                    <td className="px-2 py-2">{formatInteger(row.createdDeals)}</td>
+                    <td className="px-2 py-2">{formatInteger(row.wonDeals)}</td>
+                    <td className="px-2 py-2">{formatInteger(row.lostDeals)}</td>
+                    <td className="px-2 py-2">{formatInteger(row.wipDeals)}</td>
+                    <td className="px-2 py-2">{formatRubles(row.salesAmount)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.averageCheck)}</td>
+                    <td className="px-2 py-2">{formatOptionalPercent(row.winRate)}</td>
+                    <td className="px-2 py-2">{formatOptionalDays(row.averageCycleDays)}</td>
+                    <td className="px-2 py-2 font-semibold text-slate-900">{formatOptionalRublesPerDay(row.revenueVelocityPerDay)}</td>
+                    <td className="px-2 py-2">{formatInteger(row.actions.connectedCallsOverThirtySeconds)}</td>
+                    <td className="px-2 py-2">{formatInteger(row.actions.meetingsCount)}</td>
+                    <td className="px-2 py-2">{formatInteger(row.actions.conversionEventsCount)}</td>
+                    <td className="px-2 py-2">{formatInteger(row.actions.closedTasks)}</td>
+                    <td className="px-2 py-2">{formatNumber(row.actions.weightedActionPoints)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerMeeting)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerConnectedCallOverThirtySeconds)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerConversionEvent)}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerWeightedActionPoint)}</td>
+                    <td className="px-2 py-2">{formatOptionalDecimal(row.actions.weightedActionPointsPerWin)}</td>
+                    <td className="px-2 py-2">{formatOptionalDecimal(row.moneyPerAction.actionEfficiencyIndex)}</td>
+                    <td className="px-2 py-2">{row.bottleneckStageName ?? '—'}</td>
+                  </tr>
+                  {expandedKey === row.key ? (
+                    <tr className="border-b border-slate-100 bg-slate-50/70">
+                      <td className="px-3 py-3" colSpan={22}>
+                        <div className="grid gap-3 md:grid-cols-4">
+                          {[
+                            ['Всего звонков', formatInteger(row.actions.totalCalls)],
+                            ['Звонков >30 сек', formatInteger(row.actions.connectedCallsOverThirtySeconds)],
+                            ['Встреч', formatInteger(row.actions.meetingsCount)],
+                            ['Конверсионных мероприятий', formatInteger(row.actions.conversionEventsCount)],
+                            ['Закрытых задач', formatInteger(row.actions.closedTasks)],
+                            ['Взвешенные баллы действий', formatNumber(row.actions.weightedActionPoints)],
+                            ['Действий на выигрыш', formatOptionalDecimal(row.actions.weightedActionPointsPerWin)],
+                          ].map(([label, value]) => (
+                            <div key={label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <div className="text-xs font-semibold text-slate-500">{label}</div>
+                              <div className="mt-1 font-bold text-slate-900">{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="mt-3 text-xs text-slate-500">
+                          Учитываются только события на этапах Активация и Демонстрация.
+                          {row.actions.conversionEventsCount === 0
+                            ? ' Конверсионные мероприятия пока не подключены. Колонка зарезервирована под будущие данные.'
+                            : ''}
+                        </p>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </div>
+  )
+}
+
 function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
   const [sliceMode, setSliceMode] = useState<'summary' | 'managers' | 'sources'>('summary')
   const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !runtimeData?.cohorts
@@ -4749,6 +5236,20 @@ export const scenes: ProtoScene[] = [
       { label: 'Средний цикл', value: '67 дн.', note: '', compare: 'пред. период: 72 дн.', delta: '-5 дн.', deltaTone: 'positive' },
     ],
     component: CohortsScene,
+  },
+  {
+    id: 'revenue-velocity',
+    label: 'Денежная скорость',
+    description: 'Деньги, скорость сделки и деньги на действие по когортам.',
+    focus: 'Revenue Velocity / действия / клубы',
+    kpis: [
+      { label: 'Денег принесено', value: '—', note: 'сумма выигранных сделок когорты' },
+      { label: 'Revenue Velocity', value: '—', note: '₽/день по формуле скорости' },
+      { label: 'Средний чек', value: '—', note: 'сумма / выигранные' },
+      { label: 'Конверсия', value: '—', note: 'выигранные / созданные' },
+      { label: '₽ / балл действий', value: '—', note: 'деньги на условный балл' },
+    ],
+    component: RevenueVelocityScene,
   },
   {
     id: 'funnel-flow',

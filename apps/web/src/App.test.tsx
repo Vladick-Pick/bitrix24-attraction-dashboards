@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '@/App'
+import { apiClient } from '@/lib/api-client'
+import type { RevenueVelocityReport } from '@/lib/dashboard-types'
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -272,6 +274,165 @@ vi.mock('@/lib/api-client', () => ({
       },
       comparisons: [],
     })),
+    getRevenueVelocityReport: vi.fn(async () => ({
+      range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+      asOf: '2026-05-15T00:00:00.000Z',
+      dimension: 'manager',
+      actionWeights: {
+        connectedCallOverThirtySeconds: 1,
+        meeting: 3,
+        conversionEvent: 5,
+        closedTask: 0.5,
+      },
+      totals: {
+        dimension: 'manager',
+        key: 'total',
+        label: 'Итого',
+        managerId: null,
+        managerName: null,
+        sourceKey: null,
+        sourceLabel: null,
+        customerKey: null,
+        customerLabel: null,
+        createdDeals: 5,
+        activeDeals: 4,
+        wonDeals: 2,
+        lostDeals: 1,
+        wipDeals: 2,
+        salesAmount: 300000,
+        averageCheck: 150000,
+        winRate: 0.4,
+        averageCycleDays: 15,
+        medianCycleDays: 15,
+        revenueVelocityPerDay: 20000,
+        actions: {
+          totalCalls: 9,
+          connectedCallsOverThirtySeconds: 4,
+          meetingsCount: 3,
+          conversionEventsCount: 0,
+          createdTasks: 8,
+          closedTasks: 5,
+          weightedActionPoints: 15.5,
+          weightedActionPointsPerDeal: 3.1,
+          weightedActionPointsPerWin: 7.75,
+        },
+        moneyPerAction: {
+          moneyPerMeeting: 100000,
+          moneyPerConnectedCallOverThirtySeconds: 75000,
+          moneyPerConversionEvent: null,
+          moneyPerClosedTask: 60000,
+          moneyPerWeightedActionPoint: 19354.84,
+          actionEfficiencyIndex: 100,
+        },
+        bottleneckStageId: 'C10:DEMO',
+        bottleneckStageName: 'Демонстрация',
+        warnings: [
+          'Конверсионные мероприятия пока не подключены. Колонка зарезервирована под будущие данные на этапах Активация и Демонстрация.',
+        ],
+      },
+      rows: [
+        {
+          dimension: 'manager',
+          key: 'slow',
+          label: 'Медленная строка',
+          managerId: '91',
+          managerName: 'Медленная строка',
+          sourceKey: null,
+          sourceLabel: null,
+          customerKey: null,
+          customerLabel: null,
+          createdDeals: 2,
+          activeDeals: 2,
+          wonDeals: 1,
+          lostDeals: 0,
+          wipDeals: 1,
+          salesAmount: 50000,
+          averageCheck: 50000,
+          winRate: 0.5,
+          averageCycleDays: 25,
+          medianCycleDays: 25,
+          revenueVelocityPerDay: 2000,
+          actions: {
+            totalCalls: 2,
+            connectedCallsOverThirtySeconds: 1,
+            meetingsCount: 1,
+            conversionEventsCount: 0,
+            createdTasks: 2,
+            closedTasks: 1,
+            weightedActionPoints: 4.5,
+            weightedActionPointsPerDeal: 2.25,
+            weightedActionPointsPerWin: 4.5,
+          },
+          moneyPerAction: {
+            moneyPerMeeting: 50000,
+            moneyPerConnectedCallOverThirtySeconds: 50000,
+            moneyPerConversionEvent: null,
+            moneyPerClosedTask: 50000,
+            moneyPerWeightedActionPoint: 11111.11,
+            actionEfficiencyIndex: 57.41,
+          },
+          bottleneckStageId: 'C10:DEMO',
+          bottleneckStageName: 'Демонстрация',
+          warnings: [],
+        },
+        {
+          dimension: 'manager',
+          key: 'fast',
+          label: 'Быстрая строка',
+          managerId: '78',
+          managerName: 'Быстрая строка',
+          sourceKey: null,
+          sourceLabel: null,
+          customerKey: null,
+          customerLabel: null,
+          createdDeals: 3,
+          activeDeals: 2,
+          wonDeals: 1,
+          lostDeals: 1,
+          wipDeals: 1,
+          salesAmount: 250000,
+          averageCheck: 250000,
+          winRate: 0.33,
+          averageCycleDays: 12,
+          medianCycleDays: 12,
+          revenueVelocityPerDay: 20833.33,
+          actions: {
+            totalCalls: 7,
+            connectedCallsOverThirtySeconds: 3,
+            meetingsCount: 2,
+            conversionEventsCount: 0,
+            createdTasks: 6,
+            closedTasks: 4,
+            weightedActionPoints: 11,
+            weightedActionPointsPerDeal: 3.67,
+            weightedActionPointsPerWin: 11,
+          },
+          moneyPerAction: {
+            moneyPerMeeting: 125000,
+            moneyPerConnectedCallOverThirtySeconds: 83333.33,
+            moneyPerConversionEvent: null,
+            moneyPerClosedTask: 62500,
+            moneyPerWeightedActionPoint: 22727.27,
+            actionEfficiencyIndex: 117.42,
+          },
+          bottleneckStageId: 'C10:ACTIVATION',
+          bottleneckStageName: 'Активация',
+          warnings: [],
+        },
+      ],
+      formulaTooltips: [
+        {
+          key: 'revenueVelocityPerDay',
+          label: 'Revenue Velocity',
+          formula: 'Средний чек × Количество возможностей × Конверсия / Средний цикл сделки',
+          description: 'Показывает денежную скорость.',
+        },
+      ],
+      warnings: [
+        'Конверсионные мероприятия пока не подключены. Колонка зарезервирована под будущие данные на этапах Активация и Демонстрация.',
+      ],
+      comparisons: [],
+    })),
     triggerSync: vi.fn(async () => ({
       syncRunId: 1,
       leadsSynced: 0,
@@ -310,6 +471,66 @@ function createResponse(body: unknown) {
       'Content-Type': 'application/json',
     },
   })
+}
+
+function createEmptyRevenueVelocityReport(
+  overrides: Partial<RevenueVelocityReport> = {},
+): RevenueVelocityReport {
+  const base: RevenueVelocityReport = {
+    range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+    asOf: '2026-05-15T00:00:00.000Z',
+    dimension: 'manager',
+    actionWeights: {
+      connectedCallOverThirtySeconds: 1,
+      meeting: 3,
+      conversionEvent: 5,
+      closedTask: 0.5,
+    },
+    totals: {
+      dimension: 'manager',
+      key: 'total',
+      label: 'Итого',
+      createdDeals: 0,
+      activeDeals: 0,
+      wonDeals: 0,
+      lostDeals: 0,
+      wipDeals: 0,
+      salesAmount: 0,
+      averageCheck: null,
+      winRate: null,
+      averageCycleDays: null,
+      medianCycleDays: null,
+      revenueVelocityPerDay: null,
+      actions: {
+        totalCalls: 0,
+        connectedCallsOverThirtySeconds: 0,
+        meetingsCount: 0,
+        conversionEventsCount: 0,
+        createdTasks: 0,
+        closedTasks: 0,
+        weightedActionPoints: 0,
+        weightedActionPointsPerDeal: null,
+        weightedActionPointsPerWin: null,
+      },
+      moneyPerAction: {
+        moneyPerMeeting: null,
+        moneyPerConnectedCallOverThirtySeconds: null,
+        moneyPerConversionEvent: null,
+        moneyPerClosedTask: null,
+        moneyPerWeightedActionPoint: null,
+        actionEfficiencyIndex: null,
+      },
+      bottleneckStageId: null,
+      bottleneckStageName: null,
+      warnings: [],
+    },
+    rows: [],
+    formulaTooltips: [],
+    warnings: [],
+    comparisons: [],
+  }
+
+  return { ...base, ...overrides }
 }
 
 describe('App', () => {
@@ -372,6 +593,64 @@ describe('App', () => {
     expect(screen.getByText(/2-й этап/i)).toBeInTheDocument()
     expect(
       screen.getByText(/Звонок-знакомство -> Контрактация: 60% · 3 сдел/i),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the revenue velocity tab with KPI, sortable table, formula tooltip and conversion-event warning', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
+
+    expect(await screen.findByRole('heading', { name: /денежная скорость/i })).toBeInTheDocument()
+    expect(screen.getByText('300 000 ₽')).toBeInTheDocument()
+    expect(screen.getByText('20 000 ₽/день')).toBeInTheDocument()
+    expect(
+      screen.getAllByTitle(/Средний чек × Количество возможностей × Конверсия/i).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getByText(/Конверсионные мероприятия пока не подключены/i),
+    ).toBeInTheDocument()
+
+    const fastRow = screen.getByText('Быстрая строка')
+    const slowRow = screen.getByText('Медленная строка')
+    expect(
+      fastRow.compareDocumentPosition(slowRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Revenue Velocity, ₽\/день/i }))
+    expect(
+      slowRow.compareDocumentPosition(fastRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('shows an empty cohort state in the revenue velocity tab', async () => {
+    vi.mocked(apiClient.getRevenueVelocityReport).mockResolvedValueOnce(
+      createEmptyRevenueVelocityReport(),
+    )
+
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
+
+    expect(await screen.findByText(/Нет сделок в выбранной когорте/i)).toBeInTheDocument()
+  })
+
+  it('shows a no-won-deals state in the revenue velocity tab', async () => {
+    vi.mocked(apiClient.getRevenueVelocityReport).mockResolvedValueOnce(
+      createEmptyRevenueVelocityReport({
+        totals: {
+          ...createEmptyRevenueVelocityReport().totals,
+          createdDeals: 3,
+          wipDeals: 3,
+        },
+        rows: [],
+      }),
+    )
+
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
+
+    expect(
+      await screen.findByText(/пока нет выигранных сделок/i),
     ).toBeInTheDocument()
   })
 })

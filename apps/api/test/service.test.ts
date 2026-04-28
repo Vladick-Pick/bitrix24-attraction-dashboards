@@ -155,19 +155,22 @@ describe("createReportingService", () => {
       to: "2026-04-30T23:59:59.999Z"
     };
 
-    const [activities, calls, actionOutcomes] = await Promise.all([
+    const [activities, calls, actionOutcomes, revenueVelocity] = await Promise.all([
       service.getActivitiesWorkloadReport({ range }),
       service.getCallsWorkloadReport({ range }),
-      service.getManagerActionOutcomeReport({ range })
+      service.getManagerActionOutcomeReport({ range }),
+      service.getRevenueVelocityReport({ range, dimension: "manager" })
     ]);
     const reportManagerIds = new Set([
       ...activities.managerRows.map((row) => row.managerId),
       ...calls.managerRows.map((row) => row.managerId),
-      ...actionOutcomes.rows.map((row) => row.managerId)
+      ...actionOutcomes.rows.map((row) => row.managerId),
+      ...revenueVelocity.rows.map((row) => row.managerId)
     ]);
 
     expect(reportManagerIds).not.toContain("999");
     expect(activities.totalDealCount).toBe(1);
+    expect(revenueVelocity.totals.createdDeals).toBe(1);
     expect(actionOutcomes.rows.find((row) => row.managerId === "78")?.createdTasks).toBe(1);
     expect(
       actionOutcomes.cohortStatusRows

@@ -1,3 +1,4 @@
+import type { RevenueVelocityReport } from "@bitrix24-reporting/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +10,70 @@ import {
   redactWebhookUrl
 } from "../src/bitrix/security";
 import { createApp } from "../src/server/app";
+
+function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
+  return {
+    range: {
+      from: "2026-04-01T00:00:00.000Z",
+      to: "2026-04-30T23:59:59.999Z"
+    },
+    asOf: "2026-04-30T23:59:59.999Z",
+    dimension: "manager",
+    actionWeights: {
+      connectedCallOverThirtySeconds: 1,
+      meeting: 3,
+      conversionEvent: 5,
+      closedTask: 0.5
+    },
+    totals: {
+      dimension: "manager",
+      key: "total",
+      label: "Итого",
+      managerId: null,
+      managerName: null,
+      sourceKey: null,
+      sourceLabel: null,
+      customerKey: null,
+      customerLabel: null,
+      createdDeals: 0,
+      activeDeals: 0,
+      wonDeals: 0,
+      lostDeals: 0,
+      wipDeals: 0,
+      salesAmount: 0,
+      averageCheck: null,
+      winRate: null,
+      averageCycleDays: null,
+      medianCycleDays: null,
+      revenueVelocityPerDay: null,
+      actions: {
+        totalCalls: 0,
+        connectedCallsOverThirtySeconds: 0,
+        meetingsCount: 0,
+        conversionEventsCount: 0,
+        createdTasks: 0,
+        closedTasks: 0,
+        weightedActionPoints: 0,
+        weightedActionPointsPerDeal: null,
+        weightedActionPointsPerWin: null
+      },
+      moneyPerAction: {
+        moneyPerMeeting: null,
+        moneyPerConnectedCallOverThirtySeconds: null,
+        moneyPerConversionEvent: null,
+        moneyPerClosedTask: null,
+        moneyPerWeightedActionPoint: null,
+        actionEfficiencyIndex: null
+      },
+      bottleneckStageId: null,
+      bottleneckStageName: null,
+      warnings: []
+    },
+    rows: [],
+    formulaTooltips: [],
+    warnings: []
+  };
+}
 
 function createCorsTestApp(config?: {
   webOrigin?: string;
@@ -157,6 +222,7 @@ function createCorsTestApp(config?: {
         cohortMonths: [],
         cohortStatusRows: []
       }),
+      getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
         periodEnd: "2026-04-30T23:59:59.999Z",

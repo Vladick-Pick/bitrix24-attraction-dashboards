@@ -7,6 +7,8 @@ import type {
   ManagerActionOutcomeReport,
   ManagerDirectoryEntry,
   ManualSyncSummary,
+  RevenueVelocityDimension,
+  RevenueVelocityReport,
   SalesPlanData,
   SalesPlanInput,
   SnapshotStats,
@@ -56,6 +58,16 @@ interface RangeRequest {
   };
 }
 
+interface RevenueVelocityRequest extends RangeRequest {
+  dimension: RevenueVelocityDimension;
+  asOf?: string;
+  filters?: RangeRequest["filters"] & {
+    customerKeys?: string[];
+    qualityKeys?: string[];
+    tariffKeys?: string[];
+  };
+}
+
 interface AppService {
   getDashboard(input: RangeRequest): Promise<DashboardData>;
   getSourceQualityConversionReport(
@@ -76,6 +88,9 @@ interface AppService {
   getCallsWorkloadReport(input: RangeRequest): Promise<CallsWorkloadReport>;
   getCohortConversionReport(input: RangeRequest): Promise<CohortConversionReport>;
   getTocFlowReport(input: RangeRequest): Promise<TocFlowReport>;
+  getRevenueVelocityReport(
+    input: RevenueVelocityRequest
+  ): Promise<RevenueVelocityReport>;
   getSalesPlan(input: {
     periodStart: string;
     periodEnd: string;
@@ -195,6 +210,23 @@ const updateWonStagesSchema = z.object({
   stageIds: z.array(z.string().min(1)).min(1)
 });
 
+const revenueVelocityExtraQuerySchema = z.object({
+  dimension: z
+    .enum([
+      "manager",
+      "source",
+      "customer",
+      "managerSource",
+      "sourceCustomer",
+      "managerCustomer"
+    ])
+    .optional(),
+  asOf: z.string().datetime({ offset: true }).optional(),
+  customerKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
+  qualityKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
+  tariffKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional())
+});
+
 const salesPlanQuerySchema = z
   .object({
     from: z.string().datetime({ offset: true }),
@@ -270,6 +302,30 @@ function parseRangeRequest(query: unknown): RangeRequest {
 
   return {
     ...(compareRanges.length > 0 ? { compareRanges } : {}),
+    ...(filters ? { filters } : {})
+  };
+}
+
+function parseRevenueVelocityRequest(query: unknown): RevenueVelocityRequest {
+  const base = parseRangeRequest(query);
+  const extra = revenueVelocityExtraQuerySchema.parse(query);
+  const filters =
+    base.filters ||
+    extra.customerKeys?.length ||
+    extra.qualityKeys?.length ||
+    extra.tariffKeys?.length
+      ? {
+          ...(base.filters ?? {}),
+          ...(extra.customerKeys?.length ? { customerKeys: extra.customerKeys } : {}),
+          ...(extra.qualityKeys?.length ? { qualityKeys: extra.qualityKeys } : {}),
+          ...(extra.tariffKeys?.length ? { tariffKeys: extra.tariffKeys } : {})
+        }
+      : undefined;
+
+  return {
+    ...base,
+    dimension: extra.dimension ?? "manager",
+    ...(extra.asOf ? { asOf: extra.asOf } : {}),
     ...(filters ? { filters } : {})
   };
 }
@@ -500,6 +556,18 @@ export function createApp(service: AppService, config: AppConfig = {}) {
   app.get("/api/reports/toc-flow", async (request, response, next) => {
     try {
       response.json(await service.getTocFlowReport(parseRangeRequest(request.query)));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/reports/revenue-velocity", async (request, response, next) => {
+    try {
+      response.json(
+        await service.getRevenueVelocityReport(
+          parseRevenueVelocityRequest(request.query)
+        )
+      );
     } catch (error) {
       next(error);
     }

@@ -15,6 +15,9 @@ import type {
   ManualSyncSummary,
   ReportRange,
   ReportFilters,
+  RevenueVelocityDimension,
+  RevenueVelocityReport,
+  RevenueVelocityReportSnapshot,
   SalesPlanData,
   SalesPlanInput,
   SourceCatalogEntry,
@@ -48,6 +51,7 @@ import {
   sortAttractionManagers
 } from "../domain/attraction-managers";
 import { buildTocFlowReport } from "../domain/toc-report";
+import { buildRevenueVelocityReport } from "../domain/revenue-velocity";
 import {
   buildSourceLabelMap,
   normalizeCategoryId,
@@ -144,6 +148,18 @@ export interface ReportingService {
     compareRanges?: ReportRange[];
     filters?: ReportFilters;
   }): Promise<TocFlowReport>;
+  getRevenueVelocityReport(input: {
+    periodDays?: number;
+    range?: ReportRange;
+    compareRanges?: ReportRange[];
+    filters?: ReportFilters & {
+      customerKeys?: string[];
+      qualityKeys?: string[];
+      tariffKeys?: string[];
+    };
+    dimension?: RevenueVelocityDimension;
+    asOf?: string;
+  }): Promise<RevenueVelocityReport>;
   getSalesPlan(input: {
     periodStart: string;
     periodEnd: string;
@@ -591,6 +607,12 @@ export function createReportingService(
     });
   };
 
+  const isDealOwnerType = (ownerTypeId: string) =>
+    ownerTypeId === "2" || ownerTypeId.toUpperCase() === "DEAL";
+
+  const isDealCallEntity = (crmEntityType: string | null) =>
+    crmEntityType === "2" || crmEntityType?.toUpperCase() === "DEAL";
+
   const ensureManagerDirectory = async (managerIds: string[]) => {
     const requestedIds = uniqueStrings(managerIds);
     const needsUnassigned = requestedIds.includes(UNASSIGNED_MANAGER_ID);
@@ -702,15 +724,16 @@ export function createReportingService(
       const scopedStageHistory = stageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
-      const scopedActivities = activities.filter((activity) =>
-        scopedDealIds.has(activity.ownerId)
+      const scopedActivities = activities.filter(
+        (activity) =>
+          isDealOwnerType(activity.ownerTypeId) && scopedDealIds.has(activity.ownerId)
       );
       const activityById = new Map(
         scopedActivities.map((activity) => [activity.id, activity])
       );
       const scopedCalls = calls.filter((call) => {
         if (
-          call.crmEntityType === "DEAL" &&
+          isDealCallEntity(call.crmEntityType) &&
           call.crmEntityId &&
           scopedDealIds.has(call.crmEntityId)
         ) {
@@ -1201,6 +1224,89 @@ export function createReportingService(
         compareRanges,
         buildSnapshot
       ) as TocFlowReport;
+    },
+
+    async getRevenueVelocityReport({
+      periodDays,
+      range,
+      compareRanges,
+      filters,
+      dimension = "manager",
+      asOf
+    }) {
+      const scopedFilters = normalizeAttractionManagerFilters(filters) as ReportFilters & {
+        customerKeys?: string[];
+        qualityKeys?: string[];
+        tariffKeys?: string[];
+      };
+      const [deals, stageCatalog, stageHistory, activities, calls, wonStageIds] =
+        await Promise.all([
+          input.repository.getAllDeals(),
+          getScopedStageCatalog(true),
+          input.repository.getAllStageHistory(),
+          input.repository.getAllActivities(),
+          input.repository.getAllCalls(),
+          input.repository.getWonStageIds()
+        ]);
+      const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
+      const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+      const scopedStageHistory = stageHistory.filter((row) =>
+        scopedDealIds.has(row.ownerId)
+      );
+      const scopedActivities = activities.filter((activity) =>
+        scopedDealIds.has(activity.ownerId)
+      );
+      const activityById = new Map(
+        scopedActivities.map((activity) => [activity.id, activity])
+      );
+      const scopedCalls = calls.filter((call) => {
+        if (
+          call.crmEntityType === "DEAL" &&
+          call.crmEntityId &&
+          scopedDealIds.has(call.crmEntityId)
+        ) {
+          return true;
+        }
+
+        return Boolean(
+          call.crmActivityId && activityById.has(call.crmActivityId)
+        );
+      });
+      const managerDirectory = await ensureManagerDirectory(
+        uniqueStrings(scopedDeals.map((deal) => deal.assignedById))
+      );
+      const sourceCatalog = buildSourceCatalog(scopedDeals, stageCatalog);
+      const resolvedAsOf = asOf ?? nowFactory().toISOString();
+      const buildSnapshot = (
+        targetRange: ReportRange
+      ): RevenueVelocityReportSnapshot =>
+        buildRevenueVelocityReport({
+          range: targetRange,
+          asOf: resolvedAsOf,
+          dimension,
+          wonStageIds,
+          deals: scopedDeals,
+          stageCatalog,
+          stageHistory: scopedStageHistory,
+          activities: scopedActivities,
+          calls: scopedCalls,
+          conversionEvents: [],
+          managerDirectory,
+          sourceCatalog,
+          filters: scopedFilters
+        });
+      const resolvedRange = resolveRange(
+        periodDays,
+        range,
+        input.defaultPeriodDays,
+        nowFactory()
+      );
+
+      return attachComparisons(
+        buildSnapshot(resolvedRange),
+        compareRanges,
+        buildSnapshot
+      ) as RevenueVelocityReport;
     },
 
     async getMeta() {

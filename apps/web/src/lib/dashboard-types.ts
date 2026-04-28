@@ -724,6 +724,101 @@ export interface TocFlowReport extends TocFlowReportSnapshot {
   comparisons?: Array<ReportComparison<TocFlowReportSnapshot>>
 }
 
+export type RevenueVelocityDimension =
+  | 'manager'
+  | 'source'
+  | 'customer'
+  | 'managerSource'
+  | 'sourceCustomer'
+  | 'managerCustomer'
+
+export interface RevenueVelocityActionWeights {
+  connectedCallOverThirtySeconds: number
+  meeting: number
+  conversionEvent: number
+  closedTask: number
+}
+
+export interface RevenueVelocityActionSummary {
+  totalCalls: number
+  connectedCallsOverThirtySeconds: number
+  meetingsCount: number
+  conversionEventsCount: number
+  createdTasks: number
+  closedTasks: number
+  weightedActionPoints: number
+  weightedActionPointsPerDeal: number | null
+  weightedActionPointsPerWin: number | null
+}
+
+export interface RevenueVelocityMoneyPerAction {
+  moneyPerMeeting: number | null
+  moneyPerConnectedCallOverThirtySeconds: number | null
+  moneyPerConversionEvent: number | null
+  moneyPerClosedTask: number | null
+  moneyPerWeightedActionPoint: number | null
+  actionEfficiencyIndex: number | null
+}
+
+export interface RevenueVelocityRow {
+  dimension: RevenueVelocityDimension
+  key: string
+  label: string
+  managerId?: string | null
+  managerName?: string | null
+  sourceKey?: string | null
+  sourceLabel?: string | null
+  customerKey?: string | null
+  customerLabel?: string | null
+  createdDeals: number
+  activeDeals: number
+  wonDeals: number
+  lostDeals: number
+  wipDeals: number
+  salesAmount: number
+  averageCheck: number | null
+  winRate: number | null
+  averageCycleDays: number | null
+  medianCycleDays: number | null
+  revenueVelocityPerDay: number | null
+  actions: RevenueVelocityActionSummary
+  moneyPerAction: RevenueVelocityMoneyPerAction
+  bottleneckStageId: string | null
+  bottleneckStageName: string | null
+  warnings: string[]
+}
+
+export interface RevenueVelocityFormulaTooltip {
+  key: string
+  label: string
+  formula: string
+  description: string
+  emptyState?: string
+}
+
+export interface RevenueVelocityReportSnapshot {
+  range: ReportRange
+  asOf: string
+  dimension: RevenueVelocityDimension
+  actionWeights: RevenueVelocityActionWeights
+  totals: RevenueVelocityRow
+  rows: RevenueVelocityRow[]
+  formulaTooltips: RevenueVelocityFormulaTooltip[]
+  warnings: string[]
+}
+
+export interface RevenueVelocityReport extends RevenueVelocityReportSnapshot {
+  comparisons?: Array<ReportComparison<RevenueVelocityReportSnapshot>>
+}
+
+export type RevenueVelocityQuery = DashboardQuery & {
+  dimension?: RevenueVelocityDimension
+  asOf?: string
+  customerKeys?: string[]
+  qualityKeys?: string[]
+  tariffKeys?: string[]
+}
+
 export interface ManagerDirectoryEntry {
   id: string
   name: string

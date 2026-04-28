@@ -16,6 +16,12 @@ import type {
   MetaResponse,
   ReportComparison,
   ReportRange,
+  RevenueVelocityActionSummary,
+  RevenueVelocityDimension,
+  RevenueVelocityMoneyPerAction,
+  RevenueVelocityQuery,
+  RevenueVelocityReport,
+  RevenueVelocityReportSnapshot,
   SalesPlanData,
   SalesPlanInput,
   SourceQualityConversionReport,
@@ -74,6 +80,10 @@ function asNullableString(value: unknown) {
 
 function asNumber(value: unknown, fallback = 0) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function asNullableNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function asArray<T>(value: unknown, mapper: (input: unknown) => T): T[] {
@@ -1217,6 +1227,128 @@ function normalizeTocFlowReport(value: unknown): TocFlowReport {
   }
 }
 
+function normalizeRevenueVelocityDimension(value: unknown): RevenueVelocityDimension {
+  return value === 'source' ||
+    value === 'customer' ||
+    value === 'managerSource' ||
+    value === 'sourceCustomer' ||
+    value === 'managerCustomer'
+    ? value
+    : 'manager'
+}
+
+function normalizeRevenueVelocityActionSummary(
+  value: unknown,
+): RevenueVelocityActionSummary {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    totalCalls: asNumber(data.totalCalls),
+    connectedCallsOverThirtySeconds: asNumber(data.connectedCallsOverThirtySeconds),
+    meetingsCount: asNumber(data.meetingsCount),
+    conversionEventsCount: asNumber(data.conversionEventsCount),
+    createdTasks: asNumber(data.createdTasks),
+    closedTasks: asNumber(data.closedTasks),
+    weightedActionPoints: asNumber(data.weightedActionPoints),
+    weightedActionPointsPerDeal: asNullableNumber(data.weightedActionPointsPerDeal),
+    weightedActionPointsPerWin: asNullableNumber(data.weightedActionPointsPerWin),
+  }
+}
+
+function normalizeRevenueVelocityMoneyPerAction(
+  value: unknown,
+): RevenueVelocityMoneyPerAction {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    moneyPerMeeting: asNullableNumber(data.moneyPerMeeting),
+    moneyPerConnectedCallOverThirtySeconds: asNullableNumber(
+      data.moneyPerConnectedCallOverThirtySeconds,
+    ),
+    moneyPerConversionEvent: asNullableNumber(data.moneyPerConversionEvent),
+    moneyPerClosedTask: asNullableNumber(data.moneyPerClosedTask),
+    moneyPerWeightedActionPoint: asNullableNumber(data.moneyPerWeightedActionPoint),
+    actionEfficiencyIndex: asNullableNumber(data.actionEfficiencyIndex),
+  }
+}
+
+function normalizeRevenueVelocitySnapshot(
+  value: unknown,
+): RevenueVelocityReportSnapshot {
+  const data = isRecord(value) ? value : {}
+  const dimension = normalizeRevenueVelocityDimension(data.dimension)
+  const normalizeRow = (entry: unknown) => {
+    const row = isRecord(entry) ? entry : {}
+
+    return {
+      dimension: normalizeRevenueVelocityDimension(row.dimension ?? dimension),
+      key: asString(row.key),
+      label: asString(row.label, asString(row.key)),
+      managerId: asNullableString(row.managerId),
+      managerName: asNullableString(row.managerName),
+      sourceKey: asNullableString(row.sourceKey),
+      sourceLabel: asNullableString(row.sourceLabel),
+      customerKey: asNullableString(row.customerKey),
+      customerLabel: asNullableString(row.customerLabel),
+      createdDeals: asNumber(row.createdDeals),
+      activeDeals: asNumber(row.activeDeals),
+      wonDeals: asNumber(row.wonDeals),
+      lostDeals: asNumber(row.lostDeals),
+      wipDeals: asNumber(row.wipDeals),
+      salesAmount: asNumber(row.salesAmount),
+      averageCheck: asNullableNumber(row.averageCheck),
+      winRate: asNullableNumber(row.winRate),
+      averageCycleDays: asNullableNumber(row.averageCycleDays),
+      medianCycleDays: asNullableNumber(row.medianCycleDays),
+      revenueVelocityPerDay: asNullableNumber(row.revenueVelocityPerDay),
+      actions: normalizeRevenueVelocityActionSummary(row.actions),
+      moneyPerAction: normalizeRevenueVelocityMoneyPerAction(row.moneyPerAction),
+      bottleneckStageId: asNullableString(row.bottleneckStageId),
+      bottleneckStageName: asNullableString(row.bottleneckStageName),
+      warnings: asArray(row.warnings, (warning) => asString(warning)).filter(Boolean),
+    }
+  }
+  const weights = isRecord(data.actionWeights) ? data.actionWeights : {}
+
+  return {
+    range: normalizeRange(data.range),
+    asOf: asString(data.asOf),
+    dimension,
+    actionWeights: {
+      connectedCallOverThirtySeconds: asNumber(
+        weights.connectedCallOverThirtySeconds,
+        1,
+      ),
+      meeting: asNumber(weights.meeting, 3),
+      conversionEvent: asNumber(weights.conversionEvent, 5),
+      closedTask: asNumber(weights.closedTask, 0.5),
+    },
+    totals: normalizeRow(data.totals),
+    rows: asArray(data.rows, normalizeRow),
+    formulaTooltips: asArray(data.formulaTooltips, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      const emptyState = asNullableString(item.emptyState)
+      return {
+        key: asString(item.key),
+        label: asString(item.label, asString(item.key)),
+        formula: asString(item.formula),
+        description: asString(item.description),
+        ...(emptyState ? { emptyState } : {}),
+      }
+    }),
+    warnings: asArray(data.warnings, (warning) => asString(warning)).filter(Boolean),
+  }
+}
+
+function normalizeRevenueVelocityReport(value: unknown): RevenueVelocityReport {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    ...normalizeRevenueVelocitySnapshot(data),
+    comparisons: normalizeComparisons(data.comparisons, normalizeRevenueVelocitySnapshot),
+  }
+}
+
 function buildQueryParams(query: DashboardQuery) {
   const compareFrom = query.compareRanges?.map((range) => range.from)
   const compareTo = query.compareRanges?.map((range) => range.to)
@@ -1243,6 +1375,17 @@ function buildQueryParams(query: DashboardQuery) {
         periodDays: query.preset,
         ...sharedParams,
       }
+}
+
+function buildRevenueVelocityQueryParams(query: RevenueVelocityQuery) {
+  return {
+    ...buildQueryParams(query),
+    dimension: query.dimension,
+    asOf: query.asOf,
+    customerKeys: query.customerKeys,
+    qualityKeys: query.qualityKeys,
+    tariffKeys: query.tariffKeys,
+  }
 }
 
 async function requestJson<T>(
@@ -1460,6 +1603,16 @@ export const apiClient = {
       buildUrl('/api/reports/toc-flow', buildQueryParams(query)),
       { method: 'GET' },
       normalizeTocFlowReport,
+    )
+  },
+  async getRevenueVelocityReport(query: RevenueVelocityQuery) {
+    return requestJson(
+      buildUrl(
+        '/api/reports/revenue-velocity',
+        buildRevenueVelocityQueryParams(query),
+      ),
+      { method: 'GET' },
+      normalizeRevenueVelocityReport,
     )
   },
   async triggerSync(onProgress?: (event: SyncProgressEvent) => void) {

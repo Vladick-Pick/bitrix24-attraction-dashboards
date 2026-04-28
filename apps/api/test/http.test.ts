@@ -5,6 +5,7 @@ import type {
   CohortConversionReport,
   DashboardData,
   ManagerActionOutcomeReport,
+  RevenueVelocityReport,
   SalesPlanData,
   SourceQualityConversionReport,
   StageCatalogEntry,
@@ -57,6 +58,70 @@ const emptySyncChanges = {
   stageHistory: 0,
   managers: 0
 };
+
+function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
+  return {
+    range: {
+      from: "2026-04-01T00:00:00.000Z",
+      to: "2026-04-30T23:59:59.999Z"
+    },
+    asOf: "2026-04-30T23:59:59.999Z",
+    dimension: "manager",
+    actionWeights: {
+      connectedCallOverThirtySeconds: 1,
+      meeting: 3,
+      conversionEvent: 5,
+      closedTask: 0.5
+    },
+    totals: {
+      dimension: "manager",
+      key: "total",
+      label: "Итого",
+      managerId: null,
+      managerName: null,
+      sourceKey: null,
+      sourceLabel: null,
+      customerKey: null,
+      customerLabel: null,
+      createdDeals: 0,
+      activeDeals: 0,
+      wonDeals: 0,
+      lostDeals: 0,
+      wipDeals: 0,
+      salesAmount: 0,
+      averageCheck: null,
+      winRate: null,
+      averageCycleDays: null,
+      medianCycleDays: null,
+      revenueVelocityPerDay: null,
+      actions: {
+        totalCalls: 0,
+        connectedCallsOverThirtySeconds: 0,
+        meetingsCount: 0,
+        conversionEventsCount: 0,
+        createdTasks: 0,
+        closedTasks: 0,
+        weightedActionPoints: 0,
+        weightedActionPointsPerDeal: null,
+        weightedActionPointsPerWin: null
+      },
+      moneyPerAction: {
+        moneyPerMeeting: null,
+        moneyPerConnectedCallOverThirtySeconds: null,
+        moneyPerConversionEvent: null,
+        moneyPerClosedTask: null,
+        moneyPerWeightedActionPoint: null,
+        actionEfficiencyIndex: null
+      },
+      bottleneckStageId: null,
+      bottleneckStageName: null,
+      warnings: []
+    },
+    rows: [],
+    formulaTooltips: [],
+    warnings: []
+  };
+}
 
 function createSyncSummary(
   overrides: Partial<{
@@ -225,6 +290,7 @@ function createTestApp(
       cohortMonths: [],
       cohortStatusRows: []
     }),
+    getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
     getMeta: async () => ({
       stageCatalog: [],
       managerCatalog: [],
@@ -263,6 +329,7 @@ function createTestApp(
 describe("createApp", () => {
   it("returns dashboard data, settings and sync status from the local API", async () => {
     let receivedActivitiesInput: unknown = null;
+    let receivedRevenueVelocityInput: unknown = null;
     const dashboard: DashboardData = {
       salesSummary: {
         salesCount: 3,
@@ -423,6 +490,40 @@ describe("createApp", () => {
       cohortMonths: [],
       cohortStatusRows: []
     };
+    const revenueVelocityReport: RevenueVelocityReport = {
+      ...createEmptyRevenueVelocityReport(),
+      dimension: "source",
+      totals: {
+        ...createEmptyRevenueVelocityReport().totals,
+        dimension: "source",
+        createdDeals: 4,
+        wonDeals: 1,
+        salesAmount: 125000,
+        averageCheck: 125000,
+        winRate: 0.25,
+        averageCycleDays: 10,
+        medianCycleDays: 10,
+        revenueVelocityPerDay: 12500
+      },
+      rows: [
+        {
+          ...createEmptyRevenueVelocityReport().totals,
+          dimension: "source",
+          key: "WEB",
+          label: "Сайт",
+          sourceKey: "WEB",
+          sourceLabel: "Сайт",
+          createdDeals: 4,
+          wonDeals: 1,
+          salesAmount: 125000,
+          averageCheck: 125000,
+          winRate: 0.25,
+          averageCycleDays: 10,
+          medianCycleDays: 10,
+          revenueVelocityPerDay: 12500
+        }
+      ]
+    };
     const service: Parameters<typeof createApp>[0] = {
       getDashboard: async () => dashboard,
       getSourceQualityConversionReport: async () => sourceQualityReport,
@@ -436,6 +537,10 @@ describe("createApp", () => {
       getAcquisitionOutcomesReport: async () => acquisitionOutcomesReport,
       getTargetGroupConversionReport: async () => targetGroupConversionReport,
       getManagerActionOutcomeReport: async () => managerActionOutcomeReport,
+      getRevenueVelocityReport: async (input: unknown) => {
+        receivedRevenueVelocityInput = input;
+        return revenueVelocityReport;
+      },
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
         periodEnd: "2026-04-30T23:59:59.999Z",
@@ -576,6 +681,42 @@ describe("createApp", () => {
       .expect(({ body }) => {
         expect(body.businessDays).toBe(22);
       });
+
+    await request(app)
+      .get("/api/reports/revenue-velocity")
+      .query({
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z",
+        dimension: "source",
+        asOf: "2026-05-15T00:00:00.000Z",
+        managerIds: "7,9",
+        sourceKeys: "WEB",
+        customerKeys: "Club One,unknown",
+        qualityKeys: "A",
+        tariffKeys: "Premium"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.dimension).toBe("source");
+        expect(body.totals.revenueVelocityPerDay).toBe(12500);
+        expect(body.rows[0].sourceLabel).toBe("Сайт");
+      });
+
+    expect(receivedRevenueVelocityInput).toEqual({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      filters: {
+        managerIds: ["7", "9"],
+        sourceKeys: ["WEB"],
+        customerKeys: ["Club One", "unknown"],
+        qualityKeys: ["A"],
+        tariffKeys: ["Premium"]
+      },
+      dimension: "source",
+      asOf: "2026-05-15T00:00:00.000Z"
+    });
 
     await request(app)
       .get("/api/reports/acquisition-outcomes")
@@ -838,6 +979,7 @@ describe("createApp", () => {
         cohortMonths: [],
         cohortStatusRows: []
       }),
+      getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
         periodEnd: "2026-04-30T23:59:59.999Z",
@@ -1043,6 +1185,7 @@ describe("createApp", () => {
         cohortMonths: [],
         cohortStatusRows: []
       }),
+      getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
         periodEnd: "2026-04-30T23:59:59.999Z",

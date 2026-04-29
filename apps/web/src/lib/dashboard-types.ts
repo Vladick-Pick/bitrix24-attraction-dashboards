@@ -788,7 +788,7 @@ export interface RevenueVelocityRow {
   medianCycleDays: number | null
   revenueVelocityPerDay: number | null
   activePipelineAmount: number
-  expectedPipelineAmount: number
+  expectedPipelineAmount: number | null
   previousExpectedPipelineAmount: number | null
   expectedPipelineDelta: number | null
   liveRevenueVelocity: number | null

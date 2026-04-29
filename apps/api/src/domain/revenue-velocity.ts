@@ -64,56 +64,80 @@ const UNRESOLVED_CONVERSION_EVENT_STAGE_WARNING =
   "Часть конверсионных мероприятий не учтена: не удалось определить этап сделки на момент события.";
 const EMPTY_CONVERSION_EVENTS_WARNING =
   "Конверсионные мероприятия пока не подключены. Колонка зарезервирована под будущие данные на этапах Активация и Демонстрация.";
+const INSUFFICIENT_PIPELINE_PROBABILITY_WARNING =
+  "Недостаточно данных для вероятностной оценки воронки.";
+const MIN_STAGE_BENCHMARK_SAMPLE_SIZE = 2;
+const ACTIVE_BUSINESS_STAGE_NAMES = new Set([
+  "база входящая",
+  "звонок-знакомство",
+  "встреча-знакомство",
+  "активация",
+  "проблематизация",
+  "демонстрация",
+  "адмиссия",
+  "контрактация",
+  "на передаче"
+]);
+const TERMINAL_OR_BACKFLOW_STAGE_NAMES = new Set([
+  "корзина",
+  "возврат в лидген",
+  "неквал",
+  "проиграно",
+  "отказ",
+  "передано в клуб",
+  "won",
+  "handoff"
+]);
 
 export const REVENUE_VELOCITY_FORMULA_TOOLTIPS: RevenueVelocityFormulaTooltip[] = [
   {
     key: "realizedWonAmountInPeriod",
     label: "Факт денег периода",
-    formula: "Сумма opportunity по won deals с dateClosed внутри периода",
+    formula: "Сумма opportunity сделок, выигранных в периоде по истории стадий или дате закрытия",
     description:
       "Показывает фактически выигранные деньги окна наблюдения, независимо от даты создания сделки."
   },
   {
     key: "activePipelineAmount",
-    label: "Pipeline amount сейчас",
+    label: "Активная воронка",
     formula: "Сумма opportunity активных сделок на asOf",
     description:
       "Показывает полный денежный объём активной базы, которая была создана до asOf и не была выиграна или проиграна до asOf."
   },
   {
     key: "expectedPipelineAmount",
-    label: "Expected pipeline сейчас",
+    label: "Ожидаемые деньги воронки",
     formula: "Σ opportunity × stageWinProbability по активным сделкам",
     description:
-      "Ожидаемая денежная стоимость активного pipeline на конец периода."
+      "Ожидаемая денежная стоимость активной воронки на конец периода. Показывается только при достаточной исторической базе по стадиям."
   },
   {
     key: "expectedPipelineDelta",
-    label: "Δ Expected pipeline",
-    formula: "Expected pipeline сейчас - Expected pipeline прошлого периода",
+    label: "Изменение ожидаемых денег",
+    formula: "Ожидаемые деньги воронки сейчас - ожидаемые деньги воронки прошлого периода",
     description:
       "Показывает, стала ли активная база денежно богаче или беднее относительно прошлого периода."
   },
   {
     key: "liveRevenueVelocity",
-    label: "Live Revenue Velocity",
+    label: "Денежная скорость",
     formula: "Σ expectedDealAmount / expectedRemainingDays",
     description:
-      "Текущая денежная скорость активной базы: сколько ожидаемых денег в день несёт pipeline."
+      "Текущая денежная скорость активной базы. Показывается только при достаточной исторической базе по стадиям."
   },
   {
     key: "velocityDelta",
-    label: "Δ Velocity",
-    formula: "Live Revenue Velocity сейчас - Live Revenue Velocity прошлого периода",
+    label: "Изменение скорости",
+    formula: "Денежная скорость сейчас - денежная скорость прошлого периода",
     description:
       "Показывает, ускорилась или замедлилась денежная система."
   },
   {
     key: "systemValueCreated",
     label: "Системный прирост",
-    formula: "Факт денег периода + Expected pipeline сейчас - Expected pipeline прошлого периода",
+    formula: "Факт денег периода + ожидаемые деньги воронки сейчас - ожидаемые деньги воронки прошлого периода",
     description:
-      "Учитывает закрытые деньги и изменение ожидаемой стоимости активного pipeline."
+      "Учитывает закрытые деньги и изменение ожидаемой стоимости активной воронки."
   },
   {
     key: "systemValuePerActionPoint",
@@ -160,7 +184,7 @@ export const REVENUE_VELOCITY_FORMULA_TOOLTIPS: RevenueVelocityFormulaTooltip[] 
   },
   {
     key: "wipDeals",
-    label: "WIP",
+    label: "Сделки в работе",
     formula: "Возможности - Выиграно - Проиграно",
     description:
       "Сделки из когорты, которые ещё не выиграны и не проиграны. Это активная незавершённая база."
@@ -198,7 +222,7 @@ export const REVENUE_VELOCITY_FORMULA_TOOLTIPS: RevenueVelocityFormulaTooltip[] 
   },
   {
     key: "revenueVelocityPerDay",
-    label: "Revenue Velocity",
+    label: "Денежная скорость",
     formula:
       "Средний чек × Количество возможностей × Конверсия / Средний цикл сделки",
     description:
@@ -451,6 +475,21 @@ function normalizeStageName(value: string | null | undefined) {
   return (value ?? "").trim().toLocaleLowerCase("ru");
 }
 
+function isActiveBusinessStage(stage: {
+  stageName: string;
+  semanticId: string | null;
+} | undefined) {
+  if (!stage || stage.semanticId === "S" || stage.semanticId === "F") {
+    return false;
+  }
+
+  const normalized = normalizeStageName(stage.stageName);
+  return (
+    ACTIVE_BUSINESS_STAGE_NAMES.has(normalized) &&
+    !TERMINAL_OR_BACKFLOW_STAGE_NAMES.has(normalized)
+  );
+}
+
 function isConversionEventStage(stageName: string | null | undefined) {
   const normalized = normalizeStageName(stageName);
   return CONVERSION_EVENT_STAGE_NAMES.some(
@@ -562,6 +601,44 @@ function isWonDeal(deal: DealSnapshot, wonStageIds: Set<string>) {
 
 function isLostDeal(deal: DealSnapshot, stageLookup: Map<string, { semanticId: string | null }>) {
   return deal.stageSemanticId === "F" || stageLookup.get(deal.stageId)?.semanticId === "F";
+}
+
+function resolveWonAtInRange(input: {
+  deal: DealSnapshot;
+  fromMs: number;
+  toMs: number;
+  wonStageIds: Set<string>;
+  stageLookup: Map<string, { semanticId: string | null }>;
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>;
+}) {
+  const wonTransitionMs = (input.stageHistoryMap.get(input.deal.id) ?? [])
+    .map((row) => {
+      const stage = input.stageLookup.get(row.stageId);
+      const isWonStage =
+        input.wonStageIds.has(row.stageId) || stage?.semanticId === "S";
+      const transitionMs = Date.parse(row.createdTime);
+
+      return isWonStage && Number.isFinite(transitionMs) ? transitionMs : null;
+    })
+    .filter((value): value is number => value !== null)
+    .filter((value) => value >= input.fromMs && value <= input.toMs)
+    .sort((left, right) => left - right)[0];
+
+  if (wonTransitionMs !== undefined) {
+    return wonTransitionMs;
+  }
+
+  const closedMs = Date.parse(input.deal.dateClosed ?? "");
+  if (
+    Number.isFinite(closedMs) &&
+    closedMs >= input.fromMs &&
+    closedMs <= input.toMs &&
+    isWonDeal(input.deal, input.wonStageIds)
+  ) {
+    return closedMs;
+  }
+
+  return null;
 }
 
 function isMeetingActivity(activity: ActivitySnapshot) {
@@ -933,7 +1010,7 @@ function resolveBottleneckStage(input: {
       }
 
       const stage = input.stageLookup.get(stageId);
-      if (!stage || stage.semanticId === "S" || stage.semanticId === "F") {
+      if (!isActiveBusinessStage(stage)) {
         continue;
       }
 
@@ -1280,7 +1357,7 @@ function buildCreatedCohortReport(
     stageHistoryMap,
     stageLookup
   });
-  const warnings = Array.from(reportWarnings);
+  const warnings = Array.from(new Set([...reportWarnings, ...totals.warnings]));
 
   return {
     range: input.range,
@@ -1300,8 +1377,8 @@ function buildCreatedCohortReport(
 }
 
 interface StageBenchmark {
-  probability: number;
-  remainingDays: number;
+  probability: number | null;
+  remainingDays: number | null;
   sampleSize: number;
 }
 
@@ -1310,9 +1387,9 @@ interface ActiveDealState {
   stageId: string;
   stageName: string;
   amount: number;
-  expectedAmount: number;
-  velocityPerDay: number;
-  remainingDays: number;
+  expectedAmount: number | null;
+  velocityPerDay: number | null;
+  remainingDays: number | null;
 }
 
 interface SystemAccumulator {
@@ -1332,7 +1409,10 @@ interface SystemAccumulator {
   lostDealsInPeriod: number;
   activePipelineAmount: number;
   expectedPipelineAmount: number;
+  uncalibratedExpectedPipelineDeals: number;
+  previousActiveDeals: number;
   previousExpectedPipelineAmount: number;
+  previousUncalibratedExpectedPipelineDeals: number;
   liveRevenueVelocity: number;
   previousLiveRevenueVelocity: number;
   remainingDays: number[];
@@ -1443,7 +1523,15 @@ function isActiveDealAtAsOf(input: {
     return false;
   }
 
+  const stageId = resolveStageIdAtAsOf(
+    input.deal,
+    input.asOfMs,
+    input.stageHistoryMap
+  );
+  const stage = input.stageLookup.get(stageId);
+
   return (
+    isActiveBusinessStage(stage) &&
     !isDealWonAtAsOf(
       input.deal,
       input.asOfMs,
@@ -1476,8 +1564,6 @@ function buildStageBenchmarks(input: {
     }
   >();
   const wonCycles: number[] = [];
-  let closedDeals = 0;
-  let wonDeals = 0;
 
   for (const deal of input.deals) {
     const closedMs = Date.parse(deal.dateClosed ?? "");
@@ -1491,9 +1577,7 @@ function buildStageBenchmarks(input: {
       continue;
     }
 
-    closedDeals += 1;
     if (won) {
-      wonDeals += 1;
       const cycle = calculateCycleDays(deal, new Set());
       if (cycle !== null) {
         wonCycles.push(cycle);
@@ -1509,7 +1593,7 @@ function buildStageBenchmarks(input: {
 
     for (const stageId of path) {
       const stage = input.stageLookup.get(stageId);
-      if (!stage || stage.semanticId === "S" || stage.semanticId === "F") {
+      if (!isActiveBusinessStage(stage)) {
         continue;
       }
 
@@ -1531,17 +1615,16 @@ function buildStageBenchmarks(input: {
     }
   }
 
-  const globalProbability = closedDeals > 0 ? wonDeals / closedDeals : 0.5;
   const globalRemainingDays = average(wonCycles) ?? 30;
 
   return {
     get(stageId: string): StageBenchmark {
       const stats = stageStats.get(stageId);
-      if (!stats || stats.reached === 0) {
+      if (!stats || stats.reached < MIN_STAGE_BENCHMARK_SAMPLE_SIZE) {
         return {
-          probability: globalProbability,
-          remainingDays: globalRemainingDays,
-          sampleSize: 0
+          probability: null,
+          remainingDays: null,
+          sampleSize: stats?.reached ?? 0
         };
       }
 
@@ -1578,8 +1661,12 @@ function buildActiveDealState(input: {
   const stage = input.stageLookup.get(stageId);
   const benchmark = input.benchmarks.get(stageId);
   const amount = input.deal.opportunity ?? 0;
-  const expectedAmount = round(amount * benchmark.probability);
-  const remainingDays = benchmark.remainingDays > 0 ? benchmark.remainingDays : 30;
+  const expectedAmount =
+    benchmark.probability === null ? null : round(amount * benchmark.probability);
+  const remainingDays =
+    benchmark.remainingDays !== null && benchmark.remainingDays > 0
+      ? benchmark.remainingDays
+      : null;
 
   return {
     deal: input.deal,
@@ -1587,7 +1674,10 @@ function buildActiveDealState(input: {
     stageName: stage?.stageName ?? stageId,
     amount,
     expectedAmount,
-    velocityPerDay: round(expectedAmount / remainingDays),
+    velocityPerDay:
+      expectedAmount !== null && remainingDays !== null
+        ? round(expectedAmount / remainingDays)
+        : null,
     remainingDays
   };
 }
@@ -1617,7 +1707,10 @@ function createSystemAccumulator(
     lostDealsInPeriod: 0,
     activePipelineAmount: 0,
     expectedPipelineAmount: 0,
+    uncalibratedExpectedPipelineDeals: 0,
+    previousActiveDeals: 0,
     previousExpectedPipelineAmount: 0,
+    previousUncalibratedExpectedPipelineDeals: 0,
     liveRevenueVelocity: 0,
     previousLiveRevenueVelocity: 0,
     remainingDays: [],
@@ -1631,19 +1724,31 @@ function createSystemAccumulator(
 }
 
 function addActiveState(accumulator: SystemAccumulator, state: ActiveDealState, previous = false) {
-  accumulator.deals.push(state.deal);
-
   if (previous) {
+    accumulator.previousActiveDeals += 1;
+    if (state.expectedAmount === null || state.velocityPerDay === null) {
+      accumulator.previousUncalibratedExpectedPipelineDeals += 1;
+      return;
+    }
+
     accumulator.previousExpectedPipelineAmount += state.expectedAmount;
     accumulator.previousLiveRevenueVelocity += state.velocityPerDay;
     return;
   }
 
+  accumulator.deals.push(state.deal);
   accumulator.activeDeals += 1;
   accumulator.activePipelineAmount += state.amount;
+  if (state.expectedAmount === null || state.velocityPerDay === null) {
+    accumulator.uncalibratedExpectedPipelineDeals += 1;
+    return;
+  }
+
   accumulator.expectedPipelineAmount += state.expectedAmount;
   accumulator.liveRevenueVelocity += state.velocityPerDay;
-  accumulator.remainingDays.push(state.remainingDays);
+  if (state.remainingDays !== null) {
+    accumulator.remainingDays.push(state.remainingDays);
+  }
 }
 
 function buildPeriodActionSummary(input: {
@@ -1756,19 +1861,47 @@ function finalizeSystemRow(input: {
     accumulator.previousActions,
     input.weights
   );
-  const expectedPipelineDelta = round(
-    accumulator.expectedPipelineAmount - accumulator.previousExpectedPipelineAmount
-  );
-  const liveRevenueVelocity = round(accumulator.liveRevenueVelocity);
-  const previousLiveRevenueVelocity = round(accumulator.previousLiveRevenueVelocity);
-  const velocityDelta = round(liveRevenueVelocity - previousLiveRevenueVelocity);
-  const systemValueCreated = round(
-    accumulator.realizedWonAmountInPeriod + expectedPipelineDelta
-  );
+  const expectedPipelineAmount =
+    accumulator.activeDeals > 0 && accumulator.uncalibratedExpectedPipelineDeals > 0
+      ? null
+      : round(accumulator.expectedPipelineAmount);
+  const previousExpectedPipelineAmount =
+    accumulator.previousActiveDeals > 0 &&
+    accumulator.previousUncalibratedExpectedPipelineDeals > 0
+      ? null
+      : round(accumulator.previousExpectedPipelineAmount);
+  const expectedPipelineDelta =
+    expectedPipelineAmount !== null && previousExpectedPipelineAmount !== null
+      ? round(expectedPipelineAmount - previousExpectedPipelineAmount)
+      : null;
+  const liveRevenueVelocity =
+    accumulator.activeDeals > 0 && accumulator.uncalibratedExpectedPipelineDeals > 0
+      ? null
+      : round(accumulator.liveRevenueVelocity);
+  const previousLiveRevenueVelocity =
+    accumulator.previousActiveDeals > 0 &&
+    accumulator.previousUncalibratedExpectedPipelineDeals > 0
+      ? null
+      : round(accumulator.previousLiveRevenueVelocity);
+  const velocityDelta =
+    liveRevenueVelocity !== null && previousLiveRevenueVelocity !== null
+      ? round(liveRevenueVelocity - previousLiveRevenueVelocity)
+      : null;
+  const systemValueCreated =
+    expectedPipelineDelta !== null
+      ? round(accumulator.realizedWonAmountInPeriod + expectedPipelineDelta)
+      : null;
   const historicalMoneyPerActionPoint = safeDivide(
     accumulator.historicalWonAmount,
     accumulator.historicalActionPoints
   );
+  const warnings = new Set(accumulator.warnings);
+  if (
+    accumulator.uncalibratedExpectedPipelineDeals > 0 ||
+    accumulator.previousUncalibratedExpectedPipelineDeals > 0
+  ) {
+    warnings.add(INSUFFICIENT_PIPELINE_PROBABILITY_WARNING);
+  }
   const bottleneck = resolveBottleneckStage({
     deals: accumulator.deals,
     stageHistoryMap: input.stageHistoryMap,
@@ -1801,23 +1934,26 @@ function finalizeSystemRow(input: {
     medianCycleDays: null,
     revenueVelocityPerDay: liveRevenueVelocity,
     activePipelineAmount: round(accumulator.activePipelineAmount),
-    expectedPipelineAmount: round(accumulator.expectedPipelineAmount),
-    previousExpectedPipelineAmount: round(accumulator.previousExpectedPipelineAmount),
+    expectedPipelineAmount,
+    previousExpectedPipelineAmount,
     expectedPipelineDelta,
     liveRevenueVelocity,
     previousLiveRevenueVelocity,
     velocityDelta,
-    velocityDeltaPercent: safeDivide(velocityDelta, previousLiveRevenueVelocity),
+    velocityDeltaPercent:
+      velocityDelta !== null && previousLiveRevenueVelocity !== null
+        ? safeDivide(velocityDelta, previousLiveRevenueVelocity)
+        : null,
     averageRemainingDays: average(accumulator.remainingDays),
     realizedWonAmountInPeriod: round(accumulator.realizedWonAmountInPeriod),
     wonDealsInPeriod: accumulator.wonDealsInPeriod,
     lostDealsInPeriod: accumulator.lostDealsInPeriod,
     systemValueCreated,
     actionPointsDelta: round(actions.weightedActionPoints - previousActionPoints),
-    systemValuePerActionPoint: safeDivide(
-      systemValueCreated,
-      actions.weightedActionPoints
-    ),
+    systemValuePerActionPoint:
+      systemValueCreated !== null
+        ? safeDivide(systemValueCreated, actions.weightedActionPoints)
+        : null,
     realizedMoneyPerActionPoint: safeDivide(
       accumulator.realizedWonAmountInPeriod,
       actions.weightedActionPoints
@@ -1835,7 +1971,7 @@ function finalizeSystemRow(input: {
     ),
     bottleneckStageId: bottleneck.bottleneckStageId,
     bottleneckStageName: bottleneck.bottleneckStageName,
-    warnings: Array.from(accumulator.warnings)
+    warnings: Array.from(warnings)
   };
 }
 
@@ -1978,13 +2114,21 @@ function buildSystemStateReport(
       addToRowAndTotals(deal, (accumulator) => addActiveState(accumulator, previousState, true));
     }
 
-    if (deal.dateClosed && isWithinRange(deal.dateClosed, fromMs, toMs)) {
-      if (isWonDeal(deal, wonStageIds)) {
-        addToRowAndTotals(deal, (accumulator) => {
-          accumulator.wonDealsInPeriod += 1;
-          accumulator.realizedWonAmountInPeriod += deal.opportunity ?? 0;
-        });
-      } else if (isLostDeal(deal, stageLookup)) {
+    const wonAtMs = resolveWonAtInRange({
+      deal,
+      fromMs,
+      toMs,
+      wonStageIds,
+      stageLookup,
+      stageHistoryMap
+    });
+    if (wonAtMs !== null) {
+      addToRowAndTotals(deal, (accumulator) => {
+        accumulator.wonDealsInPeriod += 1;
+        accumulator.realizedWonAmountInPeriod += deal.opportunity ?? 0;
+      });
+    } else if (deal.dateClosed && isWithinRange(deal.dateClosed, fromMs, toMs)) {
+      if (isLostDeal(deal, stageLookup)) {
         addToRowAndTotals(deal, (accumulator) => {
           accumulator.lostDealsInPeriod += 1;
         });
@@ -2110,7 +2254,7 @@ function buildSystemStateReport(
     stageHistoryMap,
     stageLookup
   });
-  const warnings = Array.from(reportWarnings);
+  const warnings = Array.from(new Set([...reportWarnings, ...totals.warnings]));
 
   return {
     range: input.range,

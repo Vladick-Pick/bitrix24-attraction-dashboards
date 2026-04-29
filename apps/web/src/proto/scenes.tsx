@@ -4292,12 +4292,12 @@ const revenueVelocityViews: Array<{
   {
     key: 'systemState',
     label: 'Состояние системы',
-    description: 'Период — окно наблюдения: состояние pipeline на конец периода и изменение к прошлой неделе.',
+    description: 'Период — окно наблюдения: состояние активной воронки на конец периода и изменение к прошлой неделе.',
   },
   {
     key: 'operationalPeriod',
     label: 'Оперативно',
-    description: 'События периода: действия, закрытия, изменение expected pipeline и системный прирост.',
+    description: 'События периода: действия, закрытия, изменение ожидаемых денег воронки и системный прирост.',
   },
   {
     key: 'createdCohort',
@@ -4389,7 +4389,7 @@ function readRevenueVelocitySortValue(
     return row.activePipelineAmount
   }
   if (key === 'expectedPipelineAmount') {
-    return row.expectedPipelineAmount
+    return row.expectedPipelineAmount ?? Number.NEGATIVE_INFINITY
   }
   if (key === 'expectedPipelineDelta') {
     return row.expectedPipelineDelta ?? Number.NEGATIVE_INFINITY
@@ -4473,7 +4473,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
   const [sort, setSort] = useState<{
     key: RevenueVelocitySortKey
     direction: 'asc' | 'desc'
-  }>({ key: 'liveRevenueVelocity', direction: 'desc' })
+  }>({ key: 'activePipelineAmount', direction: 'desc' })
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [fetchedReport, setFetchedReport] = useState<{
     view: RevenueVelocityView
@@ -4610,7 +4610,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
           tooltipKey: 'salesAmount',
         },
         {
-          label: 'Revenue Velocity, ₽/день',
+          label: 'Денежная скорость, ₽/день',
           value: formatOptionalRublesPerDay(totals?.revenueVelocityPerDay ?? null),
           tooltipKey: 'revenueVelocityPerDay',
         },
@@ -4637,17 +4637,17 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
           tooltipKey: 'realizedWonAmountInPeriod',
         },
         {
-          label: 'Expected pipeline сейчас',
-          value: formatRubles(totals?.expectedPipelineAmount ?? 0),
-          tooltipKey: 'expectedPipelineAmount',
+          label: 'Активная воронка',
+          value: formatRubles(totals?.activePipelineAmount ?? 0),
+          tooltipKey: 'activePipelineAmount',
         },
         {
-          label: 'Live Revenue Velocity',
+          label: 'Денежная скорость',
           value: formatOptionalRublesPerDay(totals?.liveRevenueVelocity ?? null),
           tooltipKey: 'liveRevenueVelocity',
         },
         {
-          label: 'Δ Velocity',
+          label: 'Изменение скорости',
           value: formatOptionalRublesPerDay(totals?.velocityDelta ?? null),
           tooltipKey: 'velocityDelta',
         },
@@ -4657,7 +4657,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
           tooltipKey: 'systemValueCreated',
         },
         {
-          label: 'Взвешенные действия периода',
+          label: 'Действия, баллы',
           value: formatNumber(totals?.actions.weightedActionPoints ?? 0),
           tooltipKey: 'weightedActionPoints',
         },
@@ -4696,7 +4696,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
                 setView(item.key)
                 setExpandedKey(null)
                 setSort({
-                  key: item.key === 'createdCohort' ? 'revenueVelocityPerDay' : 'liveRevenueVelocity',
+                  key: item.key === 'createdCohort' ? 'revenueVelocityPerDay' : 'activePipelineAmount',
                   direction: 'desc',
                 })
               }}
@@ -4764,7 +4764,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
           <div className="p-4 text-sm text-slate-600">
             {isCohortView
               ? 'Нет сделок в выбранной когорте.'
-              : 'Нет активного pipeline, закрытий или действий в выбранном окне наблюдения.'}
+              : 'Нет активной воронки, закрытий или действий в выбранном окне наблюдения.'}
           </div>
         ) : hasNoWonDeals ? (
           <div className="p-4 text-sm text-slate-600">
@@ -4775,41 +4775,17 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
             По сделкам когорты не найдено связанных действий.
           </div>
         ) : (
-          <table className="min-w-[2380px] text-sm">
+          <table className="min-w-[1120px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
-                <th className="px-2 py-2">Название строки</th>
-                <RevenueVelocityHeader label="Активные сделки сейчас" sortKey="activeDeals" activeSort={sort} onSort={handleSort} />
-                <RevenueVelocityHeader label="Pipeline amount сейчас" sortKey="activePipelineAmount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('activePipelineAmount', report)} />
-                <RevenueVelocityHeader label="Expected pipeline сейчас" sortKey="expectedPipelineAmount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('expectedPipelineAmount', report)} />
-                <RevenueVelocityHeader label="Δ Expected pipeline" sortKey="expectedPipelineDelta" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('expectedPipelineDelta', report)} />
-                <RevenueVelocityHeader label="Live velocity сейчас" sortKey="liveRevenueVelocity" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('liveRevenueVelocity', report)} />
-                <RevenueVelocityHeader label="Δ velocity" sortKey="velocityDelta" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('velocityDelta', report)} />
-                <RevenueVelocityHeader label="Факт продаж периода" sortKey="realizedWonAmountInPeriod" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('realizedWonAmountInPeriod', report)} />
-                <RevenueVelocityHeader label="Системный прирост" sortKey="systemValueCreated" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('systemValueCreated', report)} />
-                <RevenueVelocityHeader label="Возможности" sortKey="createdDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('createdDeals', report)} />
+                <th className="px-2 py-2">Срез</th>
+                <RevenueVelocityHeader label="Активные сделки" sortKey="activeDeals" activeSort={sort} onSort={handleSort} />
+                <RevenueVelocityHeader label="Активная воронка" sortKey="activePipelineAmount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('activePipelineAmount', report)} />
+                <RevenueVelocityHeader label="Факт продаж" sortKey="realizedWonAmountInPeriod" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('realizedWonAmountInPeriod', report)} />
                 <RevenueVelocityHeader label="Выиграно" sortKey="wonDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('wonDeals', report)} />
-                <RevenueVelocityHeader label="Проиграно" sortKey="lostDeals" activeSort={sort} onSort={handleSort} />
-                <RevenueVelocityHeader label="WIP" sortKey="wipDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('wipDeals', report)} />
-                <RevenueVelocityHeader label="Сумма" sortKey="salesAmount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('salesAmount', report)} />
-                <RevenueVelocityHeader label="Ср. чек" sortKey="averageCheck" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('averageCheck', report)} />
-                <RevenueVelocityHeader label="Конверсия" sortKey="winRate" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('winRate', report)} />
-                <RevenueVelocityHeader label="Цикл, дни" sortKey="averageCycleDays" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('averageCycleDays', report)} />
-                <RevenueVelocityHeader label="Revenue Velocity, ₽/день" sortKey="revenueVelocityPerDay" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('revenueVelocityPerDay', report)} />
-                <RevenueVelocityHeader label="Звонки >30 сек" sortKey="connectedCallsOverThirtySeconds" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerConnectedCallOverThirtySeconds', report)} />
-                <RevenueVelocityHeader label="Встречи" sortKey="meetingsCount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerMeeting', report)} />
-                <RevenueVelocityHeader label="Конв. мероприятия" sortKey="conversionEventsCount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerConversionEvent', report)} />
-                <RevenueVelocityHeader label="Закрытые задачи" sortKey="closedTasks" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerClosedTask', report)} />
-                <RevenueVelocityHeader label="Взвешенные баллы" sortKey="weightedActionPoints" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('weightedActionPoints', report)} />
-                <RevenueVelocityHeader label="₽ / встречу" sortKey="moneyPerMeeting" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerMeeting', report)} />
-                <RevenueVelocityHeader label="₽ / звонок >30 сек" sortKey="moneyPerConnectedCallOverThirtySeconds" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerConnectedCallOverThirtySeconds', report)} />
-                <RevenueVelocityHeader label="₽ / конв. мероприятие" sortKey="moneyPerConversionEvent" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerConversionEvent', report)} />
-                <RevenueVelocityHeader label="₽ / балл действий" sortKey="moneyPerWeightedActionPoint" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('moneyPerWeightedActionPoint', report)} />
-                <RevenueVelocityHeader label="Балл действий / выигрыш" sortKey="weightedActionPointsPerWin" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('weightedActionPointsPerWin', report)} />
-                <RevenueVelocityHeader label="Индекс эффективности действий" sortKey="actionEfficiencyIndex" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('actionEfficiencyIndex', report)} />
-                <RevenueVelocityHeader label="Исторический ₽ / балл" sortKey="historicalMoneyPerActionPoint" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('historicalMoneyPerActionPoint', report)} />
-                <RevenueVelocityHeader label="Оценка будущих денег" sortKey="estimatedFutureMoneyFromPeriodActions" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('estimatedFutureMoneyFromPeriodActions', report)} />
-                <th className="px-2 py-2">Узкое место</th>
+                <RevenueVelocityHeader label="Действия, баллы" sortKey="weightedActionPoints" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('weightedActionPoints', report)} />
+                <RevenueVelocityHeader label="Системный прирост" sortKey="systemValueCreated" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('systemValueCreated', report)} />
+                <th className="px-2 py-2">Сигнал</th>
               </tr>
             </thead>
             <tbody>
@@ -4828,41 +4804,33 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
                     </td>
                     <td className="px-2 py-2">{formatInteger(row.activeDeals)}</td>
                     <td className="px-2 py-2">{formatRubles(row.activePipelineAmount)}</td>
-                    <td className="px-2 py-2">{formatRubles(row.expectedPipelineAmount)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.expectedPipelineDelta)}</td>
-                    <td className="px-2 py-2 font-semibold text-slate-900">{formatOptionalRublesPerDay(row.liveRevenueVelocity)}</td>
-                    <td className="px-2 py-2">{formatOptionalRublesPerDay(row.velocityDelta)}</td>
                     <td className="px-2 py-2">{formatRubles(row.realizedWonAmountInPeriod)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.systemValueCreated)}</td>
-                    <td className="px-2 py-2">{formatInteger(row.createdDeals)}</td>
                     <td className="px-2 py-2">{formatInteger(row.wonDeals)}</td>
-                    <td className="px-2 py-2">{formatInteger(row.lostDeals)}</td>
-                    <td className="px-2 py-2">{formatInteger(row.wipDeals)}</td>
-                    <td className="px-2 py-2">{formatRubles(row.salesAmount)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.averageCheck)}</td>
-                    <td className="px-2 py-2">{formatOptionalPercent(row.winRate)}</td>
-                    <td className="px-2 py-2">{formatOptionalDays(row.averageCycleDays)}</td>
-                    <td className="px-2 py-2 font-semibold text-slate-900">{formatOptionalRublesPerDay(row.revenueVelocityPerDay)}</td>
-                    <td className="px-2 py-2">{formatInteger(row.actions.connectedCallsOverThirtySeconds)}</td>
-                    <td className="px-2 py-2">{formatInteger(row.actions.meetingsCount)}</td>
-                    <td className="px-2 py-2">{formatInteger(row.actions.conversionEventsCount)}</td>
-                    <td className="px-2 py-2">{formatInteger(row.actions.closedTasks)}</td>
                     <td className="px-2 py-2">{formatNumber(row.actions.weightedActionPoints)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerMeeting)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerConnectedCallOverThirtySeconds)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerConversionEvent)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.moneyPerAction.moneyPerWeightedActionPoint)}</td>
-                    <td className="px-2 py-2">{formatOptionalDecimal(row.actions.weightedActionPointsPerWin)}</td>
-                    <td className="px-2 py-2">{formatOptionalDecimal(row.moneyPerAction.actionEfficiencyIndex)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.historicalMoneyPerActionPoint)}</td>
-                    <td className="px-2 py-2">{formatOptionalRubles(row.estimatedFutureMoneyFromPeriodActions)}</td>
-                    <td className="px-2 py-2">{row.bottleneckStageName ?? '—'}</td>
+                    <td className="px-2 py-2">{formatOptionalRubles(row.systemValueCreated)}</td>
+                    <td className="px-2 py-2">
+                      {row.bottleneckStageName
+                        ? `Узкое место: ${row.bottleneckStageName}`
+                        : row.lostDealsInPeriod > 0
+                          ? 'Есть отвал'
+                          : '—'}
+                    </td>
                   </tr>
                   {expandedKey === row.key ? (
                     <tr className="border-b border-slate-100 bg-slate-50/70">
-                      <td className="px-3 py-3" colSpan={32}>
+                      <td className="px-3 py-3" colSpan={8}>
                         <div className="grid gap-3 md:grid-cols-4">
                           {[
+                            ['Создано в периоде', formatInteger(row.createdDeals)],
+                            ['Сделки в работе по clean-стадиям', formatInteger(row.wipDeals)],
+                            ['Проиграно за период', formatInteger(row.lostDealsInPeriod)],
+                            ['Ожидаемые деньги воронки', formatOptionalRubles(row.expectedPipelineAmount)],
+                            ['Изменение ожидаемых денег', formatOptionalRubles(row.expectedPipelineDelta)],
+                            ['Денежная скорость', formatOptionalRublesPerDay(row.liveRevenueVelocity)],
+                            ['Изменение скорости', formatOptionalRublesPerDay(row.velocityDelta)],
+                            ['Средний чек', formatOptionalRubles(row.averageCheck)],
+                            ['Конверсия', formatOptionalPercent(row.winRate)],
+                            ['Цикл, дни', formatOptionalDays(row.averageCycleDays)],
                             ['Всего звонков', formatInteger(row.actions.totalCalls)],
                             ['Звонков >30 сек', formatInteger(row.actions.connectedCallsOverThirtySeconds)],
                             ['Встреч', formatInteger(row.actions.meetingsCount)],
@@ -4870,6 +4838,11 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
                             ['Закрытых задач', formatInteger(row.actions.closedTasks)],
                             ['Взвешенные баллы действий', formatNumber(row.actions.weightedActionPoints)],
                             ['Действий на выигрыш', formatOptionalDecimal(row.actions.weightedActionPointsPerWin)],
+                            ['₽ / балл действий', formatOptionalRubles(row.moneyPerAction.moneyPerWeightedActionPoint)],
+                            ['₽ системного прироста / балл', formatOptionalRubles(row.systemValuePerActionPoint)],
+                            ['Реализованные ₽ / балл', formatOptionalRubles(row.realizedMoneyPerActionPoint)],
+                            ['Исторический ₽ / балл', formatOptionalRubles(row.historicalMoneyPerActionPoint)],
+                            ['Оценка будущих денег', formatOptionalRubles(row.estimatedFutureMoneyFromPeriodActions)],
                           ].map(([label, value]) => (
                             <div key={label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                               <div className="text-xs font-semibold text-slate-500">{label}</div>
@@ -5406,7 +5379,7 @@ export const scenes: ProtoScene[] = [
     id: 'revenue-velocity',
     label: 'Денежная скорость',
     description: 'Состояние денежной системы, оперативные действия и когортная эффективность.',
-    focus: 'Revenue Velocity / действия / клубы',
+    focus: 'Денежная скорость / действия / клубы',
     kpis: [],
     component: RevenueVelocityScene,
   },

@@ -45,6 +45,14 @@ const stageCatalog = [
   {
     entityType: "deal" as const,
     categoryId: "10",
+    statusId: "C10:RETURN",
+    name: "Возврат в лидген",
+    semanticId: "P",
+    sortOrder: 45
+  },
+  {
+    entityType: "deal" as const,
+    categoryId: "10",
     statusId: "C10:WON",
     name: "На передаче",
     semanticId: "S",
@@ -57,12 +65,37 @@ const stageCatalog = [
     name: "Корзина",
     semanticId: "F",
     sortOrder: 60
+  },
+  {
+    entityType: "deal" as const,
+    categoryId: "10",
+    statusId: "C10:NONQUAL",
+    name: "Неквал",
+    semanticId: "F",
+    sortOrder: 70
+  },
+  {
+    entityType: "deal" as const,
+    categoryId: "10",
+    statusId: "C10:REFUSAL",
+    name: "Отказ",
+    semanticId: "F",
+    sortOrder: 80
+  },
+  {
+    entityType: "deal" as const,
+    categoryId: "10",
+    statusId: "C10:HANDOFF",
+    name: "Передано в клуб",
+    semanticId: "S",
+    sortOrder: 90
   }
 ];
 
 const managerDirectory = [
   { id: "78", name: "Егоров Андрей" },
-  { id: "91", name: "Орлова Марина" }
+  { id: "91", name: "Орлова Марина" },
+  { id: "107", name: "Потапова Анна" }
 ];
 
 const sourceCatalog = [
@@ -111,6 +144,232 @@ function createReport(overrides: Partial<Parameters<typeof buildRevenueVelocityR
 }
 
 describe("buildRevenueVelocityReport", () => {
+  it("counts period sales by won stage transition for Potapova even when the deal was created earlier", () => {
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      deals: [
+        {
+          ...baseDeal,
+          id: "POTAPOVA_OLD_WIN",
+          assignedById: "107",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 420000,
+          dateCreate: "2026-03-18T00:00:00.000Z",
+          dateClosed: null
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H_POTAPOVA_ACT",
+          ownerId: "POTAPOVA_OLD_WIN",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-10T00:00:00.000Z"
+        },
+        {
+          id: "H_POTAPOVA_WON",
+          ownerId: "POTAPOVA_OLD_WIN",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-22T12:00:00.000Z"
+        }
+      ]
+    });
+
+    const potapova = report.rows.find((row) => row.managerId === "107");
+
+    expect(report.totals.wonDealsInPeriod).toBe(1);
+    expect(report.totals.realizedWonAmountInPeriod).toBe(420000);
+    expect(potapova?.label).toBe("Потапова Анна");
+    expect(potapova?.wonDealsInPeriod).toBe(1);
+    expect(potapova?.realizedWonAmountInPeriod).toBe(420000);
+  });
+
+  it("uses clean active stages for active and WIP pipeline", () => {
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      deals: [
+        {
+          ...baseDeal,
+          id: "ACTIVE",
+          assignedById: "78",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          opportunity: 100000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "RETURN",
+          assignedById: "78",
+          stageId: "C10:RETURN",
+          stageSemanticId: "P",
+          opportunity: 200000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "BASKET",
+          assignedById: "78",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          opportunity: 300000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "NONQUAL",
+          assignedById: "78",
+          stageId: "C10:NONQUAL",
+          stageSemanticId: "F",
+          opportunity: 400000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "REFUSAL",
+          assignedById: "78",
+          stageId: "C10:REFUSAL",
+          stageSemanticId: "F",
+          opportunity: 500000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "HANDOFF",
+          assignedById: "78",
+          stageId: "C10:HANDOFF",
+          stageSemanticId: "S",
+          opportunity: 600000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        }
+      ]
+    });
+
+    expect(report.totals.activeDeals).toBe(1);
+    expect(report.totals.wipDeals).toBe(1);
+    expect(report.totals.activePipelineAmount).toBe(100000);
+  });
+
+  it("does not default expected pipeline and live velocity to 50 percent when probability is not calibrated", () => {
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      deals: [
+        {
+          ...baseDeal,
+          id: "ACTIVE_UNCALIBRATED",
+          assignedById: "78",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          opportunity: 200000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        }
+      ],
+      stageHistory: []
+    });
+
+    expect(report.totals.activePipelineAmount).toBe(200000);
+    expect(report.totals.expectedPipelineAmount).toBeNull();
+    expect(report.totals.liveRevenueVelocity).toBeNull();
+    expect(report.warnings).toContain("Недостаточно данных для вероятностной оценки воронки.");
+  });
+
+  it("never returns basket or leadgen return stages as bottlenecks", () => {
+    const report = createReport({
+      view: "createdCohort",
+      deals: [
+        {
+          ...baseDeal,
+          id: "RETURN_1",
+          assignedById: "78",
+          stageId: "C10:RETURN",
+          stageSemanticId: "P",
+          opportunity: 100000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "RETURN_2",
+          assignedById: "78",
+          stageId: "C10:RETURN",
+          stageSemanticId: "P",
+          opportunity: 100000,
+          dateCreate: "2026-04-02T00:00:00.000Z",
+          dateClosed: null
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H_RETURN_1_ACT",
+          ownerId: "RETURN_1",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-01T00:00:00.000Z"
+        },
+        {
+          id: "H_RETURN_1_RETURN",
+          ownerId: "RETURN_1",
+          categoryId: "10",
+          stageId: "C10:RETURN",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-08T00:00:00.000Z"
+        },
+        {
+          id: "H_RETURN_2_ACT",
+          ownerId: "RETURN_2",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-02T00:00:00.000Z"
+        },
+        {
+          id: "H_RETURN_2_RETURN",
+          ownerId: "RETURN_2",
+          categoryId: "10",
+          stageId: "C10:RETURN",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-09T00:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(report.totals.bottleneckStageName).not.toBe("Возврат в лидген");
+    expect(report.totals.bottleneckStageName).not.toBe("Корзина");
+  });
+
   it("builds system state from active pipeline even when the week has no new deals or wins", () => {
     const report = createReport({
       view: "systemState",
@@ -179,8 +438,8 @@ describe("buildRevenueVelocityReport", () => {
     expect(report.totals.realizedWonAmountInPeriod).toBe(0);
     expect(report.totals.activeDeals).toBe(1);
     expect(report.totals.activePipelineAmount).toBe(250000);
-    expect(report.totals.expectedPipelineAmount).toBe(250000);
-    expect(report.totals.liveRevenueVelocity).toBe(25000);
+    expect(report.totals.expectedPipelineAmount).toBeNull();
+    expect(report.totals.liveRevenueVelocity).toBeNull();
   });
 
   it("calculates system value, velocity delta and period actions for old wins and current pipeline", () => {
@@ -344,7 +603,7 @@ describe("buildRevenueVelocityReport", () => {
     expect(report.totals.realizedMoneyPerActionPoint).toBe(66666.67);
   });
 
-  it("treats deals closed after previous as-of as previous active pipeline without stage history", () => {
+  it("treats deals closed after previous as-of as previous active pipeline from stage history", () => {
     const report = createReport({
       view: "systemState",
       range: {
@@ -352,6 +611,44 @@ describe("buildRevenueVelocityReport", () => {
         to: "2026-04-26T23:59:59.999Z"
       },
       asOf: "2026-04-26T23:59:59.999Z",
+      stageHistory: [
+        {
+          id: "H_OLD_WIN_NO_HISTORY_ACT",
+          ownerId: "OLD_WIN_NO_HISTORY",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-03-20T00:00:00.000Z"
+        },
+        {
+          id: "H_OLD_WIN_NO_HISTORY_WON",
+          ownerId: "OLD_WIN_NO_HISTORY",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-22T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_ACT",
+          ownerId: "BENCH_FOR_PREVIOUS",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-01T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_WON",
+          ownerId: "BENCH_FOR_PREVIOUS",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-10T00:00:00.000Z"
+        }
+      ],
       deals: [
         {
           ...baseDeal,
@@ -362,9 +659,18 @@ describe("buildRevenueVelocityReport", () => {
           opportunity: 300000,
           dateCreate: "2026-03-20T00:00:00.000Z",
           dateClosed: "2026-04-22T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "BENCH_FOR_PREVIOUS",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: "2026-04-10T00:00:00.000Z"
         }
-      ],
-      stageHistory: []
+      ]
     });
 
     expect(report.totals.realizedWonAmountInPeriod).toBe(300000);

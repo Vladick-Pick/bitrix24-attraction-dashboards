@@ -482,7 +482,7 @@ vi.mock('@/lib/api-client', () => ({
       formulaTooltips: [
         {
           key: 'revenueVelocityPerDay',
-          label: 'Revenue Velocity',
+          label: 'Денежная скорость',
           formula: 'Средний чек × Количество возможностей × Конверсия / Средний цикл сделки',
           description: 'Показывает денежную скорость.',
         },
@@ -689,15 +689,16 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /состояние системы/i })).toBeInTheDocument()
     expect(screen.queryByText(/сумма выигранных сделок когорты/i)).not.toBeInTheDocument()
     expect(screen.getByText(/Факт денег периода/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/Expected pipeline сейчас/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Активная воронка/i).length).toBeGreaterThan(0)
     expect(screen.getByText('300 000 ₽')).toBeInTheDocument()
-    expect(screen.getByText('20 000 ₽/день')).toBeInTheDocument()
     expect(
-      screen.getAllByTitle(/Факт денег периода \+ Expected pipeline сейчас/i).length,
+      screen.getAllByTitle(/Сумма opportunity активных сделок/i).length,
     ).toBeGreaterThan(0)
     expect(
       screen.getByText(/Конверсионные мероприятия пока не подключены/i),
     ).toBeInTheDocument()
+    expect(screen.getAllByRole('columnheader')).toHaveLength(8)
+    expect(screen.queryByRole('columnheader', { name: /Исторический ₽ \/ балл/i })).not.toBeInTheDocument()
 
     const fastRow = screen.getByText('Быстрая строка')
     const slowRow = screen.getByText('Медленная строка')
@@ -705,10 +706,12 @@ describe('App', () => {
       fastRow.compareDocumentPosition(slowRow) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: /Live velocity сейчас/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Активная воронка/i }))
     expect(
       slowRow.compareDocumentPosition(fastRow) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+    fireEvent.click(fastRow)
+    expect(screen.getByText(/Исторический ₽ \/ балл/i)).toBeInTheDocument()
   })
 
   it('shows an empty cohort state in the revenue velocity tab', async () => {

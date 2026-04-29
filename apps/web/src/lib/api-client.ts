@@ -1311,7 +1311,7 @@ function normalizeRevenueVelocitySnapshot(
       medianCycleDays: asNullableNumber(row.medianCycleDays),
       revenueVelocityPerDay: asNullableNumber(row.revenueVelocityPerDay),
       activePipelineAmount: asNumber(row.activePipelineAmount),
-      expectedPipelineAmount: asNumber(row.expectedPipelineAmount),
+      expectedPipelineAmount: asNullableNumber(row.expectedPipelineAmount),
       previousExpectedPipelineAmount: asNullableNumber(row.previousExpectedPipelineAmount),
       expectedPipelineDelta: asNullableNumber(row.expectedPipelineDelta),
       liveRevenueVelocity: asNullableNumber(row.liveRevenueVelocity),

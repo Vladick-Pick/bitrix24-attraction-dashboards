@@ -1,11 +1,23 @@
-import type { StageCatalogEntry } from "@bitrix24-reporting/contracts";
+import type {
+  ConversionEventVisitSnapshot,
+  StageCatalogEntry
+} from "@bitrix24-reporting/contracts";
 
-import { buildDealBackfillParams, buildDealListParams } from "./selectors";
+import {
+  buildConversionEventItemListParams,
+  buildDealBackfillParams,
+  buildDealListParams
+} from "./selectors";
 import {
   assertAllowedBitrixMethod,
   assertSafeSelectFields,
   redactWebhookUrl
 } from "./security";
+import {
+  parseConversionEventDate,
+  resolveConversionEventName,
+  resolveConversionEventStatus
+} from "../domain/conversion-events";
 
 interface BitrixClientConfig {
   dealCategoryIds: string[];
@@ -70,6 +82,7 @@ interface StatusRow {
 }
 
 interface DealFieldMetadata {
+  title?: string;
   settings?: Record<string, string | null>;
   items?: Array<{
     ID?: string | number;
@@ -123,6 +136,50 @@ export interface UserRow {
 
 export interface ContactRow {
   ID: string;
+  [key: string]: unknown;
+}
+
+interface SmartProcessTypeRow {
+  entityTypeId: string | number;
+  title?: string | null;
+}
+
+interface SmartProcessTypeListResult {
+  types?: SmartProcessTypeRow[];
+}
+
+interface SmartProcessFieldMetadata {
+  title?: string | null;
+  type?: string | null;
+}
+
+interface SmartProcessFieldsResult {
+  fields?: Record<string, SmartProcessFieldMetadata>;
+}
+
+interface SmartProcessCategoryResult {
+  categories?: Array<{
+    id: string | number;
+    stages?: Array<{
+      id?: string | number;
+      statusId?: string | number;
+      name?: string | null;
+      title?: string | null;
+    }>;
+  }>;
+}
+
+interface ConversionEventItemRow {
+  id: string | number;
+  title?: string | null;
+  stageId?: string | number | null;
+  categoryId?: string | number | null;
+  parentId2?: unknown;
+  contactId?: unknown;
+  assignedById?: unknown;
+  sourceId?: string | number | null;
+  createdTime?: string | null;
+  updatedTime?: string | null;
   [key: string]: unknown;
 }
 
@@ -203,6 +260,110 @@ function toNumber(value: string | number | null | undefined) {
 
 function toStringArray(values: string[]) {
   return values.map((value) => String(value));
+}
+
+function normalizeOptionalString(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function extractLinkedId(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+
+    const directMatch = /^\d+$/.exec(trimmed);
+    if (directMatch) {
+      return directMatch[0];
+    }
+
+    const crmMatch = /(?:^|[_:])(\d+)$/u.exec(trimmed);
+    return crmMatch?.[1] ?? trimmed;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const linkedId = extractLinkedId(item);
+      if (linkedId) {
+        return linkedId;
+      }
+    }
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (
+      extractLinkedId(record.ID) ??
+      extractLinkedId(record.id) ??
+      extractLinkedId(record.VALUE) ??
+      extractLinkedId(record.value)
+    );
+  }
+
+  return null;
+}
+
+function normalizeFieldTitle(value: string | null | undefined) {
+  return (value ?? "").trim().toLocaleLowerCase("ru").replace(/ё/g, "е");
+}
+
+function findFieldByExactTitle<T extends { title?: string | null }>(
+  fields: Record<string, T>,
+  title: string
+) {
+  const normalizedTitle = normalizeFieldTitle(title);
+  return Object.entries(fields).find(
+    ([, field]) => normalizeFieldTitle(field.title) === normalizedTitle
+  )?.[0];
+}
+
+function findConversionEventNameField(
+  fields: Record<string, SmartProcessFieldMetadata>
+) {
+  return (
+    findFieldByExactTitle(fields, "Мероприятие") ??
+    Object.entries(fields).find(([, field]) => {
+      const title = normalizeFieldTitle(field.title);
+      return title.includes("мероприят") && !title.includes("дата");
+    })?.[0] ??
+    null
+  );
+}
+
+function findConversionEventDateField(
+  fields: Record<string, SmartProcessFieldMetadata>
+) {
+  return (
+    findFieldByExactTitle(fields, "Дата мероприятия") ??
+    Object.entries(fields).find(([, field]) => {
+      const title = normalizeFieldTitle(field.title);
+      return (
+        title.includes("дата") &&
+        title.includes("мероприят") &&
+        (field.type === "date" || field.type === "datetime")
+      );
+    })?.[0] ??
+    null
+  );
+}
+
+function normalizeDateValue(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
 function buildActivityOwnerFilter(ownerIds: string[]) {
@@ -526,6 +687,116 @@ export class BitrixClient {
     }
 
     return rows;
+  }
+
+  async fetchConversionEventDealFieldName() {
+    const fields = await this.fetchDealFieldsMetadata();
+    return findFieldByExactTitle(fields, "Мероприятие ОФ") ?? null;
+  }
+
+  private async discoverConversionEventMetadata() {
+    const typeResponse = await this.call<SmartProcessTypeListResult>(
+      "crm.type.list",
+      {}
+    );
+    const type = typeResponse.result?.types?.find(
+      (candidate) =>
+        normalizeFieldTitle(candidate.title) ===
+        normalizeFieldTitle("Посещения мероприятий")
+    );
+    const entityTypeId = Number(type?.entityTypeId);
+    if (!Number.isFinite(entityTypeId)) {
+      return null;
+    }
+
+    const [fieldResponse, categoryResponse, dealFieldName] = await Promise.all([
+      this.call<SmartProcessFieldsResult>("crm.item.fields", {
+        entityTypeId
+      }),
+      this.call<SmartProcessCategoryResult>("crm.category.list", {
+        entityTypeId
+      }),
+      this.fetchConversionEventDealFieldName()
+    ]);
+    const fields = fieldResponse.result?.fields ?? {};
+    const stageNames = new Map<string, string>();
+
+    for (const category of categoryResponse.result?.categories ?? []) {
+      for (const stage of category.stages ?? []) {
+        const stageId = normalizeOptionalString(stage.id ?? stage.statusId);
+        if (stageId) {
+          stageNames.set(stageId, stage.name ?? stage.title ?? stageId);
+        }
+      }
+    }
+
+    return {
+      entityTypeId,
+      eventNameFieldName: findConversionEventNameField(fields),
+      eventDateFieldName: findConversionEventDateField(fields),
+      dealConversionEventFieldName: dealFieldName,
+      stageNames
+    };
+  }
+
+  async listConversionEventVisits(input: {
+    modifiedAfter: string | null;
+    reportYear: number;
+  }): Promise<ConversionEventVisitSnapshot[]> {
+    const metadata = await this.discoverConversionEventMetadata();
+    if (!metadata) {
+      return [];
+    }
+
+    const allowedCustomFields = [
+      metadata.eventNameFieldName,
+      metadata.eventDateFieldName
+    ].filter((value): value is string => Boolean(value));
+    const rows = await this.collectPagedList<ConversionEventItemRow>(
+      "crm.item.list",
+      (start) =>
+        buildConversionEventItemListParams({
+          entityTypeId: metadata.entityTypeId,
+          modifiedAfter: input.modifiedAfter,
+          start,
+          eventNameFieldName: metadata.eventNameFieldName,
+          eventDateFieldName: metadata.eventDateFieldName
+        }),
+      {
+        allowedCustomFields
+      }
+    );
+
+    return rows.map((row) => {
+      const stageId = normalizeOptionalString(row.stageId) ?? "";
+      const stageName = metadata.stageNames.get(stageId) ?? stageId;
+      const eventName = resolveConversionEventName(
+        metadata.eventNameFieldName
+          ? normalizeOptionalString(row[metadata.eventNameFieldName])
+          : null,
+        row.title ?? null
+      );
+      const explicitDate = metadata.eventDateFieldName
+        ? normalizeDateValue(normalizeOptionalString(row[metadata.eventDateFieldName]))
+        : null;
+      const eventDate =
+        explicitDate ?? parseConversionEventDate(eventName, input.reportYear) ?? "";
+
+      return {
+        id: String(row.id),
+        eventName,
+        eventDate,
+        status: resolveConversionEventStatus(stageName),
+        stageId,
+        stageName,
+        dealId: extractLinkedId(row.parentId2),
+        contactId: extractLinkedId(row.contactId),
+        managerId: normalizeOptionalString(row.assignedById),
+        sourceId: normalizeOptionalString(row.sourceId),
+        createdTime: row.createdTime ?? "",
+        updatedTime: row.updatedTime ?? row.createdTime ?? ""
+      };
+    });
   }
 
   async listDeals(cursor: {

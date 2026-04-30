@@ -489,6 +489,49 @@ export interface TargetGroupConversionReport
   comparisons?: Array<ReportComparison<TargetGroupConversionReportSnapshot>>
 }
 
+export interface ConversionEventBreakdownRow {
+  key: string
+  label: string
+  count: number
+}
+
+export interface ConversionEventRow {
+  eventKey: string
+  eventName: string
+  eventDate: string
+  invitedCount: number
+  attendedCount: number
+  refusedCount: number
+  missedCount: number
+  attendanceRate: number | null
+  nextStepEligibleCount: number
+  nextStepCount: number
+  nextStepRate: number | null
+  unlinkedCount: number
+  unknownStatusCount: number
+  managerBreakdown: ConversionEventBreakdownRow[]
+  sourceBreakdown: ConversionEventBreakdownRow[]
+  businessClubBreakdown: ConversionEventBreakdownRow[]
+}
+
+export interface ConversionEventsReportSnapshot {
+  range: ReportRange
+  totalInvitedCount: number
+  totalAttendedCount: number
+  totalRefusedCount: number
+  totalMissedCount: number
+  attendanceRate: number | null
+  nextStepEligibleCount: number
+  nextStepCount: number
+  nextStepRate: number | null
+  warnings: string[]
+  rows: ConversionEventRow[]
+}
+
+export interface ConversionEventsReport extends ConversionEventsReportSnapshot {
+  comparisons?: Array<ReportComparison<ConversionEventsReportSnapshot>>
+}
+
 export interface ManagerActionOutcomeRow {
   managerId: string
   managerName: string

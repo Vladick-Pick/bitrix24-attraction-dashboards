@@ -15,6 +15,100 @@ afterEach(() => {
 });
 
 describe("createSqliteRepository", () => {
+  it("persists conversion event visit snapshots without raw client names", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.upsertConversionEventVisits([
+      {
+        id: "VISIT-1",
+        eventName: "Знакомство с клубом 29.04.",
+        eventDate: "2026-04-29T00:00:00.000Z",
+        status: "attended",
+        stageId: "DT:ATTENDED",
+        stageName: "На мероприятии",
+        dealId: "146166",
+        contactId: "9001",
+        managerId: "78",
+        sourceId: "WEB",
+        createdTime: "2026-04-20T10:00:00.000Z",
+        updatedTime: "2026-04-29T13:56:00.000Z"
+      }
+    ]);
+
+    await expect(repository.getAllConversionEventVisits()).resolves.toEqual([
+      {
+        id: "VISIT-1",
+        eventName: "Знакомство с клубом 29.04.",
+        eventDate: "2026-04-29T00:00:00.000Z",
+        status: "attended",
+        stageId: "DT:ATTENDED",
+        stageName: "На мероприятии",
+        dealId: "146166",
+        contactId: "9001",
+        managerId: "78",
+        sourceId: "WEB",
+        createdTime: "2026-04-20T10:00:00.000Z",
+        updatedTime: "2026-04-29T13:56:00.000Z"
+      }
+    ]);
+  });
+
+  it("persists deal contact id and conversion event fallback value", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.upsertDeals([
+      {
+        id: "D_EVENT",
+        title: null,
+        contactId: "C900",
+        leadId: null,
+        categoryId: "10",
+        stageId: "C10:NEW",
+        stageSemanticId: "P",
+        opportunity: null,
+        assignedById: "78",
+        sourceId: "WEB",
+        qualityValue: null,
+        businessClubValue: null,
+        targetGroupValue: null,
+        meetingTypeValue: null,
+        meetingDateValue: null,
+        tariffValue: null,
+        conversionEventValue: "Знакомство с клубом 29.04.",
+        refusalReasonValue: null,
+        refusalReasonDetail: null,
+        dateCreate: "2026-04-01T00:00:00.000Z",
+        dateModify: "2026-04-20T00:00:00.000Z",
+        dateClosed: null,
+        utmSource: null,
+        utmMedium: null,
+        utmCampaign: null,
+        utmContent: null,
+        utmTerm: null
+      }
+    ]);
+
+    await expect(repository.getAllDeals()).resolves.toEqual([
+      expect.objectContaining({
+        id: "D_EVENT",
+        contactId: "C900",
+        conversionEventValue: "Знакомство с клубом 29.04."
+      })
+    ]);
+  });
+
   it("replaces and reads sales plan rows for a period", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);
@@ -313,6 +407,7 @@ describe("createSqliteRepository", () => {
       {
         id: "D1",
         title: null,
+        contactId: null,
         leadId: "L1",
         categoryId: "1",
         stageId: "C1:WON",
@@ -326,6 +421,7 @@ describe("createSqliteRepository", () => {
         meetingTypeValue: "Очная",
         meetingDateValue: "2026-04-03T13:00:00.000Z",
         tariffValue: "Федеральный Москва",
+        conversionEventValue: null,
         refusalReasonValue: "Клиенту не интересен формат",
         refusalReasonDetail: null,
         dateCreate: "2026-04-01T00:00:00.000Z",

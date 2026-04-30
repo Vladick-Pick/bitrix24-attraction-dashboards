@@ -16,6 +16,7 @@ export interface LeadSnapshot {
 export interface DealSnapshot {
   id: string;
   title?: string | null;
+  contactId?: string | null;
   leadId: string | null;
   categoryId: string | null;
   stageId: string;
@@ -29,6 +30,7 @@ export interface DealSnapshot {
   meetingTypeValue?: string | null;
   meetingDateValue?: string | null;
   tariffValue?: string | null;
+  conversionEventValue?: string | null;
   refusalReasonValue?: string | null;
   refusalReasonDetail?: string | null;
   dateCreate: string;
@@ -91,6 +93,27 @@ export interface DealMeetingDateChangeSnapshot {
   previousMeetingDate: string | null;
   nextMeetingDate: string | null;
   changedAt: string;
+}
+
+export type ConversionEventStatus =
+  | "invited"
+  | "attended"
+  | "refused"
+  | "unknown";
+
+export interface ConversionEventVisitSnapshot {
+  id: string;
+  eventName: string;
+  eventDate: string;
+  status: ConversionEventStatus;
+  stageId: string;
+  stageName: string;
+  dealId: string | null;
+  contactId: string | null;
+  managerId: string | null;
+  sourceId: string | null;
+  createdTime: string;
+  updatedTime: string;
 }
 
 export interface CallSnapshot {
@@ -415,6 +438,50 @@ export interface ActivitiesWorkloadReportSnapshot {
 export interface ActivitiesWorkloadReport
   extends ActivitiesWorkloadReportSnapshot {
   comparisons?: Array<ReportComparison<ActivitiesWorkloadReportSnapshot>>;
+}
+
+export interface ConversionEventBreakdownRow {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface ConversionEventRow {
+  eventKey: string;
+  eventName: string;
+  eventDate: string;
+  invitedCount: number;
+  attendedCount: number;
+  refusedCount: number;
+  missedCount: number;
+  attendanceRate: number | null;
+  nextStepEligibleCount: number;
+  nextStepCount: number;
+  nextStepRate: number | null;
+  unlinkedCount: number;
+  unknownStatusCount: number;
+  managerBreakdown: ConversionEventBreakdownRow[];
+  sourceBreakdown: ConversionEventBreakdownRow[];
+  businessClubBreakdown: ConversionEventBreakdownRow[];
+}
+
+export interface ConversionEventsReportSnapshot {
+  range: ReportRange;
+  totalInvitedCount: number;
+  totalAttendedCount: number;
+  totalRefusedCount: number;
+  totalMissedCount: number;
+  attendanceRate: number | null;
+  nextStepEligibleCount: number;
+  nextStepCount: number;
+  nextStepRate: number | null;
+  warnings: string[];
+  rows: ConversionEventRow[];
+}
+
+export interface ConversionEventsReport
+  extends ConversionEventsReportSnapshot {
+  comparisons?: Array<ReportComparison<ConversionEventsReportSnapshot>>;
 }
 
 export interface StageCallMetric {

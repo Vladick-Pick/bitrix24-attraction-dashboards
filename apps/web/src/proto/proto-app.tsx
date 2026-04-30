@@ -468,6 +468,7 @@ export function ProtoApp() {
           acquisitionOutcomes,
           targetGroupConversion,
           managerActionOutcomes,
+          conversionEvents,
           cohort,
           toc,
         ] = await Promise.all([
@@ -477,6 +478,7 @@ export function ProtoApp() {
           apiClient.getAcquisitionOutcomesReport(query),
           apiClient.getTargetGroupConversionReport(query),
           apiClient.getManagerActionOutcomeReport(query),
+          apiClient.getConversionEventsReport(query),
           apiClient.getCohortConversionReport(query),
           apiClient.getTocFlowReport(query),
         ])
@@ -575,6 +577,7 @@ export function ProtoApp() {
           acquisitionOutcomes,
           targetGroupConversion,
           managerActionOutcomes,
+          conversionEvents,
           ...(current.revenueVelocity ? { revenueVelocity: current.revenueVelocity } : {}),
           cohorts: mapCohortSceneData({
             report: cohort,

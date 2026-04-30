@@ -3,6 +3,7 @@ import type {
   AcquisitionOutcomesReport,
   ActivitiesWorkloadReport,
   CallsWorkloadReport,
+  ConversionEventsReport,
   DashboardData,
   ManagerActionOutcomeReport,
   RevenueVelocityReport,
@@ -280,6 +281,7 @@ export interface ProtoRuntimeData {
   acquisitionOutcomes?: AcquisitionOutcomesReport
   targetGroupConversion?: TargetGroupConversionReport
   managerActionOutcomes?: ManagerActionOutcomeReport
+  conversionEvents?: ConversionEventsReport
   revenueVelocity?: RevenueVelocityReport
   cohorts?: CohortSceneData
   tocFlow?: TocFlowSceneData

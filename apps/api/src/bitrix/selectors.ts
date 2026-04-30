@@ -37,6 +37,9 @@ export const ALLOWED_BITRIX_METHODS = [
   "crm.deal.list",
   "crm.status.list",
   "crm.deal.fields",
+  "crm.type.list",
+  "crm.item.fields",
+  "crm.category.list",
   "crm.contact.list",
   "crm.contact.fields",
   "crm.item.list",
@@ -169,5 +172,40 @@ export function buildLeadBackfillParams(options: BackfillSelectorOptions) {
       ID: "ASC" as const
     },
     start: -1
+  };
+}
+
+export function buildConversionEventItemListParams(options: {
+  entityTypeId: number;
+  modifiedAfter: string | null;
+  start?: number;
+  eventNameFieldName?: string | null;
+  eventDateFieldName?: string | null;
+}) {
+  return {
+    entityTypeId: options.entityTypeId,
+    select: [
+      "id",
+      "title",
+      "stageId",
+      "categoryId",
+      "createdTime",
+      "updatedTime",
+      "assignedById",
+      "contactId",
+      "parentId2",
+      "sourceId",
+      ...(options.eventNameFieldName ? [options.eventNameFieldName] : []),
+      ...(options.eventDateFieldName ? [options.eventDateFieldName] : [])
+    ],
+    filter: options.modifiedAfter
+      ? {
+          ">=updatedTime": options.modifiedAfter
+        }
+      : {},
+    order: {
+      id: "ASC" as const
+    },
+    start: options.start ?? 0
   };
 }

@@ -15,6 +15,7 @@ describe("performManualSync", () => {
     const storedActivities: unknown[][] = [];
     const storedCalls: unknown[][] = [];
     const storedDeadlineChanges: unknown[][] = [];
+    const storedConversionEventVisits: unknown[][] = [];
     const storedManagers: unknown[][] = [];
     const repo = {
       getLatestSuccessCursor: async (
@@ -91,6 +92,10 @@ describe("performManualSync", () => {
         storedDeadlineChanges.push(rows);
         return rows.length;
       },
+      upsertConversionEventVisits: async (rows: unknown[]) => {
+        storedConversionEventVisits.push(rows);
+        return rows.length;
+      },
       upsertCalls: async (rows: unknown[]) => {
         storedCalls.push(rows);
         return rows.length;
@@ -139,6 +144,12 @@ describe("performManualSync", () => {
         };
       },
       fetchDealFieldValueMap: async (fieldName: string) => {
+        if (fieldName === "UF_CRM_EVENT_OF") {
+          return {
+            "700": "Знакомство с клубом 29.04."
+          };
+        }
+
         if (fieldName === "UF_CRM_1647422744") {
           return {
             "182": "Клиенту не интересен формат"
@@ -178,6 +189,7 @@ describe("performManualSync", () => {
 
         throw new Error(`Unexpected field map request: ${fieldName}`);
       },
+      fetchConversionEventDealFieldName: async () => "UF_CRM_EVENT_OF",
       listDeals: async (cursor: {
         modifiedAfter: string | null;
         categoryIds: string[];
@@ -217,12 +229,14 @@ describe("performManualSync", () => {
           "UF_CRM_TARGET_GROUP",
           "UF_CRM_MEETING_TYPE",
           "UF_CRM_MEETING_DATE",
+          "UF_CRM_EVENT_OF",
           "UF_CRM_1647422744",
           "UF_CRM_1647422890"
         ]);
         return [
           {
             ID: "D1",
+            CONTACT_ID: "9001",
             LEAD_ID: "L1",
             DATE_CREATE: "2026-04-01T00:00:00.000Z",
             DATE_MODIFY: "2026-04-08T10:00:00.000Z",
@@ -239,6 +253,7 @@ describe("performManualSync", () => {
             UF_CRM_TARGET_GROUP: "512",
             UF_CRM_MEETING_TYPE: "90",
             UF_CRM_MEETING_DATE: "2026-04-03T13:00:00.000Z",
+            UF_CRM_EVENT_OF: "700",
             UF_CRM_1647422744: "182",
             UF_CRM_1647422890: "Не готов к формату клуба",
             UTM_SOURCE: null,
@@ -246,6 +261,31 @@ describe("performManualSync", () => {
             UTM_CAMPAIGN: null,
             UTM_CONTENT: null,
             UTM_TERM: null
+          }
+        ];
+      },
+      listConversionEventVisits: async (input: {
+        modifiedAfter: string | null;
+        reportYear: number;
+      }) => {
+        expect(input).toEqual({
+          modifiedAfter: "2026-04-07T00:00:00.000Z",
+          reportYear: 2026
+        });
+        return [
+          {
+            id: "VISIT-1",
+            eventName: "Знакомство с клубом 29.04.",
+            eventDate: "2026-04-29T00:00:00.000Z",
+            status: "attended" as const,
+            stageId: "DT:ATTENDED",
+            stageName: "На мероприятии",
+            dealId: "D1",
+            contactId: "9001",
+            managerId: "78",
+            sourceId: "WEB",
+            createdTime: "2026-04-20T10:00:00.000Z",
+            updatedTime: "2026-04-29T13:56:00.000Z"
           }
         ];
       },
@@ -355,6 +395,7 @@ describe("performManualSync", () => {
       [
         expect.objectContaining({
           id: "D1",
+          contactId: "9001",
           sourceId: "WEB",
           qualityValue: "3.1 Готов ко встрече",
           businessClubValue: "ClubOne",
@@ -362,6 +403,7 @@ describe("performManualSync", () => {
           meetingTypeValue: "Очная",
           meetingDateValue: "2026-04-03T13:00:00.000Z",
           tariffValue: "Федеральный Москва",
+          conversionEventValue: "Знакомство с клубом 29.04.",
           refusalReasonValue: "Клиенту не интересен формат",
           refusalReasonDetail: null
         })
@@ -403,6 +445,15 @@ describe("performManualSync", () => {
           id: "CALL1",
           crmActivityId: "A1",
           callDurationSeconds: 64
+        })
+      ]
+    ]);
+    expect(storedConversionEventVisits).toEqual([
+      [
+        expect.objectContaining({
+          id: "VISIT-1",
+          eventName: "Знакомство с клубом 29.04.",
+          dealId: "D1"
         })
       ]
     ]);

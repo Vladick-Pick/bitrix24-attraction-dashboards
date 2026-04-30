@@ -115,6 +115,20 @@ vi.mock('@/lib/api-client', () => ({
       cohortStatusRows: [],
       comparisons: [],
     })),
+    getConversionEventsReport: vi.fn(async () => ({
+      range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+      totalInvitedCount: 0,
+      totalAttendedCount: 0,
+      totalRefusedCount: 0,
+      totalMissedCount: 0,
+      attendanceRate: null,
+      nextStepEligibleCount: 0,
+      nextStepCount: 0,
+      nextStepRate: null,
+      warnings: [],
+      rows: [],
+      comparisons: [],
+    })),
     getCohortConversionReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalCreatedDeals: 0,
@@ -1286,6 +1300,60 @@ describe('ProtoApp', () => {
     expect(screen.getByRole('heading', { name: /^sla$/i })).toBeInTheDocument()
     expect(screen.getByText('Очная')).toBeInTheDocument()
     expect(screen.getByText(/on-time 2/i)).toBeInTheDocument()
+  })
+
+  it('renders conversion events table in the activity scene without client names', async () => {
+    vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
+      range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+      totalInvitedCount: 10,
+      totalAttendedCount: 6,
+      totalRefusedCount: 2,
+      totalMissedCount: 4,
+      attendanceRate: 60,
+      nextStepEligibleCount: 6,
+      nextStepCount: 3,
+      nextStepRate: 50,
+      warnings: [],
+      rows: [
+        {
+          eventKey: '2026-04-29::Знакомство с клубом 29.04.',
+          eventName: 'Знакомство с клубом 29.04.',
+          eventDate: '2026-04-29T00:00:00.000Z',
+          invitedCount: 10,
+          attendedCount: 6,
+          refusedCount: 2,
+          missedCount: 4,
+          attendanceRate: 60,
+          nextStepEligibleCount: 6,
+          nextStepCount: 3,
+          nextStepRate: 50,
+          unlinkedCount: 0,
+          unknownStatusCount: 0,
+          managerBreakdown: [{ key: '78', label: 'Егоров Андрей', count: 6 }],
+          sourceBreakdown: [{ key: 'WEB', label: 'Веб', count: 6 }],
+          businessClubBreakdown: [{ key: 'ClubOne', label: 'ClubOne', count: 6 }],
+        },
+      ],
+      comparisons: [],
+    })
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /отчет активности/i }))
+
+    const section = await screen.findByRole('heading', {
+      name: /конверсионные мероприятия/i,
+    })
+    expect(section).toBeInTheDocument()
+    expect(screen.getByText('Знакомство с клубом 29.04.')).toBeInTheDocument()
+    expect(screen.getByText('60%')).toBeInTheDocument()
+    expect(screen.getByText('3 / 6 · 50%')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /детали мероприятия/i }))
+    expect(screen.getByText('Егоров Андрей')).toBeInTheDocument()
+    expect(screen.getByText('Веб')).toBeInTheDocument()
+    expect(screen.getByText('ClubOne')).toBeInTheDocument()
+    expect(screen.queryByText(/Омаров/i)).not.toBeInTheDocument()
   })
 
   it('renders stable manager leaders in the funnel-flow scene', async () => {

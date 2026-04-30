@@ -243,6 +243,23 @@ function createCorsTestApp(config?: {
         cohortMonths: [],
         cohortStatusRows: []
       }),
+      getConversionEventsReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalInvitedCount: 0,
+        totalAttendedCount: 0,
+        totalRefusedCount: 0,
+        totalMissedCount: 0,
+        attendanceRate: null,
+        nextStepEligibleCount: 0,
+        nextStepCount: 0,
+        nextStepRate: null,
+        warnings: [],
+        rows: [],
+        comparisons: []
+      }),
       getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
@@ -328,6 +345,9 @@ describe("Bitrix transport security", () => {
       "crm.deal.list",
       "crm.status.list",
       "crm.deal.fields",
+      "crm.type.list",
+      "crm.item.fields",
+      "crm.category.list",
       "crm.contact.list",
       "crm.contact.fields",
       "crm.item.list",

@@ -3,6 +3,7 @@ import type {
   ActivitiesWorkloadReport,
   CallsWorkloadReport,
   CohortConversionReport,
+  ConversionEventsReport,
   DashboardData,
   ManagerActionOutcomeReport,
   ManagerDirectoryEntry,
@@ -88,6 +89,7 @@ interface AppService {
     input: RangeRequest
   ): Promise<ManagerActionOutcomeReport>;
   getCallsWorkloadReport(input: RangeRequest): Promise<CallsWorkloadReport>;
+  getConversionEventsReport(input: RangeRequest): Promise<ConversionEventsReport>;
   getCohortConversionReport(input: RangeRequest): Promise<CohortConversionReport>;
   getTocFlowReport(input: RangeRequest): Promise<TocFlowReport>;
   getRevenueVelocityReport(
@@ -543,6 +545,16 @@ export function createApp(service: AppService, config: AppConfig = {}) {
     try {
       response.json(
         await service.getCallsWorkloadReport(parseRangeRequest(request.query))
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/reports/conversion-events", async (request, response, next) => {
+    try {
+      response.json(
+        await service.getConversionEventsReport(parseRangeRequest(request.query))
       );
     } catch (error) {
       next(error);

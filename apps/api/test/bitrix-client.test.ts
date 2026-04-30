@@ -354,6 +354,136 @@ describe("BitrixClient pagination", () => {
     });
   });
 
+  it("discovers and loads conversion event smart-process visits without returning raw titles", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            types: [
+              {
+                entityTypeId: 177,
+                title: "Посещения мероприятий"
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            fields: {
+              ufCrmEventName: {
+                title: "Мероприятие"
+              },
+              ufCrmEventDate: {
+                title: "Дата мероприятия",
+                type: "date"
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            categories: [
+              {
+                id: 33,
+                stages: [
+                  {
+                    id: "DT177_33:ATTENDED",
+                    name: "На мероприятии"
+                  }
+                ]
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            UF_CRM_EVENT_OF: {
+              title: "Мероприятие ОФ"
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            items: [
+              {
+                id: 1,
+                title:
+                  "Посещение Омаров Омар Магомедович в Знакомство с клубом 29.04.",
+                stageId: "DT177_33:ATTENDED",
+                categoryId: 33,
+                parentId2: 146166,
+                contactId: 9001,
+                assignedById: 78,
+                sourceId: "WEB",
+                createdTime: "2026-04-20T10:00:00.000Z",
+                updatedTime: "2026-04-29T13:56:00.000Z",
+                ufCrmEventName: null,
+                ufCrmEventDate: null
+              }
+            ]
+          }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.listConversionEventVisits({
+        modifiedAfter: "2026-04-01T00:00:00.000Z",
+        reportYear: 2026
+      })
+    ).resolves.toEqual([
+      {
+        id: "1",
+        eventName: "Знакомство с клубом 29.04.",
+        eventDate: "2026-04-29T00:00:00.000Z",
+        status: "attended",
+        stageId: "DT177_33:ATTENDED",
+        stageName: "На мероприятии",
+        dealId: "146166",
+        contactId: "9001",
+        managerId: "78",
+        sourceId: "WEB",
+        createdTime: "2026-04-20T10:00:00.000Z",
+        updatedTime: "2026-04-29T13:56:00.000Z"
+      }
+    ]);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body))).toMatchObject({
+      entityTypeId: 177,
+      select: expect.arrayContaining([
+        "id",
+        "title",
+        "stageId",
+        "parentId2",
+        "contactId",
+        "ufCrmEventName",
+        "ufCrmEventDate"
+      ]),
+      filter: {
+        ">=updatedTime": "2026-04-01T00:00:00.000Z"
+      }
+    });
+  });
+
   it("chunks activity owner filters to avoid one huge Bitrix binding filter", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       createResponse({

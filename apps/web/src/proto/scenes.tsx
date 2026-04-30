@@ -3,6 +3,8 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type {
   ActivitiesWorkloadReport,
   AcquisitionOutcomesReport,
+  ConversionEventsReport,
+  ConversionEventBreakdownRow,
   DashboardData,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeReport,
@@ -3868,6 +3870,156 @@ function ActivitiesMeetingsSection({
   )
 }
 
+function formatConversionEventsPercent(value: number | null) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${formatPercent(value)}%`
+    : '—'
+}
+
+function renderConversionEventBreakdown(rows: ConversionEventBreakdownRow[]) {
+  if (rows.length === 0) {
+    return <span className="text-xs text-slate-400">—</span>
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {rows.map((row) => (
+        <span
+          key={row.key}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+        >
+          <span>{row.label}</span>
+          <span className="text-slate-400">{formatInteger(row.count)}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function ConversionEventDetailsCell({
+  row,
+}: {
+  row: ConversionEventsReport['rows'][number]
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div>
+      <button
+        type="button"
+        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        Детали мероприятия
+      </button>
+      {expanded ? (
+        <div className="mt-3 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div>
+            <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-slate-400">
+              Менеджеры
+            </div>
+            {renderConversionEventBreakdown(row.managerBreakdown)}
+          </div>
+          <div>
+            <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-slate-400">
+              Источники
+            </div>
+            {renderConversionEventBreakdown(row.sourceBreakdown)}
+          </div>
+          <div>
+            <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-slate-400">
+              Клубы
+            </div>
+            {renderConversionEventBreakdown(row.businessClubBreakdown)}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ActivitiesConversionEventsSection({
+  report,
+}: {
+  report: ConversionEventsReport | undefined
+}) {
+  if (!report) {
+    return null
+  }
+
+  return (
+    <section className="panel p-5">
+      <PanelHeading
+        title="Конверсионные мероприятия"
+        description="Агрегация по событию и дате: приглашения, факт посещения, отказы и переход связанной сделки на следующий шаг после события."
+        right={
+          <div className="flex flex-wrap gap-2">
+            <span className="badge-chip badge-neutral">
+              {formatInteger(report.totalAttendedCount)} / {formatInteger(report.totalInvitedCount)}
+            </span>
+            <span className="badge-chip badge-neutral">
+              {formatConversionEventsPercent(report.attendanceRate)} доходимость
+            </span>
+          </div>
+        }
+      />
+
+      {report.warnings.length > 0 ? (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {report.warnings.length} warnings: {report.warnings.slice(0, 3).join(' · ')}
+        </div>
+      ) : null}
+
+      {report.rows.length > 0 ? (
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
+                <th className="px-3 py-3">Мероприятие</th>
+                <th className="px-3 py-3">Дата</th>
+                <th className="px-3 py-3 text-right">Приглашено</th>
+                <th className="px-3 py-3 text-right">Посетило</th>
+                <th className="px-3 py-3 text-right">Не дошло</th>
+                <th className="px-3 py-3 text-right">Отказ</th>
+                <th className="px-3 py-3 text-right">Доходимость</th>
+                <th className="px-3 py-3 text-right">Следующий шаг</th>
+                <th className="px-3 py-3">Детали</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.rows.map((row) => (
+                <tr key={row.eventKey} className="border-b border-slate-100 align-top last:border-b-0">
+                  <td className="px-3 py-3 font-semibold text-slate-900">{row.eventName}</td>
+                  <td className="px-3 py-3 text-slate-700">{formatShortDate(row.eventDate)}</td>
+                  <td className="px-3 py-3 text-right font-semibold text-slate-900">
+                    {formatInteger(row.invitedCount)}
+                  </td>
+                  <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.attendedCount)}</td>
+                  <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.missedCount)}</td>
+                  <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.refusedCount)}</td>
+                  <td className="px-3 py-3 text-right font-semibold text-slate-900">
+                    {formatConversionEventsPercent(row.attendanceRate)}
+                  </td>
+                  <td className="px-3 py-3 text-right font-semibold text-slate-900">
+                    {formatInteger(row.nextStepCount)} / {formatInteger(row.nextStepEligibleCount)} ·{' '}
+                    {formatConversionEventsPercent(row.nextStepRate)}
+                  </td>
+                  <td className="min-w-[260px] px-3 py-3">
+                    <ConversionEventDetailsCell row={row} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <OutcomeEmptyState message="В выбранном периоде конверсионные мероприятия не найдены." />
+      )}
+    </section>
+  )
+}
+
 function ActivitiesSlaSection({
   report,
   filters,
@@ -4239,6 +4391,8 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
       </section>
 
       <ActivitiesMeetingsSection report={activitiesWorkload} filters={filters} />
+
+      <ActivitiesConversionEventsSection report={runtimeData?.conversionEvents} />
 
       <ActivitiesSlaSection report={activitiesWorkload} filters={filters} />
 

@@ -6,6 +6,7 @@ import type {
   ActivityDeadlineChangeSnapshot,
   ActivitySnapshot,
   CallSnapshot,
+  ConversionEventVisitSnapshot,
   DealMeetingDateChangeSnapshot,
   DealSnapshot,
   LeadSnapshot,
@@ -129,6 +130,9 @@ export interface SqliteRepository {
   upsertDealMeetingDateChanges(
     rows: DealMeetingDateChangeSnapshot[]
   ): Promise<number>;
+  upsertConversionEventVisits(
+    rows: ConversionEventVisitSnapshot[]
+  ): Promise<number>;
   upsertCalls(rows: CallSnapshot[]): Promise<number>;
   upsertManagerDirectory(rows: ManagerDirectoryEntry[]): Promise<number>;
   markOperationalHistoryBootstrapped(timestamp: string): Promise<void>;
@@ -171,6 +175,7 @@ export interface SqliteRepository {
   getAllActivities(): Promise<ActivitySnapshot[]>;
   getAllActivityDeadlineChanges(): Promise<ActivityDeadlineChangeSnapshot[]>;
   getAllDealMeetingDateChanges(): Promise<DealMeetingDateChangeSnapshot[]>;
+  getAllConversionEventVisits(): Promise<ConversionEventVisitSnapshot[]>;
   getAllCalls(): Promise<CallSnapshot[]>;
   getManagerDirectory(): Promise<ManagerDirectoryEntry[]>;
   getStageCatalog(): Promise<StageCatalogEntry[]>;
@@ -399,6 +404,7 @@ export function createSqliteRepository(
     CREATE TABLE IF NOT EXISTS deal_snapshots (
       id TEXT PRIMARY KEY,
       title TEXT,
+      contact_id TEXT,
       lead_id TEXT,
       category_id TEXT,
       stage_id TEXT NOT NULL,
@@ -412,6 +418,7 @@ export function createSqliteRepository(
       meeting_type_value TEXT,
       meeting_date_value TEXT,
       tariff_value TEXT,
+      conversion_event_value TEXT,
       refusal_reason_value TEXT,
       refusal_reason_detail TEXT,
       date_create TEXT NOT NULL,
@@ -477,6 +484,21 @@ export function createSqliteRepository(
       changed_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS conversion_event_visit_snapshots (
+      id TEXT PRIMARY KEY,
+      event_name TEXT NOT NULL,
+      event_date TEXT NOT NULL,
+      status TEXT NOT NULL,
+      stage_id TEXT NOT NULL,
+      stage_name TEXT NOT NULL,
+      deal_id TEXT,
+      contact_id TEXT,
+      manager_id TEXT,
+      source_id TEXT,
+      created_time TEXT NOT NULL,
+      updated_time TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS call_snapshots (
       id TEXT PRIMARY KEY,
       crm_activity_id TEXT,
@@ -524,18 +546,24 @@ export function createSqliteRepository(
       ON deal_meeting_date_changes (deal_id);
     CREATE INDEX IF NOT EXISTS idx_deal_meeting_date_changes_changed_at
       ON deal_meeting_date_changes (changed_at);
+    CREATE INDEX IF NOT EXISTS idx_conversion_event_visits_event_date
+      ON conversion_event_visit_snapshots (event_date);
+    CREATE INDEX IF NOT EXISTS idx_conversion_event_visits_deal_id
+      ON conversion_event_visit_snapshots (deal_id);
     CREATE INDEX IF NOT EXISTS idx_call_crm_activity_id
       ON call_snapshots (crm_activity_id);
   `);
 
   ensureColumn(database, "deal_snapshots", "source_id", "TEXT");
   ensureColumn(database, "deal_snapshots", "title", "TEXT");
+  ensureColumn(database, "deal_snapshots", "contact_id", "TEXT");
   ensureColumn(database, "deal_snapshots", "quality_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "business_club_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "target_group_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "meeting_type_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "meeting_date_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "tariff_value", "TEXT");
+  ensureColumn(database, "deal_snapshots", "conversion_event_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_detail", "TEXT");
   ensureColumn(database, "stage_catalog", "sort_order", "INTEGER");
@@ -596,16 +624,17 @@ export function createSqliteRepository(
 
   const upsertDealStatement = database.prepare(`
     INSERT INTO deal_snapshots (
-      id, title, lead_id, category_id, stage_id, stage_semantic_id, opportunity, assigned_by_id,
-      source_id, quality_value, business_club_value, target_group_value, meeting_type_value, meeting_date_value, tariff_value, refusal_reason_value, refusal_reason_detail, date_create,
+      id, title, contact_id, lead_id, category_id, stage_id, stage_semantic_id, opportunity, assigned_by_id,
+      source_id, quality_value, business_club_value, target_group_value, meeting_type_value, meeting_date_value, tariff_value, conversion_event_value, refusal_reason_value, refusal_reason_detail, date_create,
       date_modify, date_closed, utm_source, utm_medium, utm_campaign, utm_content, utm_term
     ) VALUES (
-      @id, @title, @leadId, @categoryId, @stageId, @stageSemanticId, @opportunity, @assignedById,
-      @sourceId, @qualityValue, @businessClubValue, @targetGroupValue, @meetingTypeValue, @meetingDateValue, @tariffValue, @refusalReasonValue, @refusalReasonDetail, @dateCreate,
+      @id, @title, @contactId, @leadId, @categoryId, @stageId, @stageSemanticId, @opportunity, @assignedById,
+      @sourceId, @qualityValue, @businessClubValue, @targetGroupValue, @meetingTypeValue, @meetingDateValue, @tariffValue, @conversionEventValue, @refusalReasonValue, @refusalReasonDetail, @dateCreate,
       @dateModify, @dateClosed, @utmSource, @utmMedium, @utmCampaign, @utmContent, @utmTerm
     )
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
+      contact_id = excluded.contact_id,
       lead_id = excluded.lead_id,
       category_id = excluded.category_id,
       stage_id = excluded.stage_id,
@@ -619,6 +648,7 @@ export function createSqliteRepository(
       meeting_type_value = excluded.meeting_type_value,
       meeting_date_value = excluded.meeting_date_value,
       tariff_value = excluded.tariff_value,
+      conversion_event_value = excluded.conversion_event_value,
       refusal_reason_value = excluded.refusal_reason_value,
       refusal_reason_detail = excluded.refusal_reason_detail,
       date_create = excluded.date_create,
@@ -746,6 +776,48 @@ export function createSqliteRepository(
       previous_meeting_date = excluded.previous_meeting_date,
       next_meeting_date = excluded.next_meeting_date,
       changed_at = excluded.changed_at
+  `);
+
+  const upsertConversionEventVisitStatement = database.prepare(`
+    INSERT INTO conversion_event_visit_snapshots (
+      id,
+      event_name,
+      event_date,
+      status,
+      stage_id,
+      stage_name,
+      deal_id,
+      contact_id,
+      manager_id,
+      source_id,
+      created_time,
+      updated_time
+    ) VALUES (
+      @id,
+      @eventName,
+      @eventDate,
+      @status,
+      @stageId,
+      @stageName,
+      @dealId,
+      @contactId,
+      @managerId,
+      @sourceId,
+      @createdTime,
+      @updatedTime
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      event_name = excluded.event_name,
+      event_date = excluded.event_date,
+      status = excluded.status,
+      stage_id = excluded.stage_id,
+      stage_name = excluded.stage_name,
+      deal_id = excluded.deal_id,
+      contact_id = excluded.contact_id,
+      manager_id = excluded.manager_id,
+      source_id = excluded.source_id,
+      created_time = excluded.created_time,
+      updated_time = excluded.updated_time
   `);
 
   const upsertCallStatement = database.prepare(`
@@ -1220,6 +1292,7 @@ export function createSqliteRepository(
             `SELECT
               id,
               title,
+              contact_id AS contactId,
               lead_id AS leadId,
               category_id AS categoryId,
               stage_id AS stageId,
@@ -1233,6 +1306,7 @@ export function createSqliteRepository(
               meeting_type_value AS meetingTypeValue,
               meeting_date_value AS meetingDateValue,
               tariff_value AS tariffValue,
+              conversion_event_value AS conversionEventValue,
               refusal_reason_value AS refusalReasonValue,
               refusal_reason_detail AS refusalReasonDetail,
               date_create AS dateCreate,
@@ -1475,11 +1549,13 @@ export function createSqliteRepository(
           upsertDealStatement.run({
             ...row,
             title: row.title ?? null,
+            contactId: row.contactId ?? null,
             businessClubValue: row.businessClubValue ?? null,
             targetGroupValue: row.targetGroupValue ?? null,
             meetingTypeValue: row.meetingTypeValue ?? null,
             meetingDateValue: row.meetingDateValue ?? null,
             tariffValue: row.tariffValue ?? null,
+            conversionEventValue: row.conversionEventValue ?? null,
             refusalReasonValue: row.refusalReasonValue ?? null,
             refusalReasonDetail: null
           });
@@ -1531,6 +1607,18 @@ export function createSqliteRepository(
         (nextRows: DealMeetingDateChangeSnapshot[]) => {
           for (const row of nextRows) {
             upsertDealMeetingDateChangeStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    upsertConversionEventVisits(rows) {
+      const transaction = database.transaction(
+        (nextRows: ConversionEventVisitSnapshot[]) => {
+          for (const row of nextRows) {
+            upsertConversionEventVisitStatement.run(row);
           }
         }
       );
@@ -1718,6 +1806,7 @@ export function createSqliteRepository(
           `SELECT
             id,
             title,
+            contact_id AS contactId,
             lead_id AS leadId,
             category_id AS categoryId,
             stage_id AS stageId,
@@ -1731,6 +1820,7 @@ export function createSqliteRepository(
             meeting_type_value AS meetingTypeValue,
             meeting_date_value AS meetingDateValue,
             tariff_value AS tariffValue,
+            conversion_event_value AS conversionEventValue,
             refusal_reason_value AS refusalReasonValue,
             refusal_reason_detail AS refusalReasonDetail,
             date_create AS dateCreate,
@@ -1822,6 +1912,28 @@ export function createSqliteRepository(
           ORDER BY changed_at ASC, id ASC`
         )
         .all() as DealMeetingDateChangeSnapshot[];
+    },
+
+    async getAllConversionEventVisits() {
+      return database
+        .prepare(
+          `SELECT
+            id,
+            event_name AS eventName,
+            event_date AS eventDate,
+            status,
+            stage_id AS stageId,
+            stage_name AS stageName,
+            deal_id AS dealId,
+            contact_id AS contactId,
+            manager_id AS managerId,
+            source_id AS sourceId,
+            created_time AS createdTime,
+            updated_time AS updatedTime
+          FROM conversion_event_visit_snapshots
+          ORDER BY event_date ASC, id ASC`
+        )
+        .all() as ConversionEventVisitSnapshot[];
     },
 
     async getAllCalls() {

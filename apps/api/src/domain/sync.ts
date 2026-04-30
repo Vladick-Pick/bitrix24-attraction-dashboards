@@ -2,6 +2,7 @@ import type {
   ActivityDeadlineChangeSnapshot,
   ActivitySnapshot,
   CallSnapshot,
+  ConversionEventVisitSnapshot,
   DealMeetingDateChangeSnapshot,
   DealSnapshot,
   ManagerDirectoryEntry,
@@ -98,6 +99,11 @@ export interface SyncClient {
     qualityFieldName?: string;
     customFieldNames?: string[];
   }): Promise<DealRow[]>;
+  fetchConversionEventDealFieldName?(): Promise<string | null>;
+  listConversionEventVisits?(input: {
+    modifiedAfter: string | null;
+    reportYear: number;
+  }): Promise<ConversionEventVisitSnapshot[]>;
   listContacts?(input: {
     ids: string[];
     customFieldNames?: string[];
@@ -205,6 +211,9 @@ export interface SyncRepository {
   ): Promise<number>;
   upsertDealMeetingDateChanges?(
     rows: DealMeetingDateChangeSnapshot[]
+  ): Promise<number>;
+  upsertConversionEventVisits?(
+    rows: ConversionEventVisitSnapshot[]
   ): Promise<number>;
   upsertCalls(rows: CallSnapshot[]): Promise<number>;
   upsertManagerDirectory(rows: ManagerDirectoryEntry[]): Promise<number>;
@@ -539,12 +548,14 @@ function mapDealRow(
   targetGroupFieldName: string | undefined,
   meetingTypeFieldName: string | undefined,
   meetingDateFieldName: string | undefined,
+  conversionEventFieldName: string | undefined,
   contactTargetGroupByContactId: Map<string, string>,
   qualityMap: Record<string, string>,
   tariffMap: Record<string, string>,
   businessClubMap: Record<string, string>,
   targetGroupMap: Record<string, string>,
   meetingTypeMap: Record<string, string>,
+  conversionEventMap: Record<string, string>,
   refusalReasonMap: Record<string, string>,
   stageNameById: Map<string, string>,
   linkedLeadgenLossLookup: Map<string, LinkedLeadgenLossContext>
@@ -575,6 +586,9 @@ function mapDealRow(
   const normalizedMeetingDateValue = meetingDateFieldName
     ? normalizeMappedFieldValue(row[meetingDateFieldName], {})
     : null;
+  const normalizedConversionEventValue = conversionEventFieldName
+    ? normalizeMappedFieldValue(row[conversionEventFieldName], conversionEventMap)
+    : null;
   const genericReasonValue = normalizeMappedFieldValue(
     row[ATTRACTION_REFUSAL_REASON_FIELD_NAME],
     refusalReasonMap
@@ -594,6 +608,7 @@ function mapDealRow(
   return {
     id: row.ID,
     title: null,
+    contactId: row.CONTACT_ID ?? null,
     leadId: row.LEAD_ID,
     categoryId: row.CATEGORY_ID,
     stageId: row.STAGE_ID,
@@ -607,6 +622,7 @@ function mapDealRow(
     meetingTypeValue: normalizedMeetingTypeValue,
     meetingDateValue: normalizedMeetingDateValue,
     tariffValue: normalizedTariffValue,
+    conversionEventValue: normalizedConversionEventValue,
     refusalReasonValue: resolvedLossFields.refusalReasonValue,
     refusalReasonDetail: sanitizeRefusalReasonDetail(
       resolvedLossFields.refusalReasonDetail
@@ -628,6 +644,7 @@ function isOpenDealSnapshot(deal: DealSnapshot) {
 
 const DEAL_SNAPSHOT_CHANGE_FIELDS: Array<keyof DealSnapshot> = [
   "leadId",
+  "contactId",
   "categoryId",
   "stageId",
   "stageSemanticId",
@@ -640,6 +657,7 @@ const DEAL_SNAPSHOT_CHANGE_FIELDS: Array<keyof DealSnapshot> = [
   "meetingTypeValue",
   "meetingDateValue",
   "tariffValue",
+  "conversionEventValue",
   "refusalReasonValue",
   "refusalReasonDetail",
   "dateCreate",
@@ -1411,6 +1429,10 @@ export async function performManualSync(
 
         return cachedSources;
       });
+    const conversionEventDealFieldName =
+      input.client.fetchConversionEventDealFieldName
+        ? (await input.client.fetchConversionEventDealFieldName()) ?? undefined
+        : undefined;
     const dealCustomFieldNames = [
       input.qualityFieldName,
       ...(input.tariffFieldName ? [input.tariffFieldName] : []),
@@ -1418,6 +1440,7 @@ export async function performManualSync(
       ...(input.targetGroupFieldName ? [input.targetGroupFieldName] : []),
       ...(input.meetingTypeFieldName ? [input.meetingTypeFieldName] : []),
       ...(input.meetingDateFieldName ? [input.meetingDateFieldName] : []),
+      ...(conversionEventDealFieldName ? [conversionEventDealFieldName] : []),
       ATTRACTION_REFUSAL_REASON_FIELD_NAME,
       ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME
     ];
@@ -1426,7 +1449,8 @@ export async function performManualSync(
       sourceCatalog,
       deltaDealRows,
       scopeExpansionDealRows,
-      leadgenReasonRows
+      leadgenReasonRows,
+      conversionEventVisits
     ] = await Promise.all([
       fetchDealStages,
       fetchSourceCatalog,
@@ -1458,6 +1482,12 @@ export async function performManualSync(
               LEADGEN_US_BASKET_REASON_FIELD_NAME
             ]
           })
+        : Promise.resolve([]),
+      input.client.listConversionEventVisits
+        ? input.client.listConversionEventVisits({
+            modifiedAfter: dealModifiedAfter,
+            reportYear: new Date(Date.parse(startedAt)).getUTCFullYear()
+          })
         : Promise.resolve([])
     ]);
     const rawDealRows = Array.from(
@@ -1481,6 +1511,7 @@ export async function performManualSync(
       businessClubMap,
       targetGroupMap,
       meetingTypeMap,
+      conversionEventMap,
       legacyContactTargetGroupMap,
       refusalReasonMap,
       leadgenReturnReasonMap,
@@ -1508,6 +1539,11 @@ export async function performManualSync(
       input.meetingTypeFieldName &&
       input.client.fetchDealFieldValueMap
         ? input.client.fetchDealFieldValueMap(input.meetingTypeFieldName)
+        : Promise.resolve({}),
+      shouldMapDealRows &&
+      conversionEventDealFieldName &&
+      input.client.fetchDealFieldValueMap
+        ? input.client.fetchDealFieldValueMap(conversionEventDealFieldName)
         : Promise.resolve({}),
       shouldMapDealRows &&
       input.legacyContactTargetGroupFieldName &&
@@ -1576,12 +1612,14 @@ export async function performManualSync(
         input.targetGroupFieldName,
         input.meetingTypeFieldName,
         input.meetingDateFieldName,
+        conversionEventDealFieldName,
         contactTargetGroupByContactId,
         qualityMap,
         tariffMap,
         businessClubMap,
         targetGroupMap,
         meetingTypeMap,
+        conversionEventMap,
         refusalReasonMap,
         stageNameById,
         linkedLeadgenLossLookup
@@ -2027,6 +2065,7 @@ export async function performManualSync(
       `callStatsOwners=${callStatsOwnerIds.length}`,
       `scopeExpansionManagers=${scopeExpansionAssignedByIds.length}`,
       `scopeExpansionDeals=${scopeExpansionDealIds.length}`,
+      `conversionEventVisits=${conversionEventVisits.length}`,
       `supplementalCallsSeen=${supplementalCallRows.length}`,
       `callsPersisted=${calls.length}`,
       ...(shouldAdoptDealCustomFieldsCoverage ||
@@ -2084,6 +2123,9 @@ export async function performManualSync(
       void input.repository.upsertActivityDeadlineChanges(deadlineChanges);
       if (input.repository.upsertDealMeetingDateChanges) {
         void input.repository.upsertDealMeetingDateChanges(dealMeetingDateChanges);
+      }
+      if (input.repository.upsertConversionEventVisits) {
+        void input.repository.upsertConversionEventVisits(conversionEventVisits);
       }
       void input.repository.upsertCalls(calls);
       void input.repository.upsertManagerDirectory(managerDirectory);

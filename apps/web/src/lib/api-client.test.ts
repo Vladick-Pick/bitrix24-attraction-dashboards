@@ -200,6 +200,70 @@ describe('apiClient', () => {
     ])
   })
 
+  it('loads and normalizes conversion events report', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        range: {
+          from: '2026-04-01T00:00:00.000Z',
+          to: '2026-04-30T23:59:59.999Z',
+        },
+        totalInvitedCount: 10,
+        totalAttendedCount: 6,
+        totalRefusedCount: 2,
+        totalMissedCount: 4,
+        attendanceRate: 60,
+        nextStepEligibleCount: 6,
+        nextStepCount: 3,
+        nextStepRate: 50,
+        warnings: ['Conversion event visit V5 is not linked to an attraction deal.'],
+        rows: [
+          {
+            eventKey: '2026-04-29::Знакомство с клубом 29.04.',
+            eventName: 'Знакомство с клубом 29.04.',
+            eventDate: '2026-04-29T00:00:00.000Z',
+            invitedCount: 10,
+            attendedCount: 6,
+            refusedCount: 2,
+            missedCount: 4,
+            attendanceRate: 60,
+            nextStepEligibleCount: 6,
+            nextStepCount: 3,
+            nextStepRate: 50,
+            unlinkedCount: 1,
+            unknownStatusCount: 0,
+            managerBreakdown: [{ key: '78', label: 'Егоров Андрей', count: 6 }],
+            sourceBreakdown: [{ key: 'WEB', label: 'Веб', count: 6 }],
+            businessClubBreakdown: [{ key: 'ClubOne', label: 'ClubOne', count: 6 }],
+          },
+        ],
+        comparisons: [],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const report = await apiClient.getConversionEventsReport({
+      preset: 'custom',
+      from: '2026-04-01T00:00:00.000Z',
+      to: '2026-04-30T23:59:59.999Z',
+      managerIds: ['78'],
+    })
+
+    const [requestUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const parsedUrl = new URL(requestUrl, window.location.origin)
+
+    expect(parsedUrl.pathname).toBe('/api/reports/conversion-events')
+    expect(parsedUrl.searchParams.get('managerIds')).toBe('78')
+    expect(report.rows[0]).toMatchObject({
+      eventName: 'Знакомство с клубом 29.04.',
+      attendedCount: 6,
+      attendanceRate: 60,
+      nextStepRate: 50,
+      managerBreakdown: [{ key: '78', label: 'Егоров Андрей', count: 6 }],
+    })
+  })
+
   it('normalizes acquisition outcome reports defensively', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

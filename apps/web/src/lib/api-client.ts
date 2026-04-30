@@ -7,6 +7,8 @@ import type {
   CallsWorkloadReportSnapshot,
   CohortConversionReport,
   CohortConversionReportSnapshot,
+  ConversionEventsReport,
+  ConversionEventsReportSnapshot,
   DashboardQuery,
   DashboardData,
   DashboardDataSnapshot,
@@ -924,6 +926,75 @@ function normalizeTargetGroupConversionReport(
   }
 }
 
+function normalizeConversionEventBreakdown(value: unknown) {
+  return asArray(value, (entry) => {
+    const item = isRecord(entry) ? entry : {}
+    return {
+      key: asString(item.key),
+      label: asString(item.label, asString(item.key)),
+      count: asNumber(item.count),
+    }
+  })
+}
+
+function normalizeConversionEventsSnapshot(
+  value: unknown,
+): ConversionEventsReportSnapshot {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    range: normalizeRange(data.range),
+    totalInvitedCount: asNumber(data.totalInvitedCount),
+    totalAttendedCount: asNumber(data.totalAttendedCount),
+    totalRefusedCount: asNumber(data.totalRefusedCount),
+    totalMissedCount: asNumber(data.totalMissedCount),
+    attendanceRate:
+      typeof data.attendanceRate === 'number' ? data.attendanceRate : null,
+    nextStepEligibleCount: asNumber(data.nextStepEligibleCount),
+    nextStepCount: asNumber(data.nextStepCount),
+    nextStepRate:
+      typeof data.nextStepRate === 'number' ? data.nextStepRate : null,
+    warnings: asArray(data.warnings, (entry) => asString(entry)).filter(Boolean),
+    rows: asArray(data.rows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        eventKey: asString(item.eventKey),
+        eventName: asString(item.eventName),
+        eventDate: asString(item.eventDate),
+        invitedCount: asNumber(item.invitedCount),
+        attendedCount: asNumber(item.attendedCount),
+        refusedCount: asNumber(item.refusedCount),
+        missedCount: asNumber(item.missedCount),
+        attendanceRate:
+          typeof item.attendanceRate === 'number' ? item.attendanceRate : null,
+        nextStepEligibleCount: asNumber(item.nextStepEligibleCount),
+        nextStepCount: asNumber(item.nextStepCount),
+        nextStepRate:
+          typeof item.nextStepRate === 'number' ? item.nextStepRate : null,
+        unlinkedCount: asNumber(item.unlinkedCount),
+        unknownStatusCount: asNumber(item.unknownStatusCount),
+        managerBreakdown: normalizeConversionEventBreakdown(item.managerBreakdown),
+        sourceBreakdown: normalizeConversionEventBreakdown(item.sourceBreakdown),
+        businessClubBreakdown: normalizeConversionEventBreakdown(
+          item.businessClubBreakdown,
+        ),
+      }
+    }),
+  }
+}
+
+function normalizeConversionEventsReport(value: unknown): ConversionEventsReport {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    ...normalizeConversionEventsSnapshot(data),
+    comparisons: normalizeComparisons(
+      data.comparisons,
+      normalizeConversionEventsSnapshot,
+    ),
+  }
+}
+
 function normalizeManagerActionOutcomeSnapshot(
   value: unknown,
 ): ManagerActionOutcomeReportSnapshot {
@@ -1614,6 +1685,13 @@ export const apiClient = {
       buildUrl('/api/reports/manager-action-outcomes', buildQueryParams(query)),
       { method: 'GET' },
       normalizeManagerActionOutcomeReport,
+    )
+  },
+  async getConversionEventsReport(query: DashboardQuery) {
+    return requestJson(
+      buildUrl('/api/reports/conversion-events', buildQueryParams(query)),
+      { method: 'GET' },
+      normalizeConversionEventsReport,
     )
   },
   async getCallsWorkloadReport(query: DashboardQuery) {

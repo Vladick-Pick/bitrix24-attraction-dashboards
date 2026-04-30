@@ -3,6 +3,7 @@ import type {
   ActivitiesWorkloadReport,
   CallsWorkloadReport,
   CohortConversionReport,
+  ConversionEventsReport,
   DashboardData,
   ManagerActionOutcomeReport,
   RevenueVelocityReport,
@@ -231,6 +232,23 @@ function createTestApp(
       totalMeetingCount: 0,
       warnings: [],
       managerRows: [],
+      comparisons: []
+    }),
+    getConversionEventsReport: async () => ({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalInvitedCount: 0,
+      totalAttendedCount: 0,
+      totalRefusedCount: 0,
+      totalMissedCount: 0,
+      attendanceRate: null,
+      nextStepEligibleCount: 0,
+      nextStepCount: 0,
+      nextStepRate: null,
+      warnings: [],
+      rows: [],
       comparisons: []
     }),
     getCallsWorkloadReport: async () => ({
@@ -561,6 +579,22 @@ describe("createApp", () => {
       getAcquisitionOutcomesReport: async () => acquisitionOutcomesReport,
       getTargetGroupConversionReport: async () => targetGroupConversionReport,
       getManagerActionOutcomeReport: async () => managerActionOutcomeReport,
+      getConversionEventsReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalInvitedCount: 0,
+        totalAttendedCount: 0,
+        totalRefusedCount: 0,
+        totalMissedCount: 0,
+        attendanceRate: null,
+        nextStepEligibleCount: 0,
+        nextStepCount: 0,
+        nextStepRate: null,
+        warnings: [],
+        rows: []
+      }),
       getRevenueVelocityReport: async (input: unknown) => {
         receivedRevenueVelocityInput = input;
         return revenueVelocityReport;
@@ -788,6 +822,66 @@ describe("createApp", () => {
       });
   });
 
+  it("returns conversion events report", async () => {
+    const report: ConversionEventsReport = {
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      totalInvitedCount: 5,
+      totalAttendedCount: 2,
+      totalRefusedCount: 1,
+      totalMissedCount: 3,
+      attendanceRate: 40,
+      nextStepEligibleCount: 2,
+      nextStepCount: 1,
+      nextStepRate: 50,
+      warnings: [],
+      rows: [
+        {
+          eventKey: "2026-04-29::Знакомство с клубом 29.04.",
+          eventName: "Знакомство с клубом 29.04.",
+          eventDate: "2026-04-29T00:00:00.000Z",
+          invitedCount: 5,
+          attendedCount: 2,
+          refusedCount: 1,
+          missedCount: 3,
+          attendanceRate: 40,
+          nextStepEligibleCount: 2,
+          nextStepCount: 1,
+          nextStepRate: 50,
+          unlinkedCount: 0,
+          unknownStatusCount: 0,
+          managerBreakdown: [{ key: "78", label: "Егоров Андрей", count: 5 }],
+          sourceBreakdown: [{ key: "WEB", label: "Веб", count: 5 }],
+          businessClubBreakdown: [
+            { key: "ClubFirst One", label: "ClubFirst One", count: 5 }
+          ]
+        }
+      ],
+      comparisons: []
+    };
+    const app = createTestApp({
+      getConversionEventsReport: async (input) => ({
+        ...report,
+        range: input.range ?? report.range
+      })
+    });
+
+    await request(app)
+      .get(
+        "/api/reports/conversion-events?from=2026-04-01T00:00:00.000Z&to=2026-04-30T23:59:59.999Z"
+      )
+      .expect(200)
+      .expect({
+        ...report,
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        }
+      });
+  });
+
   it("reads and replaces the saved sales plan for a report period", async () => {
     let receivedReplacement: unknown = null;
     const plan: SalesPlanData = {
@@ -1005,6 +1099,23 @@ describe("createApp", () => {
         cohortMonths: [],
         cohortStatusRows: []
       }),
+      getConversionEventsReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalInvitedCount: 0,
+        totalAttendedCount: 0,
+        totalRefusedCount: 0,
+        totalMissedCount: 0,
+        attendanceRate: null,
+        nextStepEligibleCount: 0,
+        nextStepCount: 0,
+        nextStepRate: null,
+        warnings: [],
+        rows: [],
+        comparisons: []
+      }),
       getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
@@ -1210,6 +1321,22 @@ describe("createApp", () => {
         rows: [],
         cohortMonths: [],
         cohortStatusRows: []
+      }),
+      getConversionEventsReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalInvitedCount: 0,
+        totalAttendedCount: 0,
+        totalRefusedCount: 0,
+        totalMissedCount: 0,
+        attendanceRate: null,
+        nextStepEligibleCount: 0,
+        nextStepCount: 0,
+        nextStepRate: null,
+        warnings: [],
+        rows: []
       }),
       getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
       getSalesPlan: async () => ({

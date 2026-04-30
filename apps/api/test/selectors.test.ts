@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALLOWED_DEAL_FIELDS,
   ALLOWED_LEAD_FIELDS,
+  buildConversionEventItemListParams,
   buildDealBackfillParams,
   buildDealListParams
 } from "../src/bitrix/selectors";
@@ -45,6 +46,41 @@ describe("Bitrix24 selector whitelist", () => {
       "UTM_CONTENT",
       "UTM_TERM"
     ]);
+  });
+
+  it("builds smart-process item params without selecting raw client fields", () => {
+    expect(
+      buildConversionEventItemListParams({
+        entityTypeId: 177,
+        modifiedAfter: "2026-04-08T10:00:00.000Z",
+        start: 50,
+        eventNameFieldName: "ufCrmEventName",
+        eventDateFieldName: "ufCrmEventDate"
+      })
+    ).toEqual({
+      entityTypeId: 177,
+      select: [
+        "id",
+        "title",
+        "stageId",
+        "categoryId",
+        "createdTime",
+        "updatedTime",
+        "assignedById",
+        "contactId",
+        "parentId2",
+        "sourceId",
+        "ufCrmEventName",
+        "ufCrmEventDate"
+      ],
+      filter: {
+        ">=updatedTime": "2026-04-08T10:00:00.000Z"
+      },
+      order: {
+        id: "ASC"
+      },
+      start: 50
+    });
   });
 
   it("builds delta list params against DATE_MODIFY with stable ID ordering", () => {

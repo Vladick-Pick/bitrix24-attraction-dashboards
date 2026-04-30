@@ -7,6 +7,8 @@ import type {
   CallsWorkloadReportSnapshot,
   CohortConversionReport,
   CohortConversionReportSnapshot,
+  ConversionEventsReport,
+  ConversionEventsReportSnapshot,
   DashboardData,
   DashboardSnapshot,
   ManagerActionOutcomeReport,
@@ -53,10 +55,12 @@ import {
 } from "../domain/attraction-managers";
 import { buildTocFlowReport } from "../domain/toc-report";
 import { buildRevenueVelocityReport } from "../domain/revenue-velocity";
+import { buildConversionEventsReport } from "../domain/conversion-events";
 import {
   buildSourceLabelMap,
   normalizeCategoryId,
   resolveDealSource,
+  UNATTRIBUTED_SOURCE_KEY,
   UNASSIGNED_MANAGER_ID,
   UNASSIGNED_MANAGER_NAME
 } from "../domain/report-dimensions";
@@ -137,6 +141,12 @@ export interface ReportingService {
     compareRanges?: ReportRange[];
     filters?: ReportFilters;
   }): Promise<CallsWorkloadReport>;
+  getConversionEventsReport(input: {
+    periodDays?: number;
+    range?: ReportRange;
+    compareRanges?: ReportRange[];
+    filters?: ReportFilters;
+  }): Promise<ConversionEventsReport>;
   getCohortConversionReport(input: {
     periodDays?: number;
     range?: ReportRange;
@@ -1165,6 +1175,81 @@ export function createReportingService(
         compareRanges,
         buildSnapshot
       ) as CallsWorkloadReport;
+    },
+
+    async getConversionEventsReport({
+      periodDays,
+      range,
+      compareRanges,
+      filters
+    }) {
+      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const [deals, stageCatalog, stageHistory, visits] = await Promise.all([
+        input.repository.getAllDeals(),
+        getScopedStageCatalog(true),
+        input.repository.getAllStageHistory(),
+        input.repository.getAllConversionEventVisits()
+      ]);
+      const sourceLabels = buildSourceLabelMap(stageCatalog);
+      const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
+      const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+      const dealsById = new Map(scopedDeals.map((deal) => [deal.id, deal]));
+      const managerIds = new Set(scopedFilters.managerIds ?? []);
+      const sourceKeys = new Set(scopedFilters.sourceKeys ?? []);
+      const scopedVisits = visits.filter((visit) => {
+        const deal = visit.dealId ? dealsById.get(visit.dealId) : undefined;
+
+        if (visit.dealId && !deal) {
+          return false;
+        }
+
+        const managerId =
+          visit.managerId ?? deal?.assignedById ?? UNASSIGNED_MANAGER_ID;
+        if (managerIds.size > 0 && !managerIds.has(managerId)) {
+          return false;
+        }
+
+        const sourceKey =
+          visit.sourceId ?? deal?.sourceId ?? UNATTRIBUTED_SOURCE_KEY;
+        if (sourceKeys.size > 0 && !sourceKeys.has(sourceKey)) {
+          return false;
+        }
+
+        return true;
+      });
+      const scopedStageHistory = stageHistory.filter((row) =>
+        scopedDealIds.has(row.ownerId)
+      );
+      const managerDirectory = await ensureManagerDirectory(
+        uniqueStrings([
+          ...scopedDeals.map((deal) => deal.assignedById),
+          ...scopedVisits.map((visit) => visit.managerId)
+        ])
+      );
+      const buildSnapshot = (
+        targetRange: ReportRange
+      ): ConversionEventsReportSnapshot =>
+        buildConversionEventsReport({
+          range: targetRange,
+          visits: scopedVisits,
+          deals: scopedDeals,
+          stageCatalog,
+          stageHistory: scopedStageHistory,
+          managerDirectory,
+          sourceLabels
+        });
+      const resolvedRange = resolveRange(
+        periodDays,
+        range,
+        input.defaultPeriodDays,
+        nowFactory()
+      );
+
+      return attachComparisons(
+        buildSnapshot(resolvedRange),
+        compareRanges,
+        buildSnapshot
+      ) as ConversionEventsReport;
     },
 
     async getCohortConversionReport({

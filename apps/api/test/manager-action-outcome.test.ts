@@ -1,8 +1,103 @@
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_PRICING_RULES } from "../src/domain/deal-economics";
 import { buildManagerActionOutcomeReport } from "../src/domain/operational-reports";
 
 describe("buildManagerActionOutcomeReport", () => {
+  it("uses pipeline pricing for lost and wip cohort statuses without final-won contract warnings", () => {
+    const stageCatalog = [
+      {
+        entityType: "deal" as const,
+        categoryId: "10",
+        statusId: "C10:WORK",
+        name: "Контрактация",
+        semanticId: "P",
+        sortOrder: 10
+      },
+      {
+        entityType: "deal" as const,
+        categoryId: "10",
+        statusId: "C10:LOSE",
+        name: "Корзина",
+        semanticId: "F",
+        sortOrder: 20
+      },
+      {
+        entityType: "deal" as const,
+        categoryId: "10",
+        statusId: "C10:WON",
+        name: "Передано в клуб",
+        semanticId: "S",
+        sortOrder: 30
+      }
+    ];
+    const baseDeal = {
+      title: null,
+      leadId: null,
+      categoryId: "10",
+      assignedById: "78",
+      sourceId: null,
+      qualityValue: null,
+      businessClubValue: "ClubFirst One",
+      targetGroupValue: null,
+      meetingTypeValue: null,
+      meetingDateValue: null,
+      tariffValue: null,
+      refusalReasonValue: null,
+      refusalReasonDetail: null,
+      dateCreate: "2026-04-10T10:00:00.000Z",
+      dateModify: "2026-04-20T10:00:00.000Z",
+      dateClosed: null,
+      utmSource: null,
+      utmMedium: null,
+      utmCampaign: null,
+      utmContent: null,
+      utmTerm: null
+    };
+
+    const report = buildManagerActionOutcomeReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      deals: [
+        {
+          ...baseDeal,
+          id: "WIP",
+          stageId: "C10:WORK",
+          stageSemanticId: "P",
+          opportunity: 1_300_000
+        },
+        {
+          ...baseDeal,
+          id: "LOST",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          opportunity: 1_300_000,
+          dateClosed: "2026-04-20T10:00:00.000Z"
+        }
+      ],
+      stageCatalog,
+      stageHistory: [],
+      activities: [],
+      calls: [],
+      managerDirectory: [{ id: "78", name: "Егоров Андрей" }],
+      pricingRules: DEFAULT_PRICING_RULES
+    });
+
+    const lostRow = report.cohortStatusRows.find(
+      (row) => row.statusKey === "lost" && row.cohortMonth === null
+    );
+    const wipRow = report.cohortStatusRows.find(
+      (row) => row.statusKey === "wip" && row.cohortMonth === null
+    );
+
+    expect(lostRow?.financialAmount).toBe(300_000);
+    expect(wipRow?.financialAmount).toBe(300_000);
+    expect(report.warnings.join(" ")).not.toContain("finalWon pricing");
+  });
+
   it("combines actions, meetings, SLA and results per manager", () => {
     const report = buildManagerActionOutcomeReport({
       range: {

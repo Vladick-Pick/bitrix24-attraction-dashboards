@@ -10,7 +10,7 @@ export const revenueVelocityTooltips: Record<string, RevenueVelocityFormulaToolt
   activePipelineAmount: {
     key: 'activePipelineAmount',
     label: 'Активная воронка',
-    formula: 'Сумма opportunity активных сделок на конец периода',
+    formula: 'Сумма дохода Привлечения активных сделок на конец периода',
     description: 'Показывает полный денежный объём активной базы, которая ещё не выиграна и не проиграна.',
   },
   expectedPipelineAmount: {
@@ -28,8 +28,8 @@ export const revenueVelocityTooltips: Record<string, RevenueVelocityFormulaToolt
   liveRevenueVelocity: {
     key: 'liveRevenueVelocity',
     label: 'Денежная скорость',
-    formula: 'Σ expected amount активной сделки / ожидаемые дни до выигрыша',
-    description: 'Показывается только при достаточной исторической базе по стадиям.',
+    formula: 'Средний доход × активные возможности × когортная конверсия за последние 90 дней / средний цикл',
+    description: 'Конверсия, средний доход и цикл берутся по сделкам, созданным за последние 90 дней до asOf в том же срезе.',
   },
   velocityDelta: {
     key: 'velocityDelta',

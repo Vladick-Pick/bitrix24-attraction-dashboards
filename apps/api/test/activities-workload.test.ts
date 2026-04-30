@@ -250,6 +250,15 @@ describe("buildActivitiesWorkloadReport", () => {
               dealCount: 1
             }
           ],
+          meetingBusinessClubBreakdown: [
+            {
+              businessClubKey: "ClubOne",
+              businessClubLabel: "ClubOne",
+              meetingTypeKey: "Очная",
+              meetingTypeLabel: "Очная",
+              count: 1
+            }
+          ],
           slaMetrics: [
             {
               slaKey: "sla1",
@@ -321,6 +330,7 @@ describe("buildActivitiesWorkloadReport", () => {
               dealCount: 1
             }
           ],
+          meetingBusinessClubBreakdown: [],
           slaMetrics: [
             {
               slaKey: "sla1",
@@ -375,6 +385,7 @@ describe("buildActivitiesWorkloadReport", () => {
           averageMeetingsPerDeal: 0,
           meetingTypeBreakdown: [],
           businessClubBreakdown: [],
+          meetingBusinessClubBreakdown: [],
           slaMetrics: [],
           stageBreakdown: []
         }
@@ -399,7 +410,7 @@ describe("buildActivitiesWorkloadReport", () => {
           assignedById: "7",
           sourceId: "WEB",
           qualityValue: null,
-          businessClubValue: null,
+          businessClubValue: "ClubOne",
           targetGroupValue: null,
           meetingTypeValue: "Zoom",
           meetingDateValue: "2026-05-01T10:00:00.000Z",
@@ -487,6 +498,15 @@ describe("buildActivitiesWorkloadReport", () => {
       averageMeetingsPerDeal: 1,
       meetingTypeBreakdown: [
         {
+          meetingTypeKey: "Zoom",
+          meetingTypeLabel: "Zoom",
+          count: 1
+        }
+      ],
+      meetingBusinessClubBreakdown: [
+        {
+          businessClubKey: "ClubOne",
+          businessClubLabel: "ClubOne",
           meetingTypeKey: "Zoom",
           meetingTypeLabel: "Zoom",
           count: 1

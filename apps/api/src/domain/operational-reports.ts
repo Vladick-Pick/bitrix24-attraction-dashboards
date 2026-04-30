@@ -10,6 +10,7 @@ import type {
   CohortConversionReport,
   DealCallSummary,
   DealMeetingDateChangeSnapshot,
+  DealPricingRule,
   DealMeetingEvent,
   DealMeetingSummary,
   DealSnapshot,
@@ -33,6 +34,10 @@ import type {
   TargetGroupConversionReport
 } from "@bitrix24-reporting/contracts";
 
+import {
+  resolveDealEconomics,
+  type DealEconomicsContext
+} from "./deal-economics";
 import {
   buildManagerDirectoryMap,
   buildSourceLabelMap,
@@ -92,6 +97,7 @@ interface TargetGroupConversionInput {
   deals: DealSnapshot[];
   stageCatalog: StageCatalogEntry[];
   stageHistory?: StageHistorySnapshot[];
+  pricingRules?: DealPricingRule[];
 }
 
 interface ManagerActionOutcomeInput {
@@ -103,6 +109,7 @@ interface ManagerActionOutcomeInput {
   activities: ActivitySnapshot[];
   calls: CallSnapshot[];
   managerDirectory?: ManagerDirectoryEntry[];
+  pricingRules?: DealPricingRule[];
 }
 
 function isWithinRange(value: string | null, fromMs: number, toMs: number) {
@@ -112,6 +119,29 @@ function isWithinRange(value: string | null, fromMs: number, toMs: number) {
 
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) && timestamp >= fromMs && timestamp <= toMs;
+}
+
+function resolveAttractionRevenueAmount(input: {
+  deal: DealSnapshot;
+  pricingRules: DealPricingRule[] | undefined;
+  context?: DealEconomicsContext;
+  warnings?: Set<string>;
+}) {
+  if (!input.pricingRules) {
+    return input.deal.opportunity ?? 0;
+  }
+
+  const economics = resolveDealEconomics({
+    deal: input.deal,
+    context: input.context ?? "finalWon",
+    pricingRules: input.pricingRules
+  });
+
+  for (const warning of economics.pricingWarnings) {
+    input.warnings?.add(warning);
+  }
+
+  return economics.attractionRevenueAmount ?? 0;
 }
 
 function toHours(milliseconds: number) {
@@ -1392,24 +1422,26 @@ export function buildActivitiesWorkloadReport(
     activities,
     calls: input.calls ?? []
   });
-  const managerRows = new Map<
-    string,
-    {
-      managerId: string;
-      dealIds: Set<string>;
-      createdCount: number;
-      rescheduledCount: number;
-      closedCount: number;
-      meetingCount: number;
-      meetingTypeCounts: Map<string, number>;
-      businessClubDealIds: Map<string, Set<string>>;
-      stageItems: Array<{
-        dealId: string;
-        stageId: string;
-        metric: "created" | "rescheduled" | "closed";
-      }>;
-    }
-  >();
+  type ActivitiesManagerAccumulator = {
+    managerId: string;
+    dealIds: Set<string>;
+    createdCount: number;
+    rescheduledCount: number;
+    closedCount: number;
+    meetingCount: number;
+    meetingTypeCounts: Map<string, number>;
+    meetingBusinessClubCounts: Map<
+      string,
+      { businessClubKey: string; meetingTypeKey: string; count: number }
+    >;
+    businessClubDealIds: Map<string, Set<string>>;
+    stageItems: Array<{
+      dealId: string;
+      stageId: string;
+      metric: "created" | "rescheduled" | "closed";
+    }>;
+  };
+  const managerRows = new Map<string, ActivitiesManagerAccumulator>();
 
   for (const manager of input.managerDirectory ?? []) {
     managerRows.set(manager.id, {
@@ -1420,13 +1452,14 @@ export function buildActivitiesWorkloadReport(
         closedCount: 0,
         meetingCount: 0,
         meetingTypeCounts: new Map<string, number>(),
+        meetingBusinessClubCounts: new Map(),
         businessClubDealIds: new Map<string, Set<string>>(),
         stageItems: []
       });
   }
 
   const ensureManagerRow = (managerId: string) => {
-    const current = managerRows.get(managerId) ?? {
+    const current: ActivitiesManagerAccumulator = managerRows.get(managerId) ?? {
       managerId,
       dealIds: new Set<string>(),
       createdCount: 0,
@@ -1434,6 +1467,10 @@ export function buildActivitiesWorkloadReport(
       closedCount: 0,
       meetingCount: 0,
       meetingTypeCounts: new Map<string, number>(),
+      meetingBusinessClubCounts: new Map<
+        string,
+        { businessClubKey: string; meetingTypeKey: string; count: number }
+      >(),
       businessClubDealIds: new Map<string, Set<string>>(),
       stageItems: []
     };
@@ -1523,6 +1560,20 @@ export function buildActivitiesWorkloadReport(
       meetingTypeKey,
       (current.meetingTypeCounts.get(meetingTypeKey) ?? 0) + 1
     );
+    const businessClubKey = resolveBusinessClubValue(deal);
+    const meetingBusinessClubKey = `${businessClubKey}||${meetingTypeKey}`;
+    const meetingBusinessClubBucket =
+      current.meetingBusinessClubCounts.get(meetingBusinessClubKey) ?? {
+        businessClubKey,
+        meetingTypeKey,
+        count: 0
+      };
+
+    meetingBusinessClubBucket.count += 1;
+    current.meetingBusinessClubCounts.set(
+      meetingBusinessClubKey,
+      meetingBusinessClubBucket
+    );
   }
 
   const managerRowsResult = Array.from(managerRows.values())
@@ -1557,6 +1608,19 @@ export function buildActivitiesWorkloadReport(
         ),
         (businessClub) => businessClub.businessClubLabel
       ).map(({ count: _count, ...businessClub }) => businessClub),
+      meetingBusinessClubBreakdown: sortCountRows(
+        Array.from(row.meetingBusinessClubCounts.values()).map(
+          ({ businessClubKey, meetingTypeKey, count }) => ({
+            businessClubKey,
+            businessClubLabel: resolveBusinessClubLabel(businessClubKey),
+            meetingTypeKey,
+            meetingTypeLabel: resolveMeetingTypeLabel(meetingTypeKey),
+            count
+          })
+        ),
+        (meetingBusinessClub) =>
+          `${meetingBusinessClub.businessClubLabel} ${meetingBusinessClub.meetingTypeLabel}`
+      ),
       slaMetrics: slaMetricsByManager.get(row.managerId) ?? [],
       stageBreakdown: buildActivitiesStageBreakdown(row.stageItems, stageLookup)
     }))
@@ -1600,6 +1664,7 @@ export function buildTargetGroupConversionReport(
   const toMs = Date.parse(input.range.to);
   const wonStageIds = new Set(input.wonStageIds);
   const allowedCategoryIds = getAllowedCategoryIds(input.stageCatalog);
+  const pricingRules = input.pricingRules;
   const scopedDeals = input.deals.filter((deal) =>
     allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
   );
@@ -1640,7 +1705,10 @@ export function buildTargetGroupConversionReport(
     if (isWithinRange(terminalClosedAt, fromMs, toMs)) {
       if (wonStageIds.has(deal.stageId)) {
         current.wonDeals += 1;
-        current.salesAmount += deal.opportunity ?? 0;
+        current.salesAmount += resolveAttractionRevenueAmount({
+          deal,
+          pricingRules
+        });
 
         const closedAt = resolveWonAt(deal, stageHistoryMap, wonStageIds);
         if (closedAt) {
@@ -1903,6 +1971,7 @@ function sanitizeManagerActionTargetGroup(value: string | null | undefined) {
 
 function buildManagerActionDealDetail(input: {
   deal: DealSnapshot;
+  amount: number;
   stageLookup: Map<string, { stageName: string; sortOrder: number }>;
   stageHistoryRows: StageHistorySnapshot[];
   sourceLabels: Map<string, string>;
@@ -1934,7 +2003,7 @@ function buildManagerActionDealDetail(input: {
     dealId: input.deal.id,
     stageId: input.deal.stageId,
     stageName: input.stageLookup.get(input.deal.stageId)?.stageName ?? input.deal.stageId,
-    amount: input.deal.opportunity ?? 0,
+    amount: input.amount,
     dateCreate: input.deal.dateCreate,
     dateClosed: input.deal.dateClosed,
     dateModify: input.deal.dateModify,
@@ -1978,6 +2047,8 @@ export function buildManagerActionOutcomeReport(
   const fromMs = Date.parse(input.range.from);
   const toMs = Date.parse(input.range.to);
   const wonStageIds = new Set(input.wonStageIds);
+  const pricingRules = input.pricingRules;
+  const pricingWarnings = new Set<string>();
   const allowedCategoryIds = getAllowedCategoryIds(input.stageCatalog);
   const deals = input.deals.filter((deal) =>
     allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
@@ -2131,7 +2202,11 @@ export function buildManagerActionOutcomeReport(
       isWithinRange(resolveWonAt(deal, stageHistoryMap, wonStageIds), fromMs, toMs)
     ) {
       row.wonDealsCount += 1;
-      row.salesAmount += deal.opportunity ?? 0;
+      row.salesAmount += resolveAttractionRevenueAmount({
+        deal,
+        pricingRules,
+        warnings: pricingWarnings
+      });
 
       const closedAt = resolveWonAt(deal, stageHistoryMap, wonStageIds);
       if (closedAt) {
@@ -2250,8 +2325,15 @@ export function buildManagerActionOutcomeReport(
       resolveTerminalClosedAt(deal, stageHistoryMap, wonStageIds) ??
       deal.dateModify ??
       input.range.to;
+    const financialAmount = resolveAttractionRevenueAmount({
+      deal,
+      pricingRules,
+      context: statusKey === "won" ? "finalWon" : "pipelinePlan",
+      warnings: pricingWarnings
+    });
     const dealDetail = buildManagerActionDealDetail({
       deal,
+      amount: financialAmount,
       stageLookup,
       stageHistoryRows: stageHistoryMap.get(deal.id) ?? [],
       sourceLabels,
@@ -2273,7 +2355,7 @@ export function buildManagerActionOutcomeReport(
       row.totalCalls += dealCalls.length;
       row.successfulCallsOverThirtySeconds += successfulDealCalls.length;
       row.meetingsCount += dealMeetings.length + fallbackMeetingEvents.length;
-      row.financialAmount += deal.opportunity ?? 0;
+      row.financialAmount += financialAmount;
       row.dealDetails.push(dealDetail);
       recordDealSlaOutcomes({
         deal,
@@ -2312,7 +2394,7 @@ export function buildManagerActionOutcomeReport(
 
   return {
     range: input.range,
-    warnings: [],
+    warnings: Array.from(pricingWarnings),
     cohortMonths: Array.from(cohortMonthCounts.entries())
       .map(([cohortMonth, totalCreatedDeals]) => ({
         cohortMonth,

@@ -115,6 +115,11 @@ function createCorsTestApp(config?: {
           salesCount: 0,
           salesAmount: 0,
           averageSaleAmount: 0,
+          attractionRevenueAmount: 0,
+          averageAttractionRevenueAmount: 0,
+          membershipAmount: 0,
+          averageMembershipAmount: 0,
+          pricingWarnings: [],
           newDealsCount: 0,
           conversionRate: 0
         },
@@ -271,6 +276,38 @@ function createCorsTestApp(config?: {
         periodStart: input.periodStart,
         periodEnd: input.periodEnd,
         rows: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }),
+      getSalesPlanQuarter: async (input) => ({
+        year: input.year,
+        quarter: input.quarter,
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-06-30T23:59:59.999+03:00",
+        months: [],
+        rows: [],
+        updatedAt: null
+      }),
+      replaceSalesPlanQuarter: async (input) => ({
+        year: input.year,
+        quarter: input.quarter,
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-06-30T23:59:59.999+03:00",
+        months: [],
+        rows: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }),
+      getEffectiveSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [],
+        updatedAt: null
+      }),
+      getPricingSettings: async () => ({
+        rules: [],
+        updatedAt: null
+      }),
+      replacePricingSettings: async () => ({
+        rules: [],
         updatedAt: "2026-04-10T12:00:00.000Z"
       }),
       getMeta: async () => ({

@@ -3,6 +3,7 @@ import type {
   CallSnapshot,
   DashboardData,
   DashboardInput,
+  DealPricingRule,
   DealCallSummary,
   DealMeetingEvent,
   DealSnapshot,
@@ -13,6 +14,9 @@ import type {
   StageHistorySnapshot
 } from "@bitrix24-reporting/contracts";
 
+import {
+  resolveDealEconomics
+} from "./deal-economics";
 import { buildSourceLabelMap, resolveDealSource } from "./report-dimensions";
 
 const UNKNOWN_MANAGER_ID = "unassigned";
@@ -29,6 +33,31 @@ function isWithinRange(value: string | null, fromMs: number, toMs: number) {
 
 function toNumber(value: number | null) {
   return value ?? 0;
+}
+
+function toAmount(value: number | null) {
+  return value ?? 0;
+}
+
+function resolveDashboardDealEconomics(
+  deal: DealSnapshot,
+  pricingRules: DealPricingRule[] | undefined
+) {
+  if (!pricingRules) {
+    const membershipAmount = toNumber(deal.opportunity);
+    return {
+      membershipAmount,
+      attractionRevenueAmount: membershipAmount,
+      pricingStatus: "priced" as const,
+      pricingWarnings: []
+    };
+  }
+
+  return resolveDealEconomics({
+    deal,
+    context: "finalWon",
+    pricingRules
+  });
 }
 
 function round(value: number, digits = 2) {
@@ -383,6 +412,7 @@ export function buildDashboard(input: DashboardInput): DashboardData {
       })
     ])
   );
+  const pricingRules = input.pricingRules;
 
   const wonDeals = input.deals
     .filter(
@@ -407,9 +437,22 @@ export function buildDashboard(input: DashboardInput): DashboardData {
   const periodCreatedWonDeals = periodCreatedDeals.filter((deal) =>
     wonStageIds.has(deal.stageId)
   );
-  const salesAmount = wonDeals.reduce(
-    (total, deal) => total + toNumber(deal.opportunity),
-    0
+  const dealEconomics = new Map(
+    wonDeals.map((deal) => [
+      deal.id,
+      resolveDashboardDealEconomics(deal, pricingRules)
+    ])
+  );
+  const salesAmount = wonDeals.reduce((total, deal) => {
+    const economics = dealEconomics.get(deal.id);
+    return total + toAmount(economics?.attractionRevenueAmount ?? null);
+  }, 0);
+  const membershipAmount = wonDeals.reduce((total, deal) => {
+    const economics = dealEconomics.get(deal.id);
+    return total + (economics?.membershipAmount ?? toNumber(deal.opportunity));
+  }, 0);
+  const pricingWarnings = wonDeals.flatMap(
+    (deal) => dealEconomics.get(deal.id)?.pricingWarnings ?? []
   );
   const meetingsCount = wonDeals.reduce((total, deal) => {
     const activities = activitiesByDeal.get(deal.id) ?? [];
@@ -423,6 +466,8 @@ export function buildDashboard(input: DashboardInput): DashboardData {
       managerName: string;
       totalWonDeals: number;
       totalSalesAmount: number;
+      totalAttractionRevenueAmount: number;
+      totalMembershipAmount: number;
       deals: DashboardData["managerGroups"][number]["deals"];
     }
   >();
@@ -439,9 +484,14 @@ export function buildDashboard(input: DashboardInput): DashboardData {
       managerName,
       totalWonDeals: 0,
       totalSalesAmount: 0,
+      totalAttractionRevenueAmount: 0,
+      totalMembershipAmount: 0,
       deals: []
     };
-    const amount = toNumber(deal.opportunity);
+    const economics =
+      dealEconomics.get(deal.id) ??
+      resolveDashboardDealEconomics(deal, pricingRules);
+    const amount = toAmount(economics.attractionRevenueAmount);
     const wonAt = wonAtByDeal.get(deal.id) ?? getClosedAt(deal);
     const stageHistoryRows = stageHistoryByDeal.get(deal.id) ?? [];
     const source = resolveDealSource(deal, sourceLabels);
@@ -459,12 +509,18 @@ export function buildDashboard(input: DashboardInput): DashboardData {
 
     group.totalWonDeals += 1;
     group.totalSalesAmount += amount;
+    group.totalAttractionRevenueAmount += amount;
+    group.totalMembershipAmount += economics.membershipAmount;
     group.deals.push({
       dealId: deal.id,
       dealTitle: deal.id,
       managerId,
       managerName,
       amount,
+      attractionRevenueAmount: economics.attractionRevenueAmount,
+      membershipAmount: economics.membershipAmount,
+      pricingStatus: economics.pricingStatus,
+      pricingWarnings: economics.pricingWarnings,
       dateCreate: deal.dateCreate,
       dateClosed: wonAt,
       cycleDays: daysBetween(deal.dateCreate, wonAt),
@@ -499,6 +555,13 @@ export function buildDashboard(input: DashboardInput): DashboardData {
       salesCount: wonDeals.length,
       salesAmount,
       averageSaleAmount: wonDeals.length === 0 ? 0 : salesAmount / wonDeals.length,
+      attractionRevenueAmount: salesAmount,
+      averageAttractionRevenueAmount:
+        wonDeals.length === 0 ? 0 : salesAmount / wonDeals.length,
+      membershipAmount,
+      averageMembershipAmount:
+        wonDeals.length === 0 ? 0 : membershipAmount / wonDeals.length,
+      pricingWarnings,
       newDealsCount: periodCreatedDeals.length,
       conversionRate:
         periodCreatedDeals.length === 0
@@ -506,12 +569,24 @@ export function buildDashboard(input: DashboardInput): DashboardData {
           : round((periodCreatedWonDeals.length / periodCreatedDeals.length) * 100),
       meetingsCount
     },
-    managerGroups: Array.from(groups.values()).sort((left, right) => {
-      if (right.totalSalesAmount !== left.totalSalesAmount) {
-        return right.totalSalesAmount - left.totalSalesAmount;
-      }
+    managerGroups: Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        averageAttractionRevenueAmount:
+          group.totalWonDeals === 0
+            ? 0
+            : group.totalAttractionRevenueAmount / group.totalWonDeals,
+        averageMembershipAmount:
+          group.totalWonDeals === 0
+            ? 0
+            : group.totalMembershipAmount / group.totalWonDeals
+      }))
+      .sort((left, right) => {
+        if (right.totalSalesAmount !== left.totalSalesAmount) {
+          return right.totalSalesAmount - left.totalSalesAmount;
+        }
 
-      return left.managerName.localeCompare(right.managerName, "ru");
-    })
+        return left.managerName.localeCompare(right.managerName, "ru");
+      })
   };
 }

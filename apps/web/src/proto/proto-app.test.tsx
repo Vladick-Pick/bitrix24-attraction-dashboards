@@ -3,7 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/lib/api-client'
-import type { SalesPlanInput } from '@/lib/dashboard-types'
+import type {
+  DealPricingRuleInput,
+  SalesPlanInput,
+  SalesPlanQuarterData,
+  SalesPlanQuarterInput,
+} from '@/lib/dashboard-types'
 import { createCompareRange, ProtoApp } from '@/proto/proto-app'
 import { createDefaultFilters } from '@/proto/scenes'
 
@@ -42,6 +47,32 @@ vi.mock('@/lib/api-client', () => ({
       managerGroups: [],
       comparisons: [],
     })),
+    getPricingSettings: vi.fn(async () => ({
+      rules: [
+        {
+          id: 'clubfirst-federal',
+          customerLabel: 'ClubFirst Russia / One',
+          tariffLabel: 'Федеральный',
+          attractionRevenueAmount: 300000,
+          enabled: true,
+          sortOrder: 10,
+          updatedAt: null,
+        },
+      ],
+      updatedAt: null,
+    })),
+    savePricingSettings: vi.fn(async (input: { rules: DealPricingRuleInput[] }) => ({
+      rules: input.rules.map((rule: DealPricingRuleInput, index: number) => ({
+        id: rule.id,
+        customerLabel: rule.customerLabel,
+        tariffLabel: rule.tariffLabel,
+        attractionRevenueAmount: rule.attractionRevenueAmount,
+        enabled: rule.enabled,
+        sortOrder: rule.sortOrder ?? index * 10,
+        updatedAt: '2026-04-10T12:05:00.000Z',
+      })),
+      updatedAt: '2026-04-10T12:05:00.000Z',
+    })),
     getSalesPlan: vi.fn(async () => ({
       periodStart: '2026-04-01T00:00:00.000+03:00',
       periodEnd: '2026-04-30T23:59:59.999+03:00',
@@ -64,6 +95,84 @@ vi.mock('@/lib/api-client', () => ({
       })),
       updatedAt: '2026-04-10T12:05:00.000Z',
     })),
+    getEffectiveSalesPlan: vi.fn(async () => ({
+      periodStart: '2026-04-20T00:00:00.000+03:00',
+      periodEnd: '2026-04-26T23:59:59.999+03:00',
+      rows: [],
+      updatedAt: null,
+    })),
+    getSalesPlanQuarter: vi.fn(async () => ({
+      year: 2026,
+      quarter: 2,
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-06-30T23:59:59.999+03:00',
+      months: [
+        {
+          month: '2026-04',
+          label: 'Апрель',
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-04-30T23:59:59.999+03:00',
+        },
+        {
+          month: '2026-05',
+          label: 'Май',
+          periodStart: '2026-05-01T00:00:00.000+03:00',
+          periodEnd: '2026-05-31T23:59:59.999+03:00',
+        },
+        {
+          month: '2026-06',
+          label: 'Июнь',
+          periodStart: '2026-06-01T00:00:00.000+03:00',
+          periodEnd: '2026-06-30T23:59:59.999+03:00',
+        },
+      ],
+      rows: [],
+      updatedAt: null,
+    })),
+    saveSalesPlanQuarter: vi.fn(async (input: SalesPlanQuarterInput) => ({
+      year: input.year,
+      quarter: input.quarter,
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-06-30T23:59:59.999+03:00',
+      months: [
+        {
+          month: '2026-04',
+          label: 'Апрель',
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-04-30T23:59:59.999+03:00',
+        },
+        {
+          month: '2026-05',
+          label: 'Май',
+          periodStart: '2026-05-01T00:00:00.000+03:00',
+          periodEnd: '2026-05-31T23:59:59.999+03:00',
+        },
+        {
+          month: '2026-06',
+          label: 'Июнь',
+          periodStart: '2026-06-01T00:00:00.000+03:00',
+          periodEnd: '2026-06-30T23:59:59.999+03:00',
+        },
+      ],
+      rows: input.rows.map((row) => ({
+        managerId: row.managerId,
+        managerName: row.managerName ?? null,
+        targetGroupKey: row.targetGroupKey,
+        targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+        quarterPlannedDeals: row.quarterPlannedDeals,
+        quarterPlannedAmount: row.quarterPlannedAmount,
+        months: row.months.map((month) => ({
+          month: month.month,
+          periodStart: `${month.month}-01T00:00:00.000+03:00`,
+          periodEnd: `${month.month}-30T23:59:59.999+03:00`,
+          plannedDeals: month.plannedDeals,
+          plannedAmount: month.plannedAmount,
+          updatedAt: '2026-04-10T12:05:00.000Z',
+        })),
+        updatedAt: '2026-04-10T12:05:00.000Z',
+      })),
+      updatedAt: '2026-04-10T12:05:00.000Z',
+    })),
     getActivitiesWorkloadReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalDealCount: 0,
@@ -73,6 +182,20 @@ vi.mock('@/lib/api-client', () => ({
       totalMeetingCount: 0,
       warnings: [],
       managerRows: [],
+      comparisons: [],
+    })),
+    getConversionEventsReport: vi.fn(async () => ({
+      range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+      totalInvitedCount: 0,
+      totalAttendedCount: 0,
+      totalRefusedCount: 0,
+      totalMissedCount: 0,
+      attendanceRate: null,
+      nextStepEligibleCount: 0,
+      nextStepCount: 0,
+      nextStepRate: null,
+      warnings: [],
+      rows: [],
       comparisons: [],
     })),
     getCallsWorkloadReport: vi.fn(async () => ({
@@ -113,20 +236,6 @@ vi.mock('@/lib/api-client', () => ({
       rows: [],
       cohortMonths: [],
       cohortStatusRows: [],
-      comparisons: [],
-    })),
-    getConversionEventsReport: vi.fn(async () => ({
-      range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
-      totalInvitedCount: 0,
-      totalAttendedCount: 0,
-      totalRefusedCount: 0,
-      totalMissedCount: 0,
-      attendanceRate: null,
-      nextStepEligibleCount: 0,
-      nextStepCount: 0,
-      nextStepRate: null,
-      warnings: [],
-      rows: [],
       comparisons: [],
     })),
     getCohortConversionReport: vi.fn(async () => ({
@@ -247,6 +356,39 @@ function createResponse(body: unknown) {
   })
 }
 
+function createQuarterSalesPlan(
+  rows: SalesPlanQuarterData['rows'] = [],
+): SalesPlanQuarterData {
+  return {
+    year: 2026,
+    quarter: 2,
+    periodStart: '2026-04-01T00:00:00.000+03:00',
+    periodEnd: '2026-06-30T23:59:59.999+03:00',
+    months: [
+      {
+        month: '2026-04',
+        label: 'Апрель',
+        periodStart: '2026-04-01T00:00:00.000+03:00',
+        periodEnd: '2026-04-30T23:59:59.999+03:00',
+      },
+      {
+        month: '2026-05',
+        label: 'Май',
+        periodStart: '2026-05-01T00:00:00.000+03:00',
+        periodEnd: '2026-05-31T23:59:59.999+03:00',
+      },
+      {
+        month: '2026-06',
+        label: 'Июнь',
+        periodStart: '2026-06-01T00:00:00.000+03:00',
+        periodEnd: '2026-06-30T23:59:59.999+03:00',
+      },
+    ],
+    rows,
+    updatedAt: rows[0]?.updatedAt ?? null,
+  }
+}
+
 describe('ProtoApp', () => {
   beforeEach(() => {
     vi.useRealTimers()
@@ -289,6 +431,11 @@ describe('ProtoApp', () => {
         salesCount: 1,
         salesAmount: 1_250_000,
         averageSaleAmount: 1_250_000,
+        attractionRevenueAmount: 1_250_000,
+        averageAttractionRevenueAmount: 1_250_000,
+        membershipAmount: 1_250_000,
+        averageMembershipAmount: 1_250_000,
+        pricingWarnings: [],
         newDealsCount: 12,
         conversionRate: 8.33,
         meetingsCount: 2,
@@ -299,6 +446,10 @@ describe('ProtoApp', () => {
           managerName: 'Егоров Андрей',
           totalWonDeals: 1,
           totalSalesAmount: 1_250_000,
+          totalAttractionRevenueAmount: 1_250_000,
+          averageAttractionRevenueAmount: 1_250_000,
+          totalMembershipAmount: 1_250_000,
+          averageMembershipAmount: 1_250_000,
           deals: [
             {
               dealId: 'D-100',
@@ -306,6 +457,10 @@ describe('ProtoApp', () => {
               managerId: '78',
               managerName: 'Егоров Андрей',
               amount: 1_250_000,
+              attractionRevenueAmount: 1_250_000,
+              membershipAmount: 1_250_000,
+              pricingStatus: 'priced',
+              pricingWarnings: [],
               dateCreate: '2026-03-12T09:00:00.000Z',
               dateClosed: '2026-04-10T15:00:00.000Z',
               cycleDays: 29,
@@ -399,12 +554,17 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).getByText('24 ч')).toBeInTheDocument()
   })
 
-  it('edits a saved sales plan and compares it with actual sales', async () => {
+  it('edits a quarterly sales plan and compares effective plan with actual sales', async () => {
     vi.mocked(apiClient.getDashboard).mockResolvedValueOnce({
       salesSummary: {
         salesCount: 1,
         salesAmount: 1_250_000,
         averageSaleAmount: 1_250_000,
+        attractionRevenueAmount: 1_250_000,
+        averageAttractionRevenueAmount: 1_250_000,
+        membershipAmount: 1_250_000,
+        averageMembershipAmount: 1_250_000,
+        pricingWarnings: [],
         newDealsCount: 12,
         conversionRate: 8.33,
       },
@@ -414,6 +574,10 @@ describe('ProtoApp', () => {
           managerName: 'Егоров Андрей',
           totalWonDeals: 1,
           totalSalesAmount: 1_250_000,
+          totalAttractionRevenueAmount: 1_250_000,
+          averageAttractionRevenueAmount: 1_250_000,
+          totalMembershipAmount: 1_250_000,
+          averageMembershipAmount: 1_250_000,
           deals: [
             {
               dealId: 'D-100',
@@ -421,6 +585,10 @@ describe('ProtoApp', () => {
               managerId: '78',
               managerName: 'Егоров Андрей',
               amount: 1_250_000,
+              attractionRevenueAmount: 1_250_000,
+              membershipAmount: 1_250_000,
+              pricingStatus: 'priced',
+              pricingWarnings: [],
               dateCreate: '2026-03-12T09:00:00.000Z',
               dateClosed: '2026-04-10T15:00:00.000Z',
               cycleDays: 29,
@@ -455,31 +623,70 @@ describe('ProtoApp', () => {
       ],
       comparisons: [],
     })
-    vi.mocked(apiClient.getSalesPlan).mockResolvedValueOnce({
-      periodStart: '2026-04-01T00:00:00.000+03:00',
-      periodEnd: '2026-04-30T23:59:59.999+03:00',
+    vi.mocked(apiClient.getEffectiveSalesPlan).mockResolvedValueOnce({
+      periodStart: '2026-04-20T00:00:00.000+03:00',
+      periodEnd: '2026-04-26T23:59:59.999+03:00',
       updatedAt: '2026-04-10T12:00:00.000Z',
       rows: [
         {
-          periodStart: '2026-04-01T00:00:00.000+03:00',
-          periodEnd: '2026-04-30T23:59:59.999+03:00',
+          periodStart: '2026-04-20T00:00:00.000+03:00',
+          periodEnd: '2026-04-26T23:59:59.999+03:00',
           managerId: '78',
           managerName: 'Егоров Андрей',
           targetGroupKey: 'ClubFirst Russia',
           targetGroupLabel: 'ClubFirst Russia',
-          plannedDeals: 3,
-          plannedAmount: 2_500_000,
+          plannedDeals: 2,
+          plannedAmount: 1_166_667,
           updatedAt: '2026-04-10T12:00:00.000Z',
         },
       ],
     })
+    vi.mocked(apiClient.getSalesPlanQuarter).mockResolvedValueOnce(
+      createQuarterSalesPlan([
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          targetGroupKey: 'ClubFirst Russia',
+          targetGroupLabel: 'ClubFirst Russia',
+          quarterPlannedDeals: 9,
+          quarterPlannedAmount: 9_000_000,
+          months: [
+            {
+              month: '2026-04',
+              periodStart: '2026-04-01T00:00:00.000+03:00',
+              periodEnd: '2026-04-30T23:59:59.999+03:00',
+              plannedDeals: 3,
+              plannedAmount: 3_000_000,
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+            {
+              month: '2026-05',
+              periodStart: '2026-05-01T00:00:00.000+03:00',
+              periodEnd: '2026-05-31T23:59:59.999+03:00',
+              plannedDeals: 3,
+              plannedAmount: 3_000_000,
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+            {
+              month: '2026-06',
+              periodStart: '2026-06-01T00:00:00.000+03:00',
+              periodEnd: '2026-06-30T23:59:59.999+03:00',
+              plannedDeals: 3,
+              plannedAmount: 3_000_000,
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+          ],
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ]),
+    )
 
     render(<ProtoApp />)
 
     await waitFor(() => {
-      expect(apiClient.getSalesPlan).toHaveBeenCalledWith({
-        from: '2026-04-01T00:00:00.000+03:00',
-        to: '2026-04-30T23:59:59.999+03:00',
+      expect(apiClient.getEffectiveSalesPlan).toHaveBeenCalledWith({
+        from: '2026-04-20T00:00:00.000+03:00',
+        to: '2026-04-26T23:59:59.999+03:00',
       })
     })
 
@@ -490,44 +697,65 @@ describe('ProtoApp', () => {
     expect(planFactSection).not.toBeNull()
     await waitFor(() => {
       expect(within(planFactSection as HTMLElement).getByText('ClubFirst Russia')).toBeInTheDocument()
-      expect(within(planFactSection as HTMLElement).getAllByText('33%').length).toBeGreaterThan(0)
+      expect(within(planFactSection as HTMLElement).getAllByText('50%').length).toBeGreaterThan(0)
+      expect(
+        within(planFactSection as HTMLElement).getByText(/1 \/ 2 сделок/i),
+      ).toBeInTheDocument()
     })
 
     await userEvent.click(await screen.findByRole('button', { name: /^План продаж$/i }))
 
     expect(await screen.findByRole('heading', { name: /^План продаж$/i })).toBeInTheDocument()
-    expect(screen.getByLabelText('Месяц плана')).toHaveValue('2026-04')
+    expect(screen.getByText('2 квартал 2026')).toBeInTheDocument()
+    expect(screen.getAllByText('Доход, млн ₽').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Апрель доход')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Таргет-группа 1').tagName).toBe('SELECT')
-    const dealsInput = screen.getByLabelText('План сделок Егоров Андрей ClubFirst Russia')
-    await userEvent.clear(dealsInput)
-    await userEvent.type(dealsInput, '4')
+    expect(
+      screen.getByLabelText('Квартальный план дохода, млн ₽ Егоров Андрей ClubFirst Russia'),
+    ).toHaveValue(9)
+    const quarterDealsInput = screen.getByLabelText(
+      'Квартальный план сделок Егоров Андрей ClubFirst Russia',
+    )
+    await userEvent.clear(quarterDealsInput)
+    await userEvent.type(quarterDealsInput, '10')
+    expect(screen.getAllByText(/Сумма месяцев не равна квартальному плану/i).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /сохранить план/i })).toBeDisabled()
+
+    const aprilDealsInput = screen.getByLabelText(
+      'План сделок Апрель Егоров Андрей ClubFirst Russia',
+    )
+    await userEvent.clear(aprilDealsInput)
+    await userEvent.type(aprilDealsInput, '4')
+    await waitFor(() => {
+      expect(screen.queryByText(/Сумма месяцев не равна квартальному плану/i)).not.toBeInTheDocument()
+    })
     await userEvent.click(screen.getByRole('button', { name: /сохранить план/i }))
 
     await waitFor(() => {
-      expect(apiClient.saveSalesPlan).toHaveBeenCalledWith({
-        periodStart: '2026-04-01T00:00:00.000+03:00',
-        periodEnd: '2026-04-30T23:59:59.999+03:00',
+      expect(apiClient.saveSalesPlanQuarter).toHaveBeenCalledWith({
+        year: 2026,
+        quarter: 2,
         rows: [
           {
             managerId: '78',
             managerName: 'Егоров Андрей',
             targetGroupKey: 'ClubFirst Russia',
             targetGroupLabel: 'ClubFirst Russia',
-            plannedDeals: 4,
-            plannedAmount: 2_500_000,
+            quarterPlannedDeals: 10,
+            quarterPlannedAmount: 9_000_000,
+            months: [
+              { month: '2026-04', plannedDeals: 4, plannedAmount: 3_000_000 },
+              { month: '2026-05', plannedDeals: 3, plannedAmount: 3_000_000 },
+              { month: '2026-06', plannedDeals: 3, plannedAmount: 3_000_000 },
+            ],
           },
         ],
       })
     })
   })
 
-  it('offers target-group choices for the first monthly plan even when the report slice is empty', async () => {
-    vi.mocked(apiClient.getSalesPlan).mockResolvedValueOnce({
-      periodStart: '2026-04-01T00:00:00.000+03:00',
-      periodEnd: '2026-04-30T23:59:59.999+03:00',
-      updatedAt: null,
-      rows: [],
-    })
+  it('offers target-group choices for the first quarterly plan even when the report slice is empty', async () => {
+    vi.mocked(apiClient.getSalesPlanQuarter).mockResolvedValueOnce(createQuarterSalesPlan())
 
     render(<ProtoApp />)
 
@@ -539,63 +767,102 @@ describe('ProtoApp', () => {
     ).toBeInTheDocument()
   })
 
-  it('does not allow saving the previous month plan while another month is loading', async () => {
-    let resolveNextPlan: (value: Awaited<ReturnType<typeof apiClient.getSalesPlan>>) => void =
+  it('does not allow saving the previous quarter plan while another quarter is loading', async () => {
+    let resolveNextPlan: (value: Awaited<ReturnType<typeof apiClient.getSalesPlanQuarter>>) => void =
       () => undefined
-    const nextPlanPromise = new Promise<Awaited<ReturnType<typeof apiClient.getSalesPlan>>>(
+    const nextPlanPromise = new Promise<Awaited<ReturnType<typeof apiClient.getSalesPlanQuarter>>>(
       (resolve) => {
         resolveNextPlan = resolve
       },
     )
 
-    vi.mocked(apiClient.getSalesPlan)
-      .mockResolvedValueOnce({
-        periodStart: '2026-04-01T00:00:00.000+03:00',
-        periodEnd: '2026-04-30T23:59:59.999+03:00',
-        updatedAt: '2026-04-10T12:00:00.000Z',
-        rows: [
+    vi.mocked(apiClient.getSalesPlanQuarter)
+      .mockResolvedValueOnce(
+        createQuarterSalesPlan([
           {
-            periodStart: '2026-04-01T00:00:00.000+03:00',
-            periodEnd: '2026-04-30T23:59:59.999+03:00',
             managerId: '78',
             managerName: 'Егоров Андрей',
             targetGroupKey: 'ClubFirst Russia',
             targetGroupLabel: 'ClubFirst Russia',
-            plannedDeals: 3,
-            plannedAmount: 2_500_000,
+            quarterPlannedDeals: 9,
+            quarterPlannedAmount: 9_000_000,
+            months: [
+              {
+                month: '2026-04',
+                periodStart: '2026-04-01T00:00:00.000+03:00',
+                periodEnd: '2026-04-30T23:59:59.999+03:00',
+                plannedDeals: 3,
+                plannedAmount: 3_000_000,
+                updatedAt: '2026-04-10T12:00:00.000Z',
+              },
+              {
+                month: '2026-05',
+                periodStart: '2026-05-01T00:00:00.000+03:00',
+                periodEnd: '2026-05-31T23:59:59.999+03:00',
+                plannedDeals: 3,
+                plannedAmount: 3_000_000,
+                updatedAt: '2026-04-10T12:00:00.000Z',
+              },
+              {
+                month: '2026-06',
+                periodStart: '2026-06-01T00:00:00.000+03:00',
+                periodEnd: '2026-06-30T23:59:59.999+03:00',
+                plannedDeals: 3,
+                plannedAmount: 3_000_000,
+                updatedAt: '2026-04-10T12:00:00.000Z',
+              },
+            ],
             updatedAt: '2026-04-10T12:00:00.000Z',
           },
-        ],
-      })
+        ]),
+      )
       .mockImplementationOnce(async () => nextPlanPromise)
 
     render(<ProtoApp />)
 
     await userEvent.click(await screen.findByRole('button', { name: /^План продаж$/i }))
     expect(
-      await screen.findByLabelText('План сделок Егоров Андрей ClubFirst Russia'),
+      await screen.findByLabelText('Квартальный план сделок Егоров Андрей ClubFirst Russia'),
     ).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Месяц плана'), {
-      target: { value: '2026-05' },
-    })
+    await userEvent.click(screen.getByRole('button', { name: /следующий квартал/i }))
 
     await waitFor(() => {
-      expect(apiClient.getSalesPlan).toHaveBeenLastCalledWith({
-        from: '2026-05-01T00:00:00.000+03:00',
-        to: '2026-05-31T23:59:59.999+03:00',
+      expect(apiClient.getSalesPlanQuarter).toHaveBeenLastCalledWith({
+        year: 2026,
+        quarter: 3,
       })
     })
     expect(screen.getByRole('button', { name: /загружаю план/i })).toBeDisabled()
     expect(
-      screen.queryByLabelText('План сделок Егоров Андрей ClubFirst Russia'),
+      screen.queryByLabelText('Квартальный план сделок Егоров Андрей ClubFirst Russia'),
     ).not.toBeInTheDocument()
 
     resolveNextPlan({
-      periodStart: '2026-05-01T00:00:00.000+03:00',
-      periodEnd: '2026-05-31T23:59:59.999+03:00',
-      updatedAt: null,
-      rows: [],
+      ...createQuarterSalesPlan(),
+      quarter: 3,
+      periodStart: '2026-07-01T00:00:00.000+03:00',
+      periodEnd: '2026-09-30T23:59:59.999+03:00',
+      months: [
+        {
+          month: '2026-07',
+          label: 'Июль',
+          periodStart: '2026-07-01T00:00:00.000+03:00',
+          periodEnd: '2026-07-31T23:59:59.999+03:00',
+        },
+        {
+          month: '2026-08',
+          label: 'Август',
+          periodStart: '2026-08-01T00:00:00.000+03:00',
+          periodEnd: '2026-08-31T23:59:59.999+03:00',
+        },
+        {
+          month: '2026-09',
+          label: 'Сентябрь',
+          periodStart: '2026-09-01T00:00:00.000+03:00',
+          periodEnd: '2026-09-30T23:59:59.999+03:00',
+        },
+      ],
     })
 
     await waitFor(() => {
@@ -1065,6 +1332,11 @@ describe('ProtoApp', () => {
         salesCount: 1,
         salesAmount: 940_000,
         averageSaleAmount: 940_000,
+        attractionRevenueAmount: 940_000,
+        averageAttractionRevenueAmount: 940_000,
+        membershipAmount: 940_000,
+        averageMembershipAmount: 940_000,
+        pricingWarnings: [],
         newDealsCount: 66,
         conversionRate: 0,
         meetingsCount: 1,
@@ -1075,6 +1347,10 @@ describe('ProtoApp', () => {
           managerName: 'Потапова Мария',
           totalWonDeals: 1,
           totalSalesAmount: 940_000,
+          totalAttractionRevenueAmount: 940_000,
+          averageAttractionRevenueAmount: 940_000,
+          totalMembershipAmount: 940_000,
+          averageMembershipAmount: 940_000,
           deals: [],
         },
       ],
@@ -1277,6 +1553,15 @@ describe('ProtoApp', () => {
           businessClubBreakdown: [
             { businessClubKey: 'ClubOne', businessClubLabel: 'ClubOne', dealCount: 2 },
           ],
+          meetingBusinessClubBreakdown: [
+            {
+              businessClubKey: 'ClubOne',
+              businessClubLabel: 'ClubOne',
+              meetingTypeKey: 'Очная',
+              meetingTypeLabel: 'Очная',
+              count: 2,
+            },
+          ],
           slaMetrics: [
             {
               slaKey: 'sla1',
@@ -1292,13 +1577,61 @@ describe('ProtoApp', () => {
       ],
       comparisons: [],
     })
+    vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
+      range: { from: '2026-04-06T00:00:00.000Z', to: '2026-04-12T23:59:59.999Z' },
+      totalInvitedCount: 5,
+      totalAttendedCount: 2,
+      totalRefusedCount: 1,
+      totalMissedCount: 3,
+      attendanceRate: 40,
+      nextStepEligibleCount: 2,
+      nextStepCount: 1,
+      nextStepRate: 50,
+      warnings: [],
+      rows: [
+        {
+          eventKey: 'club-2026-04-29',
+          eventName: 'Знакомство с клубом 29.04.',
+          eventDate: '2026-04-29T00:00:00.000Z',
+          invitedCount: 5,
+          attendedCount: 2,
+          refusedCount: 1,
+          missedCount: 3,
+          attendanceRate: 40,
+          nextStepEligibleCount: 2,
+          nextStepCount: 1,
+          nextStepRate: 50,
+          unlinkedCount: 0,
+          unknownStatusCount: 0,
+          managerBreakdown: [{ key: '78', label: 'Егоров Андрей', count: 5 }],
+          sourceBreakdown: [{ key: 'WEB', label: 'Веб', count: 5 }],
+          businessClubBreakdown: [{ key: 'ClubOne', label: 'ClubOne', count: 5 }],
+        },
+      ],
+      comparisons: [],
+    })
 
     render(<ProtoApp />)
 
     await userEvent.click(await screen.findByRole('button', { name: /отчет активности/i }))
-    expect(await screen.findByRole('heading', { name: /встречи/i })).toBeInTheDocument()
+    const meetingsHeading = await screen.findByRole('heading', { name: /встречи/i })
+    const meetingsSection = meetingsHeading.closest('section')
+
+    expect(meetingsSection).not.toBeNull()
+    expect(within(meetingsSection as HTMLElement).queryByRole('columnheader', { name: /на сделку/i })).not.toBeInTheDocument()
+    expect(within(meetingsSection as HTMLElement).getByRole('columnheader', { name: /клуб \/ тип встречи/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /^sla$/i })).toBeInTheDocument()
-    expect(screen.getByText('Очная')).toBeInTheDocument()
+    expect(within(meetingsSection as HTMLElement).getByText('ClubOne')).toBeInTheDocument()
+    expect(within(meetingsSection as HTMLElement).getByText('Очная')).toBeInTheDocument()
+    const conversionHeading = screen.getByRole('heading', { name: /конверсионные мероприятия/i })
+    const conversionSection = conversionHeading.closest('section')
+
+    expect(conversionSection).not.toBeNull()
+    expect(within(conversionSection as HTMLElement).getByText('Знакомство с клубом 29.04.')).toBeInTheDocument()
+    expect(within(conversionSection as HTMLElement).getByRole('columnheader', { name: /доходимость/i })).toBeInTheDocument()
+    expect(within(conversionSection as HTMLElement).getByText('40%')).toBeInTheDocument()
+    expect(within(conversionSection as HTMLElement).getByText('50%')).toBeInTheDocument()
+    expect(screen.queryByText('Данные появятся после настройки.')).not.toBeInTheDocument()
     expect(screen.getByText(/on-time 2/i)).toBeInTheDocument()
   })
 
@@ -1347,7 +1680,9 @@ describe('ProtoApp', () => {
     expect(section).toBeInTheDocument()
     expect(screen.getByText('Знакомство с клубом 29.04.')).toBeInTheDocument()
     expect(screen.getByText('60%')).toBeInTheDocument()
-    expect(screen.getByText('3 / 6 · 50%')).toBeInTheDocument()
+    expect(
+      screen.getByText((_, element) => element?.textContent === '3 / 6 · 50%'),
+    ).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: /детали мероприятия/i }))
     expect(screen.getByText('Егоров Андрей')).toBeInTheDocument()

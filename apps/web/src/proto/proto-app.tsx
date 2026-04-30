@@ -19,9 +19,10 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { apiClient } from '@/lib/api-client'
 import type {
+  DealPricingRuleInput,
   LastSyncSummary,
   MetaResponse,
-  SalesPlanDraftRow,
+  SalesPlanQuarterDraftRow,
   SnapshotStats,
   SyncChangeSummary,
   SyncDealChangeBreakdown,
@@ -134,36 +135,28 @@ function formatShortDate(value: string) {
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-function resolveSalesPlanMonth(filters: ProtoFilterState) {
-  return filters.rangeEnd.slice(0, 7)
-}
-
-function resolveSalesPlanMonthRange(month: string) {
-  const match = /^(\d{4})-(\d{2})$/.exec(month)
-  if (!match) {
-    return null
-  }
-
-  const year = Number(match[1])
-  const monthNumber = Number(match[2])
-  if (!Number.isInteger(year) || monthNumber < 1 || monthNumber > 12) {
-    return null
-  }
-
-  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
-  const monthPart = String(monthNumber).padStart(2, '0')
-  const lastDayPart = String(lastDay).padStart(2, '0')
-
-  return {
-    from: `${year}-${monthPart}-01T00:00:00.000+03:00`,
-    to: `${year}-${monthPart}-${lastDayPart}T23:59:59.999+03:00`,
-  }
-}
-
 function omitSalesPlan(runtimeData: ProtoRuntimeData): ProtoRuntimeData {
   const next = { ...runtimeData }
   delete next.salesPlan
   return next
+}
+
+function omitSalesPlanQuarter(runtimeData: ProtoRuntimeData): ProtoRuntimeData {
+  const next = { ...runtimeData }
+  delete next.salesPlanQuarter
+  return next
+}
+
+function resolveSalesPlanQuarter(filters: ProtoFilterState) {
+  const [yearPart, monthPart] = filters.rangeEnd.split('-')
+  const year = Number(yearPart)
+  const month = Number(monthPart)
+  const quarter = Math.floor((month - 1) / 3) + 1
+
+  return {
+    year: Number.isInteger(year) ? year : new Date().getFullYear(),
+    quarter: quarter >= 1 && quarter <= 4 ? quarter : 1,
+  }
 }
 
 function summarizeSelection(
@@ -342,8 +335,8 @@ export function ProtoApp() {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [filters, setFilters] = useState<ProtoFilterState>(() => createDefaultFilters())
   const [appliedFilters, setAppliedFilters] = useState<ProtoFilterState>(() => createDefaultFilters())
-  const [salesPlanMonth, setSalesPlanMonth] = useState(() =>
-    resolveSalesPlanMonth(createDefaultFilters()),
+  const [salesPlanQuarter, setSalesPlanQuarter] = useState(() =>
+    resolveSalesPlanQuarter(createDefaultFilters()),
   )
   const [lastFiltersApply, setLastFiltersApply] = useState(
     new Date('2026-04-10T11:42:00.000Z').toISOString(),
@@ -360,6 +353,9 @@ export function ProtoApp() {
   const [salesPlanLoading, setSalesPlanLoading] = useState(false)
   const [salesPlanSaving, setSalesPlanSaving] = useState(false)
   const [salesPlanSaveError, setSalesPlanSaveError] = useState<string | null>(null)
+  const [pricingSettingsLoading, setPricingSettingsLoading] = useState(false)
+  const [pricingSettingsSaving, setPricingSettingsSaving] = useState(false)
+  const [pricingSettingsSaveError, setPricingSettingsSaveError] = useState<string | null>(null)
   const [snapshotStats, setSnapshotStats] = useState<SnapshotStats | null>(null)
   const [lastSync, setLastSync] = useState<LastSyncSummary | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
@@ -445,10 +441,15 @@ export function ProtoApp() {
       }))
 
       try {
-        const meta = await apiClient.getMeta()
+        setPricingSettingsLoading(true)
+        const [meta, pricingSettings] = await Promise.all([
+          apiClient.getMeta(),
+          apiClient.getPricingSettings(),
+        ])
         if (cancelled || runtimeRequestRef.current !== requestId) {
           return
         }
+        setPricingSettingsLoading(false)
 
         const managerPickerOptions = normalizeManagerPickerOptions(meta.managerCatalog)
         const sourcePickerOptions = meta.sourceCatalog.map((entry) => ({
@@ -570,6 +571,8 @@ export function ProtoApp() {
           managerOptions: managerPickerOptions,
           sourceOptions: sourcePickerOptions,
           ...(current.salesPlan ? { salesPlan: current.salesPlan } : {}),
+          ...(current.salesPlanQuarter ? { salesPlanQuarter: current.salesPlanQuarter } : {}),
+          pricingSettings,
           salesDashboard: dashboard,
           activitiesWorkload: activities,
           callsWorkload: calls,
@@ -599,6 +602,7 @@ export function ProtoApp() {
           operationalError:
             error instanceof Error ? error.message : 'Не удалось загрузить live-данные',
         }))
+        setPricingSettingsLoading(false)
       }
     }
 
@@ -612,21 +616,19 @@ export function ProtoApp() {
   useEffect(() => {
     let cancelled = false
 
-    async function loadSalesPlan() {
-      const range =
-        resolveSalesPlanMonthRange(salesPlanMonth) ??
-        resolveSalesPlanMonthRange(resolveSalesPlanMonth(appliedFilters))
-
-      setSalesPlanLoading(true)
-      setRuntimeData((current) => omitSalesPlan(current))
-
-      if (!range) {
-        setSalesPlanLoading(false)
+    async function loadEffectiveSalesPlan() {
+      const query = buildDashboardQueryFromProtoFilters(appliedFilters)
+      if (query.preset !== 'custom') {
         return
       }
 
+      setRuntimeData((current) => omitSalesPlan(current))
+
       try {
-        const salesPlan = await apiClient.getSalesPlan(range)
+        const salesPlan = await apiClient.getEffectiveSalesPlan({
+          from: query.from,
+          to: query.to,
+        })
         if (cancelled) {
           return
         }
@@ -641,6 +643,39 @@ export function ProtoApp() {
         }
 
         setRuntimeData((current) => omitSalesPlan(current))
+      }
+    }
+
+    void loadEffectiveSalesPlan()
+
+    return () => {
+      cancelled = true
+    }
+  }, [appliedFilters])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadSalesPlanQuarter() {
+      setSalesPlanLoading(true)
+      setRuntimeData((current) => omitSalesPlanQuarter(current))
+
+      try {
+        const salesPlanQuarterData = await apiClient.getSalesPlanQuarter(salesPlanQuarter)
+        if (cancelled) {
+          return
+        }
+
+        setRuntimeData((current) => ({
+          ...current,
+          salesPlanQuarter: salesPlanQuarterData,
+        }))
+      } catch {
+        if (cancelled) {
+          return
+        }
+
+        setRuntimeData((current) => omitSalesPlanQuarter(current))
       } finally {
         if (!cancelled) {
           setSalesPlanLoading(false)
@@ -648,12 +683,12 @@ export function ProtoApp() {
       }
     }
 
-    void loadSalesPlan()
+    void loadSalesPlanQuarter()
 
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, salesPlanMonth])
+  }, [salesPlanQuarter])
 
   async function refreshSyncMeta() {
     const meta = await apiClient.getMeta()
@@ -722,17 +757,8 @@ export function ProtoApp() {
     }
   }
 
-  async function handleSaveSalesPlan(rows: SalesPlanDraftRow[]) {
+  async function handleSaveSalesPlan(rows: SalesPlanQuarterDraftRow[]) {
     if (salesPlanLoading) {
-      return
-    }
-
-    const range =
-      resolveSalesPlanMonthRange(salesPlanMonth) ??
-      resolveSalesPlanMonthRange(resolveSalesPlanMonth(appliedFilters))
-
-    if (!range) {
-      setSalesPlanSaveError('Выберите месяц плана продаж')
       return
     }
 
@@ -740,14 +766,14 @@ export function ProtoApp() {
     setSalesPlanSaveError(null)
 
     try {
-      const saved = await apiClient.saveSalesPlan({
-        periodStart: range.from,
-        periodEnd: range.to,
+      const saved = await apiClient.saveSalesPlanQuarter({
+        year: salesPlanQuarter.year,
+        quarter: salesPlanQuarter.quarter,
         rows,
       })
       setRuntimeData((current) => ({
         ...current,
-        salesPlan: saved,
+        salesPlanQuarter: saved,
       }))
     } catch (error) {
       setSalesPlanSaveError(
@@ -755,6 +781,30 @@ export function ProtoApp() {
       )
     } finally {
       setSalesPlanSaving(false)
+    }
+  }
+
+  async function handleSavePricingSettings(rows: DealPricingRuleInput[]) {
+    if (pricingSettingsLoading) {
+      return
+    }
+
+    setPricingSettingsSaving(true)
+    setPricingSettingsSaveError(null)
+
+    try {
+      const saved = await apiClient.savePricingSettings({ rules: rows })
+      setRuntimeData((current) => ({
+        ...current,
+        pricingSettings: saved,
+      }))
+      setAppliedFilters((current) => cloneFilters(current))
+    } catch (error) {
+      setPricingSettingsSaveError(
+        error instanceof Error ? error.message : 'Не удалось сохранить цены',
+      )
+    } finally {
+      setPricingSettingsSaving(false)
     }
   }
 
@@ -1187,12 +1237,17 @@ export function ProtoApp() {
           commentMode={commentMode}
           filters={appliedFilters}
           runtimeData={runtimeData}
-          salesPlanMonth={salesPlanMonth}
+          salesPlanQuarter={salesPlanQuarter}
           salesPlanLoading={salesPlanLoading}
           salesPlanSaving={salesPlanSaving}
           salesPlanSaveError={salesPlanSaveError}
-          onSalesPlanMonthChange={setSalesPlanMonth}
+          onSalesPlanQuarterChange={setSalesPlanQuarter}
           onSalesPlanSave={handleSaveSalesPlan}
+          pricingSettings={runtimeData.pricingSettings}
+          pricingSettingsLoading={pricingSettingsLoading}
+          pricingSettingsSaving={pricingSettingsSaving}
+          pricingSettingsSaveError={pricingSettingsSaveError}
+          onPricingSettingsSave={handleSavePricingSettings}
         />
 
         <aside

@@ -5,10 +5,13 @@ import type {
   CallsWorkloadReport,
   ConversionEventsReport,
   DashboardData,
+  DealPricingRuleInput,
+  DealPricingSettings,
   ManagerActionOutcomeReport,
   RevenueVelocityReport,
   SalesPlanData,
-  SalesPlanDraftRow,
+  SalesPlanQuarterData,
+  SalesPlanQuarterDraftRow,
   TargetGroupConversionReport,
 } from '@/lib/dashboard-types'
 
@@ -248,12 +251,17 @@ export interface SceneComponentProps {
   commentMode: boolean
   filters: ProtoFilterState
   runtimeData?: ProtoRuntimeData
-  salesPlanMonth?: string
+  salesPlanQuarter?: { year: number; quarter: number }
   salesPlanLoading?: boolean
   salesPlanSaving?: boolean
   salesPlanSaveError?: string | null
-  onSalesPlanMonthChange?: (month: string) => void
-  onSalesPlanSave?: (rows: SalesPlanDraftRow[]) => Promise<void>
+  onSalesPlanQuarterChange?: (quarter: { year: number; quarter: number }) => void
+  onSalesPlanSave?: (rows: SalesPlanQuarterDraftRow[]) => Promise<void>
+  pricingSettings?: DealPricingSettings | undefined
+  pricingSettingsLoading?: boolean
+  pricingSettingsSaving?: boolean
+  pricingSettingsSaveError?: string | null | undefined
+  onPricingSettingsSave?: (rows: DealPricingRuleInput[]) => Promise<void>
 }
 
 export interface ProtoScene {
@@ -275,6 +283,8 @@ export interface ProtoRuntimeData {
   sourceOptions: PickerOption[]
   salesDashboard?: DashboardData
   salesPlan?: SalesPlanData
+  salesPlanQuarter?: SalesPlanQuarterData
+  pricingSettings?: DealPricingSettings
   activitiesWorkload?: ActivitiesWorkloadReport
   callsWorkload?: CallsWorkloadReport
   activitiesCalls?: ActivitiesCallsSceneData

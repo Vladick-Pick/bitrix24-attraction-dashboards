@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildRevenueVelocityReport } from "../src/domain/revenue-velocity";
+import { DEFAULT_PRICING_RULES } from "../src/domain/deal-economics";
 
 const range = {
   from: "2026-04-01T00:00:00.000Z",
@@ -195,6 +196,62 @@ describe("buildRevenueVelocityReport", () => {
     expect(potapova?.realizedWonAmountInPeriod).toBe(420000);
   });
 
+  it("uses attraction revenue for period sales and pipeline instead of membership amount", () => {
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      pricingRules: DEFAULT_PRICING_RULES,
+      deals: [
+        {
+          ...baseDeal,
+          id: "WON_PRICED",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 1_300_000,
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: "ClubFirst Russia",
+          tariffValue: "Федеральный Москва",
+          dateCreate: "2026-03-18T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "PIPELINE_PLAN",
+          assignedById: "78",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          opportunity: 1_300_000,
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: null,
+          tariffValue: null,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H_WON",
+          ownerId: "WON_PRICED",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-22T12:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(report.totals.wonDealsInPeriod).toBe(1);
+    expect(report.totals.realizedWonAmountInPeriod).toBe(300_000);
+    expect(report.totals.activePipelineAmount).toBe(300_000);
+    expect(report.rows[0]?.realizedWonAmountInPeriod).toBe(300_000);
+  });
+
   it("uses clean active stages for active and WIP pipeline", () => {
     const report = createReport({
       view: "systemState",
@@ -299,6 +356,284 @@ describe("buildRevenueVelocityReport", () => {
     expect(report.totals.expectedPipelineAmount).toBeNull();
     expect(report.totals.liveRevenueVelocity).toBeNull();
     expect(report.warnings).toContain("Недостаточно данных для вероятностной оценки воронки.");
+  });
+
+  it("keeps live velocity for calibrated active pipeline when other active deals are uncalibrated", () => {
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      deals: [
+        {
+          ...baseDeal,
+          id: "BENCH_1",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: "2026-04-11T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "BENCH_2",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          dateCreate: "2026-04-02T00:00:00.000Z",
+          dateClosed: "2026-04-12T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "CALIBRATED_ACTIVE",
+          assignedById: "78",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          opportunity: 100000,
+          dateCreate: "2026-04-03T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "UNCALIBRATED_ACTIVE",
+          assignedById: "78",
+          stageId: "C10:DEMO",
+          stageSemanticId: "P",
+          opportunity: 200000,
+          dateCreate: "2026-04-23T00:00:00.000Z",
+          dateClosed: null
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H_BENCH_1_ACT",
+          ownerId: "BENCH_1",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-01T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_1_WON",
+          ownerId: "BENCH_1",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-11T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_2_ACT",
+          ownerId: "BENCH_2",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-02T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_2_WON",
+          ownerId: "BENCH_2",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-12T00:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(report.totals.activeDeals).toBe(2);
+    expect(report.totals.activePipelineAmount).toBe(300000);
+    expect(report.totals.expectedPipelineAmount).toBe(100000);
+    expect(report.totals.liveRevenueVelocity).toBe(10000);
+    expect(report.warnings).toContain("Недостаточно данных для вероятностной оценки воронки.");
+  });
+
+  it("calibrates live velocity from won stage history when dateClosed is missing", () => {
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      deals: [
+        {
+          ...baseDeal,
+          id: "BENCH_HISTORY_1",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          dateCreate: "2026-04-01T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "BENCH_HISTORY_2",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          dateCreate: "2026-04-02T00:00:00.000Z",
+          dateClosed: null
+        },
+        {
+          ...baseDeal,
+          id: "ACTIVE_FROM_HISTORY_BENCH",
+          assignedById: "78",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          opportunity: 100000,
+          dateCreate: "2026-04-03T00:00:00.000Z",
+          dateClosed: null
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H_BENCH_HISTORY_1_ACT",
+          ownerId: "BENCH_HISTORY_1",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-01T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_HISTORY_1_WON",
+          ownerId: "BENCH_HISTORY_1",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-11T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_HISTORY_2_ACT",
+          ownerId: "BENCH_HISTORY_2",
+          categoryId: "10",
+          stageId: "C10:ACTIVATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-02T00:00:00.000Z"
+        },
+        {
+          id: "H_BENCH_HISTORY_2_WON",
+          ownerId: "BENCH_HISTORY_2",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-12T00:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(report.totals.expectedPipelineAmount).toBe(100000);
+    expect(report.totals.averageCheck).toBe(100000);
+    expect(report.totals.winRate).toBe(0.67);
+    expect(report.totals.averageCycleDays).toBe(10);
+    expect(report.totals.liveRevenueVelocity).toBe(6700);
+    expect(report.warnings).not.toContain("Недостаточно данных для вероятностной оценки воронки.");
+  });
+
+  it("calculates system live velocity from rolling-quarter cohort conversion formula", () => {
+    const activeDeals = Array.from({ length: 10 }, (_, index) => ({
+      ...baseDeal,
+      id: `ACTIVE_QUARTER_FORMULA_${index + 1}`,
+      assignedById: "78",
+      stageId: "C10:ACTIVATION",
+      stageSemanticId: "P",
+      opportunity: 900000,
+      targetGroupValue: "ClubFirst Russia",
+      tariffValue: "Федеральный",
+      dateCreate: "2026-01-01T00:00:00.000Z",
+      dateClosed: null
+    }));
+    const report = createReport({
+      view: "systemState",
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      asOf: "2026-04-26T23:59:59.999Z",
+      pricingRules: DEFAULT_PRICING_RULES,
+      deals: [
+        {
+          ...baseDeal,
+          id: "QUARTER_WON_1",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 900000,
+          targetGroupValue: "ClubFirst Russia",
+          tariffValue: "Федеральный",
+          dateCreate: "2026-02-01T00:00:00.000Z",
+          dateClosed: "2026-02-21T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "QUARTER_WON_2",
+          assignedById: "78",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 900000,
+          targetGroupValue: "ClubFirst Russia",
+          tariffValue: "Федеральный",
+          dateCreate: "2026-02-05T00:00:00.000Z",
+          dateClosed: "2026-02-25T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "QUARTER_LOST_1",
+          assignedById: "78",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          opportunity: 900000,
+          targetGroupValue: "ClubFirst Russia",
+          tariffValue: "Федеральный",
+          dateCreate: "2026-02-08T00:00:00.000Z",
+          dateClosed: "2026-02-26T00:00:00.000Z"
+        },
+        {
+          ...baseDeal,
+          id: "QUARTER_LOST_2",
+          assignedById: "78",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          opportunity: 900000,
+          targetGroupValue: "ClubFirst Russia",
+          tariffValue: "Федеральный",
+          dateCreate: "2026-02-10T00:00:00.000Z",
+          dateClosed: "2026-02-27T00:00:00.000Z"
+        },
+        ...activeDeals
+      ]
+    });
+
+    expect(report.totals.activeDeals).toBe(10);
+    expect(report.totals.activePipelineAmount).toBe(3000000);
+    expect(report.totals.averageCheck).toBe(300000);
+    expect(report.totals.winRate).toBe(0.5);
+    expect(report.totals.averageCycleDays).toBe(20);
+    expect(report.totals.liveRevenueVelocity).toBe(75000);
+    expect(report.totals.revenueVelocityPerDay).toBe(75000);
+    expect((report.totals as any).revenueVelocityFormula).toMatchObject({
+      source: "rollingQuarterCohort",
+      sourceLabel: "Когорта за последние 90 дней",
+      averageRevenueAmount: 300000,
+      opportunitiesCount: 10,
+      conversionRate: 0.5,
+      averageCycleDays: 20,
+      value: 75000,
+      missingReason: null
+    });
   });
 
   it("never returns basket or leadgen return stages as bottlenecks", () => {
@@ -439,7 +774,7 @@ describe("buildRevenueVelocityReport", () => {
     expect(report.totals.activeDeals).toBe(1);
     expect(report.totals.activePipelineAmount).toBe(250000);
     expect(report.totals.expectedPipelineAmount).toBeNull();
-    expect(report.totals.liveRevenueVelocity).toBeNull();
+    expect(report.totals.liveRevenueVelocity).toBe(5000);
   });
 
   it("calculates system value, velocity delta and period actions for old wins and current pipeline", () => {

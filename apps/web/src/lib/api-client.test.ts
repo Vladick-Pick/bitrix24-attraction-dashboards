@@ -105,6 +105,158 @@ describe('apiClient', () => {
     expect(saved.rows[0]?.plannedAmount).toBe(3000000)
   })
 
+  it('loads effective and quarterly sales plans', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-04-07T23:59:59.999+03:00',
+          updatedAt: '2026-04-10T12:00:00.000Z',
+          rows: [
+            {
+              managerId: '78',
+              managerName: 'Егоров Андрей',
+              targetGroupKey: 'ClubFirst Russia',
+              targetGroupLabel: 'ClubFirst Russia',
+              plannedDeals: 2,
+              plannedAmount: 1166667,
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          year: 2026,
+          quarter: 2,
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-06-30T23:59:59.999+03:00',
+          months: [
+            {
+              month: '2026-04',
+              label: 'Апрель',
+              periodStart: '2026-04-01T00:00:00.000+03:00',
+              periodEnd: '2026-04-30T23:59:59.999+03:00',
+            },
+            {
+              month: '2026-05',
+              label: 'Май',
+              periodStart: '2026-05-01T00:00:00.000+03:00',
+              periodEnd: '2026-05-31T23:59:59.999+03:00',
+            },
+            {
+              month: '2026-06',
+              label: 'Июнь',
+              periodStart: '2026-06-01T00:00:00.000+03:00',
+              periodEnd: '2026-06-30T23:59:59.999+03:00',
+            },
+          ],
+          rows: [
+            {
+              managerId: '78',
+              managerName: 'Егоров Андрей',
+              targetGroupKey: 'ClubFirst Russia',
+              targetGroupLabel: 'ClubFirst Russia',
+              quarterPlannedDeals: 9,
+              quarterPlannedAmount: 9000000,
+              months: [
+                {
+                  month: '2026-04',
+                  periodStart: '2026-04-01T00:00:00.000+03:00',
+                  periodEnd: '2026-04-30T23:59:59.999+03:00',
+                  plannedDeals: 3,
+                  plannedAmount: 3000000,
+                  updatedAt: '2026-04-10T12:00:00.000Z',
+                },
+              ],
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+          ],
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          year: 2026,
+          quarter: 2,
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-06-30T23:59:59.999+03:00',
+          months: [],
+          rows: [],
+          updatedAt: '2026-04-10T12:05:00.000Z',
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const effective = await apiClient.getEffectiveSalesPlan({
+      from: '2026-04-01T00:00:00.000+03:00',
+      to: '2026-04-07T23:59:59.999+03:00',
+    })
+    const [effectiveUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const parsedEffectiveUrl = new URL(effectiveUrl, window.location.origin)
+
+    expect(parsedEffectiveUrl.pathname).toBe('/api/sales-plan/effective')
+    expect(effective.rows[0]?.plannedDeals).toBe(2)
+    expect(effective.rows[0]?.plannedAmount).toBe(1166667)
+
+    const quarter = await apiClient.getSalesPlanQuarter({ year: 2026, quarter: 2 })
+    const [quarterUrl] = fetchMock.mock.calls[1] as [string, RequestInit]
+    const parsedQuarterUrl = new URL(quarterUrl, window.location.origin)
+
+    expect(parsedQuarterUrl.pathname).toBe('/api/sales-plan/quarter')
+    expect(parsedQuarterUrl.searchParams.get('year')).toBe('2026')
+    expect(parsedQuarterUrl.searchParams.get('quarter')).toBe('2')
+    expect(quarter.months.map((month) => month.month)).toEqual([
+      '2026-04',
+      '2026-05',
+      '2026-06',
+    ])
+    expect(quarter.rows[0]?.quarterPlannedDeals).toBe(9)
+
+    await apiClient.saveSalesPlanQuarter({
+      year: 2026,
+      quarter: 2,
+      rows: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          targetGroupKey: 'ClubFirst Russia',
+          targetGroupLabel: 'ClubFirst Russia',
+          quarterPlannedDeals: 9,
+          quarterPlannedAmount: 9000000,
+          months: [
+            { month: '2026-04', plannedDeals: 3, plannedAmount: 3000000 },
+            { month: '2026-05', plannedDeals: 3, plannedAmount: 3000000 },
+            { month: '2026-06', plannedDeals: 3, plannedAmount: 3000000 },
+          ],
+        },
+      ],
+    })
+
+    const [, saveInit] = fetchMock.mock.calls[2] as [string, RequestInit]
+    expect(saveInit.method).toBe('PUT')
+    expect(JSON.parse(String(saveInit.body))).toMatchObject({
+      year: 2026,
+      quarter: 2,
+      rows: [
+        {
+          managerId: '78',
+          quarterPlannedDeals: 9,
+          months: [
+            { month: '2026-04', plannedDeals: 3, plannedAmount: 3000000 },
+            { month: '2026-05', plannedDeals: 3, plannedAmount: 3000000 },
+            { month: '2026-06', plannedDeals: 3, plannedAmount: 3000000 },
+          ],
+        },
+      ],
+    })
+  })
+
   it('serializes compare ranges and normalizes comparison snapshots', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

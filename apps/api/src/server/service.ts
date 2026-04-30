@@ -11,6 +11,8 @@ import type {
   ConversionEventsReportSnapshot,
   DashboardData,
   DashboardSnapshot,
+  DealPricingSettings,
+  DealPricingSettingsInput,
   ManagerActionOutcomeReport,
   ManagerActionOutcomeReportSnapshot,
   ManagerDirectoryEntry,
@@ -23,6 +25,9 @@ import type {
   RevenueVelocityView,
   SalesPlanData,
   SalesPlanInput,
+  SalesPlanQuarterData,
+  SalesPlanQuarterInput,
+  SalesPlanQuarterMonth,
   SourceCatalogEntry,
   SourceQualityConversionReport,
   SourceQualityConversionReportSnapshot,
@@ -56,6 +61,7 @@ import {
 import { buildTocFlowReport } from "../domain/toc-report";
 import { buildRevenueVelocityReport } from "../domain/revenue-velocity";
 import { buildConversionEventsReport } from "../domain/conversion-events";
+import { DEFAULT_PRICING_RULES } from "../domain/deal-economics";
 import {
   buildSourceLabelMap,
   normalizeCategoryId,
@@ -177,6 +183,17 @@ export interface ReportingService {
     periodEnd: string;
   }): Promise<SalesPlanData>;
   replaceSalesPlan(input: SalesPlanInput): Promise<SalesPlanData>;
+  getSalesPlanQuarter(input: {
+    year: number;
+    quarter: number;
+  }): Promise<SalesPlanQuarterData>;
+  replaceSalesPlanQuarter(input: SalesPlanQuarterInput): Promise<SalesPlanQuarterData>;
+  getEffectiveSalesPlan(input: {
+    periodStart: string;
+    periodEnd: string;
+  }): Promise<SalesPlanData>;
+  getPricingSettings(): Promise<DealPricingSettings>;
+  replacePricingSettings(input: DealPricingSettingsInput): Promise<DealPricingSettings>;
   getMeta(): Promise<{
     stageCatalog: StageCatalogEntry[];
     managerCatalog: ManagerDirectoryEntry[];
@@ -572,6 +589,112 @@ function isManagerInScope(
   );
 }
 
+const MOSCOW_OFFSET_MS = 3 * 60 * 60 * 1000;
+const MONTH_LABELS_RU = [
+  "Январь",
+  "Февраль",
+  "Март",
+  "Апрель",
+  "Май",
+  "Июнь",
+  "Июль",
+  "Август",
+  "Сентябрь",
+  "Октябрь",
+  "Ноябрь",
+  "Декабрь"
+];
+
+function formatMonthKey(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function buildMonthPeriod(year: number, month: number): SalesPlanQuarterMonth {
+  const monthPart = String(month).padStart(2, "0");
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const lastDayPart = String(lastDay).padStart(2, "0");
+
+  return {
+    month: formatMonthKey(year, month),
+    label: MONTH_LABELS_RU[month - 1] ?? formatMonthKey(year, month),
+    periodStart: `${year}-${monthPart}-01T00:00:00.000+03:00`,
+    periodEnd: `${year}-${monthPart}-${lastDayPart}T23:59:59.999+03:00`
+  };
+}
+
+function buildQuarterMonths(year: number, quarter: number) {
+  const firstMonth = (quarter - 1) * 3 + 1;
+  return [0, 1, 2].map((offset) => buildMonthPeriod(year, firstMonth + offset));
+}
+
+function buildQuarterPeriod(year: number, quarter: number) {
+  const months = buildQuarterMonths(year, quarter);
+  const first = months[0]!;
+  const last = months[months.length - 1]!;
+
+  return {
+    months,
+    periodStart: first.periodStart,
+    periodEnd: last.periodEnd
+  };
+}
+
+function salesPlanRowKey(input: { managerId: string; targetGroupKey: string }) {
+  return `${input.managerId}::${input.targetGroupKey}`;
+}
+
+function latestSalesPlanUpdatedAt(rows: Array<{ updatedAt: string | null }>) {
+  return rows.reduce<string | null>(
+    (latest, row) =>
+      row.updatedAt && (!latest || row.updatedAt > latest) ? row.updatedAt : latest,
+    null
+  );
+}
+
+function moscowMonthFromTimestamp(value: string) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  const shifted = new Date(timestamp + MOSCOW_OFFSET_MS);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1
+  };
+}
+
+function enumerateMonthPeriods(periodStart: string, periodEnd: string) {
+  const start = moscowMonthFromTimestamp(periodStart);
+  const end = moscowMonthFromTimestamp(periodEnd);
+  if (!start || !end) {
+    return [];
+  }
+
+  const months: SalesPlanQuarterMonth[] = [];
+  let year = start.year;
+  let month = start.month;
+
+  while (year < end.year || (year === end.year && month <= end.month)) {
+    months.push(buildMonthPeriod(year, month));
+    month += 1;
+    if (month > 12) {
+      year += 1;
+      month = 1;
+    }
+  }
+
+  return months;
+}
+
+function proratePlanValue(value: number, overlapMs: number, periodMs: number) {
+  if (value <= 0 || overlapMs <= 0 || periodMs <= 0) {
+    return 0;
+  }
+
+  return Math.ceil((value * overlapMs) / periodMs);
+}
+
 export function createReportingService(
   input: CreateReportingServiceInput
 ): ReportingService {
@@ -583,6 +706,12 @@ export function createReportingService(
       allowedCategoryIds,
       includeSources ? { includeSources: true } : undefined
     );
+  const getPricingRules = async () => {
+    const repositoryWithPricing = input.repository as Partial<SqliteRepository>;
+    return typeof repositoryWithPricing.getPricingRules === "function"
+      ? repositoryWithPricing.getPricingRules()
+      : DEFAULT_PRICING_RULES;
+  };
 
   const filterDealsByFilters = (
     deals: Awaited<ReturnType<SqliteRepository["getAllDeals"]>>,
@@ -720,16 +849,316 @@ export function createReportingService(
       };
     },
 
+    async getSalesPlanQuarter({ year, quarter }) {
+      const { months, periodStart, periodEnd } = buildQuarterPeriod(year, quarter);
+      const [quarterRows, ...monthRows] = await Promise.all([
+        input.repository.getSalesPlanRows(periodStart, periodEnd),
+        ...months.map((month) =>
+          input.repository.getSalesPlanRows(month.periodStart, month.periodEnd)
+        )
+      ]);
+      const rows = new Map<
+        string,
+        {
+          managerId: string;
+          managerName: string | null;
+          targetGroupKey: string;
+          targetGroupLabel: string;
+          quarterPlannedDeals: number;
+          quarterPlannedAmount: number;
+          explicitQuarterPlan: boolean;
+          months: Array<{
+            month: string;
+            periodStart: string;
+            periodEnd: string;
+            plannedDeals: number;
+            plannedAmount: number;
+            updatedAt: string | null;
+          }>;
+          updatedAt: string | null;
+        }
+      >();
+
+      const ensureRow = (row: {
+        managerId: string;
+        managerName: string | null;
+        targetGroupKey: string;
+        targetGroupLabel: string;
+        updatedAt?: string | null;
+      }) => {
+        const key = salesPlanRowKey(row);
+        const existing = rows.get(key);
+        if (existing) {
+          if (row.managerName && !existing.managerName) {
+            existing.managerName = row.managerName;
+          }
+          if (row.targetGroupLabel && existing.targetGroupLabel === row.targetGroupKey) {
+            existing.targetGroupLabel = row.targetGroupLabel;
+          }
+          if (row.updatedAt && (!existing.updatedAt || row.updatedAt > existing.updatedAt)) {
+            existing.updatedAt = row.updatedAt;
+          }
+          return existing;
+        }
+
+        const created = {
+          managerId: row.managerId,
+          managerName: row.managerName,
+          targetGroupKey: row.targetGroupKey,
+          targetGroupLabel: row.targetGroupLabel || row.targetGroupKey,
+          quarterPlannedDeals: 0,
+          quarterPlannedAmount: 0,
+          explicitQuarterPlan: false,
+          months: months.map((month) => ({
+            month: month.month,
+            periodStart: month.periodStart,
+            periodEnd: month.periodEnd,
+            plannedDeals: 0,
+            plannedAmount: 0,
+            updatedAt: null
+          })),
+          updatedAt: row.updatedAt ?? null
+        };
+        rows.set(key, created);
+        return created;
+      };
+
+      for (const row of quarterRows) {
+        const target = ensureRow(row);
+        target.quarterPlannedDeals = row.plannedDeals;
+        target.quarterPlannedAmount = row.plannedAmount;
+        target.explicitQuarterPlan = true;
+        target.updatedAt = row.updatedAt;
+      }
+
+      monthRows.forEach((rowsForMonth, index) => {
+        const month = months[index]!;
+        for (const row of rowsForMonth) {
+          const target = ensureRow(row);
+          target.months[index] = {
+            month: month.month,
+            periodStart: month.periodStart,
+            periodEnd: month.periodEnd,
+            plannedDeals: row.plannedDeals,
+            plannedAmount: row.plannedAmount,
+            updatedAt: row.updatedAt
+          };
+        }
+      });
+
+      const normalizedRows = Array.from(rows.values()).map((row) => {
+        const monthPlannedDeals = row.months.reduce(
+          (total, month) => total + month.plannedDeals,
+          0
+        );
+        const monthPlannedAmount = row.months.reduce(
+          (total, month) => total + month.plannedAmount,
+          0
+        );
+        const { explicitQuarterPlan, ...rest } = row;
+
+        return {
+          ...rest,
+          quarterPlannedDeals: explicitQuarterPlan
+            ? row.quarterPlannedDeals
+            : monthPlannedDeals,
+          quarterPlannedAmount: explicitQuarterPlan
+            ? row.quarterPlannedAmount
+            : monthPlannedAmount,
+          updatedAt: latestSalesPlanUpdatedAt([
+            { updatedAt: row.updatedAt },
+            ...row.months.map((month) => ({ updatedAt: month.updatedAt }))
+          ])
+        };
+      });
+
+      normalizedRows.sort((left, right) => {
+        const byManager = (left.managerName ?? left.managerId).localeCompare(
+          right.managerName ?? right.managerId,
+          "ru"
+        );
+        return byManager !== 0
+          ? byManager
+          : left.targetGroupLabel.localeCompare(right.targetGroupLabel, "ru");
+      });
+
+      return {
+        year,
+        quarter,
+        periodStart,
+        periodEnd,
+        months,
+        rows: normalizedRows,
+        updatedAt: latestSalesPlanUpdatedAt(normalizedRows)
+      };
+    },
+
+    async replaceSalesPlanQuarter(planInput) {
+      const { months, periodStart, periodEnd } = buildQuarterPeriod(
+        planInput.year,
+        planInput.quarter
+      );
+      const updatedAt = nowFactory().toISOString();
+      const periods = [
+        {
+          periodStart,
+          periodEnd,
+          rows: planInput.rows.map((row) => ({
+            managerId: row.managerId,
+            managerName: row.managerName ?? null,
+            targetGroupKey: row.targetGroupKey,
+            targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+            plannedDeals: row.quarterPlannedDeals,
+            plannedAmount: row.quarterPlannedAmount
+          }))
+        },
+        ...months.map((month) => ({
+          periodStart: month.periodStart,
+          periodEnd: month.periodEnd,
+          rows: planInput.rows.map((row) => {
+            const monthValue = row.months.find((entry) => entry.month === month.month);
+            return {
+              managerId: row.managerId,
+              managerName: row.managerName ?? null,
+              targetGroupKey: row.targetGroupKey,
+              targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+              plannedDeals: monthValue?.plannedDeals ?? 0,
+              plannedAmount: monthValue?.plannedAmount ?? 0
+            };
+          })
+        }))
+      ];
+
+      await input.repository.replaceSalesPlanPeriods({
+        updatedAt,
+        periods
+      });
+
+      return this.getSalesPlanQuarter({
+        year: planInput.year,
+        quarter: planInput.quarter
+      });
+    },
+
+    async getEffectiveSalesPlan({ periodStart, periodEnd }) {
+      const queryStart = Date.parse(periodStart);
+      const queryEnd = Date.parse(periodEnd);
+      const rows = new Map<string, SalesPlanData["rows"][number]>();
+      const allSourceRows = [];
+
+      for (const month of enumerateMonthPeriods(periodStart, periodEnd)) {
+        const sourceRows = await input.repository.getSalesPlanRows(
+          month.periodStart,
+          month.periodEnd
+        );
+        allSourceRows.push(...sourceRows);
+
+        const monthStart = Date.parse(month.periodStart);
+        const monthEnd = Date.parse(month.periodEnd);
+        const overlapStart = Math.max(queryStart, monthStart);
+        const overlapEnd = Math.min(queryEnd, monthEnd);
+        const overlapMs = overlapEnd - overlapStart + 1;
+        const monthMs = monthEnd - monthStart + 1;
+
+        for (const sourceRow of sourceRows) {
+          const key = salesPlanRowKey(sourceRow);
+          const existing =
+            rows.get(key) ??
+            ({
+              periodStart,
+              periodEnd,
+              managerId: sourceRow.managerId,
+              managerName: sourceRow.managerName,
+              targetGroupKey: sourceRow.targetGroupKey,
+              targetGroupLabel: sourceRow.targetGroupLabel,
+              plannedDeals: 0,
+              plannedAmount: 0,
+              updatedAt: sourceRow.updatedAt
+            } satisfies SalesPlanData["rows"][number]);
+
+          existing.plannedDeals += proratePlanValue(
+            sourceRow.plannedDeals,
+            overlapMs,
+            monthMs
+          );
+          existing.plannedAmount += proratePlanValue(
+            sourceRow.plannedAmount,
+            overlapMs,
+            monthMs
+          );
+          if (sourceRow.updatedAt > existing.updatedAt) {
+            existing.updatedAt = sourceRow.updatedAt;
+          }
+          rows.set(key, existing);
+        }
+      }
+
+      const effectiveRows = Array.from(rows.values()).sort((left, right) => {
+        const byManager = (left.managerName ?? left.managerId).localeCompare(
+          right.managerName ?? right.managerId,
+          "ru"
+        );
+        return byManager !== 0
+          ? byManager
+          : left.targetGroupLabel.localeCompare(right.targetGroupLabel, "ru");
+      });
+
+      return {
+        periodStart,
+        periodEnd,
+        rows: effectiveRows,
+        updatedAt: latestSalesPlanUpdatedAt(allSourceRows)
+      };
+    },
+
+    async getPricingSettings() {
+      const rules = await input.repository.getPricingRules();
+      const updatedAt = rules.reduce<string | null>(
+        (latest, rule) =>
+          rule.updatedAt && (!latest || rule.updatedAt > latest)
+            ? rule.updatedAt
+            : latest,
+        null
+      );
+
+      return {
+        rules,
+        updatedAt
+      };
+    },
+
+    async replacePricingSettings(settingsInput) {
+      const updatedAt = nowFactory().toISOString();
+      const rules = await input.repository.replacePricingRules({
+        ...settingsInput,
+        updatedAt
+      });
+
+      return {
+        rules,
+        updatedAt
+      };
+    },
+
     async getDashboard({ periodDays, range, compareRanges, filters }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
-      const [deals, stageCatalog, wonStageIds, stageHistory, activities, calls] =
+      const [
+        deals,
+        stageCatalog,
+        wonStageIds,
+        stageHistory,
+        activities,
+        calls,
+        pricingRules
+      ] =
         await Promise.all([
           input.repository.getAllDeals(),
           getScopedStageCatalog(true),
           input.repository.getWonStageIds(),
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
-          input.repository.getAllCalls()
+          input.repository.getAllCalls(),
+          getPricingRules()
         ]);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
@@ -769,7 +1198,8 @@ export function createReportingService(
           stageHistory: scopedStageHistory,
           activities: scopedActivities,
           calls: scopedCalls,
-          managerDirectory
+          managerDirectory,
+          pricingRules
         });
       const resolvedRange = resolveRange(
         periodDays,
@@ -978,11 +1408,13 @@ export function createReportingService(
       filters
     }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
-      const [deals, stageCatalog, wonStageIds, stageHistory] = await Promise.all([
+      const [deals, stageCatalog, wonStageIds, stageHistory, pricingRules] =
+        await Promise.all([
         input.repository.getAllDeals(),
         getScopedStageCatalog(),
         input.repository.getWonStageIds(),
-        input.repository.getAllStageHistory()
+        input.repository.getAllStageHistory(),
+        getPricingRules()
       ]);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
@@ -997,7 +1429,8 @@ export function createReportingService(
           wonStageIds,
           deals: scopedDeals,
           stageCatalog,
-          stageHistory: scopedStageHistory
+          stageHistory: scopedStageHistory,
+          pricingRules
         });
       const resolvedRange = resolveRange(
         periodDays,
@@ -1070,6 +1503,7 @@ export function createReportingService(
       const scopedStageHistory = stageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
+      const pricingRules = await getPricingRules();
       const buildSnapshot = (
         targetRange: ReportRange
       ): ManagerActionOutcomeReportSnapshot =>
@@ -1081,7 +1515,8 @@ export function createReportingService(
           stageHistory: scopedStageHistory,
           activities: dealScopedActivities,
           calls: dealScopedCalls,
-          managerDirectory
+          managerDirectory,
+          pricingRules
         });
       const reportRange = resolveLatestTwelveMonthCohortRange(nowFactory());
       const warnings = await buildManagerActionOutcomeWarnings({
@@ -1094,9 +1529,11 @@ export function createReportingService(
           : {})
       });
 
+      const snapshot = buildSnapshot(reportRange);
+
       return {
-        ...buildSnapshot(reportRange),
-        warnings
+        ...snapshot,
+        warnings: [...warnings, ...snapshot.warnings]
       };
     },
 
@@ -1327,14 +1764,23 @@ export function createReportingService(
         qualityKeys?: string[];
         tariffKeys?: string[];
       };
-      const [deals, stageCatalog, stageHistory, activities, calls, wonStageIds] =
+      const [
+        deals,
+        stageCatalog,
+        stageHistory,
+        activities,
+        calls,
+        wonStageIds,
+        pricingRules
+      ] =
         await Promise.all([
           input.repository.getAllDeals(),
           getScopedStageCatalog(true),
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
           input.repository.getAllCalls(),
-          input.repository.getWonStageIds()
+          input.repository.getWonStageIds(),
+          getPricingRules()
         ]);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
@@ -1384,7 +1830,8 @@ export function createReportingService(
           conversionEvents: [],
           managerDirectory,
           sourceCatalog,
-          filters: scopedFilters
+          filters: scopedFilters,
+          pricingRules
         });
       };
       const resolvedRange = resolveRange(

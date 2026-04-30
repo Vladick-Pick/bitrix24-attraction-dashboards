@@ -3,6 +3,63 @@ import { describe, expect, it } from "vitest";
 import { createReportingService } from "../src/server/service";
 
 describe("createReportingService", () => {
+  it("prorates monthly sales plan rows by calendar days for effective report ranges", async () => {
+    const repository = {
+      getSalesPlanRows: async (periodStart: string, periodEnd: string) => {
+        if (
+          periodStart === "2026-04-01T00:00:00.000+03:00" &&
+          periodEnd === "2026-04-30T23:59:59.999+03:00"
+        ) {
+          return [
+            {
+              periodStart,
+              periodEnd,
+              managerId: "78",
+              managerName: "Егоров Андрей",
+              targetGroupKey: "ClubFirst Russia",
+              targetGroupLabel: "ClubFirst Russia",
+              plannedDeals: 5,
+              plannedAmount: 5000000,
+              updatedAt: "2026-04-10T12:00:00.000Z"
+            }
+          ];
+        }
+
+        return [];
+      }
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T12:00:00.000Z")
+    });
+
+    await expect(
+      service.getEffectiveSalesPlan({
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-04-07T23:59:59.999+03:00"
+      })
+    ).resolves.toMatchObject({
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-04-07T23:59:59.999+03:00",
+      rows: [
+        {
+          managerId: "78",
+          targetGroupKey: "ClubFirst Russia",
+          plannedDeals: 2,
+          plannedAmount: 1166667
+        }
+      ],
+      updatedAt: "2026-04-10T12:00:00.000Z"
+    });
+  });
+
   it("keeps operational report manager rows scoped to the attraction team", async () => {
     const repository = {
       getAllDeals: async () => [
@@ -902,6 +959,7 @@ describe("createReportingService", () => {
                   dealCount: 1
                 }
               ],
+              meetingBusinessClubBreakdown: [],
               slaMetrics: [
                 {
                   slaKey: "sla1",

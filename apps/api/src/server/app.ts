@@ -5,6 +5,8 @@ import type {
   CohortConversionReport,
   ConversionEventsReport,
   DashboardData,
+  DealPricingSettings,
+  DealPricingSettingsInput,
   ManagerActionOutcomeReport,
   ManagerDirectoryEntry,
   ManualSyncSummary,
@@ -13,6 +15,8 @@ import type {
   RevenueVelocityView,
   SalesPlanData,
   SalesPlanInput,
+  SalesPlanQuarterData,
+  SalesPlanQuarterInput,
   SnapshotStats,
   SourceCatalogEntry,
   SourceQualityConversionReport,
@@ -100,6 +104,17 @@ interface AppService {
     periodEnd: string;
   }): Promise<SalesPlanData>;
   replaceSalesPlan(input: SalesPlanInput): Promise<SalesPlanData>;
+  getSalesPlanQuarter(input: {
+    year: number;
+    quarter: number;
+  }): Promise<SalesPlanQuarterData>;
+  replaceSalesPlanQuarter(input: SalesPlanQuarterInput): Promise<SalesPlanQuarterData>;
+  getEffectiveSalesPlan(input: {
+    periodStart: string;
+    periodEnd: string;
+  }): Promise<SalesPlanData>;
+  getPricingSettings(): Promise<DealPricingSettings>;
+  replacePricingSettings(input: DealPricingSettingsInput): Promise<DealPricingSettings>;
   getMeta(): Promise<MetaResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
@@ -273,6 +288,97 @@ const salesPlanBodySchema = z
       });
     }
   });
+
+function expectedQuarterMonths(year: number, quarter: number) {
+  const firstMonth = (quarter - 1) * 3 + 1;
+  return [0, 1, 2].map(
+    (offset) => `${year}-${String(firstMonth + offset).padStart(2, "0")}`
+  );
+}
+
+const salesPlanQuarterQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  quarter: z.coerce.number().int().min(1).max(4)
+});
+
+const salesPlanQuarterBodySchema = z
+  .object({
+    year: z.number().int().min(2000).max(2100),
+    quarter: z.number().int().min(1).max(4),
+    rows: z.array(
+      z.object({
+        managerId: z.string().min(1),
+        managerName: z.string().trim().min(1).nullable().optional(),
+        targetGroupKey: z.string().min(1),
+        targetGroupLabel: z.string().trim().min(1).nullable().optional(),
+        quarterPlannedDeals: z.number().int().nonnegative(),
+        quarterPlannedAmount: z.number().int().nonnegative(),
+        months: z.array(
+          z.object({
+            month: z.string().regex(/^\d{4}-\d{2}$/),
+            plannedDeals: z.number().int().nonnegative(),
+            plannedAmount: z.number().int().nonnegative()
+          })
+        )
+      })
+    )
+  })
+  .superRefine((value, context) => {
+    const expectedMonths = expectedQuarterMonths(value.year, value.quarter);
+
+    value.rows.forEach((row, rowIndex) => {
+      const monthKeys = row.months.map((month) => month.month);
+      const hasExpectedMonths =
+        row.months.length === expectedMonths.length &&
+        expectedMonths.every((month) => monthKeys.includes(month));
+
+      if (!hasExpectedMonths) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "quarter months must match the selected quarter.",
+          path: ["rows", rowIndex, "months"]
+        });
+      }
+
+      const plannedDeals = row.months.reduce(
+        (total, month) => total + month.plannedDeals,
+        0
+      );
+      const plannedAmount = row.months.reduce(
+        (total, month) => total + month.plannedAmount,
+        0
+      );
+
+      if (plannedDeals !== row.quarterPlannedDeals) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "quarter planned deals must equal the sum of month planned deals.",
+          path: ["rows", rowIndex, "quarterPlannedDeals"]
+        });
+      }
+
+      if (plannedAmount !== row.quarterPlannedAmount) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "quarter planned amount must equal the sum of month planned amounts.",
+          path: ["rows", rowIndex, "quarterPlannedAmount"]
+        });
+      }
+    });
+  });
+
+const pricingSettingsBodySchema = z.object({
+  rules: z.array(
+    z.object({
+      id: z.string().trim().min(1),
+      customerLabel: z.string().trim().min(1),
+      tariffLabel: z.string().trim().min(1),
+      attractionRevenueAmount: z.number().finite().nonnegative(),
+      enabled: z.boolean(),
+      sortOrder: z.number().int().nonnegative().nullable().optional()
+    })
+  )
+});
 
 function parseRangeRequest(query: unknown): RangeRequest {
   const parsed = reportQuerySchema.parse(query);
@@ -617,6 +723,71 @@ export function createApp(service: AppService, config: AppConfig = {}) {
     try {
       const payload = salesPlanBodySchema.parse(request.body);
       response.json(await service.replaceSalesPlan(payload));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/sales-plan/quarter", async (request, response, next) => {
+    try {
+      const query = salesPlanQuarterQuerySchema.parse(request.query);
+      response.json(
+        await service.getSalesPlanQuarter({
+          year: query.year,
+          quarter: query.quarter
+        })
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/sales-plan/quarter", async (request, response, next) => {
+    try {
+      const payload = salesPlanQuarterBodySchema.parse(request.body);
+      response.json(await service.replaceSalesPlanQuarter(payload));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/sales-plan/effective", async (request, response, next) => {
+    try {
+      const query = salesPlanQuerySchema.parse(request.query);
+      response.json(
+        await service.getEffectiveSalesPlan({
+          periodStart: query.from,
+          periodEnd: query.to
+        })
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/settings/pricing", async (_request, response, next) => {
+    try {
+      response.json(await service.getPricingSettings());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/settings/pricing", async (request, response, next) => {
+    try {
+      const payload = pricingSettingsBodySchema.parse(request.body);
+      response.json(
+        await service.replacePricingSettings({
+          rules: payload.rules.map((rule, index) => ({
+            id: rule.id,
+            customerLabel: rule.customerLabel,
+            tariffLabel: rule.tariffLabel,
+            attractionRevenueAmount: rule.attractionRevenueAmount,
+            enabled: rule.enabled,
+            sortOrder: rule.sortOrder ?? index * 10
+          }))
+        })
+      );
     } catch (error) {
       next(error);
     }

@@ -8,6 +8,7 @@ import type {
   ManagerActionOutcomeReport,
   RevenueVelocityReport,
   SalesPlanData,
+  SalesPlanQuarterData,
   SourceQualityConversionReport,
   StageCatalogEntry,
   TargetGroupConversionReport,
@@ -170,6 +171,37 @@ function createSyncSummary(
   };
 }
 
+function createEmptySalesPlanQuarter(input: { year: number; quarter: number }) {
+  return {
+    year: input.year,
+    quarter: input.quarter,
+    periodStart: "2026-04-01T00:00:00.000+03:00",
+    periodEnd: "2026-06-30T23:59:59.999+03:00",
+    months: [
+      {
+        month: "2026-04",
+        label: "Апрель",
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-04-30T23:59:59.999+03:00"
+      },
+      {
+        month: "2026-05",
+        label: "Май",
+        periodStart: "2026-05-01T00:00:00.000+03:00",
+        periodEnd: "2026-05-31T23:59:59.999+03:00"
+      },
+      {
+        month: "2026-06",
+        label: "Июнь",
+        periodStart: "2026-06-01T00:00:00.000+03:00",
+        periodEnd: "2026-06-30T23:59:59.999+03:00"
+      }
+    ],
+    rows: [],
+    updatedAt: null
+  };
+}
+
 function createTestApp(
   serviceOverrides: Partial<Parameters<typeof createApp>[0]> = {},
   config?: {
@@ -183,6 +215,11 @@ function createTestApp(
         salesCount: 0,
         salesAmount: 0,
         averageSaleAmount: 0,
+        attractionRevenueAmount: 0,
+        averageAttractionRevenueAmount: 0,
+        membershipAmount: 0,
+        averageMembershipAmount: 0,
+        pricingWarnings: [],
         newDealsCount: 0,
         conversionRate: 0
       },
@@ -209,6 +246,84 @@ function createTestApp(
         updatedAt: "2026-04-10T12:00:00.000Z"
       })),
       updatedAt: "2026-04-10T12:00:00.000Z"
+    }),
+    getSalesPlanQuarter: async (input) => ({
+      year: input.year,
+      quarter: input.quarter,
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-06-30T23:59:59.999+03:00",
+      months: [
+        {
+          month: "2026-04",
+          label: "Апрель",
+          periodStart: "2026-04-01T00:00:00.000+03:00",
+          periodEnd: "2026-04-30T23:59:59.999+03:00"
+        },
+        {
+          month: "2026-05",
+          label: "Май",
+          periodStart: "2026-05-01T00:00:00.000+03:00",
+          periodEnd: "2026-05-31T23:59:59.999+03:00"
+        },
+        {
+          month: "2026-06",
+          label: "Июнь",
+          periodStart: "2026-06-01T00:00:00.000+03:00",
+          periodEnd: "2026-06-30T23:59:59.999+03:00"
+        }
+      ],
+      rows: [],
+      updatedAt: null
+    }),
+    replaceSalesPlanQuarter: async (input) => ({
+      year: input.year,
+      quarter: input.quarter,
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-06-30T23:59:59.999+03:00",
+      months: [
+        {
+          month: "2026-04",
+          label: "Апрель",
+          periodStart: "2026-04-01T00:00:00.000+03:00",
+          periodEnd: "2026-04-30T23:59:59.999+03:00"
+        },
+        {
+          month: "2026-05",
+          label: "Май",
+          periodStart: "2026-05-01T00:00:00.000+03:00",
+          periodEnd: "2026-05-31T23:59:59.999+03:00"
+        },
+        {
+          month: "2026-06",
+          label: "Июнь",
+          periodStart: "2026-06-01T00:00:00.000+03:00",
+          periodEnd: "2026-06-30T23:59:59.999+03:00"
+        }
+      ],
+      rows: input.rows.map((row) => ({
+        managerId: row.managerId,
+        managerName: row.managerName ?? null,
+        targetGroupKey: row.targetGroupKey,
+        targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+        quarterPlannedDeals: row.quarterPlannedDeals,
+        quarterPlannedAmount: row.quarterPlannedAmount,
+        months: row.months.map((month) => ({
+          month: month.month,
+          periodStart: `${month.month}-01T00:00:00.000+03:00`,
+          periodEnd: `${month.month}-30T23:59:59.999+03:00`,
+          plannedDeals: month.plannedDeals,
+          plannedAmount: month.plannedAmount,
+          updatedAt: "2026-04-10T12:00:00.000Z"
+        })),
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      })),
+      updatedAt: "2026-04-10T12:00:00.000Z"
+    }),
+    getEffectiveSalesPlan: async (input) => ({
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      rows: [],
+      updatedAt: null
     }),
     getSourceQualityConversionReport: async () => ({
       range: {
@@ -330,6 +445,32 @@ function createTestApp(
       cohortStatusRows: []
     }),
     getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
+    getPricingSettings: async () => ({
+      rules: [
+        {
+          id: "clubfirst-federal",
+          customerLabel: "ClubFirst Russia / One",
+          tariffLabel: "Федеральный",
+          attractionRevenueAmount: 300000,
+          enabled: true,
+          sortOrder: 10,
+          updatedAt: null
+        }
+      ],
+      updatedAt: null
+    }),
+    replacePricingSettings: async (input) => ({
+      rules: input.rules.map((rule, index) => ({
+        id: rule.id,
+        customerLabel: rule.customerLabel,
+        tariffLabel: rule.tariffLabel,
+        attractionRevenueAmount: rule.attractionRevenueAmount,
+        enabled: rule.enabled,
+        sortOrder: rule.sortOrder ?? index * 10,
+        updatedAt: "2026-04-29T10:00:00.000Z"
+      })),
+      updatedAt: "2026-04-29T10:00:00.000Z"
+    }),
     getMeta: async () => ({
       stageCatalog: [],
       managerCatalog: [],
@@ -366,6 +507,112 @@ function createTestApp(
 }
 
 describe("createApp", () => {
+  it("returns conversion events report", async () => {
+    const app = createTestApp({
+      getConversionEventsReport: async () => ({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        },
+        totalInvitedCount: 5,
+        totalAttendedCount: 2,
+        totalRefusedCount: 1,
+        totalMissedCount: 3,
+        attendanceRate: 40,
+        nextStepEligibleCount: 2,
+        nextStepCount: 1,
+        nextStepRate: 50,
+        warnings: [],
+        rows: [
+          {
+            eventKey: "Знакомство с клубом 29.04.|2026-04-29T00:00:00.000Z",
+            eventName: "Знакомство с клубом 29.04.",
+            eventDate: "2026-04-29T00:00:00.000Z",
+            invitedCount: 5,
+            attendedCount: 2,
+            refusedCount: 1,
+            missedCount: 3,
+            attendanceRate: 40,
+            nextStepEligibleCount: 2,
+            nextStepCount: 1,
+            nextStepRate: 50,
+            unlinkedCount: 0,
+            unknownStatusCount: 0,
+            managerBreakdown: [],
+            sourceBreakdown: [],
+            businessClubBreakdown: []
+          }
+        ],
+        comparisons: []
+      })
+    });
+
+    await expect(
+      request(app)
+        .get(
+          "/api/reports/conversion-events?from=2026-04-01T00:00:00.000Z&to=2026-04-30T23:59:59.999Z"
+        )
+        .expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        totalInvitedCount: 5,
+        rows: [
+          {
+            eventName: "Знакомство с клубом 29.04.",
+            attendanceRate: 40,
+            nextStepRate: 50
+          }
+        ]
+      }
+    });
+  });
+
+  it("reads and saves pricing settings", async () => {
+    const app = createTestApp();
+
+    await expect(
+      request(app).get("/api/settings/pricing").expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        rules: [
+          {
+            id: "clubfirst-federal",
+            attractionRevenueAmount: 300000
+          }
+        ]
+      }
+    });
+
+    await expect(
+      request(app)
+        .put("/api/settings/pricing")
+        .send({
+          rules: [
+            {
+              id: "clubfirst-federal",
+              customerLabel: "ClubFirst Russia / One",
+              tariffLabel: "Федеральный",
+              attractionRevenueAmount: 310000,
+              enabled: true,
+              sortOrder: 10
+            }
+          ]
+        })
+        .expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        rules: [
+          {
+            id: "clubfirst-federal",
+            attractionRevenueAmount: 310000,
+            updatedAt: "2026-04-29T10:00:00.000Z"
+          }
+        ],
+        updatedAt: "2026-04-29T10:00:00.000Z"
+      }
+    });
+  });
+
   it("returns dashboard data, settings and sync status from the local API", async () => {
     let receivedActivitiesInput: unknown = null;
     let receivedRevenueVelocityInput: unknown = null;
@@ -374,6 +621,11 @@ describe("createApp", () => {
         salesCount: 3,
         salesAmount: 45000,
         averageSaleAmount: 15000,
+        attractionRevenueAmount: 45000,
+        averageAttractionRevenueAmount: 15000,
+        membershipAmount: 45000,
+        averageMembershipAmount: 15000,
+        pricingWarnings: [],
         newDealsCount: 7,
         conversionRate: 42.86
       },
@@ -609,6 +861,22 @@ describe("createApp", () => {
         periodStart: input.periodStart,
         periodEnd: input.periodEnd,
         rows: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }),
+      getSalesPlanQuarter: async (input) => createEmptySalesPlanQuarter(input),
+      replaceSalesPlanQuarter: async (input) => createEmptySalesPlanQuarter(input),
+      getEffectiveSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [],
+        updatedAt: null
+      }),
+      getPricingSettings: async () => ({
+        rules: [],
+        updatedAt: null
+      }),
+      replacePricingSettings: async () => ({
+        rules: [],
         updatedAt: "2026-04-10T12:00:00.000Z"
       }),
       getMeta: async () => ({
@@ -983,6 +1251,217 @@ describe("createApp", () => {
     });
   });
 
+  it("reads and replaces a quarterly sales plan", async () => {
+    let receivedReplacement: unknown = null;
+    const quarterPlan: SalesPlanQuarterData = {
+      year: 2026,
+      quarter: 2,
+      periodStart: "2026-04-01T00:00:00.000+03:00",
+      periodEnd: "2026-06-30T23:59:59.999+03:00",
+      months: [
+        {
+          month: "2026-04",
+          label: "Апрель",
+          periodStart: "2026-04-01T00:00:00.000+03:00",
+          periodEnd: "2026-04-30T23:59:59.999+03:00"
+        },
+        {
+          month: "2026-05",
+          label: "Май",
+          periodStart: "2026-05-01T00:00:00.000+03:00",
+          periodEnd: "2026-05-31T23:59:59.999+03:00"
+        },
+        {
+          month: "2026-06",
+          label: "Июнь",
+          periodStart: "2026-06-01T00:00:00.000+03:00",
+          periodEnd: "2026-06-30T23:59:59.999+03:00"
+        }
+      ],
+      rows: [
+        {
+          managerId: "78",
+          managerName: "Егоров Андрей",
+          targetGroupKey: "ClubFirst Russia",
+          targetGroupLabel: "ClubFirst Russia",
+          quarterPlannedDeals: 9,
+          quarterPlannedAmount: 9000000,
+          months: [
+            {
+              month: "2026-04",
+              periodStart: "2026-04-01T00:00:00.000+03:00",
+              periodEnd: "2026-04-30T23:59:59.999+03:00",
+              plannedDeals: 3,
+              plannedAmount: 3000000,
+              updatedAt: "2026-04-10T12:00:00.000Z"
+            },
+            {
+              month: "2026-05",
+              periodStart: "2026-05-01T00:00:00.000+03:00",
+              periodEnd: "2026-05-31T23:59:59.999+03:00",
+              plannedDeals: 3,
+              plannedAmount: 3000000,
+              updatedAt: "2026-04-10T12:00:00.000Z"
+            },
+            {
+              month: "2026-06",
+              periodStart: "2026-06-01T00:00:00.000+03:00",
+              periodEnd: "2026-06-30T23:59:59.999+03:00",
+              plannedDeals: 3,
+              plannedAmount: 3000000,
+              updatedAt: "2026-04-10T12:00:00.000Z"
+            }
+          ],
+          updatedAt: "2026-04-10T12:00:00.000Z"
+        }
+      ],
+      updatedAt: "2026-04-10T12:00:00.000Z"
+    };
+    const app = createTestApp({
+      getSalesPlanQuarter: async (input) => ({
+        ...quarterPlan,
+        year: input.year,
+        quarter: input.quarter
+      }),
+      replaceSalesPlanQuarter: async (input) => {
+        receivedReplacement = input;
+        return {
+          ...quarterPlan,
+          year: input.year,
+          quarter: input.quarter
+        };
+      }
+    });
+
+    await request(app)
+      .get("/api/sales-plan/quarter")
+      .query({ year: "2026", quarter: "2" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.months.map((month: { month: string }) => month.month)).toEqual([
+          "2026-04",
+          "2026-05",
+          "2026-06"
+        ]);
+        expect(body.rows[0]).toMatchObject({
+          managerId: "78",
+          targetGroupKey: "ClubFirst Russia",
+          quarterPlannedDeals: 9,
+          quarterPlannedAmount: 9000000
+        });
+      });
+
+    await request(app)
+      .put("/api/sales-plan/quarter")
+      .send({
+        year: 2026,
+        quarter: 2,
+        rows: [
+          {
+            managerId: "78",
+            managerName: "Егоров Андрей",
+            targetGroupKey: "ClubFirst Russia",
+            targetGroupLabel: "ClubFirst Russia",
+            quarterPlannedDeals: 9,
+            quarterPlannedAmount: 9000000,
+            months: [
+              { month: "2026-04", plannedDeals: 3, plannedAmount: 3000000 },
+              { month: "2026-05", plannedDeals: 3, plannedAmount: 3000000 },
+              { month: "2026-06", plannedDeals: 3, plannedAmount: 3000000 }
+            ]
+          }
+        ]
+      })
+      .expect(200);
+
+    expect(receivedReplacement).toEqual({
+      year: 2026,
+      quarter: 2,
+      rows: [
+        {
+          managerId: "78",
+          managerName: "Егоров Андрей",
+          targetGroupKey: "ClubFirst Russia",
+          targetGroupLabel: "ClubFirst Russia",
+          quarterPlannedDeals: 9,
+          quarterPlannedAmount: 9000000,
+          months: [
+            { month: "2026-04", plannedDeals: 3, plannedAmount: 3000000 },
+            { month: "2026-05", plannedDeals: 3, plannedAmount: 3000000 },
+            { month: "2026-06", plannedDeals: 3, plannedAmount: 3000000 }
+          ]
+        }
+      ]
+    });
+  });
+
+  it("rejects quarterly sales plans whose months do not match the quarter total", async () => {
+    const app = createTestApp();
+
+    await request(app)
+      .put("/api/sales-plan/quarter")
+      .send({
+        year: 2026,
+        quarter: 2,
+        rows: [
+          {
+            managerId: "78",
+            targetGroupKey: "ClubFirst Russia",
+            quarterPlannedDeals: 9,
+            quarterPlannedAmount: 9000000,
+            months: [
+              { month: "2026-04", plannedDeals: 5, plannedAmount: 3000000 },
+              { month: "2026-05", plannedDeals: 5, plannedAmount: 3000000 },
+              { month: "2026-06", plannedDeals: 5, plannedAmount: 3000000 }
+            ]
+          }
+        ]
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error).toBe("VALIDATION_ERROR");
+        expect(JSON.stringify(body.details.fieldErrors)).toContain("quarter");
+      });
+  });
+
+  it("reads an effective sales plan prorated for the report range", async () => {
+    const app = createTestApp({
+      getEffectiveSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [
+          {
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            managerId: "78",
+            managerName: "Егоров Андрей",
+            targetGroupKey: "ClubFirst Russia",
+            targetGroupLabel: "ClubFirst Russia",
+            plannedDeals: 2,
+            plannedAmount: 1166667,
+            updatedAt: "2026-04-10T12:00:00.000Z"
+          }
+        ],
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      })
+    });
+
+    await request(app)
+      .get("/api/sales-plan/effective")
+      .query({
+        from: "2026-04-01T00:00:00.000+03:00",
+        to: "2026-04-07T23:59:59.999+03:00"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.rows[0]).toMatchObject({
+          managerId: "78",
+          plannedDeals: 2,
+          plannedAmount: 1166667
+        });
+      });
+  });
+
   it("rejects concurrent sync requests while one refresh is already running", async () => {
     let resolveSync!: (value: ReturnType<typeof createSyncSummary>) => void;
 
@@ -992,6 +1471,11 @@ describe("createApp", () => {
           salesCount: 0,
           salesAmount: 0,
           averageSaleAmount: 0,
+          attractionRevenueAmount: 0,
+          averageAttractionRevenueAmount: 0,
+          membershipAmount: 0,
+          averageMembershipAmount: 0,
+          pricingWarnings: [],
           newDealsCount: 0,
           conversionRate: 0
         },
@@ -1129,6 +1613,22 @@ describe("createApp", () => {
         rows: [],
         updatedAt: "2026-04-10T12:00:00.000Z"
       }),
+      getSalesPlanQuarter: async (input) => createEmptySalesPlanQuarter(input),
+      replaceSalesPlanQuarter: async (input) => createEmptySalesPlanQuarter(input),
+      getEffectiveSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [],
+        updatedAt: null
+      }),
+      getPricingSettings: async () => ({
+        rules: [],
+        updatedAt: null
+      }),
+      replacePricingSettings: async () => ({
+        rules: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }),
       getMeta: async () => ({
         stageCatalog: [],
         managerCatalog: [],
@@ -1219,6 +1719,11 @@ describe("createApp", () => {
           salesCount: 0,
           salesAmount: 0,
           averageSaleAmount: 0,
+          attractionRevenueAmount: 0,
+          averageAttractionRevenueAmount: 0,
+          membershipAmount: 0,
+          averageMembershipAmount: 0,
+          pricingWarnings: [],
           newDealsCount: 0,
           conversionRate: 0
         },
@@ -1349,6 +1854,22 @@ describe("createApp", () => {
         periodStart: input.periodStart,
         periodEnd: input.periodEnd,
         rows: [],
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }),
+      getSalesPlanQuarter: async (input) => createEmptySalesPlanQuarter(input),
+      replaceSalesPlanQuarter: async (input) => createEmptySalesPlanQuarter(input),
+      getEffectiveSalesPlan: async (input) => ({
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        rows: [],
+        updatedAt: null
+      }),
+      getPricingSettings: async () => ({
+        rules: [],
+        updatedAt: null
+      }),
+      replacePricingSettings: async () => ({
+        rules: [],
         updatedAt: "2026-04-10T12:00:00.000Z"
       }),
       getMeta: async () => ({

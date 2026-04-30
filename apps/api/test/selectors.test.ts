@@ -48,7 +48,7 @@ describe("Bitrix24 selector whitelist", () => {
     ]);
   });
 
-  it("builds smart-process item params without selecting raw client fields", () => {
+  it("builds smart-process item params without selecting raw client names", () => {
     expect(
       buildConversionEventItemListParams({
         entityTypeId: 177,

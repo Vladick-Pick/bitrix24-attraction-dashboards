@@ -6,14 +6,17 @@ import type {
   ConversionEventsReport,
   ConversionEventBreakdownRow,
   DashboardData,
+  DealPricingRuleInput,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeReport,
   RevenueVelocityDimension,
+  RevenueVelocityFormulaBreakdown,
   RevenueVelocityReport,
   RevenueVelocityRow,
   RevenueVelocityView,
   SalesPlanData,
-  SalesPlanDraftRow,
+  SalesPlanQuarterData,
+  SalesPlanQuarterDraftRow,
   SalesDealRow,
   SalesManagerGroup,
   TargetGroupConversionReport,
@@ -1684,6 +1687,30 @@ function formatRatioPercent(value: number) {
   return `${formatPercent((value ?? 0) * 100)}%`
 }
 
+function resolveDealAttractionRevenue(deal: SalesDealRow) {
+  return deal.attractionRevenueAmount ?? deal.amount
+}
+
+function resolveDealMembershipAmount(deal: SalesDealRow) {
+  return Number.isFinite(deal.membershipAmount) ? deal.membershipAmount : deal.amount
+}
+
+function formatPricingStatus(value: SalesDealRow['pricingStatus']) {
+  if (value === 'missingContractFields') {
+    return 'нет договорных полей'
+  }
+
+  if (value === 'missingPricingRule') {
+    return 'нет правила цены'
+  }
+
+  if (value === 'conflict') {
+    return 'конфликт'
+  }
+
+  return 'рассчитано'
+}
+
 function formatCompareDelta(current: number, previous: number, kind: 'count' | 'amount' | 'rate' | 'days' = 'count') {
   if (!Number.isFinite(previous)) {
     return '—'
@@ -1718,6 +1745,32 @@ function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
   return (
     <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+        <div className="rounded-xl border border-slate-200 bg-white/75 p-4">
+          <div className="subtle-label">Экономика</div>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <div>
+              <div className="subtle-label">Доход Привлечения</div>
+              <div className="mt-1 text-lg font-bold text-slate-950">
+                {formatAmount(resolveDealAttractionRevenue(deal))}
+              </div>
+            </div>
+            <div>
+              <div className="subtle-label">Стоимость членства</div>
+              <div className="mt-1 text-lg font-bold text-slate-950">
+                {formatAmount(resolveDealMembershipAmount(deal))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs font-medium text-slate-500">
+            {formatPricingStatus(deal.pricingStatus)}
+          </div>
+          {(deal.pricingWarnings?.length ?? 0) > 0 ? (
+            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {deal.pricingWarnings?.[0]}
+            </div>
+          ) : null}
+        </div>
+
         <div className="rounded-xl border border-slate-200 bg-white/75 p-4">
           <div className="subtle-label">Атрибуты продажи</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -1818,18 +1871,28 @@ function SalesManagerBlock({
   expandedDeals: Set<string>
   onToggleDeal: (dealId: string) => void
 }) {
+  const totalAttractionRevenue = Number.isFinite(group.totalAttractionRevenueAmount)
+    ? group.totalAttractionRevenueAmount
+    : group.totalSalesAmount
+  const totalMembershipAmount = Number.isFinite(group.totalMembershipAmount)
+    ? group.totalMembershipAmount
+    : group.totalSalesAmount
+
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white/70">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3">
         <div>
           <h4 className="text-base font-bold text-slate-950">{group.managerName}</h4>
           <p className="text-sm text-slate-500">
-            {formatInteger(group.totalWonDeals)} продаж · {formatAmount(group.totalSalesAmount)}
+            {formatInteger(group.totalWonDeals)} продаж · {formatAmount(totalAttractionRevenue)} доход
+          </p>
+          <p className="text-xs text-slate-500">
+            {formatAmount(totalMembershipAmount)} стоимость членства
           </p>
         </div>
         <span className="badge-chip badge-neutral">
-          средний чек{' '}
-          {formatAmount(group.totalWonDeals === 0 ? 0 : group.totalSalesAmount / group.totalWonDeals)}
+          средний доход{' '}
+          {formatAmount(group.totalWonDeals === 0 ? 0 : totalAttractionRevenue / group.totalWonDeals)}
         </span>
       </div>
 
@@ -1839,7 +1902,7 @@ function SalesManagerBlock({
 
           return (
             <article key={deal.dealId} className="px-4 py-4">
-              <div className="grid gap-4 xl:grid-cols-[minmax(12rem,1.1fr)_7rem_6rem_8rem_11rem_7rem_auto] xl:items-center">
+              <div className="grid gap-4 xl:grid-cols-[minmax(12rem,1.1fr)_7rem_7rem_6rem_8rem_11rem_7rem_auto] xl:items-center">
                 <div className="min-w-0">
                   <h5 className="truncate text-base font-bold text-slate-950">{deal.dealId}</h5>
                   <p className="text-sm text-slate-500">
@@ -1849,8 +1912,15 @@ function SalesManagerBlock({
                 </div>
 
                 <div>
-                  <div className="subtle-label">Сумма</div>
-                  <div className="mt-1 font-bold text-slate-950">{formatAmount(deal.amount)}</div>
+                  <div className="subtle-label">Доход</div>
+                  <div className="mt-1 font-bold text-slate-950">
+                    {formatAmount(resolveDealAttractionRevenue(deal))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="subtle-label">Членство</div>
+                  <div className="mt-1 font-bold text-slate-950">{formatAmount(resolveDealMembershipAmount(deal))}</div>
                 </div>
 
                 <div>
@@ -1937,7 +2007,7 @@ function SalesManagersReport({
       <PanelHeading
         id="sales-by-manager-title"
         title="Продажи по менеджерам"
-        description="Каждая строка - отдельная выигранная сделка с суммой, циклом, когортой, звонками, делами и историей этапов."
+        description="Каждая строка - отдельная выигранная сделка с экономикой, циклом, когортой, звонками, делами и историей этапов."
         right={<span className="badge-chip badge-neutral">{formatInteger(totalDeals)} продаж</span>}
       />
 
@@ -1984,9 +2054,25 @@ type SalesPlanFactRow = {
   actualAmount: number
 }
 
-type EditableSalesPlanRow = SalesPlanDraftRow & {
-  localId: string
+type EditableSalesPlanMonth = {
+  month: string
+  label: string
+  plannedDeals: number
+  plannedAmount: number
 }
+
+type EditableSalesPlanRow = {
+  localId: string
+  managerId: string
+  managerName?: string | null
+  targetGroupKey: string
+  targetGroupLabel?: string | null
+  quarterPlannedDeals: number
+  quarterPlannedAmount: number
+  months: EditableSalesPlanMonth[]
+}
+
+const SALES_PLAN_AMOUNT_UNIT = 1_000_000
 
 const defaultSalesPlanTargetGroups = [
   'ClubFirst Russia',
@@ -2084,7 +2170,7 @@ function buildSalesPlanFactRows(
         targetGroupLabel: targetGroup.label,
       })
       row.actualDeals += 1
-      row.actualAmount += deal.amount
+      row.actualAmount += resolveDealAttractionRevenue(deal)
     }
   }
 
@@ -2135,7 +2221,7 @@ function SalesPlanFactSection({
     <section className="panel p-5">
       <PanelHeading
         title="План / факт продаж"
-        description="Сверка сохраненного плана с выигранными сделками периода в разрезе менеджеров и таргет-группы/клуба заказчика."
+        description="Сверка плана, пересчитанного под выбранный диапазон отчета, с выигранными сделками периода в разрезе менеджеров и таргет-группы/клуба заказчика."
         right={
           <span className="badge-chip badge-neutral">
             {formatInteger(totals.actualDeals)} / {formatInteger(totals.plannedDeals)} сделок
@@ -2153,8 +2239,8 @@ function SalesPlanFactSection({
                 <th className="px-3 py-3">План сделок</th>
                 <th className="px-3 py-3">Факт сделок</th>
                 <th className="px-3 py-3">% выполнения</th>
-                <th className="px-3 py-3">План сумма</th>
-                <th className="px-3 py-3">Факт сумма</th>
+                <th className="px-3 py-3">План дохода</th>
+                <th className="px-3 py-3">Факт дохода</th>
                 <th className="px-3 py-3">Разрыв</th>
               </tr>
             </thead>
@@ -2196,20 +2282,42 @@ function SalesPlanFactSection({
   )
 }
 
+function buildEditableMonths(plan: SalesPlanQuarterData | undefined): EditableSalesPlanMonth[] {
+  return (plan?.months ?? []).map((month) => ({
+    month: month.month,
+    label: month.label,
+    plannedDeals: 0,
+    plannedAmount: 0,
+  }))
+}
+
 function toEditableSalesPlanRows(
-  salesPlan: SalesPlanData | undefined,
+  salesPlan: SalesPlanQuarterData | undefined,
   managers: PickerOption[],
   targetGroups: Array<{ key: string; label: string }> = [],
 ): EditableSalesPlanRow[] {
-  if (salesPlan?.rows.length) {
+  if (!salesPlan) {
+    return []
+  }
+
+  if (salesPlan.rows.length) {
     return salesPlan.rows.map((row, index) => ({
       localId: `${row.managerId}-${row.targetGroupKey}-${index}`,
       managerId: row.managerId,
       managerName: row.managerName,
       targetGroupKey: row.targetGroupKey,
       targetGroupLabel: row.targetGroupLabel,
-      plannedDeals: row.plannedDeals,
-      plannedAmount: row.plannedAmount,
+      quarterPlannedDeals: row.quarterPlannedDeals,
+      quarterPlannedAmount: row.quarterPlannedAmount,
+      months: salesPlan.months.map((month) => {
+        const savedMonth = row.months.find((entry) => entry.month === month.month)
+        return {
+          month: month.month,
+          label: month.label,
+          plannedDeals: savedMonth?.plannedDeals ?? 0,
+          plannedAmount: savedMonth?.plannedAmount ?? 0,
+        }
+      }),
     }))
   }
 
@@ -2222,15 +2330,17 @@ function toEditableSalesPlanRows(
       managerName: firstManager?.label ?? null,
       targetGroupKey: firstTargetGroup?.key ?? '',
       targetGroupLabel: firstTargetGroup?.label ?? '',
-      plannedDeals: 0,
-      plannedAmount: 0,
+      quarterPlannedDeals: 0,
+      quarterPlannedAmount: 0,
+      months: buildEditableMonths(salesPlan),
     },
   ]
 }
 
 function collectTargetGroupOptions(
   dashboard: DashboardData | undefined,
-  salesPlan: SalesPlanData | undefined,
+  effectiveSalesPlan: SalesPlanData | undefined,
+  salesPlanQuarter: SalesPlanQuarterData | undefined,
   acquisitionOutcomes: AcquisitionOutcomesReport | undefined,
   targetGroupConversion: TargetGroupConversionReport | undefined,
 ) {
@@ -2240,7 +2350,11 @@ function collectTargetGroupOptions(
     addSalesPlanTargetGroupOption(options, targetGroup.key, targetGroup.label)
   }
 
-  for (const planRow of salesPlan?.rows ?? []) {
+  for (const planRow of effectiveSalesPlan?.rows ?? []) {
+    addSalesPlanTargetGroupOption(options, planRow.targetGroupKey, planRow.targetGroupLabel)
+  }
+
+  for (const planRow of salesPlanQuarter?.rows ?? []) {
     addSalesPlanTargetGroupOption(options, planRow.targetGroupKey, planRow.targetGroupLabel)
   }
 
@@ -2269,24 +2383,121 @@ function collectTargetGroupOptions(
     .sort((left, right) => left.label.localeCompare(right.label, 'ru-RU'))
 }
 
+function getSalesPlanRowMismatch(row: EditableSalesPlanRow) {
+  const monthDeals = row.months.reduce((total, month) => total + month.plannedDeals, 0)
+  const monthAmount = row.months.reduce((total, month) => total + month.plannedAmount, 0)
+  const dealDiff = monthDeals - row.quarterPlannedDeals
+  const amountDiff = monthAmount - row.quarterPlannedAmount
+
+  if (dealDiff === 0 && amountDiff === 0) {
+    return null
+  }
+
+  return { dealDiff, amountDiff }
+}
+
+function formatPlanMismatch(mismatch: NonNullable<ReturnType<typeof getSalesPlanRowMismatch>>) {
+  const parts = []
+  if (mismatch.dealDiff !== 0) {
+    parts.push(`сделки ${mismatch.dealDiff > 0 ? '+' : ''}${formatInteger(mismatch.dealDiff)}`)
+  }
+  if (mismatch.amountDiff !== 0) {
+    parts.push(`доход ${mismatch.amountDiff > 0 ? '+' : ''}${formatAmount(mismatch.amountDiff)}`)
+  }
+
+  return `Сумма месяцев не равна квартальному плану: ${parts.join(', ')}`
+}
+
+function formatSalesPlanAmountMillions(value: number) {
+  const millions = value / SALES_PLAN_AMOUNT_UNIT
+  return Number.isInteger(millions) ? String(millions) : String(Number(millions.toFixed(2)))
+}
+
+function parseSalesPlanAmountMillions(value: string) {
+  if (!value.trim()) {
+    return 0
+  }
+
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null
+  }
+
+  return Math.round(parsed * SALES_PLAN_AMOUNT_UNIT)
+}
+
+function SalesPlanAmountInput({
+  ariaLabel,
+  disabled,
+  value,
+  onChange,
+}: {
+  ariaLabel: string
+  disabled: boolean
+  value: number
+  onChange: (value: number) => void
+}) {
+  const formattedValue = formatSalesPlanAmountMillions(value)
+  const [draftValue, setDraftValue] = useState(formattedValue)
+
+  useEffect(() => {
+    setDraftValue(formattedValue)
+  }, [formattedValue])
+
+  return (
+    <input
+      className="field h-10 w-full"
+      type="number"
+      min={0}
+      step={0.1}
+      aria-label={ariaLabel}
+      value={draftValue}
+      disabled={disabled}
+      onChange={(event) => {
+        const nextValue = event.target.value
+        setDraftValue(nextValue)
+        const parsedValue = parseSalesPlanAmountMillions(nextValue)
+        if (parsedValue !== null) {
+          onChange(parsedValue)
+        }
+      }}
+      onBlur={() => setDraftValue(formatSalesPlanAmountMillions(value))}
+    />
+  )
+}
+
+function shiftQuarterSelection(input: { year: number; quarter: number }, delta: number) {
+  const zeroBased = input.year * 4 + (input.quarter - 1) + delta
+  const year = Math.floor(zeroBased / 4)
+  const quarterIndex = ((zeroBased % 4) + 4) % 4
+
+  return { year, quarter: quarterIndex + 1 }
+}
+
 function SalesPlanScene({
   runtimeData,
-  salesPlanMonth,
+  salesPlanQuarter,
   salesPlanLoading,
   salesPlanSaving,
   salesPlanSaveError,
-  onSalesPlanMonthChange,
+  onSalesPlanQuarterChange,
   onSalesPlanSave,
 }: SceneComponentProps) {
   const managers =
     runtimeData?.managerOptions.length ? runtimeData.managerOptions : managerOptions
-  const salesPlan = runtimeData?.salesPlan
+  const effectiveSalesPlan = runtimeData?.salesPlan
+  const savedQuarterPlan = runtimeData?.salesPlanQuarter
+  const selectedQuarter = salesPlanQuarter ?? {
+    year: savedQuarterPlan?.year ?? new Date().getFullYear(),
+    quarter: savedQuarterPlan?.quarter ?? 1,
+  }
   const isPlanLocked = Boolean(salesPlanLoading || salesPlanSaving)
   const targetGroups = useMemo(
     () =>
       collectTargetGroupOptions(
         runtimeData?.salesDashboard,
-        salesPlan,
+        effectiveSalesPlan,
+        savedQuarterPlan,
         runtimeData?.acquisitionOutcomes,
         runtimeData?.targetGroupConversion,
       ),
@@ -2294,20 +2505,44 @@ function SalesPlanScene({
       runtimeData?.salesDashboard,
       runtimeData?.acquisitionOutcomes,
       runtimeData?.targetGroupConversion,
-      salesPlan,
+      effectiveSalesPlan,
+      savedQuarterPlan,
     ],
   )
   const [rows, setRows] = useState<EditableSalesPlanRow[]>(() =>
-    toEditableSalesPlanRows(salesPlan, managers, targetGroups),
+    toEditableSalesPlanRows(savedQuarterPlan, managers, targetGroups),
   )
+  const mismatches = rows
+    .map((row) => ({ row, mismatch: getSalesPlanRowMismatch(row) }))
+    .filter((entry) => entry.mismatch)
+  const hasMismatches = mismatches.length > 0
 
   useEffect(() => {
-    setRows(toEditableSalesPlanRows(salesPlan, managers, targetGroups))
-  }, [salesPlan, managers, targetGroups])
+    setRows(toEditableSalesPlanRows(savedQuarterPlan, managers, targetGroups))
+  }, [savedQuarterPlan, managers, targetGroups])
 
   function patchRow(localId: string, patch: Partial<EditableSalesPlanRow>) {
     setRows((current) =>
       current.map((row) => (row.localId === localId ? { ...row, ...patch } : row)),
+    )
+  }
+
+  function patchMonth(
+    localId: string,
+    monthKey: string,
+    patch: Partial<EditableSalesPlanMonth>,
+  ) {
+    setRows((current) =>
+      current.map((row) =>
+        row.localId === localId
+          ? {
+              ...row,
+              months: row.months.map((month) =>
+                month.month === monthKey ? { ...month, ...patch } : month,
+              ),
+            }
+          : row,
+      ),
     )
   }
 
@@ -2322,8 +2557,9 @@ function SalesPlanScene({
         managerName: firstManager?.label ?? null,
         targetGroupKey: firstTargetGroup?.key ?? '',
         targetGroupLabel: firstTargetGroup?.label ?? '',
-        plannedDeals: 0,
-        plannedAmount: 0,
+        quarterPlannedDeals: 0,
+        quarterPlannedAmount: 0,
+        months: buildEditableMonths(savedQuarterPlan),
       },
     ])
   }
@@ -2333,13 +2569,13 @@ function SalesPlanScene({
   }
 
   async function saveRows() {
-    if (!onSalesPlanSave) {
+    if (!onSalesPlanSave || hasMismatches) {
       return
     }
 
     await onSalesPlanSave(
       rows
-        .map((row) => {
+        .map((row): SalesPlanQuarterDraftRow => {
           const selectedTargetGroup = targetGroups.find(
             (targetGroup) => targetGroup.key === row.targetGroupKey,
           )
@@ -2358,15 +2594,26 @@ function SalesPlanScene({
             managerName,
             targetGroupKey: (row.targetGroupKey || targetGroupLabel).trim(),
             targetGroupLabel,
-            plannedDeals: Number.isFinite(row.plannedDeals) ? row.plannedDeals : 0,
-            plannedAmount: Number.isFinite(row.plannedAmount) ? row.plannedAmount : 0,
+            quarterPlannedDeals: Number.isFinite(row.quarterPlannedDeals)
+              ? row.quarterPlannedDeals
+              : 0,
+            quarterPlannedAmount: Number.isFinite(row.quarterPlannedAmount)
+              ? row.quarterPlannedAmount
+              : 0,
+            months: row.months.map((month) => ({
+              month: month.month,
+              plannedDeals: Number.isFinite(month.plannedDeals) ? month.plannedDeals : 0,
+              plannedAmount: Number.isFinite(month.plannedAmount) ? month.plannedAmount : 0,
+            })),
           }
         })
         .filter(
           (row) =>
             row.managerId &&
             row.targetGroupKey &&
-            (row.plannedDeals > 0 || row.plannedAmount > 0),
+            (row.quarterPlannedDeals > 0 ||
+              row.quarterPlannedAmount > 0 ||
+              row.months.some((month) => month.plannedDeals > 0 || month.plannedAmount > 0)),
         ),
     )
   }
@@ -2375,29 +2622,49 @@ function SalesPlanScene({
     <section className="panel p-5">
       <PanelHeading
         title="План продаж"
-        description="План по количеству и сумме продаж в разрезе менеджера и таргет-группы/клуба заказчика. Сохраненные строки используются в отчете по продажам."
+        description="Квартальный контрольный план и распределение по месяцам. Сохранение доступно только когда три месяца сходятся с кварталом."
         right={
           <span className="badge-chip badge-neutral">
             {salesPlanLoading
               ? 'загрузка плана'
-              : salesPlan?.updatedAt
-                ? `сохранено ${formatShortDate(salesPlan.updatedAt)}`
+              : savedQuarterPlan?.updatedAt
+                ? `сохранено ${formatShortDate(savedQuarterPlan.updatedAt)}`
                 : 'план не сохранен'}
           </span>
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1">
-          <span className="subtle-label">Месяц плана</span>
-          <input
-            className="field w-44"
-            type="month"
-            aria-label="Месяц плана"
-            value={salesPlanMonth ?? ''}
-            onChange={(event) => onSalesPlanMonthChange?.(event.target.value)}
-          />
-        </label>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() =>
+            onSalesPlanQuarterChange?.(
+              shiftQuarterSelection(selectedQuarter, -1),
+            )
+          }
+          disabled={isPlanLocked}
+        >
+          Предыдущий квартал
+        </button>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2">
+          <span className="subtle-label">Квартал плана</span>
+          <div className="text-base font-bold text-slate-900">
+            {selectedQuarter.quarter} квартал {selectedQuarter.year}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() =>
+            onSalesPlanQuarterChange?.(
+              shiftQuarterSelection(selectedQuarter, 1),
+            )
+          }
+          disabled={isPlanLocked}
+        >
+          Следующий квартал
+        </button>
       </div>
 
       {salesPlanSaveError ? (
@@ -2406,14 +2673,23 @@ function SalesPlanScene({
         </div>
       ) : null}
 
+      {hasMismatches ? (
+        <div role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Сумма месяцев не равна квартальному плану. Исправьте строки перед сохранением.
+        </div>
+      ) : null}
+
       <div className="overflow-auto">
-        <table className="min-w-full text-sm">
+        <table className="min-w-[1440px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
               <th className="px-3 py-3">Менеджер</th>
               <th className="px-3 py-3">Таргет-группа / клуб</th>
-              <th className="px-3 py-3">План сделок</th>
-              <th className="px-3 py-3">План сумма</th>
+              <th className="px-3 py-3">Квартал</th>
+              {(savedQuarterPlan?.months ?? []).map((month) => (
+                <th key={month.month} className="px-3 py-3">{month.label}</th>
+              ))}
+              <th className="px-3 py-3">Сверка</th>
               <th className="px-3 py-3"></th>
             </tr>
           </thead>
@@ -2429,6 +2705,7 @@ function SalesPlanScene({
               const targetGroupLabel =
                 targetGroupOption?.label ?? row.targetGroupLabel ?? row.targetGroupKey
               const fieldSuffix = `${managerName} ${targetGroupLabel}`.trim()
+              const mismatch = getSalesPlanRowMismatch(row)
 
               return (
                 <tr key={row.localId} className="border-b border-slate-100 last:border-b-0">
@@ -2483,38 +2760,94 @@ function SalesPlanScene({
                       ))}
                     </select>
                   </td>
-                  <td className="px-3 py-3">
-                    <input
-                      className="field w-32"
-                      type="number"
-                      min={0}
-                      aria-label={`План сделок ${fieldSuffix}`}
-                      value={row.plannedDeals}
-                      disabled={isPlanLocked}
-                      onChange={(event) =>
-                        patchRow(row.localId, {
-                          plannedDeals: Math.max(0, Number(event.target.value) || 0),
-                        })
-                      }
-                    />
+                  <td className="px-3 py-3 align-top">
+                    <div className="min-w-[150px] space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2">
+                      <label className="block">
+                        <span className="mb-1 block text-[0.68rem] font-bold uppercase tracking-[0.08em] text-slate-500">
+                          Сделки
+                        </span>
+                        <input
+                          className="field h-10 w-full"
+                          type="number"
+                          min={0}
+                          aria-label={`Квартальный план сделок ${fieldSuffix}`}
+                          value={row.quarterPlannedDeals}
+                          disabled={isPlanLocked}
+                          onChange={(event) =>
+                            patchRow(row.localId, {
+                              quarterPlannedDeals: Math.max(0, Number(event.target.value) || 0),
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[0.68rem] font-bold uppercase tracking-[0.08em] text-slate-500">
+                          Доход, млн ₽
+                        </span>
+                        <SalesPlanAmountInput
+                          ariaLabel={`Квартальный план дохода, млн ₽ ${fieldSuffix}`}
+                          value={row.quarterPlannedAmount}
+                          disabled={isPlanLocked}
+                          onChange={(value) =>
+                            patchRow(row.localId, {
+                              quarterPlannedAmount: value,
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
                   </td>
-                  <td className="px-3 py-3">
-                    <input
-                      className="field w-40"
-                      type="number"
-                      min={0}
-                      step={1000}
-                      aria-label={`План суммы ${fieldSuffix}`}
-                      value={row.plannedAmount}
-                      disabled={isPlanLocked}
-                      onChange={(event) =>
-                        patchRow(row.localId, {
-                          plannedAmount: Math.max(0, Number(event.target.value) || 0),
-                        })
-                      }
-                    />
+                  {row.months.map((month) => (
+                    <td key={`${row.localId}-${month.month}`} className="px-3 py-3 align-top">
+                      <div className="min-w-[150px] space-y-2 rounded-xl border border-slate-100 bg-white p-2 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+                        <label className="block">
+                          <span className="mb-1 block text-[0.68rem] font-bold uppercase tracking-[0.08em] text-slate-500">
+                            Сделки
+                          </span>
+                          <input
+                            className="field h-10 w-full"
+                            type="number"
+                            min={0}
+                            aria-label={`План сделок ${month.label} ${fieldSuffix}`}
+                            value={month.plannedDeals}
+                            disabled={isPlanLocked}
+                            onChange={(event) =>
+                              patchMonth(row.localId, month.month, {
+                                plannedDeals: Math.max(0, Number(event.target.value) || 0),
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[0.68rem] font-bold uppercase tracking-[0.08em] text-slate-500">
+                            Доход, млн ₽
+                          </span>
+                          <SalesPlanAmountInput
+                            ariaLabel={`План дохода, млн ₽ ${month.label} ${fieldSuffix}`}
+                            value={month.plannedAmount}
+                            disabled={isPlanLocked}
+                            onChange={(value) =>
+                              patchMonth(row.localId, month.month, {
+                                plannedAmount: value,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    </td>
+                  ))}
+                  <td className="px-3 py-3 align-top">
+                    <div className="min-w-[210px] pt-3">
+                      {mismatch ? (
+                        <span className="font-semibold text-amber-700">
+                          {formatPlanMismatch(mismatch)}
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-emerald-700">Сходится</span>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-3 py-3 text-right">
+                  <td className="px-3 py-3 text-right align-top">
                     <button
                       type="button"
                       className="btn btn-ghost"
@@ -2532,14 +2865,14 @@ function SalesPlanScene({
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" className="btn btn-ghost" onClick={addRow} disabled={isPlanLocked}>
+        <button type="button" className="btn btn-ghost" onClick={addRow} disabled={isPlanLocked || !savedQuarterPlan}>
           Добавить строку
         </button>
         <button
           type="button"
           className="btn btn-primary"
           onClick={() => void saveRows()}
-          disabled={isPlanLocked}
+          disabled={isPlanLocked || hasMismatches || !savedQuarterPlan}
         >
           {salesPlanLoading ? 'Загружаю план...' : salesPlanSaving ? 'Сохраняю...' : 'Сохранить план'}
         </button>
@@ -2567,7 +2900,7 @@ function TargetGroupConversionSection({
     <section className="panel p-5">
       <PanelHeading
         title="Конверсия по таргет-группам"
-        description="Срез по customer target group: новые заказы в период, победы в период, доля побед среди закрытых исходов, выручка, средний чек и средний цикл по выигранным."
+        description="Срез по customer target group: новые заказы в период, победы в период, доля побед среди закрытых исходов, доход Привлечения и средний цикл по выигранным."
         right={<span className="badge-chip badge-neutral">{getCompareLabel(filters)}</span>}
       />
 
@@ -2580,8 +2913,8 @@ function TargetGroupConversionSection({
                 <th className="px-3 py-3">Создано</th>
                 <th className="px-3 py-3">Выиграно</th>
                 <th className="px-3 py-3">Win-rate</th>
-                <th className="px-3 py-3">Выручка</th>
-                <th className="px-3 py-3">Средний чек</th>
+                <th className="px-3 py-3">Доход</th>
+                <th className="px-3 py-3">Средний доход</th>
                 <th className="px-3 py-3">Средний цикл</th>
                 <th className="px-3 py-3">Сравнение 1</th>
               </tr>
@@ -3062,11 +3395,7 @@ function ManagerActionOutcomeSection({
         right={<span className="badge-chip badge-neutral">{cohortMonths.length || 12} когорт · годовой период</span>}
       />
 
-      {actionWarnings.length > 0 ? (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {actionWarnings.join(' · ')}
-        </div>
-      ) : null}
+      <WarningSummaryBlock warnings={actionWarnings} />
 
       <div className="mb-4 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50/80 p-2">
         <div className="flex min-w-max items-center gap-2 text-sm">
@@ -3225,7 +3554,7 @@ function ManagerActionOutcomeSection({
                                     </div>
                                   </div>
                                   <div>
-                                    <div className="subtle-label">Сумма</div>
+                                    <div className="subtle-label">Доход</div>
                                     <div className="font-semibold text-slate-900">{formatAmount(deal.amount)}</div>
                                   </div>
                                   <div>
@@ -3286,9 +3615,31 @@ function SalesKpiCards({
   const groups = dashboard?.managerGroups ?? []
   const salesSummary = dashboard?.salesSummary
   const totalDeals = salesSummary?.salesCount ?? groups.reduce((total, group) => total + group.totalWonDeals, 0)
-  const totalAmount = salesSummary?.salesAmount ?? groups.reduce((total, group) => total + group.totalSalesAmount, 0)
-  const averageSaleAmount =
-    salesSummary?.averageSaleAmount ?? (totalDeals === 0 ? 0 : totalAmount / totalDeals)
+  const totalAttractionRevenue =
+    salesSummary?.attractionRevenueAmount ??
+    groups.reduce(
+      (total, group) =>
+        total +
+        (Number.isFinite(group.totalAttractionRevenueAmount)
+          ? group.totalAttractionRevenueAmount
+          : group.totalSalesAmount),
+      0,
+    )
+  const averageAttractionRevenue =
+    salesSummary?.averageAttractionRevenueAmount ??
+    (totalDeals === 0 ? 0 : totalAttractionRevenue / totalDeals)
+  const averageMembershipAmount =
+    salesSummary?.averageMembershipAmount ??
+    (totalDeals === 0
+      ? 0
+      : groups.reduce(
+          (total, group) =>
+            total +
+            (Number.isFinite(group.totalMembershipAmount)
+              ? group.totalMembershipAmount
+              : group.totalSalesAmount),
+          0,
+        ) / totalDeals)
   const pendingValue = status === 'loading' ? '…' : '—'
   const pendingNote =
     status === 'loading' ? 'ожидаем live-данные' : 'live-данные недоступны'
@@ -3300,14 +3651,19 @@ function SalesKpiCards({
       note: pendingState ? pendingNote : 'передано в клуб за период',
     },
     {
-      label: 'Сумма продаж',
-      value: pendingState ? pendingValue : formatAmount(totalAmount),
-      note: pendingState ? pendingNote : 'по выигранным сделкам',
+      label: 'Доход Привлечения',
+      value: pendingState ? pendingValue : formatAmount(totalAttractionRevenue),
+      note: pendingState ? pendingNote : 'по правилам цен',
     },
     {
-      label: 'Средний чек',
-      value: pendingState ? pendingValue : formatAmount(averageSaleAmount),
-      note: pendingState ? pendingNote : 'среднее по продажам',
+      label: 'Средний доход',
+      value: pendingState ? pendingValue : formatAmount(averageAttractionRevenue),
+      note: pendingState ? pendingNote : 'доход / продажи',
+    },
+    {
+      label: 'Среднее членство',
+      value: pendingState ? pendingValue : formatAmount(averageMembershipAmount),
+      note: pendingState ? pendingNote : 'стоимость тарифа',
     },
     {
       label: 'Новые сделки / конверсия',
@@ -3324,7 +3680,7 @@ function SalesKpiCards({
   ]
 
   return (
-    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5" aria-label="KPI продаж">
+    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6" aria-label="KPI продаж">
       {cards.map((card) => (
         <div key={card.label} className="metric p-4">
           <p className="subtle-label">{card.label}</p>
@@ -3816,18 +4172,18 @@ function ActivitiesMeetingsSection({
 
       {rows.length > 0 ? (
         <div className="overflow-auto">
-          <table className="min-w-full text-sm">
+          <table className="min-w-[620px] w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
                 <th className="px-3 py-3">Менеджер</th>
                 <th className="px-3 py-3">Встречи</th>
-                <th className="px-3 py-3">На сделку</th>
-                <th className="px-3 py-3">Типы встреч</th>
+                <th className="px-3 py-3">Клуб / тип встречи</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
                 const compareRow = compareByManager.get(row.managerId)
+                const meetingGroups = buildMeetingBusinessClubGroups(row)
                 return (
                   <tr key={row.managerId} className="border-b border-slate-100 last:border-b-0">
                     <td className="px-3 py-3 font-semibold text-slate-900">{row.managerName}</td>
@@ -3839,21 +4195,25 @@ function ActivitiesMeetingsSection({
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <div className="font-semibold text-slate-900">{row.averageMeetingsPerDeal.toFixed(1)}</div>
-                      <div className="text-xs text-slate-500">
-                        С1: {(compareRow?.averageMeetingsPerDeal ?? 0).toFixed(1)}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        {row.meetingTypeBreakdown.map((meetingType) => (
-                          <span
-                            key={`${row.managerId}-${meetingType.meetingTypeKey}`}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+                      <div className="space-y-2">
+                        {meetingGroups.map((group) => (
+                          <div
+                            key={`${row.managerId}-${group.businessClubKey}`}
+                            className="flex flex-wrap items-center gap-1.5"
                           >
-                            <span>{meetingType.meetingTypeLabel}</span>
-                            <span className="text-slate-400">{formatInteger(meetingType.count)}</span>
-                          </span>
+                            <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                              {group.businessClubLabel}
+                            </span>
+                            {group.meetingTypes.map((meetingType) => (
+                              <span
+                                key={`${row.managerId}-${group.businessClubKey}-${meetingType.meetingTypeKey}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+                              >
+                                <span>{meetingType.meetingTypeLabel}</span>
+                                <span className="text-slate-400">{formatInteger(meetingType.count)}</span>
+                              </span>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     </td>
@@ -3868,6 +4228,43 @@ function ActivitiesMeetingsSection({
       )}
     </section>
   )
+}
+
+function buildMeetingBusinessClubGroups(row: ActivitiesWorkloadReport['managerRows'][number]) {
+  const grouped = new Map<
+    string,
+    {
+      businessClubKey: string
+      businessClubLabel: string
+      meetingTypes: Array<{ meetingTypeKey: string; meetingTypeLabel: string; count: number }>
+    }
+  >()
+  const combinedBreakdown = row.meetingBusinessClubBreakdown ?? []
+
+  if (combinedBreakdown.length === 0) {
+    grouped.set('LEGACY', {
+      businessClubKey: 'LEGACY',
+      businessClubLabel: 'Без разреза по клубу',
+      meetingTypes: row.meetingTypeBreakdown,
+    })
+  } else {
+    for (const item of combinedBreakdown) {
+      const group = grouped.get(item.businessClubKey) ?? {
+        businessClubKey: item.businessClubKey,
+        businessClubLabel: item.businessClubLabel,
+        meetingTypes: [],
+      }
+
+      group.meetingTypes.push({
+        meetingTypeKey: item.meetingTypeKey,
+        meetingTypeLabel: item.meetingTypeLabel,
+        count: item.count,
+      })
+      grouped.set(item.businessClubKey, group)
+    }
+  }
+
+  return Array.from(grouped.values())
 }
 
 function formatConversionEventsPercent(value: number | null) {
@@ -4002,8 +4399,11 @@ function ActivitiesConversionEventsSection({
                     {formatConversionEventsPercent(row.attendanceRate)}
                   </td>
                   <td className="px-3 py-3 text-right font-semibold text-slate-900">
-                    {formatInteger(row.nextStepCount)} / {formatInteger(row.nextStepEligibleCount)} ·{' '}
-                    {formatConversionEventsPercent(row.nextStepRate)}
+                    <span>
+                      {formatInteger(row.nextStepCount)} / {formatInteger(row.nextStepEligibleCount)}
+                    </span>
+                    <span className="px-1 text-slate-400"> · </span>
+                    <span>{formatConversionEventsPercent(row.nextStepRate)}</span>
                   </td>
                   <td className="min-w-[260px] px-3 py-3">
                     <ConversionEventDetailsCell row={row} />
@@ -4390,9 +4790,12 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
         </div>
       </section>
 
-      <ActivitiesMeetingsSection report={activitiesWorkload} filters={filters} />
-
-      <ActivitiesConversionEventsSection report={runtimeData?.conversionEvents} />
+      {activitiesWorkload ? (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+          <ActivitiesMeetingsSection report={activitiesWorkload} filters={filters} />
+          <ActivitiesConversionEventsSection report={runtimeData?.conversionEvents} />
+        </div>
+      ) : null}
 
       <ActivitiesSlaSection report={activitiesWorkload} filters={filters} />
 
@@ -4472,6 +4875,8 @@ const revenueVelocityDimensions: Array<{
   { key: 'managerCustomer', label: 'Менеджер × заказчик' },
 ]
 
+const REVENUE_WARNING_DETAIL_LIMIT = 8
+
 function formatRubles(value: number) {
   return `${formatInteger(Math.round(value))} ₽`
 }
@@ -4500,6 +4905,226 @@ function formatOptionalDays(value: number | null) {
 
 function formatOptionalDecimal(value: number | null) {
   return typeof value === 'number' && Number.isFinite(value) ? formatNumber(value) : '—'
+}
+
+function getRevenueVelocityFormula(row: RevenueVelocityRow, isCohortView: boolean) {
+  if (row.revenueVelocityFormula) {
+    return row.revenueVelocityFormula
+  }
+
+  return {
+    source: isCohortView ? 'selectedCohort' : 'rollingQuarterCohort',
+    sourceLabel: isCohortView ? 'Выбранная когорта' : 'Когорта за последние 90 дней',
+    averageRevenueAmount: row.averageCheck,
+    opportunitiesCount: isCohortView ? row.createdDeals : row.activeDeals,
+    conversionRate: row.winRate,
+    averageCycleDays: row.averageCycleDays,
+    value: isCohortView ? row.revenueVelocityPerDay : row.liveRevenueVelocity,
+    benchmarkFrom: null,
+    benchmarkTo: null,
+    missingReason: null,
+  } satisfies RevenueVelocityFormulaBreakdown
+}
+
+function formatRevenueVelocityEquation(formula: RevenueVelocityFormulaBreakdown) {
+  return `${formatOptionalRublesPerDay(formula.value)} = ${formatOptionalRubles(
+    formula.averageRevenueAmount,
+  )} × ${formatInteger(formula.opportunitiesCount)} × ${formatOptionalPercent(
+    formula.conversionRate,
+  )} ÷ ${formatOptionalDays(formula.averageCycleDays)}`
+}
+
+function RevenueVelocityFormulaCard({
+  formula,
+  tooltip,
+}: {
+  formula: RevenueVelocityFormulaBreakdown
+  tooltip?: string | undefined
+}) {
+  const sourceText =
+    formula.source === 'rollingQuarterCohort'
+      ? 'Конверсия берётся когортная за последние 90 дней; активные возможности — сделки в clean-стадиях на конец периода.'
+      : 'Формула рассчитана по выбранной когорте создания сделок.'
+  const detailTooltip = [tooltip, sourceText, formula.missingReason].filter(Boolean).join(' ')
+  const opportunitiesLabel =
+    formula.source === 'rollingQuarterCohort' ? 'активные возможности' : 'возможности'
+
+  return (
+    <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 md:col-span-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-blue-700">
+          Формула
+        </div>
+        <span
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-blue-200 bg-white text-xs font-bold text-blue-700"
+          title={detailTooltip}
+          aria-label="Как считается денежная скорость"
+        >
+          ?
+        </span>
+      </div>
+      <div className="mt-1 text-sm font-semibold text-slate-700">
+        Денежная скорость = средний доход × {opportunitiesLabel} × конверсия ÷ цикл
+      </div>
+      <p className="mt-3 text-lg font-bold text-slate-950">
+        {formatRevenueVelocityEquation(formula)}
+      </p>
+      <p className="mt-1 text-xs text-slate-600">
+        {formula.sourceLabel}
+        {formula.missingReason ? ` · ${formula.missingReason}` : ''}
+      </p>
+    </div>
+  )
+}
+
+function formatDealWarningCount(count: number) {
+  const lastTwoDigits = count % 100
+  const lastDigit = count % 10
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return `${formatInteger(count)} сделок`
+  }
+
+  if (lastDigit === 1) {
+    return `${formatInteger(count)} сделка`
+  }
+
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return `${formatInteger(count)} сделки`
+  }
+
+  return `${formatInteger(count)} сделок`
+}
+
+function formatWonDealWarningCount(count: number) {
+  const lastTwoDigits = count % 100
+  const lastDigit = count % 10
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return `${formatInteger(count)} выигранных сделок`
+  }
+
+  if (lastDigit === 1) {
+    return `${formatInteger(count)} выигранная сделка`
+  }
+
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return `${formatInteger(count)} выигранные сделки`
+  }
+
+  return `${formatInteger(count)} выигранных сделок`
+}
+
+function formatSystemWarningCount(count: number) {
+  const lastTwoDigits = count % 100
+  const lastDigit = count % 10
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return `${formatInteger(count)} системных предупреждений`
+  }
+
+  if (lastDigit === 1) {
+    return `${formatInteger(count)} системное предупреждение`
+  }
+
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return `${formatInteger(count)} системных предупреждения`
+  }
+
+  return `${formatInteger(count)} системных предупреждений`
+}
+
+function summarizeRevenueWarnings(warnings: string[]) {
+  const uniqueWarnings = Array.from(new Set(warnings.filter(Boolean)))
+  const missingFinalWonFields = uniqueWarnings.filter((warning) =>
+    warning.includes('target group and tariff are required for finalWon pricing'),
+  ).length
+  const missingPipelineFields = uniqueWarnings.filter((warning) =>
+    warning.includes('target group and tariff are required for pipelinePlan pricing'),
+  ).length
+  const missingPricingRules = uniqueWarnings.filter((warning) =>
+    warning.includes('no pricing rule for customer'),
+  ).length
+  const pricingConflicts = uniqueWarnings.filter((warning) =>
+    warning.includes('priced as ClubFirst Future while target group'),
+  ).length
+  const otherWarnings =
+    uniqueWarnings.length -
+    missingFinalWonFields -
+    missingPipelineFields -
+    missingPricingRules -
+    pricingConflicts
+  const summaryParts: string[] = []
+
+  if (missingFinalWonFields > 0) {
+    summaryParts.push(
+      `${formatWonDealWarningCount(missingFinalWonFields)} без договорных полей`,
+    )
+  }
+  if (missingPipelineFields > 0) {
+    summaryParts.push(
+      `${formatDealWarningCount(missingPipelineFields)} без заказчика/таргет-группы для оценки активной воронки`,
+    )
+  }
+  if (missingPricingRules > 0) {
+    summaryParts.push(`${formatDealWarningCount(missingPricingRules)} без правила цены`)
+  }
+  if (pricingConflicts > 0) {
+    summaryParts.push(`${formatDealWarningCount(pricingConflicts)} с конфликтом тарифа`)
+  }
+  if (otherWarnings > 0) {
+    summaryParts.push(formatSystemWarningCount(otherWarnings))
+  }
+
+  return {
+    count: uniqueWarnings.length,
+    summary:
+      summaryParts.length > 0
+        ? summaryParts.join(' · ')
+        : `${formatInteger(uniqueWarnings.length)} предупреждений`,
+    details: uniqueWarnings.slice(0, REVENUE_WARNING_DETAIL_LIMIT),
+    hiddenCount: Math.max(0, uniqueWarnings.length - REVENUE_WARNING_DETAIL_LIMIT),
+  }
+}
+
+function WarningSummaryBlock({ warnings }: { warnings: string[] }) {
+  if (warnings.length === 0) {
+    return null
+  }
+
+  const warningSummary = summarizeRevenueWarnings(warnings)
+
+  return (
+    <div
+      role="alert"
+      className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-semibold">Предупреждения расчёта</div>
+          <div>{warningSummary.summary}</div>
+        </div>
+        <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">
+          {formatInteger(warningSummary.count)}
+        </span>
+      </div>
+      <details className="mt-2">
+        <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.08em] text-amber-800">
+          Показать детали
+        </summary>
+        <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-2 text-xs leading-5">
+          {warningSummary.details.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+          {warningSummary.hiddenCount > 0 ? (
+            <li className="font-semibold">
+              Ещё {formatInteger(warningSummary.hiddenCount)} предупреждений скрыто.
+            </li>
+          ) : null}
+        </ul>
+      </details>
+    </div>
+  )
 }
 
 function getRevenueVelocityTooltip(
@@ -4759,7 +5384,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
   const kpis = isCohortView
     ? [
         {
-          label: 'Денег принесено',
+          label: 'Доход Привлечения',
           value: formatRubles(totals?.salesAmount ?? 0),
           tooltipKey: 'salesAmount',
         },
@@ -4769,7 +5394,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
           tooltipKey: 'revenueVelocityPerDay',
         },
         {
-          label: 'Средний чек',
+          label: 'Средний доход',
           value: formatOptionalRubles(totals?.averageCheck ?? null),
           tooltipKey: 'averageCheck',
         },
@@ -4893,11 +5518,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
           </div>
         ) : null}
 
-        {warnings.length > 0 ? (
-          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {warnings.join(' · ')}
-          </div>
-        ) : null}
+        <WarningSummaryBlock warnings={warnings} />
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
           {kpis.map((metric) => (
@@ -4929,13 +5550,20 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
             По сделкам когорты не найдено связанных действий.
           </div>
         ) : (
-          <table className="min-w-[1120px] text-sm">
+          <table className="min-w-[1240px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
                 <th className="px-2 py-2">Срез</th>
                 <RevenueVelocityHeader label="Активные сделки" sortKey="activeDeals" activeSort={sort} onSort={handleSort} />
                 <RevenueVelocityHeader label="Активная воронка" sortKey="activePipelineAmount" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('activePipelineAmount', report)} />
                 <RevenueVelocityHeader label="Факт продаж" sortKey="realizedWonAmountInPeriod" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('realizedWonAmountInPeriod', report)} />
+                <RevenueVelocityHeader
+                  label="Денежная скорость"
+                  sortKey={isCohortView ? 'revenueVelocityPerDay' : 'liveRevenueVelocity'}
+                  activeSort={sort}
+                  onSort={handleSort}
+                  tooltip={getRevenueVelocityTooltip(isCohortView ? 'revenueVelocityPerDay' : 'liveRevenueVelocity', report)}
+                />
                 <RevenueVelocityHeader label="Выиграно" sortKey="wonDeals" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('wonDeals', report)} />
                 <RevenueVelocityHeader label="Действия, баллы" sortKey="weightedActionPoints" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('weightedActionPoints', report)} />
                 <RevenueVelocityHeader label="Системный прирост" sortKey="systemValueCreated" activeSort={sort} onSort={handleSort} tooltip={getRevenueVelocityTooltip('systemValueCreated', report)} />
@@ -4959,6 +5587,11 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
                     <td className="px-2 py-2">{formatInteger(row.activeDeals)}</td>
                     <td className="px-2 py-2">{formatRubles(row.activePipelineAmount)}</td>
                     <td className="px-2 py-2">{formatRubles(row.realizedWonAmountInPeriod)}</td>
+                    <td className="px-2 py-2">
+                      {formatOptionalRublesPerDay(
+                        isCohortView ? row.revenueVelocityPerDay : row.liveRevenueVelocity,
+                      )}
+                    </td>
                     <td className="px-2 py-2">{formatInteger(row.wonDeals)}</td>
                     <td className="px-2 py-2">{formatNumber(row.actions.weightedActionPoints)}</td>
                     <td className="px-2 py-2">{formatOptionalRubles(row.systemValueCreated)}</td>
@@ -4972,17 +5605,29 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
                   </tr>
                   {expandedKey === row.key ? (
                     <tr className="border-b border-slate-100 bg-slate-50/70">
-                      <td className="px-3 py-3" colSpan={8}>
+                      <td className="px-3 py-3" colSpan={9}>
                         <div className="grid gap-3 md:grid-cols-4">
+                          <RevenueVelocityFormulaCard
+                            formula={getRevenueVelocityFormula(row, isCohortView)}
+                            tooltip={getRevenueVelocityTooltip(
+                              isCohortView ? 'revenueVelocityPerDay' : 'liveRevenueVelocity',
+                              report,
+                            )}
+                          />
                           {[
                             ['Создано в периоде', formatInteger(row.createdDeals)],
                             ['Сделки в работе по clean-стадиям', formatInteger(row.wipDeals)],
                             ['Проиграно за период', formatInteger(row.lostDealsInPeriod)],
                             ['Ожидаемые деньги воронки', formatOptionalRubles(row.expectedPipelineAmount)],
                             ['Изменение ожидаемых денег', formatOptionalRubles(row.expectedPipelineDelta)],
-                            ['Денежная скорость', formatOptionalRublesPerDay(row.liveRevenueVelocity)],
+                            [
+                              'Денежная скорость',
+                              formatOptionalRublesPerDay(
+                                isCohortView ? row.revenueVelocityPerDay : row.liveRevenueVelocity,
+                              ),
+                            ],
                             ['Изменение скорости', formatOptionalRublesPerDay(row.velocityDelta)],
-                            ['Средний чек', formatOptionalRubles(row.averageCheck)],
+                            ['Средний доход', formatOptionalRubles(row.averageCheck)],
                             ['Конверсия', formatOptionalPercent(row.winRate)],
                             ['Цикл, дни', formatOptionalDays(row.averageCycleDays)],
                             ['Всего звонков', formatInteger(row.actions.totalCalls)],
@@ -5471,6 +6116,143 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
   )
 }
 
+function PricingSettingsScene({
+  pricingSettings,
+  pricingSettingsLoading,
+  pricingSettingsSaving,
+  pricingSettingsSaveError,
+  onPricingSettingsSave,
+}: SceneComponentProps) {
+  const [draftEdits, setDraftEdits] = useState<
+    Record<string, Partial<Pick<DealPricingRuleInput, 'attractionRevenueAmount' | 'enabled'>>>
+  >({})
+  const draftRows = useMemo(
+    () =>
+      (pricingSettings?.rules ?? []).map((rule) => ({
+        id: rule.id,
+        customerLabel: rule.customerLabel,
+        tariffLabel: rule.tariffLabel,
+        attractionRevenueAmount: rule.attractionRevenueAmount,
+        enabled: rule.enabled,
+        sortOrder: rule.sortOrder,
+        ...(draftEdits[rule.id] ?? {}),
+      })),
+    [draftEdits, pricingSettings?.rules],
+  )
+
+  const totalEnabledAmount = useMemo(
+    () =>
+      draftRows
+        .filter((row) => row.enabled)
+        .reduce((total, row) => total + row.attractionRevenueAmount, 0),
+    [draftRows],
+  )
+
+  function updateRule(
+    ruleId: string,
+    patch: Partial<Pick<DealPricingRuleInput, 'attractionRevenueAmount' | 'enabled'>>,
+  ) {
+    setDraftEdits((current) => ({
+      ...current,
+      [ruleId]: {
+        ...(current[ruleId] ?? {}),
+        ...patch,
+      },
+    }))
+  }
+
+  return (
+    <section className="panel p-5" aria-labelledby="pricing-settings-title">
+      <PanelHeading
+        id="pricing-settings-title"
+        title="Настройки"
+        description="Цены заказчиков и тарифов"
+        right={
+          <span className="badge-chip badge-neutral">
+            {pricingSettings?.updatedAt ? `обновлено ${formatShortDate(pricingSettings.updatedAt)}` : 'SQLite'}
+          </span>
+        }
+      />
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white/80">
+          <div className="grid min-w-[42rem] grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.8fr)_10rem_7rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+            <span>Заказчик</span>
+            <span>Тариф</span>
+            <span>Доход</span>
+            <span>Активно</span>
+          </div>
+
+          {pricingSettingsLoading && draftRows.length === 0 ? (
+            <div className="px-4 py-6 text-sm text-slate-500">Загружаю цены.</div>
+          ) : draftRows.length === 0 ? (
+            <div className="px-4 py-6 text-sm text-slate-500">Правила цен не настроены.</div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {draftRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="grid min-w-[42rem] grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.8fr)_10rem_7rem] gap-3 px-4 py-3 text-sm"
+                >
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-950">{row.customerLabel}</div>
+                    <div className="truncate text-xs text-slate-500">{row.id}</div>
+                  </div>
+                  <div className="self-center font-medium text-slate-700">{row.tariffLabel}</div>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1000}
+                    className="field h-10"
+                    value={row.attractionRevenueAmount}
+                    onChange={(event) =>
+                      updateRule(row.id, {
+                        attractionRevenueAmount: Math.max(0, Number(event.target.value) || 0),
+                      })
+                    }
+                    aria-label={`Цена ${row.customerLabel} ${row.tariffLabel}`}
+                  />
+                  <label className="flex items-center gap-2 self-center text-sm font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={row.enabled}
+                      onChange={(event) => updateRule(row.id, { enabled: event.target.checked })}
+                    />
+                    Да
+                  </label>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+          <div className="subtle-label">Активная сетка</div>
+          <div className="mt-2 text-2xl font-bold text-slate-950">
+            {formatAmount(totalEnabledAmount)}
+          </div>
+          <div className="mt-1 text-sm text-slate-500">
+            {formatInteger(draftRows.filter((row) => row.enabled).length)} правил
+          </div>
+          {pricingSettingsSaveError ? (
+            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+              {pricingSettingsSaveError}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-primary mt-4 w-full"
+            disabled={pricingSettingsSaving || draftRows.length === 0}
+            onClick={() => void onPricingSettingsSave?.(draftRows)}
+          >
+            {pricingSettingsSaving ? 'Сохранение...' : 'Сохранить цены'}
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export const scenes: ProtoScene[] = [
   {
     id: 'sales',
@@ -5493,12 +6275,20 @@ export const scenes: ProtoScene[] = [
     focus: 'План / факт / клубы',
     kpis: [
       { label: 'Разрез плана', value: 'Менеджер × клуб', note: 'таргет-группа или клуб заказчика' },
-      { label: 'Поля плана', value: 'Сделки + ₽', note: 'количество и сумма продаж' },
+      { label: 'Поля плана', value: 'Сделки + ₽', note: 'количество и доход' },
       { label: 'Источник факта', value: 'Won', note: 'выигранные сделки периода' },
       { label: 'Сохранение', value: 'SQLite', note: 'локальный план для отчета' },
       { label: 'Сверка', value: 'План/факт', note: 'на вкладке отчета продаж' },
     ],
     component: SalesPlanScene,
+  },
+  {
+    id: 'settings',
+    label: 'Настройки',
+    description: 'Цены заказчиков и тарифов для управленческих отчетов.',
+    focus: 'Цены / тарифы',
+    kpis: [],
+    component: PricingSettingsScene,
   },
   {
     id: 'activities-calls',

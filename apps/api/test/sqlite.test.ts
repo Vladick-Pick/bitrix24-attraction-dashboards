@@ -109,6 +109,43 @@ describe("createSqliteRepository", () => {
     ]);
   });
 
+  it("seeds and replaces attraction pricing rules", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    const seeded = await repository.getPricingRules();
+    expect(seeded.map((rule) => [rule.id, rule.attractionRevenueAmount])).toEqual([
+      ["clubfirst-federal", 300000],
+      ["clubfirst-regional", 225000],
+      ["clubfirst-globall", 150000],
+      ["clubfirst-future", 181000]
+    ]);
+
+    await repository.replacePricingRules({
+      updatedAt: "2026-04-29T10:00:00.000Z",
+      rules: seeded.map((rule) =>
+        rule.id === "clubfirst-federal"
+          ? { ...rule, attractionRevenueAmount: 310000 }
+          : rule
+      )
+    });
+
+    await expect(repository.getPricingRules()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "clubfirst-federal",
+          attractionRevenueAmount: 310000,
+          updatedAt: "2026-04-29T10:00:00.000Z"
+        })
+      ])
+    );
+  });
+
   it("replaces and reads sales plan rows for a period", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);
@@ -211,6 +248,88 @@ describe("createSqliteRepository", () => {
         plannedDeals: 4,
         plannedAmount: 3000000,
         updatedAt: "2026-04-11T12:00:00.000Z"
+      }
+    ]);
+  });
+
+  it("replaces sales plan rows for multiple periods atomically", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.replaceSalesPlanPeriods({
+      updatedAt: "2026-04-10T12:00:00.000Z",
+      periods: [
+        {
+          periodStart: "2026-04-01T00:00:00.000+03:00",
+          periodEnd: "2026-04-30T23:59:59.999+03:00",
+          rows: [
+            {
+              managerId: "78",
+              managerName: "Егоров Андрей",
+              targetGroupKey: "ClubFirst Russia",
+              targetGroupLabel: "ClubFirst Russia",
+              plannedDeals: 3,
+              plannedAmount: 3000000
+            }
+          ]
+        },
+        {
+          periodStart: "2026-04-01T00:00:00.000+03:00",
+          periodEnd: "2026-06-30T23:59:59.999+03:00",
+          rows: [
+            {
+              managerId: "78",
+              managerName: "Егоров Андрей",
+              targetGroupKey: "ClubFirst Russia",
+              targetGroupLabel: "ClubFirst Russia",
+              plannedDeals: 9,
+              plannedAmount: 9000000
+            }
+          ]
+        }
+      ]
+    });
+
+    await expect(
+      repository.getSalesPlanRows(
+        "2026-04-01T00:00:00.000+03:00",
+        "2026-04-30T23:59:59.999+03:00"
+      )
+    ).resolves.toEqual([
+      {
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-04-30T23:59:59.999+03:00",
+        managerId: "78",
+        managerName: "Егоров Андрей",
+        targetGroupKey: "ClubFirst Russia",
+        targetGroupLabel: "ClubFirst Russia",
+        plannedDeals: 3,
+        plannedAmount: 3000000,
+        updatedAt: "2026-04-10T12:00:00.000Z"
+      }
+    ]);
+
+    await expect(
+      repository.getSalesPlanRows(
+        "2026-04-01T00:00:00.000+03:00",
+        "2026-06-30T23:59:59.999+03:00"
+      )
+    ).resolves.toEqual([
+      {
+        periodStart: "2026-04-01T00:00:00.000+03:00",
+        periodEnd: "2026-06-30T23:59:59.999+03:00",
+        managerId: "78",
+        managerName: "Егоров Андрей",
+        targetGroupKey: "ClubFirst Russia",
+        targetGroupLabel: "ClubFirst Russia",
+        plannedDeals: 9,
+        plannedAmount: 9000000,
+        updatedAt: "2026-04-10T12:00:00.000Z"
       }
     ]);
   });

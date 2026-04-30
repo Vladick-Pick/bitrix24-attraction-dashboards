@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '@/App'
 import { apiClient } from '@/lib/api-client'
-import type { RevenueVelocityReport } from '@/lib/dashboard-types'
+import type {
+  DealPricingRuleInput,
+  ManagerActionOutcomeReport,
+  RevenueVelocityReport,
+  SalesPlanQuarterInput,
+} from '@/lib/dashboard-types'
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -40,6 +45,32 @@ vi.mock('@/lib/api-client', () => ({
       managerGroups: [],
       comparisons: [],
     })),
+    getPricingSettings: vi.fn(async () => ({
+      rules: [
+        {
+          id: 'clubfirst-federal',
+          customerLabel: 'ClubFirst Russia / One',
+          tariffLabel: 'Федеральный',
+          attractionRevenueAmount: 300000,
+          enabled: true,
+          sortOrder: 10,
+          updatedAt: null,
+        },
+      ],
+      updatedAt: null,
+    })),
+    savePricingSettings: vi.fn(async (input: { rules: DealPricingRuleInput[] }) => ({
+      rules: input.rules.map((rule: DealPricingRuleInput, index: number) => ({
+        id: rule.id,
+        customerLabel: rule.customerLabel,
+        tariffLabel: rule.tariffLabel,
+        attractionRevenueAmount: rule.attractionRevenueAmount,
+        enabled: rule.enabled,
+        sortOrder: rule.sortOrder ?? index * 10,
+        updatedAt: '2026-04-10T12:05:00.000Z',
+      })),
+      updatedAt: '2026-04-10T12:05:00.000Z',
+    })),
     getSalesPlan: vi.fn(async () => ({
       periodStart: '2026-04-01T00:00:00.000+03:00',
       periodEnd: '2026-04-30T23:59:59.999+03:00',
@@ -49,6 +80,49 @@ vi.mock('@/lib/api-client', () => ({
     saveSalesPlan: vi.fn(async (input) => ({
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
+      rows: [],
+      updatedAt: '2026-04-10T12:05:00.000Z',
+    })),
+    getEffectiveSalesPlan: vi.fn(async () => ({
+      periodStart: '2026-04-20T00:00:00.000+03:00',
+      periodEnd: '2026-04-26T23:59:59.999+03:00',
+      rows: [],
+      updatedAt: null,
+    })),
+    getSalesPlanQuarter: vi.fn(async () => ({
+      year: 2026,
+      quarter: 2,
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-06-30T23:59:59.999+03:00',
+      months: [
+        {
+          month: '2026-04',
+          label: 'Апрель',
+          periodStart: '2026-04-01T00:00:00.000+03:00',
+          periodEnd: '2026-04-30T23:59:59.999+03:00',
+        },
+        {
+          month: '2026-05',
+          label: 'Май',
+          periodStart: '2026-05-01T00:00:00.000+03:00',
+          periodEnd: '2026-05-31T23:59:59.999+03:00',
+        },
+        {
+          month: '2026-06',
+          label: 'Июнь',
+          periodStart: '2026-06-01T00:00:00.000+03:00',
+          periodEnd: '2026-06-30T23:59:59.999+03:00',
+        },
+      ],
+      rows: [],
+      updatedAt: null,
+    })),
+    saveSalesPlanQuarter: vi.fn(async (input: SalesPlanQuarterInput) => ({
+      year: input.year,
+      quarter: input.quarter,
+      periodStart: '2026-04-01T00:00:00.000+03:00',
+      periodEnd: '2026-06-30T23:59:59.999+03:00',
+      months: [],
       rows: [],
       updatedAt: '2026-04-10T12:05:00.000Z',
     })),
@@ -451,6 +525,18 @@ vi.mock('@/lib/api-client', () => ({
           averageCycleDays: 12,
           medianCycleDays: 12,
           revenueVelocityPerDay: 20833.33,
+          revenueVelocityFormula: {
+            source: 'rollingQuarterCohort',
+            sourceLabel: 'Когорта за последние 90 дней',
+            averageRevenueAmount: 250000,
+            opportunitiesCount: 2,
+            conversionRate: 0.33,
+            averageCycleDays: 12,
+            value: 20833.33,
+            benchmarkFrom: '2026-02-14T00:00:00.000Z',
+            benchmarkTo: '2026-05-15T00:00:00.000Z',
+            missingReason: null,
+          },
           activePipelineAmount: 400000,
           expectedPipelineAmount: 370000,
           previousExpectedPipelineAmount: 240000,
@@ -627,6 +713,20 @@ function createEmptyRevenueVelocityReport(
   return { ...base, ...overrides }
 }
 
+function createEmptyManagerActionOutcomeReport(
+  overrides: Partial<ManagerActionOutcomeReport> = {},
+): ManagerActionOutcomeReport {
+  return {
+    range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+    warnings: [],
+    rows: [],
+    cohortMonths: [],
+    cohortStatusRows: [],
+    comparisons: [],
+    ...overrides,
+  }
+}
+
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -706,12 +806,16 @@ describe('App', () => {
     expect(screen.getAllByText(/Активная воронка/i).length).toBeGreaterThan(0)
     expect(screen.getByText('300 000 ₽')).toBeInTheDocument()
     expect(
-      screen.getAllByTitle(/Сумма opportunity активных сделок/i).length,
+      screen.getAllByTitle(/Сумма дохода Привлечения активных сделок/i).length,
     ).toBeGreaterThan(0)
     expect(
       screen.getByText(/Конверсионные мероприятия пока не подключены/i),
     ).toBeInTheDocument()
-    expect(screen.getAllByRole('columnheader')).toHaveLength(8)
+    expect(screen.getAllByRole('columnheader')).toHaveLength(9)
+    expect(
+      screen.getByRole('columnheader', { name: /Денежная скорость/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('20 833 ₽/день')).toBeInTheDocument()
     expect(screen.queryByRole('columnheader', { name: /Исторический ₽ \/ балл/i })).not.toBeInTheDocument()
 
     const fastRow = screen.getByText('Быстрая строка')
@@ -725,7 +829,65 @@ describe('App', () => {
       slowRow.compareDocumentPosition(fastRow) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     fireEvent.click(fastRow)
+    expect(
+      screen.getByText(/Денежная скорость = средний доход × активные возможности × конверсия ÷ цикл/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/20 833 ₽\/день = 250 000 ₽ × 2 × 33% ÷ 12 дн\./i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByTitle(/Конверсия берётся когортная за последние 90 дней/i),
+    ).toBeInTheDocument()
     expect(screen.getByText(/Исторический ₽ \/ балл/i)).toBeInTheDocument()
+  })
+
+  it('summarizes long revenue velocity warning lists instead of dumping every deal warning', async () => {
+    const warningReport = createEmptyRevenueVelocityReport({
+      warnings: [
+        ...Array.from(
+          { length: 10 },
+          (_, index) =>
+            `Deal ${1000 + index}: target group and tariff are required for pipelinePlan pricing.`,
+        ),
+        'Недостаточно данных для вероятностной оценки воронки.',
+      ],
+    })
+    vi.mocked(apiClient.getRevenueVelocityReport).mockResolvedValueOnce(warningReport)
+
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
+
+    expect(
+      await screen.findByText(/10 сделок без заказчика\/таргет-группы/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/1 системное предупреждение/i)).toBeInTheDocument()
+    expect(screen.getByText(/Показать детали/i)).toBeInTheDocument()
+    expect(screen.getByText(/Ещё 3 предупреждений скрыто/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Deal 1009:/i)).not.toBeInTheDocument()
+  })
+
+  it('summarizes manager action outcome pricing warnings in the cohort report', async () => {
+    vi.mocked(apiClient.getManagerActionOutcomeReport).mockResolvedValueOnce(
+      createEmptyManagerActionOutcomeReport({
+        warnings: [
+          ...Array.from(
+            { length: 9 },
+            (_, index) =>
+              `Deal ${2000 + index}: target group and tariff are required for finalWon pricing.`,
+          ),
+          'Deal 3001: no pricing rule for customer "ClubFirst Guest" and tariff "Федеральный".',
+        ],
+      }),
+    )
+
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /когортный отчет/i }))
+
+    expect(await screen.findByText(/9 выигранных сделок без договорных полей/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 сделка без правила цены/i)).toBeInTheDocument()
+    expect(screen.getByText(/Показать детали/i)).toBeInTheDocument()
+    expect(screen.getByText(/Ещё 2 предупреждений скрыто/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Deal 2008:/i)).not.toBeInTheDocument()
   })
 
   it('shows an empty cohort state in the revenue velocity tab', async () => {

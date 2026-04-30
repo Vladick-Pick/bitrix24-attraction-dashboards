@@ -1,8 +1,114 @@
 import { describe, expect, it } from "vitest";
 
 import { buildDashboard } from "../src/domain/reporting";
+import { DEFAULT_PRICING_RULES } from "../src/domain/deal-economics";
 
 describe("buildDashboard", () => {
+  it("reports attraction revenue separately from membership amount", () => {
+    const result = buildDashboard({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      leads: [],
+      deals: [
+        {
+          id: "PRICED",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 1_300_000,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: "ClubFirst Russia",
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          tariffValue: "Федеральный Москва",
+          dateCreate: "2026-03-10T00:00:00.000Z",
+          dateModify: "2026-04-10T00:00:00.000Z",
+          dateClosed: "2026-04-10T00:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "UNPRICED",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 890_000,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          tariffValue: null,
+          dateCreate: "2026-03-12T00:00:00.000Z",
+          dateModify: "2026-04-11T00:00:00.000Z",
+          dateClosed: "2026-04-11T00:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:WON",
+          name: "Передано в клуб",
+          semanticId: "S",
+          sortOrder: 10
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [],
+      activities: [],
+      calls: [],
+      managerDirectory: [{ id: "78", name: "Егоров Андрей" }],
+      pricingRules: DEFAULT_PRICING_RULES
+    });
+
+    expect(result.salesSummary.salesCount).toBe(2);
+    expect(result.salesSummary.salesAmount).toBe(300_000);
+    expect(result.salesSummary.attractionRevenueAmount).toBe(300_000);
+    expect(result.salesSummary.averageAttractionRevenueAmount).toBe(150_000);
+    expect(result.salesSummary.membershipAmount).toBe(2_190_000);
+    expect(result.salesSummary.averageMembershipAmount).toBe(1_095_000);
+    expect(result.salesSummary.pricingWarnings.join(" ")).toContain("UNPRICED");
+    expect(result.managerGroups[0]?.totalSalesAmount).toBe(300_000);
+    expect(result.managerGroups[0]?.averageAttractionRevenueAmount).toBe(150_000);
+    expect(result.managerGroups[0]?.totalMembershipAmount).toBe(2_190_000);
+    expect(result.managerGroups[0]?.averageMembershipAmount).toBe(1_095_000);
+    expect(result.managerGroups[0]?.deals[0]).toEqual(
+      expect.objectContaining({
+        dealId: "UNPRICED",
+        amount: 0,
+        attractionRevenueAmount: null,
+        membershipAmount: 890_000,
+        pricingStatus: "missingContractFields"
+      })
+    );
+  });
+
   it("uses the won-stage entry time as the sale date instead of dateModify fallback", () => {
     const deal = {
       id: "124972",
@@ -390,7 +496,7 @@ describe("buildDashboard", () => {
       ]
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       salesSummary: {
         salesCount: 3,
         salesAmount: 360000,

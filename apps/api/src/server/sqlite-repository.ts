@@ -7,6 +7,8 @@ import type {
   ActivitySnapshot,
   CallSnapshot,
   ConversionEventVisitSnapshot,
+  DealPricingRule,
+  DealPricingRuleInput,
   DealMeetingDateChangeSnapshot,
   DealSnapshot,
   LeadSnapshot,
@@ -18,6 +20,8 @@ import type {
   StageHistorySnapshot,
   SyncDealChangeBreakdown
 } from "@bitrix24-reporting/contracts";
+
+import { DEFAULT_PRICING_RULES } from "../domain/deal-economics";
 
 export interface LastSyncSummary {
   finishedAt: string;
@@ -69,6 +73,20 @@ export interface ReplaceSalesPlanRowsInput {
   periodEnd: string;
   updatedAt: string;
   rows: SalesPlanDraftRow[];
+}
+
+export interface ReplaceSalesPlanPeriodsInput {
+  updatedAt: string;
+  periods: Array<{
+    periodStart: string;
+    periodEnd: string;
+    rows: SalesPlanDraftRow[];
+  }>;
+}
+
+export interface ReplacePricingRulesInput {
+  updatedAt: string;
+  rules: DealPricingRuleInput[];
 }
 
 export interface SqliteRepository {
@@ -181,6 +199,9 @@ export interface SqliteRepository {
   getStageCatalog(): Promise<StageCatalogEntry[]>;
   getSalesPlanRows(periodStart: string, periodEnd: string): Promise<SalesPlanRow[]>;
   replaceSalesPlanRows(input: ReplaceSalesPlanRowsInput): Promise<SalesPlanRow[]>;
+  replaceSalesPlanPeriods(input: ReplaceSalesPlanPeriodsInput): Promise<void>;
+  getPricingRules(): Promise<DealPricingRule[]>;
+  replacePricingRules(input: ReplacePricingRulesInput): Promise<DealPricingRule[]>;
   getWonStageIds(): Promise<string[]>;
   setWonStageIds(stageIds: string[]): Promise<void>;
   getLastSyncSummary(scopeKey?: string): Promise<LastSyncSummary | null>;
@@ -534,6 +555,16 @@ export function createSqliteRepository(
       PRIMARY KEY (period_start, period_end, manager_id, target_group_key)
     );
 
+    CREATE TABLE IF NOT EXISTS pricing_rules (
+      id TEXT PRIMARY KEY,
+      customer_label TEXT NOT NULL,
+      tariff_label TEXT NOT NULL,
+      attraction_revenue_amount REAL NOT NULL,
+      enabled INTEGER NOT NULL,
+      sort_order INTEGER NOT NULL,
+      updated_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_deal_snapshots_category_id
       ON deal_snapshots (category_id);
     CREATE INDEX IF NOT EXISTS idx_stage_history_owner_id
@@ -586,6 +617,43 @@ export function createSqliteRepository(
       }
     });
     seedTransaction(input.defaultWonStageIds);
+  }
+
+  const existingPricingRules = database
+    .prepare("SELECT COUNT(*) AS count FROM pricing_rules")
+    .get() as { count: number };
+
+  if (existingPricingRules.count === 0) {
+    const seedPricingRule = database.prepare(`
+      INSERT INTO pricing_rules (
+        id,
+        customer_label,
+        tariff_label,
+        attraction_revenue_amount,
+        enabled,
+        sort_order,
+        updated_at
+      ) VALUES (
+        @id,
+        @customerLabel,
+        @tariffLabel,
+        @attractionRevenueAmount,
+        @enabled,
+        @sortOrder,
+        @updatedAt
+      )
+    `);
+    const seedPricingTransaction = database.transaction(
+      (rules: DealPricingRule[]) => {
+        for (const rule of rules) {
+          seedPricingRule.run({
+            ...rule,
+            enabled: rule.enabled ? 1 : 0
+          });
+        }
+      }
+    );
+    seedPricingTransaction(DEFAULT_PRICING_RULES);
   }
 
   const replaceStageCatalogStatement = database.prepare(`
@@ -928,13 +996,31 @@ export function createSqliteRepository(
       @updatedAt
     )
   `);
+  const deleteSalesPlanRowsStatement = database.prepare(
+    "DELETE FROM sales_plan_rows WHERE period_start = ? AND period_end = ?"
+  );
+  const insertPricingRuleStatement = database.prepare(`
+    INSERT INTO pricing_rules (
+      id,
+      customer_label,
+      tariff_label,
+      attraction_revenue_amount,
+      enabled,
+      sort_order,
+      updated_at
+    ) VALUES (
+      @id,
+      @customerLabel,
+      @tariffLabel,
+      @attractionRevenueAmount,
+      @enabled,
+      @sortOrder,
+      @updatedAt
+    )
+  `);
   const replaceSalesPlanRowsTransaction = database.transaction(
     (input: ReplaceSalesPlanRowsInput) => {
-      database
-        .prepare(
-          "DELETE FROM sales_plan_rows WHERE period_start = ? AND period_end = ?"
-        )
-        .run(input.periodStart, input.periodEnd);
+      deleteSalesPlanRowsStatement.run(input.periodStart, input.periodEnd);
 
       for (const row of input.rows) {
         insertSalesPlanRowStatement.run({
@@ -949,6 +1035,44 @@ export function createSqliteRepository(
           updatedAt: input.updatedAt
         });
       }
+    }
+  );
+  const replaceSalesPlanPeriodsTransaction = database.transaction(
+    (input: ReplaceSalesPlanPeriodsInput) => {
+      for (const period of input.periods) {
+        deleteSalesPlanRowsStatement.run(period.periodStart, period.periodEnd);
+
+        for (const row of period.rows) {
+          insertSalesPlanRowStatement.run({
+            periodStart: period.periodStart,
+            periodEnd: period.periodEnd,
+            managerId: row.managerId,
+            managerName: row.managerName ?? null,
+            targetGroupKey: row.targetGroupKey,
+            targetGroupLabel: row.targetGroupLabel ?? row.targetGroupKey,
+            plannedDeals: row.plannedDeals,
+            plannedAmount: row.plannedAmount,
+            updatedAt: input.updatedAt
+          });
+        }
+      }
+    }
+  );
+  const replacePricingRulesTransaction = database.transaction(
+    (input: ReplacePricingRulesInput) => {
+      database.exec("DELETE FROM pricing_rules");
+
+      input.rules.forEach((rule, index) => {
+        insertPricingRuleStatement.run({
+          id: rule.id,
+          customerLabel: rule.customerLabel,
+          tariffLabel: rule.tariffLabel,
+          attractionRevenueAmount: rule.attractionRevenueAmount,
+          enabled: rule.enabled ? 1 : 0,
+          sortOrder: rule.sortOrder ?? index * 10,
+          updatedAt: input.updatedAt
+        });
+      });
     }
   );
   const snapshotTransaction = database.transaction((task: () => unknown) =>
@@ -2006,6 +2130,37 @@ export function createSqliteRepository(
     async replaceSalesPlanRows(input) {
       replaceSalesPlanRowsTransaction(input);
       return this.getSalesPlanRows(input.periodStart, input.periodEnd);
+    },
+
+    async replaceSalesPlanPeriods(input) {
+      replaceSalesPlanPeriodsTransaction(input);
+    },
+
+    async getPricingRules() {
+      const rows = database
+        .prepare(
+          `SELECT
+            id,
+            customer_label AS customerLabel,
+            tariff_label AS tariffLabel,
+            attraction_revenue_amount AS attractionRevenueAmount,
+            enabled,
+            sort_order AS sortOrder,
+            updated_at AS updatedAt
+          FROM pricing_rules
+          ORDER BY sort_order ASC, id ASC`
+        )
+        .all() as Array<Omit<DealPricingRule, "enabled"> & { enabled: number }>;
+
+      return rows.map((row) => ({
+        ...row,
+        enabled: Boolean(row.enabled)
+      }));
+    },
+
+    async replacePricingRules(input) {
+      replacePricingRulesTransaction(input);
+      return this.getPricingRules();
     },
 
     async getWonStageIds() {

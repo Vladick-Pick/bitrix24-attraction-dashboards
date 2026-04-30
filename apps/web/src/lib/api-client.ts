@@ -12,6 +12,8 @@ import type {
   DashboardQuery,
   DashboardData,
   DashboardDataSnapshot,
+  DealPricingSettings,
+  DealPricingSettingsInput,
   ManagerActionOutcomeDealSlaStatus,
   ManagerActionOutcomeReport,
   ManagerActionOutcomeReportSnapshot,
@@ -20,6 +22,7 @@ import type {
   ReportRange,
   RevenueVelocityActionSummary,
   RevenueVelocityDimension,
+  RevenueVelocityFormulaBreakdown,
   RevenueVelocityMoneyPerAction,
   RevenueVelocityQuery,
   RevenueVelocityReport,
@@ -27,6 +30,8 @@ import type {
   RevenueVelocityView,
   SalesPlanData,
   SalesPlanInput,
+  SalesPlanQuarterData,
+  SalesPlanQuarterInput,
   SourceQualityConversionReport,
   SourceQualityConversionReportSnapshot,
   SnapshotStats,
@@ -93,6 +98,14 @@ function asArray<T>(value: unknown, mapper: (input: unknown) => T): T[] {
   return Array.isArray(value) ? value.map(mapper) : []
 }
 
+function normalizePricingStatus(value: unknown) {
+  return value === 'missingContractFields' ||
+    value === 'missingPricingRule' ||
+    value === 'conflict'
+    ? value
+    : 'priced'
+}
+
 function normalizeRange(value: unknown): ReportRange {
   const data = isRecord(value) ? value : {}
 
@@ -130,17 +143,57 @@ function normalizeDashboardSnapshot(value: unknown): DashboardDataSnapshot {
       salesCount: asNumber(salesSummary.salesCount),
       salesAmount: asNumber(salesSummary.salesAmount),
       averageSaleAmount: asNumber(salesSummary.averageSaleAmount),
+      attractionRevenueAmount: asNumber(
+        salesSummary.attractionRevenueAmount,
+        asNumber(salesSummary.salesAmount),
+      ),
+      averageAttractionRevenueAmount: asNumber(
+        salesSummary.averageAttractionRevenueAmount,
+        asNumber(salesSummary.averageSaleAmount),
+      ),
+      membershipAmount: asNumber(
+        salesSummary.membershipAmount,
+        asNumber(salesSummary.salesAmount),
+      ),
+      averageMembershipAmount: asNumber(
+        salesSummary.averageMembershipAmount,
+        asNumber(salesSummary.averageSaleAmount),
+      ),
+      pricingWarnings: asArray(salesSummary.pricingWarnings, (warning) =>
+        asString(warning),
+      ),
       newDealsCount: asNumber(salesSummary.newDealsCount),
       conversionRate: asNumber(salesSummary.conversionRate),
       meetingsCount: asNumber(salesSummary.meetingsCount),
     },
     managerGroups: asArray(data.managerGroups, (group) => {
       const item = isRecord(group) ? group : {}
+      const totalWonDeals = asNumber(item.totalWonDeals)
+      const totalSalesAmount = asNumber(item.totalSalesAmount)
+      const totalAttractionRevenueAmount = asNumber(
+        item.totalAttractionRevenueAmount,
+        totalSalesAmount,
+      )
+      const totalMembershipAmount = asNumber(
+        item.totalMembershipAmount,
+        totalSalesAmount,
+      )
+
       return {
         managerId: asString(item.managerId),
         managerName: asString(item.managerName, asString(item.managerId)),
-        totalWonDeals: asNumber(item.totalWonDeals),
-        totalSalesAmount: asNumber(item.totalSalesAmount),
+        totalWonDeals,
+        totalSalesAmount,
+        totalAttractionRevenueAmount,
+        averageAttractionRevenueAmount: asNumber(
+          item.averageAttractionRevenueAmount,
+          totalWonDeals === 0 ? 0 : totalAttractionRevenueAmount / totalWonDeals,
+        ),
+        totalMembershipAmount,
+        averageMembershipAmount: asNumber(
+          item.averageMembershipAmount,
+          totalWonDeals === 0 ? 0 : totalMembershipAmount / totalWonDeals,
+        ),
         deals: asArray(item.deals, (deal) => {
           const row = isRecord(deal) ? deal : {}
           const cohort = isRecord(row.cohortContext) ? row.cohortContext : {}
@@ -157,6 +210,14 @@ function normalizeDashboardSnapshot(value: unknown): DashboardDataSnapshot {
               asString(item.managerName, asString(item.managerId)),
             ),
             amount: asNumber(row.amount),
+            attractionRevenueAmount: asNullableNumber(
+              row.attractionRevenueAmount,
+            ),
+            membershipAmount: asNumber(row.membershipAmount, asNumber(row.amount)),
+            pricingStatus: normalizePricingStatus(row.pricingStatus),
+            pricingWarnings: asArray(row.pricingWarnings, (warning) =>
+              asString(warning),
+            ),
             dateCreate: asString(row.dateCreate),
             dateClosed: asString(row.dateClosed),
             cycleDays: asNumber(row.cycleDays),
@@ -257,6 +318,75 @@ function normalizeSalesPlan(value: unknown): SalesPlanData {
         plannedDeals: asNumber(row.plannedDeals),
         plannedAmount: asNumber(row.plannedAmount),
         updatedAt: asString(row.updatedAt, asString(data.updatedAt)),
+      }
+    }),
+  }
+}
+
+function normalizeSalesPlanQuarter(value: unknown): SalesPlanQuarterData {
+  const data = isRecord(value) ? value : {}
+  const updatedAt = asNullableString(data.updatedAt)
+  const months = asArray(data.months, (entry) => {
+    const month = isRecord(entry) ? entry : {}
+    return {
+      month: asString(month.month),
+      label: asString(month.label, asString(month.month)),
+      periodStart: asString(month.periodStart),
+      periodEnd: asString(month.periodEnd),
+    }
+  })
+
+  return {
+    year: asNumber(data.year),
+    quarter: asNumber(data.quarter),
+    periodStart: asString(data.periodStart),
+    periodEnd: asString(data.periodEnd),
+    months,
+    rows: asArray(data.rows, (entry) => {
+      const row = isRecord(entry) ? entry : {}
+      const targetGroupKey = asString(row.targetGroupKey)
+      const rowUpdatedAt = asNullableString(row.updatedAt)
+      return {
+        managerId: asString(row.managerId),
+        managerName: asNullableString(row.managerName),
+        targetGroupKey,
+        targetGroupLabel: asString(row.targetGroupLabel, targetGroupKey),
+        quarterPlannedDeals: asNumber(row.quarterPlannedDeals),
+        quarterPlannedAmount: asNumber(row.quarterPlannedAmount),
+        months: asArray(row.months, (monthEntry) => {
+          const month = isRecord(monthEntry) ? monthEntry : {}
+          return {
+            month: asString(month.month),
+            periodStart: asString(month.periodStart),
+            periodEnd: asString(month.periodEnd),
+            plannedDeals: asNumber(month.plannedDeals),
+            plannedAmount: asNumber(month.plannedAmount),
+            updatedAt: asNullableString(month.updatedAt),
+          }
+        }),
+        updatedAt: rowUpdatedAt ?? updatedAt,
+      }
+    }),
+    updatedAt,
+  }
+}
+
+function normalizePricingSettings(value: unknown): DealPricingSettings {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    updatedAt: asNullableString(data.updatedAt),
+    rules: asArray(data.rules, (entry) => {
+      const rule = isRecord(entry) ? entry : {}
+
+      return {
+        id: asString(rule.id),
+        customerLabel: asString(rule.customerLabel),
+        tariffLabel: asString(rule.tariffLabel),
+        attractionRevenueAmount: asNumber(rule.attractionRevenueAmount),
+        enabled: rule.enabled !== false,
+        sortOrder: asNumber(rule.sortOrder),
+        updatedAt: asNullableString(rule.updatedAt),
       }
     }),
   }
@@ -544,6 +674,25 @@ function normalizeActivitiesWorkloadSnapshot(
             dealCount: asNumber(row.dealCount),
           }
         }),
+        meetingBusinessClubBreakdown: asArray(
+          item.meetingBusinessClubBreakdown,
+          (meetingBusinessClub) => {
+            const row = isRecord(meetingBusinessClub) ? meetingBusinessClub : {}
+            return {
+              businessClubKey: asString(row.businessClubKey),
+              businessClubLabel: asString(
+                row.businessClubLabel,
+                asString(row.businessClubKey),
+              ),
+              meetingTypeKey: asString(row.meetingTypeKey),
+              meetingTypeLabel: asString(
+                row.meetingTypeLabel,
+                asString(row.meetingTypeKey),
+              ),
+              count: asNumber(row.count),
+            }
+          },
+        ),
         slaMetrics: asArray(item.slaMetrics, (metric) => {
           const row = isRecord(metric) ? metric : {}
           return {
@@ -1350,6 +1499,30 @@ function normalizeRevenueVelocityMoneyPerAction(
   }
 }
 
+function normalizeRevenueVelocityFormulaBreakdown(
+  value: unknown,
+): RevenueVelocityFormulaBreakdown | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  return {
+    source:
+      value.source === 'selectedCohort' || value.source === 'rollingQuarterCohort'
+        ? value.source
+        : 'selectedCohort',
+    sourceLabel: asString(value.sourceLabel),
+    averageRevenueAmount: asNullableNumber(value.averageRevenueAmount),
+    opportunitiesCount: asNumber(value.opportunitiesCount),
+    conversionRate: asNullableNumber(value.conversionRate),
+    averageCycleDays: asNullableNumber(value.averageCycleDays),
+    value: asNullableNumber(value.value),
+    benchmarkFrom: asNullableString(value.benchmarkFrom),
+    benchmarkTo: asNullableString(value.benchmarkTo),
+    missingReason: asNullableString(value.missingReason),
+  }
+}
+
 function normalizeRevenueVelocitySnapshot(
   value: unknown,
 ): RevenueVelocityReportSnapshot {
@@ -1381,6 +1554,9 @@ function normalizeRevenueVelocitySnapshot(
       averageCycleDays: asNullableNumber(row.averageCycleDays),
       medianCycleDays: asNullableNumber(row.medianCycleDays),
       revenueVelocityPerDay: asNullableNumber(row.revenueVelocityPerDay),
+      revenueVelocityFormula: normalizeRevenueVelocityFormulaBreakdown(
+        row.revenueVelocityFormula,
+      ),
       activePipelineAmount: asNumber(row.activePipelineAmount),
       expectedPipelineAmount: asNullableNumber(row.expectedPipelineAmount),
       previousExpectedPipelineAmount: asNullableNumber(row.previousExpectedPipelineAmount),
@@ -1647,6 +1823,53 @@ export const apiClient = {
         body: JSON.stringify(input),
       },
       normalizeSalesPlan,
+    )
+  },
+  async getEffectiveSalesPlan(range: ReportRange) {
+    return requestJson(
+      buildUrl('/api/sales-plan/effective', {
+        from: range.from,
+        to: range.to,
+      }),
+      { method: 'GET' },
+      normalizeSalesPlan,
+    )
+  },
+  async getSalesPlanQuarter(input: { year: number; quarter: number }) {
+    return requestJson(
+      buildUrl('/api/sales-plan/quarter', {
+        year: String(input.year),
+        quarter: String(input.quarter),
+      }),
+      { method: 'GET' },
+      normalizeSalesPlanQuarter,
+    )
+  },
+  async saveSalesPlanQuarter(input: SalesPlanQuarterInput) {
+    return requestJson(
+      buildUrl('/api/sales-plan/quarter'),
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      normalizeSalesPlanQuarter,
+    )
+  },
+  async getPricingSettings() {
+    return requestJson(
+      buildUrl('/api/settings/pricing'),
+      { method: 'GET' },
+      normalizePricingSettings,
+    )
+  },
+  async savePricingSettings(input: DealPricingSettingsInput) {
+    return requestJson(
+      buildUrl('/api/settings/pricing'),
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      normalizePricingSettings,
     )
   },
   async getMeta() {

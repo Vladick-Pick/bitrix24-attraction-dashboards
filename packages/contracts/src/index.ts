@@ -43,6 +43,47 @@ export interface DealSnapshot {
   utmTerm: string | null;
 }
 
+export type DealPricingStatus =
+  | "priced"
+  | "missingContractFields"
+  | "missingPricingRule"
+  | "conflict";
+
+export interface DealEconomics {
+  membershipAmount: number;
+  attractionRevenueAmount: number | null;
+  pricingStatus: DealPricingStatus;
+  pricingWarnings: string[];
+}
+
+export interface DealPricingRule {
+  id: string;
+  customerLabel: string;
+  tariffLabel: string;
+  attractionRevenueAmount: number;
+  enabled: boolean;
+  sortOrder: number;
+  updatedAt: string | null;
+}
+
+export interface DealPricingRuleInput {
+  id: string;
+  customerLabel: string;
+  tariffLabel: string;
+  attractionRevenueAmount: number;
+  enabled: boolean;
+  sortOrder?: number | null;
+}
+
+export interface DealPricingSettings {
+  rules: DealPricingRule[];
+  updatedAt: string | null;
+}
+
+export interface DealPricingSettingsInput {
+  rules: DealPricingRuleInput[];
+}
+
 export interface StageCatalogEntry {
   entityType: "deal" | "lead" | "source";
   categoryId: string | null;
@@ -187,6 +228,11 @@ export interface SalesSummary {
   salesCount: number;
   salesAmount: number;
   averageSaleAmount: number;
+  attractionRevenueAmount: number;
+  averageAttractionRevenueAmount: number;
+  membershipAmount: number;
+  averageMembershipAmount: number;
+  pricingWarnings: string[];
   newDealsCount: number;
   conversionRate: number;
   meetingsCount?: number;
@@ -241,6 +287,10 @@ export interface SalesDealRow {
   managerId: string;
   managerName: string;
   amount: number;
+  attractionRevenueAmount: number | null;
+  membershipAmount: number;
+  pricingStatus: DealPricingStatus;
+  pricingWarnings: string[];
   dateCreate: string;
   dateClosed: string;
   cycleDays: number;
@@ -264,6 +314,10 @@ export interface SalesManagerGroup {
   managerName: string;
   totalWonDeals: number;
   totalSalesAmount: number;
+  totalAttractionRevenueAmount: number;
+  averageAttractionRevenueAmount: number;
+  totalMembershipAmount: number;
+  averageMembershipAmount: number;
   deals: SalesDealRow[];
 }
 
@@ -326,6 +380,65 @@ export interface SalesPlanInput {
   rows: SalesPlanDraftRow[];
 }
 
+export interface SalesPlanQuarterMonth {
+  month: string;
+  label: string;
+  periodStart: string;
+  periodEnd: string;
+}
+
+export interface SalesPlanQuarterRowMonth {
+  month: string;
+  periodStart: string;
+  periodEnd: string;
+  plannedDeals: number;
+  plannedAmount: number;
+  updatedAt: string | null;
+}
+
+export interface SalesPlanQuarterRow {
+  managerId: string;
+  managerName: string | null;
+  targetGroupKey: string;
+  targetGroupLabel: string;
+  quarterPlannedDeals: number;
+  quarterPlannedAmount: number;
+  months: SalesPlanQuarterRowMonth[];
+  updatedAt: string | null;
+}
+
+export interface SalesPlanQuarterData {
+  year: number;
+  quarter: number;
+  periodStart: string;
+  periodEnd: string;
+  months: SalesPlanQuarterMonth[];
+  rows: SalesPlanQuarterRow[];
+  updatedAt: string | null;
+}
+
+export interface SalesPlanQuarterDraftMonth {
+  month: string;
+  plannedDeals: number;
+  plannedAmount: number;
+}
+
+export interface SalesPlanQuarterDraftRow {
+  managerId: string;
+  managerName?: string | null | undefined;
+  targetGroupKey: string;
+  targetGroupLabel?: string | null | undefined;
+  quarterPlannedDeals: number;
+  quarterPlannedAmount: number;
+  months: SalesPlanQuarterDraftMonth[];
+}
+
+export interface SalesPlanQuarterInput {
+  year: number;
+  quarter: number;
+  rows: SalesPlanQuarterDraftRow[];
+}
+
 export interface DashboardInput {
   range: ReportRange;
   wonStageIds: string[];
@@ -336,6 +449,7 @@ export interface DashboardInput {
   activities: ActivitySnapshot[];
   calls: CallSnapshot[];
   managerDirectory: ManagerDirectoryEntry[];
+  pricingRules?: DealPricingRule[];
 }
 
 export interface StageProgressionMetric {
@@ -397,6 +511,14 @@ export interface BusinessClubDealBucket {
   dealCount: number;
 }
 
+export interface MeetingBusinessClubBucket {
+  businessClubKey: string;
+  businessClubLabel: string;
+  meetingTypeKey: string;
+  meetingTypeLabel: string;
+  count: number;
+}
+
 export interface SlaMetric {
   slaKey: "sla1" | "sla2" | "sla3";
   label: string;
@@ -420,6 +542,7 @@ export interface ManagerActivitiesWorkloadRow {
   averageMeetingsPerDeal: number;
   meetingTypeBreakdown: MeetingTypeBucket[];
   businessClubBreakdown: BusinessClubDealBucket[];
+  meetingBusinessClubBreakdown: MeetingBusinessClubBucket[];
   slaMetrics: SlaMetric[];
   stageBreakdown: StageWorkloadMetric[];
 }
@@ -955,6 +1078,23 @@ export interface RevenueVelocityMoneyPerAction {
   actionEfficiencyIndex: number | null;
 }
 
+export type RevenueVelocityFormulaSource =
+  | "selectedCohort"
+  | "rollingQuarterCohort";
+
+export interface RevenueVelocityFormulaBreakdown {
+  source: RevenueVelocityFormulaSource;
+  sourceLabel: string;
+  averageRevenueAmount: number | null;
+  opportunitiesCount: number;
+  conversionRate: number | null;
+  averageCycleDays: number | null;
+  value: number | null;
+  benchmarkFrom: string | null;
+  benchmarkTo: string | null;
+  missingReason: string | null;
+}
+
 export interface RevenueVelocityRow {
   dimension: RevenueVelocityDimension;
   view: RevenueVelocityView;
@@ -977,6 +1117,7 @@ export interface RevenueVelocityRow {
   averageCycleDays: number | null;
   medianCycleDays: number | null;
   revenueVelocityPerDay: number | null;
+  revenueVelocityFormula?: RevenueVelocityFormulaBreakdown | null;
   activePipelineAmount: number;
   expectedPipelineAmount: number | null;
   previousExpectedPipelineAmount: number | null;

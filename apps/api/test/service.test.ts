@@ -427,6 +427,46 @@ describe("createReportingService", () => {
     );
   });
 
+  it("warns in conversion events report when smart-process snapshot coverage is missing", async () => {
+    const coverageStreams: string[] = [];
+    const repository = {
+      getAllDeals: async () => [],
+      getStageCatalog: async () => [],
+      getAllStageHistory: async () => [],
+      getAllConversionEventVisits: async () => [],
+      getManagerDirectory: async () => [],
+      upsertManagerDirectory: async () => 0,
+      hasSyncCoverage: async (input: { stream: string }) => {
+        coverageStreams.push(input.stream);
+        return false;
+      }
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-30T12:00:00.000Z")
+    });
+
+    const report = await service.getConversionEventsReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      }
+    });
+
+    expect(coverageStreams).toContain("conversion_event_visits");
+    expect(report.rows).toEqual([]);
+    expect(report.warnings.join(" ")).toContain(
+      "snapshot конверсионных мероприятий не загружен"
+    );
+  });
+
   it("exposes blocking sync health from meta and recovers stale running sync runs", async () => {
     let recoveredBefore: string | null = null;
     const repository = {

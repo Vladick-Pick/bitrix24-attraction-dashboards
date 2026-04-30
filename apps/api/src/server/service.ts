@@ -77,11 +77,15 @@ import {
   CALL_STATS_COVERAGE_STREAM,
   CALL_STATS_COVERAGE_VERSION,
   buildCategoryScopeKey,
+  CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
+  CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
+  CONVERSION_EVENT_VISITS_COVERAGE_VERSION,
   DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
   DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
   DEAL_CUSTOM_FIELDS_COVERAGE_VERSION,
   DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
   DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION,
+  FULL_COVERAGE_FROM,
   performManualSync
 } from "../domain/sync";
 import type { SyncClient } from "../domain/sync";
@@ -260,6 +264,8 @@ function resolveLatestTwelveMonthCohortRange(now: Date): ReportRange {
 
 const MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING =
   "Данные по делам/звонкам неполные: требуется историческая синхронизация за выбранный период.";
+const CONVERSION_EVENTS_INCOMPLETE_WARNING =
+  "Локальный snapshot конверсионных мероприятий не загружен: проверьте доступ webhook к smart-process \"Посещения мероприятий\" и запустите sync.";
 const MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS = [
   "CRM_TODO",
   "CRM_TASKS_TASK",
@@ -366,6 +372,11 @@ async function buildSyncHealth(input: {
       stream: CALL_STATS_COVERAGE_STREAM,
       providerId: CALL_STATS_COVERAGE_PROVIDER,
       algorithmVersion: CALL_STATS_COVERAGE_VERSION
+    },
+    {
+      stream: CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
+      providerId: CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
+      algorithmVersion: CONVERSION_EVENT_VISITS_COVERAGE_VERSION
     },
     ...(input.meetingDateFieldName
       ? [
@@ -1657,6 +1668,19 @@ export function createReportingService(
       const scopedStageHistory = stageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
+      const conversionEventsCoverageConfirmed =
+        typeof input.repository.hasSyncCoverage === "function"
+          ? await input.repository.hasSyncCoverage({
+              scopeKey: buildCategoryScopeKey(
+                input.dealCategoryIds,
+                ATTRACTION_MANAGER_IDS
+              ),
+              stream: CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
+              providerId: CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
+              requiredFrom: FULL_COVERAGE_FROM,
+              algorithmVersion: CONVERSION_EVENT_VISITS_COVERAGE_VERSION
+            })
+          : true;
       const managerDirectory = await ensureManagerDirectory(
         uniqueStrings([
           ...scopedDeals.map((deal) => deal.assignedById),
@@ -1665,8 +1689,8 @@ export function createReportingService(
       );
       const buildSnapshot = (
         targetRange: ReportRange
-      ): ConversionEventsReportSnapshot =>
-        buildConversionEventsReport({
+      ): ConversionEventsReportSnapshot => {
+        const snapshot = buildConversionEventsReport({
           range: targetRange,
           visits: scopedVisits,
           deals: scopedDeals,
@@ -1675,6 +1699,21 @@ export function createReportingService(
           managerDirectory,
           sourceLabels
         });
+
+        if (conversionEventsCoverageConfirmed) {
+          return snapshot;
+        }
+
+        return {
+          ...snapshot,
+          warnings: Array.from(
+            new Set([
+              ...snapshot.warnings,
+              CONVERSION_EVENTS_INCOMPLETE_WARNING
+            ])
+          )
+        };
+      };
       const resolvedRange = resolveRange(
         periodDays,
         range,

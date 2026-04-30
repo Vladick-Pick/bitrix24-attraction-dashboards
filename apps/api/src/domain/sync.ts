@@ -290,7 +290,12 @@ export const DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION =
 export const CALL_STATS_COVERAGE_STREAM = "call_stats";
 export const CALL_STATS_COVERAGE_PROVIDER = "VOXIMPLANT_CALL";
 export const CALL_STATS_COVERAGE_VERSION = "call-stats-refresh-v3";
-const FULL_COVERAGE_FROM = "0000-01-01T00:00:00.000Z";
+export const CONVERSION_EVENT_VISITS_COVERAGE_STREAM =
+  "conversion_event_visits";
+export const CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER = "smart_process";
+export const CONVERSION_EVENT_VISITS_COVERAGE_VERSION =
+  "conversion-event-visits-v1";
+export const FULL_COVERAGE_FROM = "0000-01-01T00:00:00.000Z";
 const EMPTY_SNAPSHOT_STATS: SnapshotStats = {
   deals: 0,
   activities: 0,
@@ -1226,6 +1231,7 @@ export async function performManualSync(
     hasDealCustomFieldsCoverage,
     hasDealMeetingDateFieldCoverage,
     hasCallStatsCoverage,
+    hasConversionEventVisitsCoverage,
     ...taskActivityHistoryCoverage
   ] = await Promise.all([
     hasActivityProviderCoverage({
@@ -1265,6 +1271,14 @@ export async function performManualSync(
       providerId: CALL_STATS_COVERAGE_PROVIDER,
       requiredFrom: bootstrapModifiedAfter,
       algorithmVersion: CALL_STATS_COVERAGE_VERSION
+    }),
+    hasSyncCoverage({
+      repository: input.repository,
+      scopeKey,
+      stream: CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
+      providerId: CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
+      requiredFrom: FULL_COVERAGE_FROM,
+      algorithmVersion: CONVERSION_EVENT_VISITS_COVERAGE_VERSION
     }),
     ...TASK_ACTIVITY_PROVIDER_IDS.map((providerId) =>
       hasActivityProviderCoverage({
@@ -1339,6 +1353,13 @@ export async function performManualSync(
   const activityModifiedAfter = shouldBootstrapOperationalHistory
     ? bootstrapModifiedAfter
     : activityCursor;
+  const shouldBootstrapConversionEventVisits =
+    Boolean(input.client.listConversionEventVisits) &&
+    !hasConversionEventVisitsCoverage;
+  const conversionEventModifiedAfter = shouldBootstrapConversionEventVisits
+    ? null
+    : dealModifiedAfter;
+  const conversionEventDiagnostics: string[] = [];
   const syncRunId = await input.repository.createSyncRun({
     startedAt,
     mode,
@@ -1485,8 +1506,13 @@ export async function performManualSync(
         : Promise.resolve([]),
       input.client.listConversionEventVisits
         ? input.client.listConversionEventVisits({
-            modifiedAfter: dealModifiedAfter,
+            modifiedAfter: conversionEventModifiedAfter,
             reportYear: new Date(Date.parse(startedAt)).getUTCFullYear()
+          }).catch((error: unknown) => {
+            conversionEventDiagnostics.push(
+              `conversionEventVisitsError=${describeSyncError(error)}`
+            );
+            return [];
           })
         : Promise.resolve([])
     ]);
@@ -2066,8 +2092,12 @@ export async function performManualSync(
       `scopeExpansionManagers=${scopeExpansionAssignedByIds.length}`,
       `scopeExpansionDeals=${scopeExpansionDealIds.length}`,
       `conversionEventVisits=${conversionEventVisits.length}`,
+      `conversionEventVisitsCoverage=${
+        shouldBootstrapConversionEventVisits ? "backfill" : "delta"
+      }`,
       `supplementalCallsSeen=${supplementalCallRows.length}`,
       `callsPersisted=${calls.length}`,
+      ...conversionEventDiagnostics,
       ...(shouldAdoptDealCustomFieldsCoverage ||
       shouldAdoptDealMeetingDateFieldCoverage ||
       shouldAdoptCallActivityHistoryCoverage ||
@@ -2223,6 +2253,22 @@ export async function performManualSync(
           coveredFrom: bootstrapModifiedAfter,
           coveredTo: null,
           algorithmVersion: CALL_STATS_COVERAGE_VERSION,
+          syncedAt: persistedAt
+        });
+      }
+
+      if (
+        input.repository.upsertSyncCoverage &&
+        shouldBootstrapConversionEventVisits &&
+        conversionEventDiagnostics.length === 0
+      ) {
+        void input.repository.upsertSyncCoverage({
+          scopeKey,
+          stream: CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
+          providerId: CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
+          coveredFrom: FULL_COVERAGE_FROM,
+          coveredTo: null,
+          algorithmVersion: CONVERSION_EVENT_VISITS_COVERAGE_VERSION,
           syncedAt: persistedAt
         });
       }

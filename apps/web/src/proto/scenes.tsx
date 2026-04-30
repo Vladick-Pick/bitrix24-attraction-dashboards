@@ -4414,7 +4414,13 @@ function ActivitiesConversionEventsSection({
           </table>
         </div>
       ) : (
-        <OutcomeEmptyState message="В выбранном периоде конверсионные мероприятия не найдены." />
+        <OutcomeEmptyState
+          message={
+            report.warnings.length > 0
+              ? 'Snapshot конверсионных мероприятий не загружен. Проверьте доступ webhook к smart-process и запустите sync.'
+              : 'В выбранном периоде конверсионные мероприятия не найдены.'
+          }
+        />
       )}
     </section>
   )

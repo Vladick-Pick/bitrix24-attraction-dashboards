@@ -1691,6 +1691,39 @@ describe('ProtoApp', () => {
     expect(screen.queryByText(/Омаров/i)).not.toBeInTheDocument()
   })
 
+  it('shows conversion event sync coverage warning instead of a not-found empty state', async () => {
+    vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
+      range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+      totalInvitedCount: 0,
+      totalAttendedCount: 0,
+      totalRefusedCount: 0,
+      totalMissedCount: 0,
+      attendanceRate: null,
+      nextStepEligibleCount: 0,
+      nextStepCount: 0,
+      nextStepRate: null,
+      warnings: [
+        'Локальный snapshot конверсионных мероприятий не загружен: проверьте доступ webhook к smart-process "Посещения мероприятий" и запустите sync.',
+      ],
+      rows: [],
+      comparisons: [],
+    })
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /отчет активности/i }))
+
+    expect(
+      screen.getAllByText(/snapshot конверсионных мероприятий не загружен/i).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText(/проверьте доступ webhook к smart-process/i).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.queryByText(/конверсионные мероприятия не найдены/i),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders stable manager leaders in the funnel-flow scene', async () => {
     vi.mocked(apiClient.getMeta).mockResolvedValueOnce({
       stageCatalog: [],

@@ -489,6 +489,188 @@ describe("performManualSync", () => {
     });
   });
 
+  it("backfills conversion event visits once when the smart-process snapshot has no coverage yet", async () => {
+    const conversionVisitRequests: Array<{
+      modifiedAfter: string | null;
+      reportYear: number;
+    }> = [];
+    const storedConversionEventVisits: unknown[][] = [];
+    const coverageWrites: unknown[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-29T09:56:29.538Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      hasSyncCoverage: async (input: { stream: string }) =>
+        input.stream !== "conversion_event_visits",
+      upsertSyncCoverage: async (input: unknown) => {
+        coverageWrites.push(input);
+      },
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertConversionEventVisits: async (rows: unknown[]) => {
+        storedConversionEventVisits.push(rows);
+        return rows.length;
+      },
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 42,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [],
+      listConversionEventVisits: async (input: {
+        modifiedAfter: string | null;
+        reportYear: number;
+      }) => {
+        conversionVisitRequests.push(input);
+        return [
+          {
+            id: "VISIT-29-04",
+            eventName: "Знакомство с клубом 29.04.",
+            eventDate: "2026-04-29T00:00:00.000Z",
+            status: "attended" as const,
+            stageId: "DT:ATTENDED",
+            stageName: "На мероприятии",
+            dealId: "D1",
+            contactId: "9001",
+            managerId: "78",
+            sourceId: "WEB",
+            createdTime: "2026-04-20T10:00:00.000Z",
+            updatedTime: "2026-04-29T13:56:00.000Z"
+          }
+        ];
+      },
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-30T15:05:00.000Z"
+    });
+
+    expect(conversionVisitRequests).toEqual([
+      { modifiedAfter: null, reportYear: 2026 }
+    ]);
+    expect(storedConversionEventVisits).toEqual([
+      [
+        expect.objectContaining({
+          id: "VISIT-29-04",
+          eventName: "Знакомство с клубом 29.04."
+        })
+      ]
+    ]);
+    expect(coverageWrites).toContainEqual(
+      expect.objectContaining({
+        stream: "conversion_event_visits",
+        coveredFrom: "0000-01-01T00:00:00.000Z"
+      })
+    );
+  });
+
+  it("keeps the main sync successful when conversion event discovery is access denied", async () => {
+    let finishedDiagnostics: string[] = [];
+    let failedSync = false;
+    const coverageWrites: unknown[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-29T09:56:29.538Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      hasSyncCoverage: async (input: { stream: string }) =>
+        input.stream !== "conversion_event_visits",
+      upsertSyncCoverage: async (input: unknown) => {
+        coverageWrites.push(input);
+      },
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertConversionEventVisits: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 43,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async (input: { diagnostics?: string[] }) => {
+        finishedDiagnostics = input.diagnostics ?? [];
+      },
+      failSyncRun: async () => {
+        failedSync = true;
+      }
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [],
+      listConversionEventVisits: async () => {
+        throw Object.assign(new Error("ACCESS_DENIED"), {
+          name: "BitrixApiError"
+        });
+      },
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const result = await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-30T15:05:00.000Z"
+    });
+
+    expect(result.syncRunId).toBe(43);
+    expect(failedSync).toBe(false);
+    expect(finishedDiagnostics).toContain(
+      "conversionEventVisitsError=BitrixApiError"
+    );
+    expect(coverageWrites).not.toContainEqual(
+      expect.objectContaining({
+        stream: "conversion_event_visits"
+      })
+    );
+  });
+
   it("hydrates target group from contact fields when the deal itself has no target-group field", async () => {
     const storedDeals: unknown[][] = [];
     const repo = {

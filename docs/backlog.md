@@ -92,6 +92,21 @@ This file mirrors the GitHub Issues backlog. GitHub Issues are the source of tru
 
 ## Needs Clarification
 
+### Bitrix access for conversion events and call recordings
+- Area: activities, data
+- Problem: the current webhook has scopes `bizproc`, `calendar`, `crm`, `disk`, `telephony`, and `user_brief`, but Bitrix still returns `ACCESS_DENIED` for `crm.type.list` and `disk.file.get`.
+- Current evidence:
+  - `crm.type.list` returns `ACCESS_DENIED / Доступ запрещен`, so smart-process discovery for `Посещения мероприятий` cannot run yet.
+  - `disk.file.get` for a telephony `RECORD_FILE_ID` returns `ACCESS_DENIED / Access denied!`, so call recordings stored behind Bitrix Disk cannot be downloaded through Bitrix yet.
+  - `voximplant.statistic.get` works; Sipuni-hosted `CALL_RECORD_URL` links time out from this environment.
+- Expected behavior:
+  - Webhook user has CRM admin access required for `crm.type.list`.
+  - Webhook user has read access to telephony recording files for `disk.file.get`, or Sipuni API credentials are configured as the recording download fallback.
+- Verification plan:
+  - Re-run `crm.type.list`, `crm.item.fields`, and `crm.category.list` for `Посещения мероприятий`.
+  - Re-run `disk.file.get` on a known `RECORD_FILE_ID` and verify a `DOWNLOAD_URL` is returned without printing the URL.
+  - If Bitrix Disk remains blocked, add direct Sipuni API download using `SIPUNI_USER` and `SIPUNI_SECRET`.
+
 ### Plan source
 - What is the source of plan values?
 - Should plan be monthly, weekly, by manager, by source, or global?

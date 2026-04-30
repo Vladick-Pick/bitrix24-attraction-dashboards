@@ -7,6 +7,7 @@ This repository contains Bitrix24 attraction dashboards: local API, SQLite-backe
 - Do not work directly on `main` except for emergency repository maintenance.
 - Use branches named `codex/<task-name>` for implementation work.
 - Keep each branch tied to a backlog item or GitHub issue.
+- Keep git hygiene as a priority: before starting a new task, close stale work, merge verified completed branches, delete obsolete local/remote branches, and start fresh work from updated `main`.
 - Prefer small, reviewable changes over broad mixed commits.
 - Do not commit local runtime state, raw Codex comments, SQLite databases, secrets, or Bitrix snapshots.
 - Convert prototype comments from `.codex/proto-comments/comments.json` into GitHub issues or `docs/backlog.md` items before implementation.

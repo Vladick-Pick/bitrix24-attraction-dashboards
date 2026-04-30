@@ -1291,52 +1291,30 @@ export async function performManualSync(
   ]);
   const runModifiedAfter = dealCursor;
   const mode = runModifiedAfter === null ? "full" : "delta";
+  const hasCoverageTracking = Boolean(input.repository.hasSyncCoverage);
   const shouldBootstrapOperationalHistory =
     !operationalHistoryBootstrappedAt && activitySnapshotCount === 0;
-  const canAdoptDealCoverageFromSnapshot =
-    dealCursor !== null && snapshotBefore.deals > 0;
-  const canAdoptActivityCoverageFromSnapshot =
-    activityCursor !== null && snapshotBefore.activities > 0;
-  const shouldAdoptCallActivityHistoryCoverage =
-    canAdoptActivityCoverageFromSnapshot && !hasCallActivityHistoryCoverage;
-  const shouldAdoptMeetingActivityHistoryCoverage =
-    canAdoptActivityCoverageFromSnapshot && !hasMeetingActivityHistoryCoverage;
   const shouldBootstrapCallActivityHistory =
-    !canAdoptActivityCoverageFromSnapshot &&
-    (!callActivityHistoryBootstrappedAt || !hasCallActivityHistoryCoverage);
+    !hasCallActivityHistoryCoverage ||
+    (!hasCoverageTracking && !callActivityHistoryBootstrappedAt);
   const shouldBootstrapMeetingActivityHistory =
-    !canAdoptActivityCoverageFromSnapshot &&
-    (!meetingActivityHistoryBootstrappedAt || !hasMeetingActivityHistoryCoverage);
+    !hasMeetingActivityHistoryCoverage ||
+    (!hasCoverageTracking && !meetingActivityHistoryBootstrappedAt);
   const taskActivityProvidersToBootstrap = TASK_ACTIVITY_PROVIDER_IDS.filter(
     (_providerId, index) =>
-      !canAdoptActivityCoverageFromSnapshot &&
-      (!taskActivityHistoryBootstrappedAt || !taskActivityHistoryCoverage[index])
-  );
-  const taskActivityProvidersToAdopt = TASK_ACTIVITY_PROVIDER_IDS.filter(
-    (_providerId, index) =>
-      canAdoptActivityCoverageFromSnapshot && !taskActivityHistoryCoverage[index]
+      !taskActivityHistoryCoverage[index] ||
+      (!hasCoverageTracking && !taskActivityHistoryBootstrappedAt)
   );
   const shouldBootstrapTaskActivityHistory =
     taskActivityProvidersToBootstrap.length > 0;
-  const shouldAdoptDealCustomFieldsCoverage =
-    canAdoptDealCoverageFromSnapshot && !hasDealCustomFieldsCoverage;
   const shouldBootstrapDealCustomFields =
-    !canAdoptDealCoverageFromSnapshot &&
-    (!dealCustomFieldsBootstrappedAt || !hasDealCustomFieldsCoverage);
-  const shouldAdoptDealMeetingDateFieldCoverage =
-    canAdoptDealCoverageFromSnapshot &&
-    Boolean(input.meetingDateFieldName) &&
-    !hasDealMeetingDateFieldCoverage;
+    !hasDealCustomFieldsCoverage ||
+    (!hasCoverageTracking && !dealCustomFieldsBootstrappedAt);
   const shouldBootstrapDealMeetingDateField =
     Boolean(input.meetingDateFieldName) &&
-    !canAdoptDealCoverageFromSnapshot &&
-    (!dealMeetingDateFieldBootstrappedAt || !hasDealMeetingDateFieldCoverage);
-  const shouldAdoptCallStatsCoverage =
-    scopeExpansionAssignedByIds.length > 0 &&
-    canAdoptActivityCoverageFromSnapshot &&
-    !hasCallStatsCoverage;
-  const shouldRefreshCallStatsCoverage =
-    !hasCallStatsCoverage && !shouldAdoptCallStatsCoverage;
+    (!hasDealMeetingDateFieldCoverage ||
+      (!hasCoverageTracking && !dealMeetingDateFieldBootstrappedAt));
+  const shouldRefreshCallStatsCoverage = !hasCallStatsCoverage;
   const callStatsDeltaCursor = storedCallStatsCursor ?? activityCursor ?? dealCursor;
   const callStatsCursor = input.repository.getSyncCursor
     ? shouldRefreshCallStatsCoverage
@@ -1719,6 +1697,7 @@ export async function performManualSync(
     const callStatsOwnerIds = Array.from(
       new Set([...allExistingScopedOwnerIds, ...deals.map((deal) => deal.id)])
     );
+    const historicalActivityOwnerIds = callStatsOwnerIds;
     const callStatsOwnerIdSet = new Set(callStatsOwnerIds);
     emitSyncProgress(
       input,
@@ -1750,7 +1729,7 @@ export async function performManualSync(
       historicalActivityRequests.push({
         providerId: "VOXIMPLANT_CALL",
         request: input.client.listActivities({
-          ownerIds: refreshOwnerIds,
+          ownerIds: historicalActivityOwnerIds,
           modifiedAfter: bootstrapModifiedAfter,
           providerId: "VOXIMPLANT_CALL"
         })
@@ -1760,7 +1739,7 @@ export async function performManualSync(
       historicalActivityRequests.push({
         providerId: "CRM_MEETING",
         request: input.client.listActivities({
-          ownerIds: refreshOwnerIds,
+          ownerIds: historicalActivityOwnerIds,
           modifiedAfter: bootstrapModifiedAfter,
           providerId: "CRM_MEETING"
         })
@@ -1771,7 +1750,7 @@ export async function performManualSync(
         historicalActivityRequests.push({
           providerId,
           request: input.client.listActivities({
-            ownerIds: refreshOwnerIds,
+            ownerIds: historicalActivityOwnerIds,
             modifiedAfter: bootstrapModifiedAfter,
             providerId
           })
@@ -2097,15 +2076,7 @@ export async function performManualSync(
       }`,
       `supplementalCallsSeen=${supplementalCallRows.length}`,
       `callsPersisted=${calls.length}`,
-      ...conversionEventDiagnostics,
-      ...(shouldAdoptDealCustomFieldsCoverage ||
-      shouldAdoptDealMeetingDateFieldCoverage ||
-      shouldAdoptCallActivityHistoryCoverage ||
-      shouldAdoptMeetingActivityHistoryCoverage ||
-      taskActivityProvidersToAdopt.length > 0 ||
-      shouldAdoptCallStatsCoverage
-        ? ["coverage=adopted_existing_snapshot"]
-        : [])
+      ...conversionEventDiagnostics
     ];
 
     emitSyncProgress(
@@ -2186,16 +2157,9 @@ export async function performManualSync(
 
       if (input.repository.upsertSyncCoverage && bootstrapModifiedAfter) {
         for (const providerId of [
-          ...(shouldBootstrapCallActivityHistory ||
-          shouldAdoptCallActivityHistoryCoverage
-            ? ["VOXIMPLANT_CALL"]
-            : []),
-          ...(shouldBootstrapMeetingActivityHistory ||
-          shouldAdoptMeetingActivityHistoryCoverage
-            ? ["CRM_MEETING"]
-            : []),
-          ...taskActivityProvidersToBootstrap,
-          ...taskActivityProvidersToAdopt
+          ...(shouldBootstrapCallActivityHistory ? ["VOXIMPLANT_CALL"] : []),
+          ...(shouldBootstrapMeetingActivityHistory ? ["CRM_MEETING"] : []),
+          ...taskActivityProvidersToBootstrap
         ]) {
           void input.repository.upsertSyncCoverage({
             scopeKey,
@@ -2211,7 +2175,7 @@ export async function performManualSync(
 
       if (
         input.repository.upsertSyncCoverage &&
-        (shouldBootstrapDealCustomFields || shouldAdoptDealCustomFieldsCoverage)
+        shouldBootstrapDealCustomFields
       ) {
         void input.repository.upsertSyncCoverage({
           scopeKey,
@@ -2227,8 +2191,7 @@ export async function performManualSync(
       if (
         input.repository.upsertSyncCoverage &&
         input.meetingDateFieldName &&
-        (shouldBootstrapDealMeetingDateField ||
-          shouldAdoptDealMeetingDateFieldCoverage)
+        shouldBootstrapDealMeetingDateField
       ) {
         void input.repository.upsertSyncCoverage({
           scopeKey,
@@ -2244,7 +2207,7 @@ export async function performManualSync(
       if (
         input.repository.upsertSyncCoverage &&
         bootstrapModifiedAfter &&
-        (shouldRefreshCallStatsCoverage || shouldAdoptCallStatsCoverage)
+        shouldRefreshCallStatsCoverage
       ) {
         void input.repository.upsertSyncCoverage({
           scopeKey,

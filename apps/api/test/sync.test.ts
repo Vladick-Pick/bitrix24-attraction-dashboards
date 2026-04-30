@@ -2228,7 +2228,7 @@ describe("performManualSync", () => {
     );
   });
 
-  it("uses existing scoped snapshot coverage for delta sync instead of reopening year backfill", async () => {
+  it("backfills missing activity history coverage during delta sync", async () => {
     const dealSyncCursors: Array<string | null> = [];
     const activityRequests: Array<{ modifiedAfter: string | null; providerId?: string }> = [];
     const callRequests: Array<{
@@ -2339,21 +2339,49 @@ describe("performManualSync", () => {
       now: () => "2026-04-25T00:00:00.000Z"
     });
 
-    expect(dealSyncCursors).toEqual(["2026-04-24T13:20:59+03:00"]);
-    expect(activityRequests).toEqual([
+    expect(dealSyncCursors).toEqual(["2025-04-25T00:00:00.000Z"]);
+    expect(activityRequests).toEqual(
+      expect.arrayContaining([
+        {
+          modifiedAfter: "2026-04-24T13:20:59+03:00"
+        },
+        {
+          modifiedAfter: "2025-04-25T00:00:00.000Z",
+          providerId: "CRM_TODO"
+        },
+        {
+          modifiedAfter: "2025-04-25T00:00:00.000Z",
+          providerId: "CRM_TASKS_TASK"
+        },
+        {
+          modifiedAfter: "2025-04-25T00:00:00.000Z",
+          providerId: "VOXIMPLANT_CALL"
+        },
+        {
+          modifiedAfter: "2025-04-25T00:00:00.000Z",
+          providerId: "CRM_MEETING"
+        }
+      ])
+    );
+    expect(activityRequests).toHaveLength(5);
+    expect(callRequests).toEqual([
       {
-        modifiedAfter: "2026-04-24T13:20:59+03:00"
+        activityIds: ["A_OLD_CALL"]
+      },
+      {
+        callStartDateFrom: "2025-04-25T00:00:00.000Z",
+        callStartDateTo: "2026-04-25T00:00:00.000Z",
+        portalUserIds: [
+          "78",
+          "11234",
+          "7824",
+          "6994",
+          "7814",
+          "72",
+          "2236",
+          "2764"
+        ]
       }
-    ]);
-	    expect(callRequests).toEqual([
-	      {
-	        activityIds: ["A_OLD_CALL"]
-	      },
-	      {
-	        callStartDateFrom: "2025-04-25T00:00:00.000Z",
-	        callStartDateTo: "2026-04-25T00:00:00.000Z",
-	        portalUserIds: ["78", "11234", "7824", "6994", "7814", "72", "2236", "2764"]
-	      }
     ]);
     expect(stageHistoryRequests).toEqual([]);
     expect(coverageWrites).toEqual(

@@ -135,6 +135,7 @@ interface AppConfig {
   jsonBodyLimit?: string;
   trustProxy?: string | boolean | number;
   webStaticDir?: string;
+  syncStreamHeartbeatMs?: number;
 }
 
 function parseCsvArray(value: unknown) {
@@ -627,6 +628,14 @@ function writeSyncEvent(
   response.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+function writeSyncKeepalive(response: express.Response) {
+  if (response.destroyed || response.writableEnded) {
+    return;
+  }
+
+  response.write(": keepalive\n\n");
+}
+
 function readBearerToken(value: string | undefined) {
   if (!value) {
     return undefined;
@@ -1074,6 +1083,11 @@ export function createApp(
       response.setHeader("Connection", "keep-alive");
       response.flushHeaders?.();
 
+      const heartbeat = setInterval(
+        () => writeSyncKeepalive(response),
+        config.syncStreamHeartbeatMs ?? 15_000
+      );
+
       try {
         activeSync = service.performSync({
           onProgress: (event) => {
@@ -1087,6 +1101,7 @@ export function createApp(
         writeSyncEvent(response, "error", createSyncErrorResponse(error));
         response.end();
       } finally {
+        clearInterval(heartbeat);
         activeSync = null;
       }
       return;

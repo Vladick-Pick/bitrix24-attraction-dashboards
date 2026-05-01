@@ -489,6 +489,120 @@ describe("performManualSync", () => {
     });
   });
 
+  it("fetches stage history for closed deals during an initial full sync", async () => {
+    let stageHistoryOwnerIds: string[] | undefined;
+    const storedStageHistory: unknown[][] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => null,
+      getOperationalHistoryBootstrappedAt: async () => null,
+      getCallHistoryBootstrappedAt: async () => null,
+      getActivitySnapshotCount: async () => 0,
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async (rows: unknown[]) => rows.length,
+      upsertStageHistory: async (rows: unknown[]) => {
+        storedStageHistory.push(rows);
+        return rows.length;
+      },
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 72,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [
+        {
+          ID: "D_OPEN",
+          LEAD_ID: null,
+          DATE_CREATE: "2026-04-01T00:00:00.000Z",
+          DATE_MODIFY: "2026-04-08T10:00:00.000Z",
+          DATE_CLOSED: null,
+          CATEGORY_ID: "10",
+          STAGE_ID: "C10:NEW",
+          STAGE_SEMANTIC_ID: "P",
+          OPPORTUNITY: null,
+          ASSIGNED_BY_ID: "78",
+          SOURCE_ID: "WEB",
+          UTM_SOURCE: null,
+          UTM_MEDIUM: null,
+          UTM_CAMPAIGN: null,
+          UTM_CONTENT: null,
+          UTM_TERM: null
+        },
+        {
+          ID: "D_WON",
+          LEAD_ID: null,
+          DATE_CREATE: "2026-03-01T00:00:00.000Z",
+          DATE_MODIFY: "2026-04-08T11:00:00.000Z",
+          DATE_CLOSED: null,
+          CATEGORY_ID: "10",
+          STAGE_ID: "C10:WON",
+          STAGE_SEMANTIC_ID: "S",
+          OPPORTUNITY: null,
+          ASSIGNED_BY_ID: "78",
+          SOURCE_ID: "WEB",
+          UTM_SOURCE: null,
+          UTM_MEDIUM: null,
+          UTM_CAMPAIGN: null,
+          UTM_CONTENT: null,
+          UTM_TERM: null
+        }
+      ],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async (input: { ownerIds?: string[] }) => {
+        stageHistoryOwnerIds = input.ownerIds;
+        return [
+          {
+            ID: "H_WON",
+            OWNER_ID: "D_WON",
+            CATEGORY_ID: "10",
+            STAGE_ID: "C10:WON",
+            STAGE_SEMANTIC_ID: "S",
+            TYPE_ID: 1,
+            CREATED_TIME: "2026-03-10T10:00:00.000Z"
+          }
+        ];
+      },
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-09T00:00:00.000Z"
+    });
+
+    expect(stageHistoryOwnerIds).toEqual(["D_OPEN", "D_WON"]);
+    expect(storedStageHistory).toEqual([
+      [
+        expect.objectContaining({
+          id: "H_WON",
+          ownerId: "D_WON"
+        })
+      ]
+    ]);
+  });
+
   it("backfills conversion event visits once when the smart-process snapshot has no coverage yet", async () => {
     const conversionVisitRequests: Array<{
       modifiedAfter: string | null;

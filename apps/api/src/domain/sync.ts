@@ -2038,9 +2038,9 @@ export async function performManualSync(
 
     const managerDirectory = await fetchManagerDirectory(input.client, managerIds);
     const stageHistoryOwnerIds =
-      runModifiedAfter !== null && snapshotBefore.stageHistory > 0
-        ? deals.map((deal) => deal.id)
-        : refreshOwnerIds;
+      runModifiedAfter === null || snapshotBefore.stageHistory === 0
+        ? callStatsOwnerIds
+        : deals.map((deal) => deal.id);
     const stageHistoryRows =
       stageHistoryOwnerIds.length > 0
         ? await input.client.listStageHistory({

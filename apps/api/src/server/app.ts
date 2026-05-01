@@ -36,6 +36,7 @@ import type {
   PasswordAuthService
 } from "./auth.js";
 import { AuthError } from "./auth.js";
+import type { ProtoCommentStore } from "./sqlite-repository.js";
 
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
@@ -128,10 +129,16 @@ interface AppService {
   updateWonStages(stageIds: string[]): Promise<{ wonStageIds: string[] }>;
 }
 
+interface ProtoCommentsStore {
+  getProtoComments(): Promise<ProtoCommentStore>;
+  replaceProtoComments(input: ProtoCommentStore): Promise<ProtoCommentStore>;
+}
+
 interface AppConfig {
   webOrigin?: string;
   apiAuthToken?: string;
   auth?: PasswordAuthService;
+  protoComments?: ProtoCommentsStore;
   jsonBodyLimit?: string;
   trustProxy?: string | boolean | number;
   webStaticDir?: string;
@@ -238,6 +245,34 @@ const reportQuerySchema = z
 
 const updateWonStagesSchema = z.object({
   stageIds: z.array(z.string().min(1)).min(1)
+});
+
+const protoCommentAnchorSchema = z.object({
+  blockId: z.string().trim().min(1).max(500),
+  blockLabel: z.string().trim().min(1).max(500),
+  blockSelector: z.string().trim().min(1).max(1000),
+  blockRole: z.string().trim().min(1).max(100).nullable(),
+  elementSelector: z.string().trim().min(1).max(1000),
+  elementLabel: z.string().trim().max(500),
+  relativeX: z.number().finite().min(0).max(1),
+  relativeY: z.number().finite().min(0).max(1)
+});
+
+const protoCommentSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  sceneId: z.string().trim().min(1).max(200),
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
+  text: z.string().trim().min(1).max(5000),
+  status: z.enum(["open", "archived"]).default("open"),
+  archivedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+  anchor: protoCommentAnchorSchema.optional()
+});
+
+const protoCommentsBodySchema = z.object({
+  comments: z.array(protoCommentSchema).max(500)
 });
 
 const revenueVelocityExtraQuerySchema = z.object({
@@ -846,6 +881,49 @@ export function createApp(
       }
       clearSessionCookie(response, auth);
       response.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/proto-comments", async (_request, response, next) => {
+    if (!config.protoComments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      response.json(await config.protoComments.getProtoComments());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/proto-comments", async (request, response, next) => {
+    if (!config.protoComments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      const payload = protoCommentsBodySchema.parse(request.body);
+      response.json(
+        await config.protoComments.replaceProtoComments({
+          comments: payload.comments.map((comment) => ({
+            id: comment.id,
+            sceneId: comment.sceneId,
+            x: comment.x,
+            y: comment.y,
+            text: comment.text,
+            status: comment.status,
+            archivedAt: comment.archivedAt ?? null,
+            createdAt: comment.createdAt,
+            updatedAt: comment.updatedAt,
+            ...(comment.anchor ? { anchor: comment.anchor } : {})
+          })),
+          updatedAt: new Date().toISOString()
+        })
+      );
     } catch (error) {
       next(error);
     }

@@ -25,6 +25,18 @@ export interface ProtoComment {
   archivedAt?: string | null
   createdAt: string
   updatedAt: string
+  anchor?: ProtoCommentAnchor
+}
+
+export interface ProtoCommentAnchor {
+  blockId: string
+  blockLabel: string
+  blockSelector: string
+  blockRole: string | null
+  elementSelector: string
+  elementLabel: string
+  relativeX: number
+  relativeY: number
 }
 
 export interface CompareRange {

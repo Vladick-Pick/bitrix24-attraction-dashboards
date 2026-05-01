@@ -1197,7 +1197,21 @@ describe('ProtoApp', () => {
       toJSON: () => ({}),
     } as DOMRect)
 
-    fireEvent.click(shell, { clientX: 100, clientY: 200 })
+    const filterHeading = screen.getByText(/фильтры периода и среза/i)
+    const filterPanel = filterHeading.closest('.panel') as HTMLElement
+    vi.spyOn(filterPanel, 'getBoundingClientRect').mockReturnValue({
+      x: 50,
+      y: 100,
+      width: 500,
+      height: 400,
+      top: 100,
+      left: 50,
+      right: 550,
+      bottom: 500,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(filterHeading, { clientX: 100, clientY: 200 })
 
     const textarea = screen.getByPlaceholderText(/комментарий к точке интерфейса/i)
     await userEvent.type(textarea, 'Проверка точки')
@@ -1205,6 +1219,17 @@ describe('ProtoApp', () => {
 
     const pin = await screen.findByRole('button', { name: /^Комментарий 1$/ })
     expect(pin).toHaveStyle({ left: '10%', top: '20%' })
+    const saveCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST')
+    const savedBody = JSON.parse(String(saveCall?.[1]?.body)) as {
+      comments: Array<{ anchor?: Record<string, unknown> }>
+    }
+    expect(savedBody.comments[0]?.anchor).toEqual(
+      expect.objectContaining({
+        blockLabel: expect.stringMatching(/фильтры периода и среза/i),
+        relativeX: 0.1,
+        relativeY: 0.25,
+      }),
+    )
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/комментарий к точке интерфейса/i)).toBeDisabled()

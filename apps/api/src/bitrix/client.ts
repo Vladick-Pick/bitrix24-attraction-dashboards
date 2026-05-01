@@ -392,6 +392,8 @@ function chunkValues<T>(values: T[], chunkSize = 50) {
   return chunks;
 }
 
+const ACTIVITY_OWNER_CHUNK_SIZE = 10;
+
 export class BitrixClient {
   private readonly baseUrl: string | null;
   private lastRequestAt = 0;
@@ -1123,7 +1125,7 @@ export class BitrixClient {
           ],
           start
         })),
-      50
+      ACTIVITY_OWNER_CHUNK_SIZE
     );
   }
 

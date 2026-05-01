@@ -207,6 +207,7 @@ function createTestApp(
   config?: {
     webOrigin?: string;
     apiAuthToken?: string;
+    syncStreamHeartbeatMs?: number;
   }
 ) {
   const service: Parameters<typeof createApp>[0] = {
@@ -501,6 +502,7 @@ function createTestApp(
       config?: {
         webOrigin?: string;
         apiAuthToken?: string;
+        syncStreamHeartbeatMs?: number;
       }
     ) => ReturnType<typeof createApp>
   )(service, config);
@@ -1709,6 +1711,30 @@ describe("createApp", () => {
         expect(text).toContain("\"phase\":\"fetch_deals\"");
         expect(text).toContain("event: complete");
         expect(text).toContain("\"syncRunId\":18");
+      });
+  });
+
+  it("keeps the sync stream alive while Bitrix requests are still running", async () => {
+    const app = createTestApp({
+      performSync: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 35));
+        return createSyncSummary({
+          syncRunId: 19,
+          dealsSynced: 5,
+          finishedAt: "2026-04-09T12:00:00.000Z"
+        });
+      }
+    }, {
+      syncStreamHeartbeatMs: 10
+    });
+
+    await request(app)
+      .post("/api/sync")
+      .set("Accept", "text/event-stream")
+      .expect(200)
+      .expect(({ text }) => {
+        expect(text).toContain(": keepalive");
+        expect(text).toContain("event: complete");
       });
   });
 

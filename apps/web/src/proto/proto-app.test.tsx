@@ -706,6 +706,10 @@ describe('ProtoApp', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^План продаж$/i }))
 
     expect(await screen.findByRole('heading', { name: /^План продаж$/i })).toBeInTheDocument()
+    expect(screen.queryByText('Разрез плана')).not.toBeInTheDocument()
+    expect(screen.queryByText('Поля плана')).not.toBeInTheDocument()
+    expect(screen.queryByText('Источник факта')).not.toBeInTheDocument()
+    expect(screen.queryByText('Сохранение')).not.toBeInTheDocument()
     expect(screen.getByText('2 квартал 2026')).toBeInTheDocument()
     expect(screen.getAllByText('Доход, млн ₽').length).toBeGreaterThan(0)
     expect(screen.queryByText('Апрель доход')).not.toBeInTheDocument()

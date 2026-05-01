@@ -1308,7 +1308,7 @@ export function ProtoApp() {
           ))}
         </section>
 
-        {activeScene.id === 'sales' ? null : (
+        {activeScene.id !== 'sales' && visibleSceneKpis.length > 0 ? (
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {visibleSceneKpis.map((metric) => (
               <div key={metric.label} className="metric p-4">
@@ -1338,7 +1338,7 @@ export function ProtoApp() {
               </div>
             ))}
           </section>
-        )}
+        ) : null}
 
         {runtimeData.operationalError ? (
           <div

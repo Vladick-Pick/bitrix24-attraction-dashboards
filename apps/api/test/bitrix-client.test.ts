@@ -516,6 +516,7 @@ describe("BitrixClient pagination", () => {
         OWNER_TYPE_ID: 2,
         OWNER_ID: ownerId
       })),
+      ">ID": "0",
       PROVIDER_ID: "CRM_TODO",
       ">=LAST_UPDATED": "2026-01-01T00:00:00.000Z"
     });
@@ -524,14 +525,71 @@ describe("BitrixClient pagination", () => {
         OWNER_TYPE_ID: 2,
         OWNER_ID: ownerId
       })),
+      ">ID": "0",
       PROVIDER_ID: "CRM_TODO",
       ">=LAST_UPDATED": "2026-01-01T00:00:00.000Z"
     });
     expect(JSON.parse(String(fetchMock.mock.calls[5]?.[1]?.body)).filter).toEqual({
       OWNER_TYPE_ID: 2,
       OWNER_ID: "51",
+      ">ID": "0",
       PROVIDER_ID: "CRM_TODO",
       ">=LAST_UPDATED": "2026-01-01T00:00:00.000Z"
+    });
+  });
+
+  it("uses ID-based pagination for deal-owned activity scans", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: Array.from({ length: 50 }, (_, index) => ({
+            ID: String(index + 1),
+            OWNER_ID: "D1",
+            OWNER_TYPE_ID: "2"
+          }))
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: [{ ID: "51", OWNER_ID: "D1", OWNER_TYPE_ID: "2" }]
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.listActivities({
+        ownerIds: ["D1"],
+        modifiedAfter: "2026-01-01T00:00:00.000Z"
+      })
+    ).resolves.toHaveLength(51);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      filter: {
+        OWNER_TYPE_ID: 2,
+        OWNER_ID: "D1",
+        ">ID": "0",
+        ">=LAST_UPDATED": "2026-01-01T00:00:00.000Z"
+      },
+      start: -1
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      filter: {
+        OWNER_TYPE_ID: 2,
+        OWNER_ID: "D1",
+        ">ID": "50",
+        ">=LAST_UPDATED": "2026-01-01T00:00:00.000Z"
+      },
+      start: -1
     });
   });
 

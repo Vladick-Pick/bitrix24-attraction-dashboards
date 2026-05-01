@@ -1093,12 +1093,13 @@ export class BitrixClient {
     return this.collectChunked(
       input.ownerIds,
       (chunk) =>
-        this.collectPagedList<ActivityRow>("crm.activity.list", (start) => ({
+        this.collectByAscendingId<ActivityRow>("crm.activity.list", (afterId) => ({
           order: {
             ID: "ASC" as const
           },
           filter: {
             ...buildActivityOwnerFilter(chunk),
+            ">ID": afterId,
             ...(input.providerId
               ? {
                   PROVIDER_ID: input.providerId
@@ -1123,7 +1124,7 @@ export class BitrixClient {
             "COMPLETED",
             "COMPLETED_DATE"
           ],
-          start
+          start: -1
         })),
       ACTIVITY_OWNER_CHUNK_SIZE
     );

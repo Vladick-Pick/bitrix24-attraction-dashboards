@@ -46,6 +46,7 @@ import type {
   CompareRange,
   PickerOption,
   ProtoComment,
+  ProtoCommentAnchor,
   ProtoFilterState,
   ProtoKpi,
   ProtoRuntimeData,
@@ -268,6 +269,102 @@ function shouldIgnoreCommentTarget(target: EventTarget | null) {
   )
 }
 
+const commentBlockSelector = [
+  '[data-comment-block-id]',
+  '.panel',
+  'section',
+  'article',
+  'table',
+  '[role="region"]',
+  '[aria-label]',
+].join(',')
+
+function cleanCommentLabel(value: string | null | undefined, fallback: string) {
+  const normalized = (value ?? '').replace(/\s+/g, ' ').trim()
+  return (normalized || fallback).slice(0, 180)
+}
+
+function nthOfType(element: Element) {
+  const tagName = element.tagName.toLowerCase()
+  let index = 1
+  let sibling = element.previousElementSibling
+
+  while (sibling) {
+    if (sibling.tagName.toLowerCase() === tagName) {
+      index += 1
+    }
+    sibling = sibling.previousElementSibling
+  }
+
+  return `${tagName}:nth-of-type(${index})`
+}
+
+function selectorSegment(element: Element) {
+  const blockId = element.getAttribute('data-comment-block-id')
+  if (blockId) {
+    return `[data-comment-block-id="${blockId.replace(/"/g, '\\"')}"]`
+  }
+
+  if (element.id) {
+    return `#${element.id.replace(/"/g, '\\"')}`
+  }
+
+  return nthOfType(element)
+}
+
+function buildElementSelector(element: Element, root: Element) {
+  const segments: string[] = []
+  let current: Element | null = element
+
+  while (current && current !== root) {
+    segments.unshift(selectorSegment(current))
+    current = current.parentElement
+  }
+
+  return segments.join(' > ') || selectorSegment(root)
+}
+
+function resolveElementLabel(element: Element) {
+  const heading = element.querySelector('h1,h2,h3,[role="heading"]')
+  return cleanCommentLabel(
+    element.getAttribute('data-comment-block-label') ??
+      element.getAttribute('aria-label') ??
+      heading?.textContent ??
+      element.textContent,
+    element.tagName.toLowerCase(),
+  )
+}
+
+function resolveCommentAnchor(
+  target: EventTarget | null,
+  shell: HTMLElement,
+  clientX: number,
+  clientY: number,
+): ProtoCommentAnchor {
+  const targetElement = target instanceof Element ? target : shell
+  const blockElement =
+    targetElement.closest(commentBlockSelector) instanceof HTMLElement
+      ? (targetElement.closest(commentBlockSelector) as HTMLElement)
+      : shell
+  const rect = blockElement.getBoundingClientRect()
+  const relativeX =
+    rect.width === 0 ? 0 : Number(((clientX - rect.left) / rect.width).toFixed(4))
+  const relativeY =
+    rect.height === 0 ? 0 : Number(((clientY - rect.top) / rect.height).toFixed(4))
+  const blockSelector = buildElementSelector(blockElement, shell)
+
+  return {
+    blockId: blockElement.getAttribute('data-comment-block-id') ?? blockSelector,
+    blockLabel: resolveElementLabel(blockElement),
+    blockSelector,
+    blockRole: blockElement.getAttribute('role') ?? blockElement.tagName.toLowerCase(),
+    elementSelector: buildElementSelector(targetElement, shell),
+    elementLabel: resolveElementLabel(targetElement),
+    relativeX: Math.min(1, Math.max(0, relativeX)),
+    relativeY: Math.min(1, Math.max(0, relativeY)),
+  }
+}
+
 function MultiSelectField({
   label,
   placeholder,
@@ -365,6 +462,7 @@ export function ProtoApp() {
     x: number
     y: number
     text: string
+    anchor: ProtoCommentAnchor
   } | null>(null)
 
   const shellRef = useRef<HTMLDivElement>(null)
@@ -850,8 +948,8 @@ export function ProtoApp() {
     }))
   }
 
-  function openNewComment(x: number, y: number) {
-    setDraftComment({ id: null, x, y, text: '' })
+  function openNewComment(x: number, y: number, anchor: ProtoCommentAnchor) {
+    setDraftComment({ id: null, x, y, text: '', anchor })
     setCommentsOpen(true)
   }
 
@@ -861,6 +959,18 @@ export function ProtoApp() {
       x: comment.x,
       y: comment.y,
       text: comment.text,
+      anchor:
+        comment.anchor ??
+        ({
+          blockId: 'legacy-comment',
+          blockLabel: 'Комментарий без привязки',
+          blockSelector: 'legacy-comment',
+          blockRole: null,
+          elementSelector: 'legacy-comment',
+          elementLabel: '',
+          relativeX: comment.x,
+          relativeY: comment.y,
+        } satisfies ProtoCommentAnchor),
     })
     setCommentsOpen(true)
   }
@@ -878,6 +988,7 @@ export function ProtoApp() {
     openNewComment(
       Number(((event.clientX - rect.left) / rect.width).toFixed(4)),
       Number(((event.clientY - rect.top) / rect.height).toFixed(4)),
+      resolveCommentAnchor(event.target, shellRef.current, event.clientX, event.clientY),
     )
   }
 
@@ -898,6 +1009,7 @@ export function ProtoApp() {
       x: draftComment.x,
       y: draftComment.y,
       text,
+      anchor: draftComment.anchor,
       createdAt:
         comments.find((item) => item.id === draftComment.id)?.createdAt ?? now,
       updatedAt: now,
@@ -1056,7 +1168,11 @@ export function ProtoApp() {
           </div>
         </header>
 
-        <section className="panel p-5">
+        <section
+          className="panel p-5"
+          data-comment-block-id="filters-panel"
+          data-comment-block-label="Фильтры периода и среза"
+        >
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">
@@ -1276,6 +1392,11 @@ export function ProtoApp() {
             <div className="subtle-label">
               {draftComment?.id ? 'Редактирование' : 'Новая заметка'}
             </div>
+            {draftComment?.anchor ? (
+              <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Блок: <span className="font-semibold text-slate-800">{draftComment.anchor.blockLabel}</span>
+              </div>
+            ) : null}
             <div className="mt-3">
               <Textarea
                 value={draftComment?.text ?? ''}
@@ -1342,6 +1463,11 @@ export function ProtoApp() {
                   </div>
                   <div className="min-w-0">
                     <div className="truncate font-medium text-slate-900">{comment.text}</div>
+                    {comment.anchor ? (
+                      <div className="mt-1 truncate text-xs text-slate-500">
+                        Блок: {comment.anchor.blockLabel}
+                      </div>
+                    ) : null}
                     <div className="mt-1 text-xs text-slate-500">{formatDateTime(comment.updatedAt)}</div>
                   </div>
                 </button>

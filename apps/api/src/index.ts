@@ -95,6 +95,7 @@ const app = createApp(service, {
   webOrigin: env.WEB_ORIGIN,
   ...(env.API_AUTH_TOKEN ? { apiAuthToken: env.API_AUTH_TOKEN } : {}),
   ...(auth ? { auth } : {}),
+  protoComments: repository,
   jsonBodyLimit: env.JSON_BODY_LIMIT,
   trustProxy:
     env.TRUST_PROXY === "true"

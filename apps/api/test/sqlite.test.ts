@@ -15,6 +15,59 @@ afterEach(() => {
 });
 
 describe("createSqliteRepository", () => {
+  it("persists prototype comments with block anchors", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.replaceProtoComments({
+      updatedAt: "2026-05-02T08:00:00.000Z",
+      comments: [
+        {
+          id: "comment-1",
+          sceneId: "sales-report",
+          x: 0.25,
+          y: 0.5,
+          text: "Проверить карточку продаж",
+          status: "open",
+          archivedAt: null,
+          createdAt: "2026-05-02T07:59:00.000Z",
+          updatedAt: "2026-05-02T08:00:00.000Z",
+          anchor: {
+            blockId: "sales-summary-card",
+            blockLabel: "Выиграно",
+            blockSelector: '[data-comment-block-id="sales-summary-card"]',
+            blockRole: "section",
+            elementSelector: "section:nth-of-type(2) > div:nth-of-type(1)",
+            elementLabel: "Выиграно 1",
+            relativeX: 0.1,
+            relativeY: 0.2
+          }
+        }
+      ]
+    });
+
+    await expect(repository.getProtoComments()).resolves.toEqual({
+      updatedAt: "2026-05-02T08:00:00.000Z",
+      comments: [
+        expect.objectContaining({
+          id: "comment-1",
+          text: "Проверить карточку продаж",
+          anchor: expect.objectContaining({
+            blockId: "sales-summary-card",
+            blockLabel: "Выиграно",
+            relativeX: 0.1,
+            relativeY: 0.2
+          })
+        })
+      ]
+    });
+  });
+
   it("persists conversion event visit snapshots without raw client names", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

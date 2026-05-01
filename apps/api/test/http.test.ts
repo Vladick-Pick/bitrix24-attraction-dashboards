@@ -208,6 +208,19 @@ function createTestApp(
     webOrigin?: string;
     apiAuthToken?: string;
     syncStreamHeartbeatMs?: number;
+    protoComments?: {
+      getProtoComments(): Promise<{
+        comments: unknown[];
+        updatedAt: string | null;
+      }>;
+      replaceProtoComments(input: {
+        comments: unknown[];
+        updatedAt: string;
+      }): Promise<{
+        comments: unknown[];
+        updatedAt: string | null;
+      }>;
+    };
   }
 ) {
   const service: Parameters<typeof createApp>[0] = {
@@ -503,12 +516,119 @@ function createTestApp(
         webOrigin?: string;
         apiAuthToken?: string;
         syncStreamHeartbeatMs?: number;
+        protoComments?: {
+          getProtoComments(): Promise<{
+            comments: unknown[];
+            updatedAt: string | null;
+          }>;
+          replaceProtoComments(input: {
+            comments: unknown[];
+            updatedAt: string;
+          }): Promise<{
+            comments: unknown[];
+            updatedAt: string | null;
+          }>;
+        };
       }
     ) => ReturnType<typeof createApp>
   )(service, config);
 }
 
 describe("createApp", () => {
+  it("reads and saves prototype comments with block anchors", async () => {
+    let savedInput: { comments: unknown[]; updatedAt: string } | null = null;
+    const app = createTestApp(undefined, {
+      protoComments: {
+        getProtoComments: async () => ({
+          updatedAt: "2026-05-02T07:50:00.000Z",
+          comments: [
+            {
+              id: "existing-comment",
+              sceneId: "sales-report",
+              x: 0.1,
+              y: 0.2,
+              text: "Старая заметка",
+              status: "open",
+              archivedAt: null,
+              createdAt: "2026-05-02T07:40:00.000Z",
+              updatedAt: "2026-05-02T07:50:00.000Z",
+              anchor: {
+                blockId: "sales-summary-card",
+                blockLabel: "Выиграно",
+                blockSelector: '[data-comment-block-id="sales-summary-card"]',
+                blockRole: "section",
+                elementSelector: "section:nth-of-type(2)",
+                elementLabel: "Выиграно 1",
+                relativeX: 0.1,
+                relativeY: 0.2
+              }
+            }
+          ]
+        }),
+        replaceProtoComments: async (input) => {
+          savedInput = input;
+          return {
+            comments: input.comments,
+            updatedAt: input.updatedAt
+          };
+        }
+      }
+    });
+
+    await request(app)
+      .get("/api/proto-comments")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comments[0].anchor.blockId).toBe("sales-summary-card");
+      });
+
+    await request(app)
+      .post("/api/proto-comments")
+      .send({
+        comments: [
+          {
+            id: "new-comment",
+            sceneId: "sales-report",
+            x: 0.25,
+            y: 0.5,
+            text: "Проверить карточку продаж",
+            status: "open",
+            archivedAt: null,
+            createdAt: "2026-05-02T08:00:00.000Z",
+            updatedAt: "2026-05-02T08:00:00.000Z",
+            anchor: {
+              blockId: "sales-summary-card",
+              blockLabel: "Выиграно",
+              blockSelector: '[data-comment-block-id="sales-summary-card"]',
+              blockRole: "section",
+              elementSelector: "section:nth-of-type(2) > div:nth-of-type(1)",
+              elementLabel: "Выиграно 1",
+              relativeX: 0.1,
+              relativeY: 0.2
+            }
+          }
+        ]
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comments[0].anchor.blockLabel).toBe("Выиграно");
+      });
+
+    expect(savedInput).toEqual(
+      expect.objectContaining({
+        updatedAt: expect.stringMatching(/^20/),
+        comments: [
+          expect.objectContaining({
+            id: "new-comment",
+            anchor: expect.objectContaining({
+              blockId: "sales-summary-card"
+            })
+          })
+        ]
+      })
+    );
+  });
+
   it("returns conversion events report", async () => {
     const app = createTestApp({
       getConversionEventsReport: async () => ({

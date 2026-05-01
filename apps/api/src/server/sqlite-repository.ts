@@ -89,6 +89,35 @@ export interface ReplacePricingRulesInput {
   rules: DealPricingRuleInput[];
 }
 
+export interface ProtoCommentAnchor {
+  blockId: string;
+  blockLabel: string;
+  blockSelector: string;
+  blockRole: string | null;
+  elementSelector: string;
+  elementLabel: string;
+  relativeX: number;
+  relativeY: number;
+}
+
+export interface ProtoCommentRecord {
+  id: string;
+  sceneId: string;
+  x: number;
+  y: number;
+  text: string;
+  status?: "open" | "archived";
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  anchor?: ProtoCommentAnchor;
+}
+
+export interface ProtoCommentStore {
+  comments: ProtoCommentRecord[];
+  updatedAt: string | null;
+}
+
 export interface SqliteRepository {
   getLatestSuccessCursor(
     categoryIds?: string[],
@@ -202,6 +231,8 @@ export interface SqliteRepository {
   replaceSalesPlanPeriods(input: ReplaceSalesPlanPeriodsInput): Promise<void>;
   getPricingRules(): Promise<DealPricingRule[]>;
   replacePricingRules(input: ReplacePricingRulesInput): Promise<DealPricingRule[]>;
+  getProtoComments(): Promise<ProtoCommentStore>;
+  replaceProtoComments(input: ProtoCommentStore): Promise<ProtoCommentStore>;
   getWonStageIds(): Promise<string[]>;
   setWonStageIds(stageIds: string[]): Promise<void>;
   getLastSyncSummary(scopeKey?: string): Promise<LastSyncSummary | null>;
@@ -305,6 +336,18 @@ function mapActivityRows(
     ...row,
     completed: Boolean(row.completed)
   }));
+}
+
+function parseProtoCommentAnchor(value: string | null): ProtoCommentAnchor | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(value) as ProtoCommentAnchor;
+  } catch {
+    return undefined;
+  }
 }
 
 function ensureColumn(
@@ -565,6 +608,25 @@ export function createSqliteRepository(
       updated_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS proto_comment_store (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS proto_comments (
+      id TEXT PRIMARY KEY,
+      scene_id TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      text TEXT NOT NULL,
+      status TEXT NOT NULL,
+      archived_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      anchor_json TEXT,
+      sort_order INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_deal_snapshots_category_id
       ON deal_snapshots (category_id);
     CREATE INDEX IF NOT EXISTS idx_stage_history_owner_id
@@ -583,6 +645,8 @@ export function createSqliteRepository(
       ON conversion_event_visit_snapshots (deal_id);
     CREATE INDEX IF NOT EXISTS idx_call_crm_activity_id
       ON call_snapshots (crm_activity_id);
+    CREATE INDEX IF NOT EXISTS idx_proto_comments_scene_status
+      ON proto_comments (scene_id, status);
   `);
 
   ensureColumn(database, "deal_snapshots", "source_id", "TEXT");
@@ -1018,6 +1082,33 @@ export function createSqliteRepository(
       @updatedAt
     )
   `);
+  const insertProtoCommentStatement = database.prepare(`
+    INSERT INTO proto_comments (
+      id,
+      scene_id,
+      x,
+      y,
+      text,
+      status,
+      archived_at,
+      created_at,
+      updated_at,
+      anchor_json,
+      sort_order
+    ) VALUES (
+      @id,
+      @sceneId,
+      @x,
+      @y,
+      @text,
+      @status,
+      @archivedAt,
+      @createdAt,
+      @updatedAt,
+      @anchorJson,
+      @sortOrder
+    )
+  `);
   const replaceSalesPlanRowsTransaction = database.transaction(
     (input: ReplaceSalesPlanRowsInput) => {
       deleteSalesPlanRowsStatement.run(input.periodStart, input.periodEnd);
@@ -1071,6 +1162,34 @@ export function createSqliteRepository(
           enabled: rule.enabled ? 1 : 0,
           sortOrder: rule.sortOrder ?? index * 10,
           updatedAt: input.updatedAt
+        });
+      });
+    }
+  );
+  const replaceProtoCommentsTransaction = database.transaction(
+    (input: ProtoCommentStore) => {
+      database.exec("DELETE FROM proto_comments");
+      database
+        .prepare(
+          `INSERT INTO proto_comment_store (id, updated_at)
+          VALUES (1, ?)
+          ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at`
+        )
+        .run(input.updatedAt);
+
+      input.comments.forEach((comment, index) => {
+        insertProtoCommentStatement.run({
+          id: comment.id,
+          sceneId: comment.sceneId,
+          x: comment.x,
+          y: comment.y,
+          text: comment.text,
+          status: comment.status ?? "open",
+          archivedAt: comment.archivedAt ?? null,
+          createdAt: comment.createdAt,
+          updatedAt: comment.updatedAt,
+          anchorJson: comment.anchor ? JSON.stringify(comment.anchor) : null,
+          sortOrder: index
         });
       });
     }
@@ -2161,6 +2280,45 @@ export function createSqliteRepository(
     async replacePricingRules(input) {
       replacePricingRulesTransaction(input);
       return this.getPricingRules();
+    },
+
+    async getProtoComments() {
+      const meta = database
+        .prepare("SELECT updated_at AS updatedAt FROM proto_comment_store WHERE id = 1")
+        .get() as { updatedAt: string | null } | undefined;
+      const rows = database
+        .prepare(
+          `SELECT
+            id,
+            scene_id AS sceneId,
+            x,
+            y,
+            text,
+            status,
+            archived_at AS archivedAt,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            anchor_json AS anchorJson
+          FROM proto_comments
+          ORDER BY sort_order ASC, created_at ASC, id ASC`
+        )
+        .all() as Array<
+        Omit<ProtoCommentRecord, "anchor"> & { anchorJson: string | null }
+      >;
+
+      return {
+        updatedAt: meta?.updatedAt ?? null,
+        comments: rows.map((row) => {
+          const { anchorJson, ...comment } = row;
+          const anchor = parseProtoCommentAnchor(anchorJson);
+          return anchor ? { ...comment, anchor } : comment;
+        })
+      };
+    },
+
+    async replaceProtoComments(input) {
+      replaceProtoCommentsTransaction(input);
+      return this.getProtoComments();
     },
 
     async getWonStageIds() {

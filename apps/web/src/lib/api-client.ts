@@ -44,6 +44,7 @@ import type {
   TocFlowReportSnapshot,
   TocStageDistribution,
 } from '@/lib/dashboard-types'
+import type { CommentStore, ProtoComment, ProtoCommentAnchor } from '@/proto/types'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
@@ -127,6 +128,62 @@ function normalizeAuthResponse(value: unknown): AuthResponse {
       role: 'admin',
     },
     csrfToken: asString(data.csrfToken),
+  }
+}
+
+function normalizeProtoCommentAnchor(value: unknown): ProtoCommentAnchor | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const blockId = asString(value.blockId)
+  const blockLabel = asString(value.blockLabel)
+  const blockSelector = asString(value.blockSelector)
+  const elementSelector = asString(value.elementSelector)
+
+  if (!blockId || !blockLabel || !blockSelector || !elementSelector) {
+    return undefined
+  }
+
+  return {
+    blockId,
+    blockLabel,
+    blockSelector,
+    blockRole: asNullableString(value.blockRole),
+    elementSelector,
+    elementLabel: asString(value.elementLabel),
+    relativeX: asNumber(value.relativeX),
+    relativeY: asNumber(value.relativeY),
+  }
+}
+
+function normalizeProtoComment(value: unknown): ProtoComment {
+  const data = isRecord(value) ? value : {}
+  const anchor = normalizeProtoCommentAnchor(data.anchor)
+
+  const comment: ProtoComment = {
+    id: asString(data.id),
+    sceneId: asString(data.sceneId),
+    x: asNumber(data.x),
+    y: asNumber(data.y),
+    text: asString(data.text),
+    status: data.status === 'archived' ? 'archived' : 'open',
+    archivedAt: asNullableString(data.archivedAt),
+    createdAt: asString(data.createdAt),
+    updatedAt: asString(data.updatedAt),
+  }
+
+  return anchor ? { ...comment, anchor } : comment
+}
+
+function normalizeCommentStore(value: unknown): CommentStore {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    comments: asArray(data.comments, normalizeProtoComment).filter(
+      (comment) => comment.id && comment.sceneId,
+    ),
+    updatedAt: asNullableString(data.updatedAt),
   }
 }
 
@@ -1898,6 +1955,23 @@ export const apiClient = {
   async logout() {
     await requestVoid(buildUrl('/api/auth/logout'), { method: 'POST' })
     csrfToken = null
+  },
+  async getProtoComments() {
+    return requestJson(
+      buildUrl('/api/proto-comments'),
+      { method: 'GET' },
+      normalizeCommentStore,
+    )
+  },
+  async saveProtoComments(comments: ProtoComment[]) {
+    return requestJson(
+      buildUrl('/api/proto-comments'),
+      {
+        method: 'POST',
+        body: JSON.stringify({ comments }),
+      },
+      normalizeCommentStore,
+    )
   },
   async getDashboard(query: DashboardQuery) {
     return requestJson(

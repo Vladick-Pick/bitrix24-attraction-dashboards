@@ -22,6 +22,7 @@ import type {
 } from "@bitrix24-reporting/contracts";
 
 import { DEFAULT_PRICING_RULES } from "../domain/deal-economics.js";
+import { sanitizeRefusalReasonDetail } from "../domain/refusal-detail.js";
 
 export interface LastSyncSummary {
   finishedAt: string;
@@ -1800,7 +1801,7 @@ export function createSqliteRepository(
             tariffValue: row.tariffValue ?? null,
             conversionEventValue: row.conversionEventValue ?? null,
             refusalReasonValue: row.refusalReasonValue ?? null,
-            refusalReasonDetail: null
+            refusalReasonDetail: sanitizeRefusalReasonDetail(row.refusalReasonDetail)
           });
         }
       });

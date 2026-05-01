@@ -405,7 +405,7 @@ describe("performManualSync", () => {
           tariffValue: "Федеральный Москва",
           conversionEventValue: "Знакомство с клубом 29.04.",
           refusalReasonValue: "Клиенту не интересен формат",
-          refusalReasonDetail: null
+          refusalReasonDetail: "Не готов к формату клуба"
         })
       ]
     ]);
@@ -1269,12 +1269,12 @@ describe("performManualSync", () => {
         expect.objectContaining({
           id: "A_LOSE",
           refusalReasonValue: "Общая причина",
-          refusalReasonDetail: null
+          refusalReasonDetail: "Общая детализация"
         }),
         expect.objectContaining({
           id: "A_RETURN",
           refusalReasonValue: "Общая причина",
-          refusalReasonDetail: null
+          refusalReasonDetail: "Общая детализация"
         })
       ]
     ]);

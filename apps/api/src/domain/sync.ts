@@ -1294,19 +1294,28 @@ export async function performManualSync(
   const hasCoverageTracking = Boolean(input.repository.hasSyncCoverage);
   const shouldBootstrapOperationalHistory =
     !operationalHistoryBootstrappedAt && activitySnapshotCount === 0;
+  const shouldUseOperationalHistoryForProviderCoverage =
+    shouldBootstrapOperationalHistory && hasCoverageTracking;
   const shouldBootstrapCallActivityHistory =
-    !hasCallActivityHistoryCoverage ||
-    (!hasCoverageTracking && !callActivityHistoryBootstrappedAt);
+    !shouldUseOperationalHistoryForProviderCoverage &&
+    (!hasCallActivityHistoryCoverage ||
+      (!hasCoverageTracking && !callActivityHistoryBootstrappedAt));
   const shouldBootstrapMeetingActivityHistory =
-    !hasMeetingActivityHistoryCoverage ||
-    (!hasCoverageTracking && !meetingActivityHistoryBootstrappedAt);
+    !shouldUseOperationalHistoryForProviderCoverage &&
+    (!hasMeetingActivityHistoryCoverage ||
+      (!hasCoverageTracking && !meetingActivityHistoryBootstrappedAt));
   const taskActivityProvidersToBootstrap = TASK_ACTIVITY_PROVIDER_IDS.filter(
     (_providerId, index) =>
-      !taskActivityHistoryCoverage[index] ||
-      (!hasCoverageTracking && !taskActivityHistoryBootstrappedAt)
+      !shouldUseOperationalHistoryForProviderCoverage &&
+      (!taskActivityHistoryCoverage[index] ||
+        (!hasCoverageTracking && !taskActivityHistoryBootstrappedAt))
   );
   const shouldBootstrapTaskActivityHistory =
     taskActivityProvidersToBootstrap.length > 0;
+  const operationalHistoryCoveredProviderIds =
+    shouldUseOperationalHistoryForProviderCoverage
+      ? ["VOXIMPLANT_CALL", "CRM_MEETING", ...TASK_ACTIVITY_PROVIDER_IDS]
+      : [];
   const shouldBootstrapDealCustomFields =
     !hasDealCustomFieldsCoverage ||
     (!hasCoverageTracking && !dealCustomFieldsBootstrappedAt);
@@ -2156,11 +2165,12 @@ export async function performManualSync(
       }
 
       if (input.repository.upsertSyncCoverage && bootstrapModifiedAfter) {
-        for (const providerId of [
+        for (const providerId of new Set([
+          ...operationalHistoryCoveredProviderIds,
           ...(shouldBootstrapCallActivityHistory ? ["VOXIMPLANT_CALL"] : []),
           ...(shouldBootstrapMeetingActivityHistory ? ["CRM_MEETING"] : []),
           ...taskActivityProvidersToBootstrap
-        ]) {
+        ])) {
           void input.repository.upsertSyncCoverage({
             scopeKey,
             stream: "activity_history",
@@ -2236,17 +2246,26 @@ export async function performManualSync(
         });
       }
 
-      if (shouldBootstrapCallActivityHistory) {
+      if (
+        shouldBootstrapCallActivityHistory ||
+        shouldUseOperationalHistoryForProviderCoverage
+      ) {
         void input.repository.markCallActivityHistoryBootstrapped?.(persistedAt);
       }
 
-      if (shouldBootstrapMeetingActivityHistory) {
+      if (
+        shouldBootstrapMeetingActivityHistory ||
+        shouldUseOperationalHistoryForProviderCoverage
+      ) {
         void input.repository.markMeetingActivityHistoryBootstrapped?.(
           persistedAt
         );
       }
 
-      if (shouldBootstrapTaskActivityHistory) {
+      if (
+        shouldBootstrapTaskActivityHistory ||
+        shouldUseOperationalHistoryForProviderCoverage
+      ) {
         void input.repository.markTaskActivityHistoryBootstrapped?.(persistedAt);
       }
 

@@ -510,9 +510,9 @@ describe("BitrixClient pagination", () => {
       })
     ).resolves.toEqual([]);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).filter).toEqual({
-      BINDINGS: ownerIds.slice(0, 50).map((ownerId) => ({
+      BINDINGS: ownerIds.slice(0, 10).map((ownerId) => ({
         OWNER_TYPE_ID: 2,
         OWNER_ID: ownerId
       })),
@@ -520,6 +520,14 @@ describe("BitrixClient pagination", () => {
       ">=LAST_UPDATED": "2026-01-01T00:00:00.000Z"
     });
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).filter).toEqual({
+      BINDINGS: ownerIds.slice(10, 20).map((ownerId) => ({
+        OWNER_TYPE_ID: 2,
+        OWNER_ID: ownerId
+      })),
+      PROVIDER_ID: "CRM_TODO",
+      ">=LAST_UPDATED": "2026-01-01T00:00:00.000Z"
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[5]?.[1]?.body)).filter).toEqual({
       OWNER_TYPE_ID: 2,
       OWNER_ID: "51",
       PROVIDER_ID: "CRM_TODO",

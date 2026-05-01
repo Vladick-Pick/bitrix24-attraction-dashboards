@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '@/App'
@@ -10,8 +10,44 @@ import type {
   SalesPlanQuarterInput,
 } from '@/lib/dashboard-types'
 
+const mockState = vi.hoisted(() => ({
+  unauthorizedListener: null as null | (() => void),
+}))
+
 vi.mock('@/lib/api-client', () => ({
+  ApiClientError: class ApiClientError extends Error {
+    readonly status: number | undefined
+
+    constructor(message: string, status?: number) {
+      super(message)
+      this.name = 'ApiClientError'
+      this.status = status
+    }
+  },
   apiClient: {
+    getCurrentUser: vi.fn(async () => ({
+      user: {
+        login: 'admin',
+        role: 'admin',
+      },
+      csrfToken: 'csrf-token',
+    })),
+    login: vi.fn(async () => ({
+      user: {
+        login: 'admin',
+        role: 'admin',
+      },
+      csrfToken: 'csrf-token',
+    })),
+    logout: vi.fn(async () => undefined),
+    onUnauthorized: vi.fn((listener: () => void) => {
+      mockState.unauthorizedListener = listener
+      return () => {
+        if (mockState.unauthorizedListener === listener) {
+          mockState.unauthorizedListener = null
+        }
+      }
+    }),
     getMeta: vi.fn(async () => ({
       stageCatalog: [],
       managerCatalog: [],
@@ -730,6 +766,7 @@ function createEmptyManagerActionOutcomeReport(
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockState.unauthorizedListener = null
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -748,6 +785,66 @@ describe('App', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('starts on the login screen when the session is missing', async () => {
+    vi.mocked(apiClient.getCurrentUser).mockRejectedValueOnce(
+      Object.assign(new Error('UNAUTHORIZED'), { status: 401 }),
+    )
+
+    render(<App />)
+
+    expect(
+      await screen.findByRole('heading', { name: /вход в дашборд/i }),
+    ).toBeInTheDocument()
+    expect(apiClient.getDashboard).not.toHaveBeenCalled()
+  })
+
+  it('logs in and then loads the dashboard shell', async () => {
+    vi.mocked(apiClient.getCurrentUser)
+      .mockRejectedValueOnce(Object.assign(new Error('UNAUTHORIZED'), { status: 401 }))
+      .mockResolvedValueOnce({
+        user: {
+          login: 'admin',
+          role: 'admin',
+        },
+        csrfToken: 'csrf-token',
+      })
+
+    render(<App />)
+
+    fireEvent.change(await screen.findByLabelText(/логин/i), {
+      target: { value: 'admin' },
+    })
+    fireEvent.change(screen.getByLabelText(/пароль/i), {
+      target: { value: 'correct-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /войти/i }))
+
+    expect(apiClient.login).toHaveBeenCalledWith({
+      login: 'admin',
+      password: 'correct-password',
+    })
+    expect(
+      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('returns to login when an API request gets 401 during runtime', async () => {
+    render(<App />)
+
+    expect(
+      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+    ).toBeInTheDocument()
+
+    act(() => {
+      mockState.unauthorizedListener?.()
+    })
+
+    expect(
+      await screen.findByRole('heading', { name: /вход в дашборд/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/сессия истекла/i)).toBeInTheDocument()
   })
 
   it('renders the prototype dashboard shell as the main app', async () => {

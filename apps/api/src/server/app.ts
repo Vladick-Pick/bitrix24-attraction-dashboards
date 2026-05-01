@@ -31,6 +31,12 @@ import cors from "cors";
 import express from "express";
 import { z } from "zod";
 
+import type {
+  AuthenticatedSession,
+  PasswordAuthService
+} from "./auth.js";
+import { AuthError } from "./auth.js";
+
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
   managerCatalog: ManagerDirectoryEntry[];
@@ -125,6 +131,10 @@ interface AppService {
 interface AppConfig {
   webOrigin?: string;
   apiAuthToken?: string;
+  auth?: PasswordAuthService;
+  jsonBodyLimit?: string;
+  trustProxy?: string | boolean | number;
+  webStaticDir?: string;
 }
 
 function parseCsvArray(value: unknown) {
@@ -380,6 +390,11 @@ const pricingSettingsBodySchema = z.object({
   )
 });
 
+const loginBodySchema = z.object({
+  login: z.string().trim().min(1).max(128),
+  password: z.string().min(1).max(1024)
+});
+
 function parseRangeRequest(query: unknown): RangeRequest {
   const parsed = reportQuerySchema.parse(query);
   const compareRanges = (parsed.compareFrom ?? []).map((from, index) => ({
@@ -452,6 +467,119 @@ function createErrorResponse(code: string, details?: unknown) {
   };
 }
 
+const mutatingMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function isMutatingMethod(method: string) {
+  return mutatingMethods.has(method.toUpperCase());
+}
+
+function parseCookieHeader(value: string | undefined) {
+  const cookies = new Map<string, string>();
+
+  for (const part of value?.split(";") ?? []) {
+    const separatorIndex = part.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const name = part.slice(0, separatorIndex).trim();
+    const cookieValue = part.slice(separatorIndex + 1).trim();
+    try {
+      cookies.set(name, decodeURIComponent(cookieValue));
+    } catch {
+      // Ignore malformed cookie values and let auth fail normally.
+    }
+  }
+
+  return cookies;
+}
+
+function readSessionCookie(request: express.Request, cookieName: string) {
+  return parseCookieHeader(request.header("Cookie")).get(cookieName);
+}
+
+function readAuthSession(response: express.Response) {
+  return response.locals.authSession as AuthenticatedSession | undefined;
+}
+
+function writeSessionCookie(
+  response: express.Response,
+  auth: PasswordAuthService,
+  sessionToken: string,
+  expiresAt: string
+) {
+  response.cookie(auth.cookieName, sessionToken, {
+    httpOnly: true,
+    secure: auth.secureCookie,
+    sameSite: "lax",
+    path: "/",
+    expires: new Date(expiresAt),
+    maxAge: auth.ttlMs
+  });
+}
+
+function clearSessionCookie(response: express.Response, auth: PasswordAuthService) {
+  response.clearCookie(auth.cookieName, {
+    httpOnly: true,
+    secure: auth.secureCookie,
+    sameSite: "lax",
+    path: "/"
+  });
+}
+
+function createSecurityHeadersMiddleware() {
+  const contentSecurityPolicy = [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
+    "connect-src 'self'",
+    "form-action 'self'",
+    "upgrade-insecure-requests"
+  ].join("; ");
+
+  return (
+    _request: express.Request,
+    response: express.Response,
+    next: express.NextFunction
+  ) => {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("X-Frame-Options", "DENY");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    response.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=(), payment=()"
+    );
+    response.setHeader("Content-Security-Policy", contentSecurityPolicy);
+    next();
+  };
+}
+
+function isDeniedWebPath(pathname: string) {
+  let decodedPathname = pathname;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    return true;
+  }
+
+  const lowerPathname = decodedPathname.toLowerCase();
+  const segments = lowerPathname.split("/").filter(Boolean);
+
+  return (
+    segments.some((segment) => segment.startsWith(".")) ||
+    lowerPathname === "/.env" ||
+    lowerPathname.startsWith("/.env.") ||
+    lowerPathname.startsWith("/.codex") ||
+    lowerPathname.startsWith("/apps/api/data") ||
+    lowerPathname.startsWith("/backups")
+  );
+}
+
 function getErrorCauseCode(error: unknown) {
   if (!(error instanceof Error)) {
     return "";
@@ -472,9 +600,18 @@ function createSyncErrorResponse(error: unknown) {
         ? ["network=ABORT_TIMEOUT"]
         : error instanceof Error && error.message.startsWith("Bitrix24 ")
           ? [`bitrix=${error.message}`]
-          : ["error=SYNC_FAILED"];
+      : ["error=SYNC_FAILED"];
 
   return createErrorResponse("SYNC_FAILED", { diagnostics });
+}
+
+function logInternalError(error: unknown) {
+  const payload = {
+    errorName: error instanceof Error ? error.name : typeof error,
+    causeCode: getErrorCauseCode(error) || undefined
+  };
+
+  console.error("api.internal_error", JSON.stringify(payload));
 }
 
 function wantsSyncStream(request: express.Request) {
@@ -521,14 +658,27 @@ function isAllowedWebOrigin(origin: string, webOrigin: string) {
   }
 }
 
-export function createApp(service: AppService, config: AppConfig = {}) {
+export function createApp(
+  service: AppService,
+  config: AppConfig = {}
+): express.Express {
   const app = express();
   let activeSync: Promise<ManualSyncSummary> | null = null;
   const webOrigin = config.webOrigin?.trim() || "http://localhost:5173";
   const apiAuthToken = config.apiAuthToken?.trim() || undefined;
+  const auth = config.auth;
+
+  app.disable("x-powered-by");
+
+  if (config.trustProxy !== undefined) {
+    app.set("trust proxy", config.trustProxy);
+  }
+
+  app.use(createSecurityHeadersMiddleware());
 
   app.use(
     cors({
+      credentials: true,
       origin(origin, callback) {
         if (!origin) {
           callback(null, false);
@@ -537,13 +687,91 @@ export function createApp(service: AppService, config: AppConfig = {}) {
 
         callback(null, isAllowedWebOrigin(origin, webOrigin) ? origin : false);
       },
-      methods: ["GET", "POST", "PUT"],
-      allowedHeaders: ["Content-Type", "Authorization", "X-API-Token"]
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+      allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-API-Token",
+        "X-CSRF-Token"
+      ]
     })
   );
-  app.use(express.json());
+  app.use(express.json({ limit: config.jsonBodyLimit ?? "256kb" }));
+
+  app.post("/api/auth/login", async (request, response, next) => {
+    if (!auth) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      const payload = loginBodySchema.parse(request.body);
+      const rateLimitKey = request.ip ?? request.socket.remoteAddress ?? "unknown";
+      const loginResult = await auth.login({
+        login: payload.login,
+        password: payload.password,
+        rateLimitKey,
+        metadata: {
+          ip: rateLimitKey,
+          userAgent: request.header("User-Agent") ?? null
+        }
+      });
+
+      writeSessionCookie(
+        response,
+        auth,
+        loginResult.sessionToken,
+        loginResult.expiresAt
+      );
+      response.json({
+        user: loginResult.user,
+        csrfToken: loginResult.csrfToken
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.use(async (request, response, next) => {
+    if (!auth || !request.path.startsWith("/api/")) {
+      next();
+      return;
+    }
+
+    if (request.path === "/api/health" || request.path === "/api/auth/login") {
+      next();
+      return;
+    }
+
+    const sessionToken = readSessionCookie(request, auth.cookieName);
+
+    if (!sessionToken) {
+      response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+      return;
+    }
+
+    const session = await auth.getSession(sessionToken);
+    if (!session) {
+      clearSessionCookie(response, auth);
+      response.status(401).json(createErrorResponse("SESSION_EXPIRED"));
+      return;
+    }
+
+    response.locals.authSession = session;
+
+    if (isMutatingMethod(request.method)) {
+      const csrfToken = request.header("X-CSRF-Token")?.trim();
+      if (!csrfToken || !auth.verifyCsrfToken(session, csrfToken)) {
+        response.status(403).json(createErrorResponse("CSRF_TOKEN_INVALID"));
+        return;
+      }
+    }
+
+    next();
+  });
+
   app.use((request, response, next) => {
-    if (!apiAuthToken || !request.path.startsWith("/api/")) {
+    if (auth || !apiAuthToken || !request.path.startsWith("/api/")) {
       next();
       return;
     }
@@ -572,6 +800,46 @@ export function createApp(service: AppService, config: AppConfig = {}) {
 
   app.get("/api/health", (_request, response) => {
     response.json({ ok: true });
+  });
+
+  app.get("/api/auth/me", async (_request, response, next) => {
+    if (!auth) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      const session = readAuthSession(response);
+      if (!session) {
+        response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+        return;
+      }
+
+      response.json({
+        user: session.user,
+        csrfToken: await auth.issueCsrfToken(session)
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/logout", async (_request, response, next) => {
+    if (!auth) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      const session = readAuthSession(response);
+      if (session) {
+        await auth.logout(session.sessionToken);
+      }
+      clearSessionCookie(response, auth);
+      response.status(204).end();
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/dashboard", async (request, response, next) => {
@@ -843,6 +1111,48 @@ export function createApp(service: AppService, config: AppConfig = {}) {
     }
   });
 
+  if (config.webStaticDir) {
+    app.use((request, response, next) => {
+      if (
+        !request.path.startsWith("/api/") &&
+        isDeniedWebPath(request.path)
+      ) {
+        response.status(404).end();
+        return;
+      }
+
+      next();
+    });
+    app.use(
+      express.static(config.webStaticDir, {
+        dotfiles: "deny",
+        index: false
+      })
+    );
+    app.use((request, response, next) => {
+      if (
+        request.path.startsWith("/api/") ||
+        !["GET", "HEAD"].includes(request.method)
+      ) {
+        next();
+        return;
+      }
+
+      response.sendFile(
+        "index.html",
+        {
+          root: config.webStaticDir,
+          dotfiles: "deny"
+        },
+        (error) => {
+          if (error) {
+            next(error);
+          }
+        }
+      );
+    });
+  }
+
   app.use(
     (
       error: unknown,
@@ -850,6 +1160,11 @@ export function createApp(service: AppService, config: AppConfig = {}) {
       response: express.Response,
       _next: express.NextFunction
     ) => {
+      if (error instanceof AuthError) {
+        response.status(error.status).json(createErrorResponse(error.code));
+        return;
+      }
+
       if (error instanceof z.ZodError) {
         response
           .status(400)
@@ -857,7 +1172,17 @@ export function createApp(service: AppService, config: AppConfig = {}) {
         return;
       }
 
-      console.error(error);
+      if (
+        error &&
+        typeof error === "object" &&
+        "type" in error &&
+        (error as { type?: unknown }).type === "entity.too.large"
+      ) {
+        response.status(413).json(createErrorResponse("PAYLOAD_TOO_LARGE"));
+        return;
+      }
+
+      logInternalError(error);
 
       response.status(500).json(createErrorResponse("INTERNAL_SERVER_ERROR"));
     }

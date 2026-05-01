@@ -45,8 +45,11 @@
 ## Local API
 
 - `WEB_ORIGIN` is the CORS allowlist origin; wildcard CORS is not used.
-- Set `API_AUTH_TOKEN` to require `X-API-Token` or `Authorization: Bearer <token>` on mutating API routes.
+- In production, set `AUTH_MODE=password`, `SESSION_SECRET`, `APP_PUBLIC_URL`, and `WEB_ORIGIN`. All `/api/*` routes except `/api/health` and `/api/auth/login` require a valid HttpOnly session cookie.
+- Mutating API routes additionally require `X-CSRF-Token`, obtained from `/api/auth/me` and held only in web memory.
+- `API_AUTH_TOKEN` is legacy/local-only and applies only when password auth is not enabled.
 - Error responses use a stable `{ error, code, details? }` shape and must not expose raw 500 exception messages.
+- Browser security headers are set by Express: no-sniff, frame deny, referrer policy, permissions policy, and a production CSP.
 
 ## Prototype Comments
 
@@ -60,3 +63,4 @@
 - Не логировать raw Bitrix24 request/response bodies.
 - Не логировать полный webhook URL с секретом.
 - Не сохранять raw JSON payload для дебага.
+- Не логировать passwords, session tokens, CSRF tokens или raw internal exception messages.

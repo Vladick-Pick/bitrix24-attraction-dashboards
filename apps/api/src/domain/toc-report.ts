@@ -8,7 +8,7 @@ import type {
   TocFlowStageMetric
 } from "@bitrix24-reporting/contracts";
 
-import { normalizeCategoryId } from "./report-dimensions";
+import { normalizeCategoryId } from "./report-dimensions.js";
 
 interface TocFlowInput {
   range: ReportRange;

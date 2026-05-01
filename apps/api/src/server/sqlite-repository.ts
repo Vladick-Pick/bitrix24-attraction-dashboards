@@ -21,7 +21,7 @@ import type {
   SyncDealChangeBreakdown
 } from "@bitrix24-reporting/contracts";
 
-import { DEFAULT_PRICING_RULES } from "../domain/deal-economics";
+import { DEFAULT_PRICING_RULES } from "../domain/deal-economics.js";
 
 export interface LastSyncSummary {
   finishedAt: string;

@@ -15,7 +15,7 @@ import type {
   TocFlowReport
 } from "@bitrix24-reporting/contracts";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/server/app";
 
@@ -2016,6 +2016,9 @@ describe("createApp", () => {
   });
 
   it("does not leak raw error messages in generic 500 responses", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const app = createTestApp({
       performSync: async () => {
         throw new Error("database password leaked");
@@ -2032,6 +2035,16 @@ describe("createApp", () => {
         });
         expect(body).not.toHaveProperty("message");
       });
+    expect(
+      consoleErrorSpy.mock.calls.some((call) =>
+        call.some(
+          (entry) =>
+            entry instanceof Error ||
+            String(entry).includes("database password leaked")
+        )
+      )
+    ).toBe(false);
+    consoleErrorSpy.mockRestore();
   });
 
   it("compares range timestamps using Date.parse instead of lexicographic ISO strings", async () => {

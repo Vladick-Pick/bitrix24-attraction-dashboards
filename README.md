@@ -15,7 +15,7 @@
 - Все `company`, single-record `get`, write/delete и произвольные `UF_*` payloads запрещены.
 - В storage не сохраняются `phone`, `email`, имена контактов, deal title, comments, address, company links и raw `UF_*`.
 - Webhook secret никогда не должен попадать в логи.
-- Mutating API routes (`/api/sync`, `/api/settings/won-stages`) требуют `API_AUTH_TOKEN`, если токен задан в окружении.
+- Production API uses `AUTH_MODE=password`, HttpOnly session cookies and CSRF tokens. `API_AUTH_TOKEN` остается legacy/local-only режимом для mutating запросов, если password auth не включен.
 - Prototype comments endpoint доступен только на localhost, валидирует JSON/schema/размер тела и в preview выключен по умолчанию. Для preview включения задайте `PROTO_COMMENTS_ENABLED=true`.
 
 Подробности: [SECURITY.md](/Users/vladislavbogdan/Documents/Вайб-проекты/Модуль%20%22Привлечение%22/Дашборды%20Привлечения/SECURITY.md)
@@ -47,6 +47,8 @@
 Пока в `.env` стоят плейсхолдеры Bitrix24, интерфейс и локальный API запускаются, но ручной `Refresh` не сможет тянуть живые данные из портала.
 
 Если задаете `API_AUTH_TOKEN`, ручные mutating запросы должны передавать токен через `X-API-Token` или `Authorization: Bearer <token>`.
+
+Production deploy на Timeweb VPS описан в [docs/deploy-timeweb-vps.md](/Users/vladislavbogdan/Documents/Вайб-проекты/Модуль%20%22Привлечение%22/Дашборды%20Привлечения/docs/deploy-timeweb-vps.md).
 
 ## Проверки
 

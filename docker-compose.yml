@@ -1,0 +1,21 @@
+services:
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: password
+      API_HOST: 0.0.0.0
+      API_PORT: 8787
+      DATABASE_URL: file:/app/data/bitrix24-reporting.db
+      WEB_STATIC_DIR: /app/apps/web/dist
+      TRUST_PROXY: loopback
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - /opt/bitrix24-reporting/data:/app/data
+    security_opt:
+      - no-new-privileges:true

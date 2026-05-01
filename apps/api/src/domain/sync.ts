@@ -15,7 +15,7 @@ import type {
   SyncProgressPhase
 } from "@bitrix24-reporting/contracts";
 
-import { ATTRACTION_MANAGER_IDS } from "./attraction-managers";
+import { ATTRACTION_MANAGER_IDS } from "./attraction-managers.js";
 
 export interface DealRow {
   ID: string;

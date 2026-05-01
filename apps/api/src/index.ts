@@ -1,8 +1,9 @@
-import { BitrixClient } from "./bitrix/client";
-import { readEnv } from "./config/env";
-import { createApp } from "./server/app";
-import { createSqliteRepository } from "./server/sqlite-repository";
-import { createReportingService } from "./server/service";
+import { BitrixClient } from "./bitrix/client.js";
+import { readEnv } from "./config/env.js";
+import { createPasswordAuthService, createSqliteAuthStore } from "./server/auth.js";
+import { createApp } from "./server/app.js";
+import { createSqliteRepository } from "./server/sqlite-repository.js";
+import { createReportingService } from "./server/service.js";
 
 const env = readEnv();
 const repository = createSqliteRepository({
@@ -71,16 +72,45 @@ const service = createReportingService({
   defaultPeriodDays: env.REPORT_DEFAULT_PERIOD_DAYS,
   bootstrapLookbackDays: env.BITRIX24_BOOTSTRAP_LOOKBACK_DAYS
 });
+const authStore =
+  env.AUTH_MODE === "password"
+    ? createSqliteAuthStore({
+        databaseUrl: env.DATABASE_URL
+      })
+    : null;
+const auth =
+  authStore && env.SESSION_SECRET
+    ? createPasswordAuthService({
+        store: authStore,
+        sessionSecret: env.SESSION_SECRET,
+        cookieName: env.SESSION_COOKIE_NAME,
+        ttlHours: env.SESSION_TTL_HOURS,
+        secureCookie: Boolean(
+          env.NODE_ENV === "production" ||
+            env.APP_PUBLIC_URL?.startsWith("https://")
+        )
+      })
+    : undefined;
 const app = createApp(service, {
   webOrigin: env.WEB_ORIGIN,
-  ...(env.API_AUTH_TOKEN ? { apiAuthToken: env.API_AUTH_TOKEN } : {})
+  ...(env.API_AUTH_TOKEN ? { apiAuthToken: env.API_AUTH_TOKEN } : {}),
+  ...(auth ? { auth } : {}),
+  jsonBodyLimit: env.JSON_BODY_LIMIT,
+  trustProxy:
+    env.TRUST_PROXY === "true"
+      ? true
+      : env.TRUST_PROXY === "false"
+        ? false
+        : env.TRUST_PROXY,
+  ...(env.WEB_STATIC_DIR ? { webStaticDir: env.WEB_STATIC_DIR } : {})
 });
 
-const server = app.listen(env.API_PORT, () => {
-  console.log(`API listening on http://localhost:${env.API_PORT}`);
+const server = app.listen(env.API_PORT, env.API_HOST, () => {
+  console.log(`API listening on http://${env.API_HOST}:${env.API_PORT}`);
 });
 
 process.on("SIGINT", () => {
   repository.close();
+  authStore?.close();
   server.close(() => process.exit(0));
 });

@@ -1,4 +1,4 @@
-import { ALLOWED_BITRIX_METHODS } from "./selectors";
+import { ALLOWED_BITRIX_METHODS } from "./selectors.js";
 
 export { ALLOWED_BITRIX_METHODS };
 

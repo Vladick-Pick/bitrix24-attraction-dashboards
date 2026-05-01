@@ -698,4 +698,90 @@ describe('apiClient', () => {
       'SYNC_FAILED: network=UND_ERR_CONNECT_TIMEOUT',
     )
   })
+
+  it('stores csrf in memory after auth and sends it only in request headers', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: {
+            login: 'admin',
+            role: 'admin',
+          },
+          csrfToken: 'csrf-from-login',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          rules: [],
+          updatedAt: '2026-04-10T12:05:00.000Z',
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiClient.login({
+      login: 'admin',
+      password: 'correct-password',
+    })
+    await apiClient.savePricingSettings({ rules: [] })
+
+    const [loginUrl, loginInit] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const [, saveInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+
+    expect(new URL(loginUrl, window.location.origin).pathname).toBe(
+      '/api/auth/login',
+    )
+    expect(loginInit.credentials).toBe('include')
+    expect(String(loginInit.body)).toContain('correct-password')
+    expect(window.localStorage.getItem('csrf-from-login')).toBeNull()
+    expect(saveInit.credentials).toBe('include')
+    expect(saveInit.headers).toMatchObject({
+      'X-CSRF-Token': 'csrf-from-login',
+    })
+  })
+
+  it('sends csrf on streamed sync requests too', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder()
+        controller.enqueue(
+          encoder.encode(
+            'event: complete\ndata: {"syncRunId":18,"leadsSynced":0,"dealsSynced":5,"mode":"delta","modifiedAfter":null,"finishedAt":"2026-04-08T12:00:00.000Z","snapshotBefore":{"deals":40,"activities":10,"calls":5,"stageHistory":16},"snapshotAfter":{"deals":42,"activities":12,"calls":7,"stageHistory":18},"changes":{"deals":5,"activities":2,"calls":2,"stageHistory":2,"managers":1},"diagnostics":[]}\n\n',
+          ),
+        )
+        controller.close()
+      },
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: {
+            login: 'admin',
+            role: 'admin',
+          },
+          csrfToken: 'csrf-from-me',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: stream,
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiClient.getCurrentUser()
+    await apiClient.triggerSync(vi.fn())
+
+    const [, syncInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(syncInit.headers).toMatchObject({
+      Accept: 'text/event-stream',
+      'X-CSRF-Token': 'csrf-from-me',
+    })
+  })
 })

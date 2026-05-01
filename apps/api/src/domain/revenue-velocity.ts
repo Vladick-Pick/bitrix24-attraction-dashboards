@@ -23,14 +23,14 @@ import type {
 import {
   resolveDealEconomics,
   type DealEconomicsContext
-} from "./deal-economics";
+} from "./deal-economics.js";
 import {
   UNASSIGNED_MANAGER_ID,
   UNASSIGNED_MANAGER_NAME,
   UNATTRIBUTED_SOURCE_KEY,
   UNATTRIBUTED_SOURCE_LABEL,
   normalizeCategoryId
-} from "./report-dimensions";
+} from "./report-dimensions.js";
 
 export interface RevenueVelocityReportInput {
   range: ReportRange;

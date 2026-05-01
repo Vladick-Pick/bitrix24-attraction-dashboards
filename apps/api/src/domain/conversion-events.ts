@@ -15,7 +15,7 @@ import {
   UNASSIGNED_MANAGER_NAME,
   UNATTRIBUTED_SOURCE_KEY,
   UNATTRIBUTED_SOURCE_LABEL
-} from "./report-dimensions";
+} from "./report-dimensions.js";
 
 export function resolveConversionEventName(
   explicitName: string | null | undefined,

@@ -7,17 +7,17 @@ import {
   buildConversionEventItemListParams,
   buildDealBackfillParams,
   buildDealListParams
-} from "./selectors";
+} from "./selectors.js";
 import {
   assertAllowedBitrixMethod,
   assertSafeSelectFields,
   redactWebhookUrl
-} from "./security";
+} from "./security.js";
 import {
   parseConversionEventDate,
   resolveConversionEventName,
   resolveConversionEventStatus
-} from "../domain/conversion-events";
+} from "../domain/conversion-events.js";
 
 interface BitrixClientConfig {
   dealCategoryIds: string[];

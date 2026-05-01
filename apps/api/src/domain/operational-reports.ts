@@ -37,7 +37,7 @@ import type {
 import {
   resolveDealEconomics,
   type DealEconomicsContext
-} from "./deal-economics";
+} from "./deal-economics.js";
 import {
   buildManagerDirectoryMap,
   buildSourceLabelMap,
@@ -45,7 +45,7 @@ import {
   resolveDealSource,
   resolveManagerName,
   toMonthBucket
-} from "./report-dimensions";
+} from "./report-dimensions.js";
 
 interface SourceQualityConversionInput {
   range: ReportRange;

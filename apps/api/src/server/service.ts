@@ -51,17 +51,17 @@ import {
   buildManagerActionOutcomeReport,
   buildSourceQualityConversionReport,
   buildTargetGroupConversionReport
-} from "../domain/operational-reports";
+} from "../domain/operational-reports.js";
 import {
   ATTRACTION_MANAGER_CATALOG,
   ATTRACTION_MANAGER_IDS,
   normalizeAttractionManagerFilters,
   sortAttractionManagers
-} from "../domain/attraction-managers";
-import { buildTocFlowReport } from "../domain/toc-report";
-import { buildRevenueVelocityReport } from "../domain/revenue-velocity";
-import { buildConversionEventsReport } from "../domain/conversion-events";
-import { DEFAULT_PRICING_RULES } from "../domain/deal-economics";
+} from "../domain/attraction-managers.js";
+import { buildTocFlowReport } from "../domain/toc-report.js";
+import { buildRevenueVelocityReport } from "../domain/revenue-velocity.js";
+import { buildConversionEventsReport } from "../domain/conversion-events.js";
+import { DEFAULT_PRICING_RULES } from "../domain/deal-economics.js";
 import {
   buildSourceLabelMap,
   normalizeCategoryId,
@@ -69,8 +69,8 @@ import {
   UNATTRIBUTED_SOURCE_KEY,
   UNASSIGNED_MANAGER_ID,
   UNASSIGNED_MANAGER_NAME
-} from "../domain/report-dimensions";
-import { buildDashboard } from "../domain/reporting";
+} from "../domain/report-dimensions.js";
+import { buildDashboard } from "../domain/reporting.js";
 import {
   ACTIVITY_HISTORY_COVERAGE_VERSION,
   CALL_STATS_COVERAGE_PROVIDER,
@@ -87,9 +87,9 @@ import {
   DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION,
   FULL_COVERAGE_FROM,
   performManualSync
-} from "../domain/sync";
-import type { SyncClient } from "../domain/sync";
-import type { SqliteRepository } from "./sqlite-repository";
+} from "../domain/sync.js";
+import type { SyncClient } from "../domain/sync.js";
+import type { SqliteRepository } from "./sqlite-repository.js";
 
 interface CreateReportingServiceInput {
   dealCategoryIds: string[];

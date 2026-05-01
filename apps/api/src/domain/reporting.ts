@@ -16,8 +16,8 @@ import type {
 
 import {
   resolveDealEconomics
-} from "./deal-economics";
-import { buildSourceLabelMap, resolveDealSource } from "./report-dimensions";
+} from "./deal-economics.js";
+import { buildSourceLabelMap, resolveDealSource } from "./report-dimensions.js";
 
 const UNKNOWN_MANAGER_ID = "unassigned";
 const UNKNOWN_MANAGER_NAME = "Без ответственного";

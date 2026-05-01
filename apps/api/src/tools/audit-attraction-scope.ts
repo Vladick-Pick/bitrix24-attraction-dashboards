@@ -6,10 +6,10 @@ import type {
   DealSnapshot
 } from "@bitrix24-reporting/contracts";
 
-import { BitrixClient, type ActivityRow, type CallRow } from "../bitrix/client";
-import { readEnv } from "../config/env";
-import { ATTRACTION_MANAGER_IDS } from "../domain/attraction-managers";
-import { createSqliteRepository } from "../server/sqlite-repository";
+import { BitrixClient, type ActivityRow, type CallRow } from "../bitrix/client.js";
+import { readEnv } from "../config/env.js";
+import { ATTRACTION_MANAGER_IDS } from "../domain/attraction-managers.js";
+import { createSqliteRepository } from "../server/sqlite-repository.js";
 
 const DEFAULT_CATEGORY_ID = "10";
 const AUDIT_PROVIDERS = [

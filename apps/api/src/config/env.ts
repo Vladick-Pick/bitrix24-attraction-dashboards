@@ -7,7 +7,8 @@ import { z } from "zod";
 const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
 
 loadDotenv({
-  path: resolve(CONFIG_DIR, "../../../../.env")
+  path: resolve(CONFIG_DIR, "../../../../.env"),
+  quiet: true
 });
 
 const ALLOWED_BITRIX_CUSTOM_FIELDS = new Set([
@@ -67,8 +68,11 @@ function optionalCustomField() {
 const envSchema = z
   .object({
     API_AUTH_TOKEN: optionalTrimmedString(),
+    API_HOST: z.string().trim().min(1).default("127.0.0.1"),
     API_PORT: z.coerce.number().int().positive().default(8787),
     APP_TIMEZONE: z.string().default("Europe/Istanbul"),
+    APP_PUBLIC_URL: optionalTrimmedString(),
+    AUTH_MODE: z.enum(["none", "password"]).default("none"),
     BITRIX24_DEAL_CATEGORY_IDS: z.string().default("10"),
     BITRIX24_DEAL_QUALITY_FIELD: requiredCustomField("UF_CRM_1730380390"),
     BITRIX24_DEAL_TARIFF_FIELD: requiredCustomField("UF_CRM_1643901145"),
@@ -91,8 +95,17 @@ const envSchema = z
     BITRIX24_REQUEST_INTERVAL_MS: z.coerce.number().int().nonnegative().default(250),
     BITRIX24_BOOTSTRAP_LOOKBACK_DAYS: z.coerce.number().int().positive().default(365),
     DATABASE_URL: z.string().default("file:./data/bitrix24-reporting.db"),
+    JSON_BODY_LIMIT: z.string().trim().min(1).default("256kb"),
+    NODE_ENV: z.string().default("development"),
     REPORT_DEFAULT_PERIOD_DAYS: z.coerce.number().int().positive().default(30),
     REPORT_WON_STAGE_IDS: z.string().default("C10:WON"),
+    SESSION_COOKIE_NAME: z.string().trim().min(1).default("b24dash_session"),
+    SESSION_SECRET: optionalTrimmedString(),
+    SESSION_TTL_HOURS: z.coerce.number().positive().default(12),
+    TRUST_PROXY: z
+      .union([z.literal("loopback"), z.literal("false"), z.literal("true")])
+      .default("loopback"),
+    WEB_STATIC_DIR: optionalTrimmedString(),
     WEB_ORIGIN: z.string().default("http://localhost:5173")
   })
   .superRefine((value, context) => {
@@ -115,6 +128,35 @@ const envSchema = z
           code: z.ZodIssueCode.custom,
           path: [key],
           message
+        });
+      }
+    }
+
+    if (value.AUTH_MODE === "password") {
+      if (!value.SESSION_SECRET || value.SESSION_SECRET.length < 32) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["SESSION_SECRET"],
+          message:
+            "SESSION_SECRET must be configured and at least 32 characters when AUTH_MODE=password."
+        });
+      }
+    }
+
+    if (value.NODE_ENV === "production") {
+      if (value.AUTH_MODE !== "password") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["AUTH_MODE"],
+          message: "Production requires AUTH_MODE=password."
+        });
+      }
+
+      if (!value.APP_PUBLIC_URL?.startsWith("https://")) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["APP_PUBLIC_URL"],
+          message: "Production APP_PUBLIC_URL must be an HTTPS URL."
         });
       }
     }

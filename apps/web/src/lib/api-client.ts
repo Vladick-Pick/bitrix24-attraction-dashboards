@@ -57,6 +57,19 @@ class ApiClientError extends Error {
   }
 }
 
+interface AuthUser {
+  login: string
+  role: 'admin'
+}
+
+interface AuthResponse {
+  user: AuthUser
+  csrfToken: string
+}
+
+let csrfToken: string | null = null
+const unauthorizedListeners = new Set<() => void>()
+
 function buildUrl(
   pathname: string,
   params?: Record<string, string | number | string[] | undefined>,
@@ -96,6 +109,69 @@ function asNullableNumber(value: unknown) {
 
 function asArray<T>(value: unknown, mapper: (input: unknown) => T): T[] {
   return Array.isArray(value) ? value.map(mapper) : []
+}
+
+function isMutatingMethod(method: string | undefined) {
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(
+    (method ?? 'GET').toUpperCase(),
+  )
+}
+
+function normalizeAuthResponse(value: unknown): AuthResponse {
+  const data = isRecord(value) ? value : {}
+  const user = isRecord(data.user) ? data.user : {}
+
+  return {
+    user: {
+      login: asString(user.login),
+      role: 'admin',
+    },
+    csrfToken: asString(data.csrfToken),
+  }
+}
+
+function setCsrfTokenFromResponse(response: AuthResponse) {
+  csrfToken = response.csrfToken || null
+  return response
+}
+
+function notifyUnauthorized() {
+  csrfToken = null
+  for (const listener of unauthorizedListeners) {
+    listener()
+  }
+}
+
+async function readErrorMessage(response: Response) {
+  let message = 'Local API request failed'
+  try {
+    const errorBody = (await response.json()) as unknown
+    if (isRecord(errorBody)) {
+      message = asString(errorBody.code, asString(errorBody.error, message))
+    }
+  } catch {
+    // Keep the stable fallback when the server did not return JSON.
+  }
+
+  return message
+}
+
+function buildRequestInit(init: RequestInit) {
+  const method = init.method ?? 'GET'
+  const headers = {
+    Accept: 'application/json',
+    ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(isMutatingMethod(method) && csrfToken
+      ? { 'X-CSRF-Token': csrfToken }
+      : {}),
+    ...(init.headers ?? {}),
+  }
+
+  return {
+    ...init,
+    credentials: 'include' as const,
+    headers,
+  }
 }
 
 function normalizePricingStatus(value: unknown) {
@@ -1672,31 +1748,30 @@ async function requestJson<T>(
   init: RequestInit,
   normalize: (value: unknown) => T,
 ) {
-  const response = await fetch(pathname, {
-    headers: {
-      Accept: 'application/json',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(init.headers ?? {}),
-    },
-    ...init,
-  })
+  const response = await fetch(pathname, buildRequestInit(init))
 
   if (!response.ok) {
-    let message = 'Local API request failed'
-    try {
-      const errorBody = (await response.json()) as unknown
-      if (isRecord(errorBody)) {
-        message = asString(errorBody.code, asString(errorBody.error, message))
-      }
-    } catch {
-      // Keep the stable fallback when the server did not return JSON.
+    const message = await readErrorMessage(response)
+    if (response.status === 401 && !String(pathname).includes('/api/auth/login')) {
+      notifyUnauthorized()
     }
-
     throw new ApiClientError(message, response.status)
   }
 
   const data = (await response.json()) as unknown
   return normalize(data)
+}
+
+async function requestVoid(pathname: string, init: RequestInit) {
+  const response = await fetch(pathname, buildRequestInit(init))
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response)
+    if (response.status === 401) {
+      notifyUnauthorized()
+    }
+    throw new ApiClientError(message, response.status)
+  }
 }
 
 function parseSyncStreamBlock(block: string) {
@@ -1728,19 +1803,16 @@ async function requestSyncStream(
     method: 'POST',
     headers: {
       Accept: 'text/event-stream',
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
     },
+    credentials: 'include',
   })
 
   if (!response.ok || !response.body) {
     if (!response.ok) {
-      let message = 'Local API request failed'
-      try {
-        const errorBody = (await response.json()) as unknown
-        if (isRecord(errorBody)) {
-          message = asString(errorBody.code, asString(errorBody.error, message))
-        }
-      } catch {
-        // Keep fallback.
+      const message = await readErrorMessage(response)
+      if (response.status === 401) {
+        notifyUnauthorized()
       }
       throw new ApiClientError(message, response.status)
     }
@@ -1798,6 +1870,35 @@ async function requestSyncStream(
 }
 
 export const apiClient = {
+  onUnauthorized(listener: () => void) {
+    unauthorizedListeners.add(listener)
+    return () => {
+      unauthorizedListeners.delete(listener)
+    }
+  },
+  async login(input: { login: string; password: string }) {
+    const response = await requestJson(
+      buildUrl('/api/auth/login'),
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      normalizeAuthResponse,
+    )
+    return setCsrfTokenFromResponse(response)
+  },
+  async getCurrentUser() {
+    const response = await requestJson(
+      buildUrl('/api/auth/me'),
+      { method: 'GET' },
+      normalizeAuthResponse,
+    )
+    return setCsrfTokenFromResponse(response)
+  },
+  async logout() {
+    await requestVoid(buildUrl('/api/auth/logout'), { method: 'POST' })
+    csrfToken = null
+  },
   async getDashboard(query: DashboardQuery) {
     return requestJson(
       buildUrl('/api/dashboard', buildQueryParams(query)),

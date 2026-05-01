@@ -2405,6 +2405,159 @@ describe("performManualSync", () => {
     );
   });
 
+  it("uses the initial operational activity backfill as provider coverage on an empty snapshot", async () => {
+    const activityRequests: Array<{ modifiedAfter: string | null; providerId?: string }> = [];
+    const coverageWrites: Array<{
+      stream: string;
+      providerId: string | null;
+      coveredFrom: string;
+    }> = [];
+    const providerBootstrapMarks: string[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => null,
+      getSyncCursor: async () => null,
+      setSyncCursor: async () => undefined,
+      hasSyncCoverage: async () => false,
+      upsertSyncCoverage: async (input: {
+        stream: string;
+        providerId: string | null;
+        coveredFrom: string;
+      }) => {
+        coverageWrites.push(input);
+      },
+      getOperationalHistoryBootstrappedAt: async () => null,
+      getCallHistoryBootstrappedAt: async () => null,
+      getCallActivityHistoryBootstrappedAt: async () => null,
+      getMeetingActivityHistoryBootstrappedAt: async () => null,
+      getTaskActivityHistoryBootstrappedAt: async () => null,
+      getDealCustomFieldsBootstrappedAt: async () => "2026-04-20T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 0,
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      getCallActivityIdsMissingActivities: async () => [],
+      getCallActivityIdsMissingCallStats: async () => [],
+      getCallActivityIdsForCallStatsRefresh: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 1,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 1,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 58,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      markCallActivityHistoryBootstrapped: async (timestamp: string) => {
+        providerBootstrapMarks.push(`call:${timestamp}`);
+      },
+      markMeetingActivityHistoryBootstrapped: async (timestamp: string) => {
+        providerBootstrapMarks.push(`meeting:${timestamp}`);
+      },
+      markTaskActivityHistoryBootstrapped: async (timestamp: string) => {
+        providerBootstrapMarks.push(`task:${timestamp}`);
+      },
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [
+        {
+          ID: "D1",
+          LEAD_ID: null,
+          DATE_CREATE: "2026-03-01T00:00:00.000Z",
+          DATE_MODIFY: "2026-04-11T00:00:00.000Z",
+          DATE_CLOSED: null,
+          CATEGORY_ID: "10",
+          STAGE_ID: "C10:NEW",
+          STAGE_SEMANTIC_ID: "P",
+          OPPORTUNITY: null,
+          ASSIGNED_BY_ID: "78",
+          SOURCE_ID: "WEB",
+          UTM_SOURCE: null,
+          UTM_MEDIUM: null,
+          UTM_CAMPAIGN: null,
+          UTM_CONTENT: null,
+          UTM_TERM: null
+        }
+      ],
+      listStageHistory: async () => [],
+      listActivities: async (input: {
+        modifiedAfter: string | null;
+        providerId?: string;
+      }) => {
+        activityRequests.push({
+          modifiedAfter: input.modifiedAfter,
+          ...(input.providerId ? { providerId: input.providerId } : {})
+        });
+        return [
+          {
+            ID: "A1",
+            OWNER_TYPE_ID: "2",
+            OWNER_ID: "D1",
+            TYPE_ID: "2",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            RESPONSIBLE_ID: "78",
+            CREATED: "2026-03-03T10:30:00.000Z",
+            DEADLINE: null,
+            LAST_UPDATED: "2026-03-03T10:32:00.000Z",
+            COMPLETED: "Y",
+            COMPLETED_DATE: "2026-03-03T10:32:00.000Z"
+          }
+        ];
+      },
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      bootstrapLookbackDays: 365,
+      now: () => "2026-04-25T00:00:00.000Z"
+    });
+
+    expect(activityRequests).toEqual([
+      {
+        modifiedAfter: "2025-04-25T00:00:00.000Z"
+      }
+    ]);
+    expect(coverageWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stream: "activity_history",
+          providerId: "VOXIMPLANT_CALL",
+          coveredFrom: "2025-04-25T00:00:00.000Z"
+        }),
+        expect.objectContaining({
+          stream: "activity_history",
+          providerId: "CRM_MEETING",
+          coveredFrom: "2025-04-25T00:00:00.000Z"
+        }),
+        expect.objectContaining({
+          stream: "activity_history",
+          providerId: "CRM_TODO",
+          coveredFrom: "2025-04-25T00:00:00.000Z"
+        }),
+        expect.objectContaining({
+          stream: "activity_history",
+          providerId: "CRM_TASKS_TASK",
+          coveredFrom: "2025-04-25T00:00:00.000Z"
+        })
+      ])
+    );
+    expect(providerBootstrapMarks).toEqual([
+      "call:2026-04-25T00:00:00.000Z",
+      "meeting:2026-04-25T00:00:00.000Z",
+      "task:2026-04-25T00:00:00.000Z"
+    ]);
+  });
+
   it("uses open deals for refresh but includes changed closed deals in activity delta sync", async () => {
     const activityOwnerRequests: string[][] = [];
     const stageHistoryOwnerRequests: string[][] = [];

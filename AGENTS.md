@@ -58,3 +58,18 @@ If a named preset is unavailable in the current runtime, emulate it with the clo
 - Commit with a focused message that references the issue when available.
 - Push the branch and open a draft PR for non-trivial work.
 - Merge only after tests are green and review comments are resolved or explicitly deferred.
+
+## Proven Git, Deploy, And Server Practices
+- Treat GitHub Actions as the production path: implement locally, run focused checks, commit, push a `codex/*` branch, open a PR, wait for CI, merge, then wait for `Deploy Production`.
+- After a production deploy, verify the actual VPS state, not only GitHub: check `/opt/bitrix24-reporting/app` commit, container status, health endpoint, and the specific API behavior changed by the PR.
+- Keep production verification explicit and repeatable. Good smoke checks include `curl https://dashboardpriv.claricont.com/api/health`, unauthenticated protected endpoint returning `401`, authenticated endpoint behavior with session cookie and CSRF, and direct API port not reachable externally.
+- Never print or paste production passwords, session cookies, Bitrix webhooks, raw tokens, or raw payloads. If a server-side password file exists, read it inside the remote command and only print non-secret status such as `login: ok`.
+- For authenticated production API checks, use the existing admin account, read the password from `/root/bitrix24-reporting-admin-password.txt` on the VPS, keep cookies in memory or a temporary file, and remove any smoke-test records after verification.
+- Before touching production data, identify the mounted SQLite path and make a backup when the operation can mutate business data. The production database is expected under `/opt/bitrix24-reporting/data/bitrix24-reporting.db` on the host and `/app/data/bitrix24-reporting.db` in the app container.
+- Do not copy local SQLite over production unless the user explicitly approves that destructive replacement. Prefer fixing the sync/import logic and preserving the production DB.
+- For Docker checks, prefer `docker ps`, `docker compose ps`, `docker logs --tail`, `docker exec`, and app-local Node scripts from `/app/apps/api` so workspace dependencies resolve correctly.
+- When querying SQLite inside the container, run from `/app/apps/api` because package resolution for `better-sqlite3` is local to the API workspace.
+- Keep the app container non-root. Verify with `docker inspect -f '{{.Config.User}}' bitrix24-reporting-app-1` and `docker exec bitrix24-reporting-app-1 id`.
+- Keep reverse proxy ownership clear: public traffic goes through Caddy/nginx on `443`; the Node app should remain bound to localhost or the internal Docker network.
+- For data correctness incidents, compare local and production counts with the same SQL/query semantics before changing code or importing data. Always pin the exact date range, funnel/category, manager whitelist, and stage rules used for the comparison.
+- For prototype comments, production comments are stored server-side in SQLite through `/api/proto-comments`; do not rely on `.codex/proto-comments/comments.json` for production. Each comment should retain block anchor metadata: block id, block label, block selector, element selector, and relative coordinates inside the block.

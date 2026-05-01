@@ -555,6 +555,33 @@ describe("createSqliteRepository", () => {
         utmCampaign: null,
         utmContent: null,
         utmTerm: null
+      },
+      {
+        id: "D2",
+        title: null,
+        leadId: "L1",
+        categoryId: "1",
+        stageId: "C1:LOSE",
+        stageSemanticId: "F",
+        opportunity: 0,
+        assignedById: null,
+        sourceId: "WEB",
+        qualityValue: "3.1 Готов ко встрече",
+        businessClubValue: "ClubOne",
+        targetGroupValue: "ClubFirst",
+        meetingTypeValue: "Очная",
+        meetingDateValue: "2026-04-03T13:00:00.000Z",
+        tariffValue: "Федеральный Москва",
+        refusalReasonValue: "Клиенту не интересен формат",
+        refusalReasonDetail: "Нет бюджета на участие",
+        dateCreate: "2026-04-01T00:00:00.000Z",
+        dateModify: "2026-04-08T00:00:00.000Z",
+        dateClosed: "2026-04-08T00:00:00.000Z",
+        utmSource: "google",
+        utmMedium: null,
+        utmCampaign: null,
+        utmContent: null,
+        utmTerm: null
       }
     ]);
 
@@ -596,6 +623,35 @@ describe("createSqliteRepository", () => {
         conversionEventValue: null,
         refusalReasonValue: "Клиенту не интересен формат",
         refusalReasonDetail: null,
+        dateCreate: "2026-04-01T00:00:00.000Z",
+        dateModify: "2026-04-08T00:00:00.000Z",
+        dateClosed: "2026-04-08T00:00:00.000Z",
+        utmSource: "google",
+        utmMedium: null,
+        utmCampaign: null,
+        utmContent: null,
+        utmTerm: null
+      },
+      {
+        id: "D2",
+        title: null,
+        contactId: null,
+        leadId: "L1",
+        categoryId: "1",
+        stageId: "C1:LOSE",
+        stageSemanticId: "F",
+        opportunity: 0,
+        assignedById: null,
+        sourceId: "WEB",
+        qualityValue: "3.1 Готов ко встрече",
+        businessClubValue: "ClubOne",
+        targetGroupValue: "ClubFirst",
+        meetingTypeValue: "Очная",
+        meetingDateValue: "2026-04-03T13:00:00.000Z",
+        tariffValue: "Федеральный Москва",
+        conversionEventValue: null,
+        refusalReasonValue: "Клиенту не интересен формат",
+        refusalReasonDetail: "Нет бюджета на участие",
         dateCreate: "2026-04-01T00:00:00.000Z",
         dateModify: "2026-04-08T00:00:00.000Z",
         dateClosed: "2026-04-08T00:00:00.000Z",
@@ -708,7 +764,7 @@ describe("createSqliteRepository", () => {
     expect(await repository.getDealCustomFieldsBootstrappedAt()).toBe(null);
     expect(await repository.getDealMeetingDateFieldBootstrappedAt()).toBe(null);
     expect((await repository.getStageCatalog())[0]?.name).toBe("Won");
-    expect(await repository.getDealIdsByCategoryIds(["1"])).toEqual(["D1"]);
+    expect(await repository.getDealIdsByCategoryIds(["1"])).toEqual(["D1", "D2"]);
     expect(await repository.getDealIdsByCategoryIds(["1"], ["78"])).toEqual([]);
     expect(await repository.getActivitiesByIds(["A1"])).toEqual([
       {
@@ -826,7 +882,7 @@ describe("createSqliteRepository", () => {
       }
     ]);
     await expect(repository.getSnapshotStats()).resolves.toEqual({
-      deals: 1,
+      deals: 2,
       activities: 2,
       calls: 3,
       stageHistory: 1

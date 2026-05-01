@@ -16,6 +16,7 @@ import type {
 } from "@bitrix24-reporting/contracts";
 
 import { ATTRACTION_MANAGER_IDS } from "./attraction-managers.js";
+import { sanitizeRefusalReasonDetail } from "./refusal-detail.js";
 
 export interface DealRow {
   ID: string;
@@ -283,7 +284,7 @@ const CALL_STATS_REFRESH_LIMIT = 20_000;
 export const ACTIVITY_HISTORY_COVERAGE_VERSION = "activity-bindings-v2";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_STREAM = "deal_custom_fields";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER = "all";
-export const DEAL_CUSTOM_FIELDS_COVERAGE_VERSION = "deal-custom-fields-v1";
+export const DEAL_CUSTOM_FIELDS_COVERAGE_VERSION = "deal-custom-fields-v2";
 export const DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM = "deal_meeting_date_field";
 export const DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION =
   "deal-meeting-date-field-v1";
@@ -350,10 +351,6 @@ function sanitizeDealTargetGroupValue(value: string | null) {
   }
 
   return isOpaqueBitrixEnumId(value) ? null : value;
-}
-
-function sanitizeRefusalReasonDetail(_value: string | null) {
-  return null;
 }
 
 function extractLinkedDealId(value: unknown): string | null {

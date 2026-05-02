@@ -561,12 +561,12 @@ describe('live-reporting', () => {
 
     expect(scene.range).toEqual(report.range)
     expect(scene.kpis).toEqual([
-      expect.objectContaining({ label: 'Средняя когортная конверсия', value: '60%', delta: '+10 п.п.' }),
-      expect.objectContaining({ label: 'В 1 месяц', value: '20%', delta: '+8 п.п.' }),
-      expect.objectContaining({ label: 'Во 2 месяц', value: '20%', delta: '+8 п.п.' }),
-      expect.objectContaining({ label: 'В 3 месяц', value: '10%', delta: '-2 п.п.' }),
-      expect.objectContaining({ label: 'В 4+ месяц', value: '20%', delta: '+8 п.п.' }),
-      expect.objectContaining({ label: 'Средний цикл', value: '49 дн.', delta: '-5 дн.' }),
+      { label: 'Средняя когортная конверсия', value: '60%', note: 'среднее по когортам за год' },
+      { label: 'В 1 месяц', value: '20%', note: 'среднее по когортам за год' },
+      { label: 'Во 2 месяц', value: '20%', note: 'среднее по когортам за год' },
+      { label: 'В 3 месяц', value: '10%', note: 'среднее по когортам за год' },
+      { label: 'В 4+ месяц', value: '20%', note: 'среднее по когортам за год' },
+      { label: 'Средний цикл', value: '49 дн.', note: 'среднее по выигранным сделкам за год' },
     ])
     expect(scene.matrixRows).toEqual([
       expect.objectContaining({
@@ -583,11 +583,15 @@ describe('live-reporting', () => {
       }),
     ])
     expect(scene.distributionBuckets).toEqual([
-      expect.objectContaining({ label: 'В 1 месяц', value: '20%', compare: 'предыдущий период: 12%', delta: '+8 п.п.' }),
-      expect.objectContaining({ label: 'Во 2 месяц', value: '20%', compare: 'предыдущий период: 12%', delta: '+8 п.п.' }),
-      expect.objectContaining({ label: 'В 3 месяц', value: '10%', compare: 'предыдущий период: 12%', delta: '-2 п.п.' }),
-      expect.objectContaining({ label: 'В 4+ месяц', value: '20%', compare: 'предыдущий период: 12%', delta: '+8 п.п.' }),
+      expect.objectContaining({ label: 'В 1 месяц', value: '20%' }),
+      expect.objectContaining({ label: 'Во 2 месяц', value: '20%' }),
+      expect.objectContaining({ label: 'В 3 месяц', value: '10%' }),
+      expect.objectContaining({ label: 'В 4+ месяц', value: '20%' }),
     ])
+    for (const bucket of scene.distributionBuckets) {
+      expect(bucket).not.toHaveProperty('compare')
+      expect(bucket).not.toHaveProperty('delta')
+    }
     expect(scene.managerDistribution).toEqual([
       expect.objectContaining({
         manager: 'Анна Петрова',
@@ -604,6 +608,134 @@ describe('live-reporting', () => {
         month2: '20%',
         month3: '10%',
         tail: '20%',
+      }),
+    ])
+  })
+
+  it('uses average cohort-row rates for annual cohort KPI cards without compare text', () => {
+    const scene = mapCohortSceneData({
+      report: {
+        range: {
+          from: '2025-05-01T00:00:00.000Z',
+          to: '2026-04-30T23:59:59.999Z',
+        },
+        totalCreatedDeals: 101,
+        totalClosedDeals: 11,
+        totalWonDeals: 11,
+        closureMonths: [],
+        relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+        rows: [
+          {
+            createdMonth: '2026-03',
+            createdDeals: 100,
+            closedDeals: 10,
+            wonDeals: 10,
+            closedRate: 10,
+            wonConversionRate: 10,
+            averageDaysToClose: 30,
+            averageDaysToWin: 30,
+            closureBuckets: [],
+            relativeClosureBuckets: [
+              { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 5, wonDeals: 5, closedRate: 5, wonConversionRate: 5 },
+              { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 3, wonDeals: 3, closedRate: 3, wonConversionRate: 3 },
+              { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 1, wonDeals: 1, closedRate: 1, wonConversionRate: 1 },
+              { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 1, wonDeals: 1, closedRate: 1, wonConversionRate: 1 },
+            ],
+          },
+          {
+            createdMonth: '2026-04',
+            createdDeals: 1,
+            closedDeals: 1,
+            wonDeals: 1,
+            closedRate: 100,
+            wonConversionRate: 100,
+            averageDaysToClose: 5,
+            averageDaysToWin: 5,
+            closureBuckets: [],
+            relativeClosureBuckets: [
+              { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 1, wonDeals: 1, closedRate: 100, wonConversionRate: 100 },
+              { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+              { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+              { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+            ],
+          },
+        ],
+      },
+      managerBreakdowns: [
+        {
+          key: '78',
+          label: 'Егоров Андрей',
+          report: {
+            totalCreatedDeals: 101,
+            totalClosedDeals: 11,
+            totalWonDeals: 11,
+            rows: [
+              {
+                createdMonth: '2026-03',
+                createdDeals: 100,
+                closedDeals: 10,
+                wonDeals: 10,
+                closedRate: 10,
+                wonConversionRate: 10,
+                averageDaysToClose: 30,
+                averageDaysToWin: 30,
+                closureBuckets: [],
+                relativeClosureBuckets: [
+                  { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 5, wonDeals: 5, closedRate: 5, wonConversionRate: 5 },
+                  { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 3, wonDeals: 3, closedRate: 3, wonConversionRate: 3 },
+                  { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 1, wonDeals: 1, closedRate: 1, wonConversionRate: 1 },
+                  { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 1, wonDeals: 1, closedRate: 1, wonConversionRate: 1 },
+                ],
+              },
+              {
+                createdMonth: '2026-04',
+                createdDeals: 1,
+                closedDeals: 1,
+                wonDeals: 1,
+                closedRate: 100,
+                wonConversionRate: 100,
+                averageDaysToClose: 5,
+                averageDaysToWin: 5,
+                closureBuckets: [],
+                relativeClosureBuckets: [
+                  { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 1, wonDeals: 1, closedRate: 100, wonConversionRate: 100 },
+                  { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+                  { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+                  { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      sourceBreakdowns: [],
+    })
+
+    expect(scene.kpis).toEqual([
+      { label: 'Средняя когортная конверсия', value: '55%', note: 'среднее по когортам за год' },
+      { label: 'В 1 месяц', value: '52%', note: 'среднее по когортам за год' },
+      { label: 'Во 2 месяц', value: '1%', note: 'среднее по когортам за год' },
+      { label: 'В 3 месяц', value: '<1%', note: 'среднее по когортам за год' },
+      { label: 'В 4+ месяц', value: '<1%', note: 'среднее по когортам за год' },
+      { label: 'Средний цикл', value: '28 дн.', note: 'среднее по выигранным сделкам за год' },
+    ])
+    expect(scene.distributionBuckets).toEqual([
+      expect.objectContaining({ label: 'В 1 месяц', value: '52%' }),
+      expect.objectContaining({ label: 'Во 2 месяц', value: '1%' }),
+      expect.objectContaining({ label: 'В 3 месяц', value: '<1%' }),
+      expect.objectContaining({ label: 'В 4+ месяц', value: '<1%' }),
+    ])
+    for (const bucket of scene.distributionBuckets) {
+      expect(bucket).not.toHaveProperty('compare')
+      expect(bucket).not.toHaveProperty('delta')
+    }
+    expect(scene.managerDistribution).toEqual([
+      expect.objectContaining({
+        manager: 'Егоров Андрей',
+        month1: '52%',
+        month2: '1%',
+        month3: '<1%',
+        tail: '<1%',
       }),
     ])
   })

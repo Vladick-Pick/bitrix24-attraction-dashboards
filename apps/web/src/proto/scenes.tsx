@@ -234,10 +234,10 @@ const stagePressure = [
 ]
 
 const cycleBuckets: CohortDistributionBucket[] = [
-  { label: 'В 1 месяц', value: '8%', compare: '7%', delta: '+1 п.п.', width: 32 },
-  { label: 'Во 2 месяц', value: '9%', compare: '8%', delta: '+1 п.п.', width: 44 },
-  { label: 'В 3 месяц', value: '5%', compare: '6%', delta: '-1 п.п.', width: 24 },
-  { label: 'В 4+ месяц', value: '2%', compare: '3%', delta: '-1 п.п.', width: 14 },
+  { label: 'В 1 месяц', value: '8%', width: 32 },
+  { label: 'Во 2 месяц', value: '9%', width: 44 },
+  { label: 'В 3 месяц', value: '5%', width: 24 },
+  { label: 'В 4+ месяц', value: '2%', width: 14 },
 ]
 
 const activitySummaryDeltas: Record<string, string[]> = {
@@ -2494,6 +2494,33 @@ function shiftQuarterSelection(input: { year: number; quarter: number }, delta: 
   return { year, quarter: quarterIndex + 1 }
 }
 
+function distributeSalesPlanValue(total: number, parts: number) {
+  if (parts <= 0) {
+    return []
+  }
+
+  const normalizedTotal = Math.max(0, Math.round(total))
+  const baseValue = Math.floor(normalizedTotal / parts)
+  const remainder = normalizedTotal - baseValue * parts
+
+  return Array.from({ length: parts }, (_, index) =>
+    baseValue + (index < remainder ? 1 : 0),
+  )
+}
+
+function distributeSalesPlanMonths(
+  months: EditableSalesPlanMonth[],
+  key: 'plannedDeals' | 'plannedAmount',
+  total: number,
+) {
+  const values = distributeSalesPlanValue(total, months.length)
+
+  return months.map((month, index) => ({
+    ...month,
+    [key]: values[index] ?? 0,
+  }))
+}
+
 function SalesPlanScene({
   runtimeData,
   salesPlanQuarter,
@@ -2532,10 +2559,7 @@ function SalesPlanScene({
   const [rows, setRows] = useState<EditableSalesPlanRow[]>(() =>
     toEditableSalesPlanRows(savedQuarterPlan, managers, targetGroups),
   )
-  const mismatches = rows
-    .map((row) => ({ row, mismatch: getSalesPlanRowMismatch(row) }))
-    .filter((entry) => entry.mismatch)
-  const hasMismatches = mismatches.length > 0
+  const hasMismatches = rows.some((row) => getSalesPlanRowMismatch(row) !== null)
 
   useEffect(() => {
     setRows(toEditableSalesPlanRows(savedQuarterPlan, managers, targetGroups))
@@ -2693,12 +2717,6 @@ function SalesPlanScene({
         </div>
       ) : null}
 
-      {hasMismatches ? (
-        <div role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Сумма месяцев не равна квартальному плану. Исправьте строки перед сохранением.
-        </div>
-      ) : null}
-
       <div className="overflow-auto">
         <table className="min-w-[1440px] text-sm">
           <thead>
@@ -2728,7 +2746,11 @@ function SalesPlanScene({
               const mismatch = getSalesPlanRowMismatch(row)
 
               return (
-                <tr key={row.localId} className="border-b border-slate-100 last:border-b-0">
+                <tr
+                  key={row.localId}
+                  className={`border-b border-slate-100 last:border-b-0${mismatch ? ' bg-rose-50/70' : ''}`}
+                  data-plan-mismatch={mismatch ? 'true' : undefined}
+                >
                   <td className="px-3 py-3">
                     <select
                       className="field min-w-[210px]"
@@ -2793,11 +2815,17 @@ function SalesPlanScene({
                           aria-label={`Квартальный план сделок ${fieldSuffix}`}
                           value={row.quarterPlannedDeals}
                           disabled={isPlanLocked}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            const quarterPlannedDeals = Math.max(0, Number(event.target.value) || 0)
                             patchRow(row.localId, {
-                              quarterPlannedDeals: Math.max(0, Number(event.target.value) || 0),
+                              quarterPlannedDeals,
+                              months: distributeSalesPlanMonths(
+                                row.months,
+                                'plannedDeals',
+                                quarterPlannedDeals,
+                              ),
                             })
-                          }
+                          }}
                         />
                       </label>
                       <label className="block">
@@ -2811,6 +2839,11 @@ function SalesPlanScene({
                           onChange={(value) =>
                             patchRow(row.localId, {
                               quarterPlannedAmount: value,
+                              months: distributeSalesPlanMonths(
+                                row.months,
+                                'plannedAmount',
+                                value,
+                              ),
                             })
                           }
                         />
@@ -2859,7 +2892,7 @@ function SalesPlanScene({
                   <td className="px-3 py-3 align-top">
                     <div className="min-w-[210px] pt-3">
                       {mismatch ? (
-                        <span className="font-semibold text-amber-700">
+                        <span className="font-semibold text-rose-700">
                           {formatPlanMismatch(mismatch)}
                         </span>
                       ) : (
@@ -3292,7 +3325,6 @@ function ManagerActionOutcomeSection({
 
   const cohortStatusRows = report.cohortStatusRows ?? []
   const cohortMonths = report.cohortMonths ?? []
-  const actionWarnings = report.warnings ?? []
   const selectedRows = cohortStatusRows.filter(
     (row) =>
       row.cohortMonth === selectedCohortMonth &&
@@ -3414,8 +3446,6 @@ function ManagerActionOutcomeSection({
         description="Средний объём действий на сделку по когорте создания и статусу: выиграно, проиграно, в работе сейчас."
         right={<span className="badge-chip badge-neutral">{cohortMonths.length || 12} когорт · годовой период</span>}
       />
-
-      <WarningSummaryBlock warnings={actionWarnings} />
 
       <div className="mb-4 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50/80 p-2">
         <div className="flex min-w-max items-center gap-2 text-sm">
@@ -5856,7 +5886,7 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
           <section className="panel p-5">
             <PanelHeading
               title="Распределение закрытия"
-              description={`Какая часть побед приходит в 1-й, 2-й, 3-й и 4+ месяц. ${getCompareLabel(filters)}.`}
+              description="Средняя доля закрытий по когортам в 1-й, 2-й, 3-й и 4+ месяц после создания."
             />
             <div className="space-y-4">
               {sceneData.distributionBuckets.map((bucket) => (
@@ -5865,7 +5895,7 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
                     <div className="font-semibold text-slate-900">{bucket.label}</div>
                     <div className="flex items-center gap-2">
                       <div className="text-sm font-semibold text-slate-700">{bucket.value}</div>
-                      <DeltaPill value={bucket.delta} />
+                      {bucket.delta ? <DeltaPill value={bucket.delta} /> : null}
                     </div>
                   </div>
                   <div className="h-2.5 rounded-full bg-slate-100">
@@ -5874,7 +5904,9 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
                       style={{ width: `${bucket.width}%` }}
                     />
                   </div>
-                  <div className="text-xs text-slate-500">предыдущий период: {bucket.compare}</div>
+                  {bucket.compare ? (
+                    <div className="text-xs text-slate-500">предыдущий период: {bucket.compare}</div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -6358,12 +6390,12 @@ export const scenes: ProtoScene[] = [
     description: 'Создание сделки по месяцам, закрытие по окнам времени и когортная конверсия.',
     focus: 'Когорты / цикл / закрытие',
     kpis: [
-      { label: 'Средняя когортная конверсия', value: '24%', note: '', compare: 'с учетом менеджеров и источников', delta: '+3 п.п.', deltaTone: 'positive' },
-      { label: 'В 1 месяц', value: '8%', note: '', compare: 'пред. период: 7%', delta: '+1 п.п.', deltaTone: 'positive' },
-      { label: 'Во 2 месяц', value: '9%', note: '', compare: 'пред. период: 8%', delta: '+1 п.п.', deltaTone: 'positive' },
-      { label: 'В 3 месяц', value: '5%', note: '', compare: 'пред. период: 6%', delta: '-1 п.п.', deltaTone: 'negative' },
-      { label: 'В 4+ месяц', value: '2%', note: '', compare: 'пред. период: 3%', delta: '-1 п.п.', deltaTone: 'positive' },
-      { label: 'Средний цикл', value: '67 дн.', note: '', compare: 'пред. период: 72 дн.', delta: '-5 дн.', deltaTone: 'positive' },
+      { label: 'Средняя когортная конверсия', value: '24%', note: 'среднее по когортам за год' },
+      { label: 'В 1 месяц', value: '8%', note: 'среднее по когортам за год' },
+      { label: 'Во 2 месяц', value: '9%', note: 'среднее по когортам за год' },
+      { label: 'В 3 месяц', value: '5%', note: 'среднее по когортам за год' },
+      { label: 'В 4+ месяц', value: '2%', note: 'среднее по когортам за год' },
+      { label: 'Средний цикл', value: '67 дн.', note: 'среднее по выигранным сделкам за год' },
     ],
     component: CohortsScene,
   },

@@ -826,14 +826,40 @@ describe('ProtoApp', () => {
     )
     await userEvent.clear(quarterDealsInput)
     await userEvent.type(quarterDealsInput, '10')
-    expect(screen.getAllByText(/Сумма месяцев не равна квартальному плану/i).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /сохранить план/i })).toBeDisabled()
-
     const aprilDealsInput = screen.getByLabelText(
       'План сделок Апрель Егоров Андрей ClubFirst Russia',
     )
+    const mayDealsInput = screen.getByLabelText(
+      'План сделок Май Егоров Андрей ClubFirst Russia',
+    )
+    const juneDealsInput = screen.getByLabelText(
+      'План сделок Июнь Егоров Андрей ClubFirst Russia',
+    )
+    expect(aprilDealsInput).toHaveValue(4)
+    expect(mayDealsInput).toHaveValue(3)
+    expect(juneDealsInput).toHaveValue(3)
+
+    const quarterAmountInput = screen.getByLabelText(
+      'Квартальный план дохода, млн ₽ Егоров Андрей ClubFirst Russia',
+    )
+    await userEvent.clear(quarterAmountInput)
+    await userEvent.type(quarterAmountInput, '12')
+    expect(screen.getByLabelText('План дохода, млн ₽ Апрель Егоров Андрей ClubFirst Russia')).toHaveValue(4)
+    expect(screen.getByLabelText('План дохода, млн ₽ Май Егоров Андрей ClubFirst Russia')).toHaveValue(4)
+    expect(screen.getByLabelText('План дохода, млн ₽ Июнь Егоров Андрей ClubFirst Russia')).toHaveValue(4)
+
+    await userEvent.clear(mayDealsInput)
+    await userEvent.type(mayDealsInput, '2')
+    const mismatchedRow = mayDealsInput.closest('tr')
+    expect(mismatchedRow).toHaveAttribute('data-plan-mismatch', 'true')
+    expect(
+      within(mismatchedRow as HTMLElement).getByText(/Сумма месяцев не равна квартальному плану/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Исправьте строки перед сохранением/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /сохранить план/i })).toBeDisabled()
+
     await userEvent.clear(aprilDealsInput)
-    await userEvent.type(aprilDealsInput, '4')
+    await userEvent.type(aprilDealsInput, '5')
     await waitFor(() => {
       expect(screen.queryByText(/Сумма месяцев не равна квартальному плану/i)).not.toBeInTheDocument()
     })
@@ -850,11 +876,11 @@ describe('ProtoApp', () => {
             targetGroupKey: 'ClubFirst Russia',
             targetGroupLabel: 'ClubFirst Russia',
             quarterPlannedDeals: 10,
-            quarterPlannedAmount: 9_000_000,
+            quarterPlannedAmount: 12_000_000,
             months: [
-              { month: '2026-04', plannedDeals: 4, plannedAmount: 3_000_000 },
-              { month: '2026-05', plannedDeals: 3, plannedAmount: 3_000_000 },
-              { month: '2026-06', plannedDeals: 3, plannedAmount: 3_000_000 },
+              { month: '2026-04', plannedDeals: 5, plannedAmount: 4_000_000 },
+              { month: '2026-05', plannedDeals: 2, plannedAmount: 4_000_000 },
+              { month: '2026-06', plannedDeals: 3, plannedAmount: 4_000_000 },
             ],
           },
         ],
@@ -1021,7 +1047,7 @@ describe('ProtoApp', () => {
     })
     vi.mocked(apiClient.getManagerActionOutcomeReport).mockResolvedValueOnce({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
-      warnings: [],
+      warnings: ['198 сделок без заказчика/таргет-группы для оценки активной воронки'],
       rows: [
         {
           managerId: '78',
@@ -1245,6 +1271,8 @@ describe('ProtoApp', () => {
     expect(within(actionSection as HTMLElement).getAllByRole('row')).toHaveLength(4)
     expect(within(actionSection as HTMLElement).getByText('SLA on-time')).toBeInTheDocument()
     expect(within(actionSection as HTMLElement).queryByText(/^С1:/)).not.toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).queryByText(/Предупреждения расчёта/i)).not.toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).queryByText(/без заказчика/i)).not.toBeInTheDocument()
 
     await userEvent.click(
       within(actionSection as HTMLElement).getByRole('button', {

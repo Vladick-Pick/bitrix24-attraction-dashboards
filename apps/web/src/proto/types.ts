@@ -128,8 +128,8 @@ export interface CohortMatrixRow {
 export interface CohortDistributionBucket {
   label: string
   value: string
-  compare: string
-  delta: string
+  compare?: string
+  delta?: string
   width: number
 }
 

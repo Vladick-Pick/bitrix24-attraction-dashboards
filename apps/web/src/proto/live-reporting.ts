@@ -110,23 +110,6 @@ function formatPercentDisplay(value: number) {
   return `${Math.floor(value)}%`
 }
 
-function formatPercentPointDelta(current: number, compare: number) {
-  if (!Number.isFinite(compare)) {
-    return '—'
-  }
-
-  const diff = current - compare
-  const magnitude = Math.abs(diff)
-  const rounded =
-    magnitude >= 5 ? Math.ceil(magnitude) : Math.floor(magnitude)
-
-  if (rounded === 0) {
-    return '0 п.п.'
-  }
-
-  return `${diff > 0 ? '+' : '-'}${rounded} п.п.`
-}
-
 function formatPercentDelta(current: number, compare: number) {
   if (!Number.isFinite(compare) || compare === 0) {
     if (current === 0) {
@@ -295,16 +278,6 @@ function createHeatLevel(value: number, maxValue: number) {
   return Math.max(1, Math.min(5, Math.ceil((value / maxValue) * 5)))
 }
 
-function sumRelativeBucketWonDeals(
-  rows: CohortConversionReportSnapshot['rows'],
-  bucketKey: (typeof cohortBucketOrder)[number],
-) {
-  return rows.reduce((total, row) => {
-    const bucket = row.relativeClosureBuckets.find((entry) => entry.bucketKey === bucketKey)
-    return total + (bucket?.wonDeals ?? 0)
-  }, 0)
-}
-
 function average(values: number[]) {
   if (values.length === 0) {
     return 0
@@ -313,12 +286,20 @@ function average(values: number[]) {
   return values.reduce((total, value) => total + value, 0) / values.length
 }
 
-function sumRowsCreatedDeals(rows: CohortConversionReportSnapshot['rows']) {
-  return rows.reduce((total, row) => total + row.createdDeals, 0)
+function averageCohortRowRate(
+  rows: CohortConversionReportSnapshot['rows'],
+  getRate: (row: CohortConversionReportSnapshot['rows'][number]) => number,
+) {
+  return average(rows.map((row) => getRate(row)).filter(Number.isFinite))
 }
 
-function sumRowsWonDeals(rows: CohortConversionReportSnapshot['rows']) {
-  return rows.reduce((total, row) => total + row.wonDeals, 0)
+function averageRelativeBucketRate(
+  rows: CohortConversionReportSnapshot['rows'],
+  bucketKey: (typeof cohortBucketOrder)[number],
+) {
+  return averageCohortRowRate(rows, (row) =>
+    getRelativeClosureBucket(row, bucketKey).wonConversionRate,
+  )
 }
 
 function weightedAverageCohortCycleDays(rows: CohortConversionReportSnapshot['rows']) {
@@ -360,11 +341,10 @@ function mapDistributionRow(
   label: string,
   report: Pick<CohortConversionReportSnapshot, 'totalCreatedDeals' | 'rows'>,
 ): CohortDistributionRow {
-  const denominator = report.totalCreatedDeals || sumRowsCreatedDeals(report.rows) || 1
-  const month1 = (sumRelativeBucketWonDeals(report.rows, 'month_1') / denominator) * 100
-  const month2 = (sumRelativeBucketWonDeals(report.rows, 'month_2') / denominator) * 100
-  const month3 = (sumRelativeBucketWonDeals(report.rows, 'month_3') / denominator) * 100
-  const tail = (sumRelativeBucketWonDeals(report.rows, 'month_4_plus') / denominator) * 100
+  const month1 = averageRelativeBucketRate(report.rows, 'month_1')
+  const month2 = averageRelativeBucketRate(report.rows, 'month_2')
+  const month3 = averageRelativeBucketRate(report.rows, 'month_3')
+  const tail = averageRelativeBucketRate(report.rows, 'month_4_plus')
 
   return {
     manager: label,
@@ -835,7 +815,6 @@ export function mapCohortSceneData(input: {
   sourceBreakdowns: SourceCohortBreakdown[]
 }): CohortSceneData {
   const { report, managerBreakdowns, sourceBreakdowns } = input
-  const compare = getFirstComparison<CohortConversionReportSnapshot>(report)
 
   const matrixRowsBase: Array<
     CohortMatrixRow & {
@@ -877,58 +856,22 @@ export function mapCohortSceneData(input: {
     })),
   }))
 
-  const currentCreatedDeals = sumRowsCreatedDeals(report.rows) || report.totalCreatedDeals
-  const currentWonDeals = sumRowsWonDeals(report.rows) || report.totalWonDeals
-  const compareCreatedDeals =
-    compare ? sumRowsCreatedDeals(compare.rows) || compare.totalCreatedDeals : 0
-  const compareWonDeals =
-    compare ? sumRowsWonDeals(compare.rows) || compare.totalWonDeals : 0
-  const currentAverageConversion =
-    currentCreatedDeals > 0
-      ? (currentWonDeals / currentCreatedDeals) * 100
-      : 0
-  const compareAverageConversion =
-    compareCreatedDeals > 0
-      ? (compareWonDeals / compareCreatedDeals) * 100
-      : 0
+  const currentAverageConversion = averageCohortRowRate(
+    report.rows,
+    (row) => row.wonConversionRate,
+  )
   const currentAverageCycle = weightedAverageCohortCycleDays(report.rows)
-  const compareAverageCycle = weightedAverageCohortCycleDays(compare?.rows ?? [])
-
-  const currentBucketDenominator = currentCreatedDeals || 1
-  const compareBucketDenominator =
-    (compare?.rows ? sumRowsCreatedDeals(compare.rows) : 0) ||
-    compare?.totalCreatedDeals ||
-    1
 
   const distributionBuckets = cohortBucketOrder.map((bucketKey) => {
     const label = cohortBucketLabels.get(bucketKey) ?? bucketKey
-    const currentExact =
-      (sumRelativeBucketWonDeals(report.rows, bucketKey) / currentBucketDenominator) * 100
-    const compareExact =
-      compare
-        ? (sumRelativeBucketWonDeals(compare.rows, bucketKey) / compareBucketDenominator) * 100
-        : 0
+    const currentExact = averageRelativeBucketRate(report.rows, bucketKey)
 
     return {
       label,
       value: formatPercentDisplay(currentExact),
-      compare: compare
-        ? `предыдущий период: ${formatPercentDisplay(compareExact)}`
-        : 'предыдущий период: —',
-      delta: compare ? formatPercentPointDelta(currentExact, compareExact) : '—',
       width: widthFromPercent(currentExact),
     }
   })
-
-  const summaryConversionDelta = compare
-    ? formatPercentPointDelta(
-        currentAverageConversion,
-        compareAverageConversion,
-      )
-    : '—'
-  const averageCycleDelta = compare
-    ? `${formatSignedTenthsTrunc(currentAverageCycle - compareAverageCycle)} дн.`
-    : '—'
 
   return {
     range: report.range,
@@ -936,28 +879,17 @@ export function mapCohortSceneData(input: {
       buildKpi({
         label: 'Средняя когортная конверсия',
         value: formatPercentDisplay(currentAverageConversion),
-        note: '',
-        compare: 'с учетом менеджеров и источников',
-        delta: summaryConversionDelta,
-        deltaTone: normalizeKpiTone(summaryConversionDelta, true),
+        note: 'среднее по когортам за год',
       }),
       ...distributionBuckets.map((bucket) => buildKpi({
         label: bucket.label,
         value: bucket.value,
-        note: '',
-        compare: bucket.compare,
-        delta: bucket.delta,
-        deltaTone: normalizeKpiTone(bucket.delta, true),
+        note: 'среднее по когортам за год',
       })),
       buildKpi({
         label: 'Средний цикл',
         value: `${Math.round(currentAverageCycle)} дн.`,
-        note: '',
-        compare: compare
-          ? `пред. период: ${Math.round(compareAverageCycle)} дн.`
-          : undefined,
-        delta: averageCycleDelta,
-        deltaTone: normalizeKpiTone(averageCycleDelta, false),
+        note: 'среднее по выигранным сделкам за год',
       }),
     ],
     matrixRows,

@@ -963,7 +963,7 @@ describe('App', () => {
     expect(screen.queryByText(/Deal 1009:/i)).not.toBeInTheDocument()
   })
 
-  it('summarizes manager action outcome pricing warnings in the cohort report', async () => {
+  it('keeps manager action outcome pricing warnings out of the cohort report UI', async () => {
     vi.mocked(apiClient.getManagerActionOutcomeReport).mockResolvedValueOnce(
       createEmptyManagerActionOutcomeReport({
         warnings: [
@@ -980,10 +980,13 @@ describe('App', () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: /когортный отчет/i }))
 
-    expect(await screen.findByText(/9 выигранных сделок без договорных полей/i)).toBeInTheDocument()
-    expect(screen.getByText(/1 сделка без правила цены/i)).toBeInTheDocument()
-    expect(screen.getByText(/Показать детали/i)).toBeInTheDocument()
-    expect(screen.getByText(/Ещё 2 предупреждений скрыто/i)).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: /^Действия → результат$/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/9 выигранных сделок без договорных полей/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/1 сделка без правила цены/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Предупреждения расчёта/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ещё 2 предупреждений скрыто/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Deal 2008:/i)).not.toBeInTheDocument()
   })
 

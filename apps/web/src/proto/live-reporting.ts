@@ -317,6 +317,10 @@ function sumRowsCreatedDeals(rows: CohortConversionReportSnapshot['rows']) {
   return rows.reduce((total, row) => total + row.createdDeals, 0)
 }
 
+function sumRowsWonDeals(rows: CohortConversionReportSnapshot['rows']) {
+  return rows.reduce((total, row) => total + row.wonDeals, 0)
+}
+
 function weightedAverageCohortCycleDays(rows: CohortConversionReportSnapshot['rows']) {
   const totals = rows.reduce(
     (accumulator, row) => {
@@ -873,18 +877,24 @@ export function mapCohortSceneData(input: {
     })),
   }))
 
+  const currentCreatedDeals = sumRowsCreatedDeals(report.rows) || report.totalCreatedDeals
+  const currentWonDeals = sumRowsWonDeals(report.rows) || report.totalWonDeals
+  const compareCreatedDeals =
+    compare ? sumRowsCreatedDeals(compare.rows) || compare.totalCreatedDeals : 0
+  const compareWonDeals =
+    compare ? sumRowsWonDeals(compare.rows) || compare.totalWonDeals : 0
   const currentAverageConversion =
-    report.totalCreatedDeals > 0
-      ? (report.totalWonDeals / report.totalCreatedDeals) * 100
+    currentCreatedDeals > 0
+      ? (currentWonDeals / currentCreatedDeals) * 100
       : 0
   const compareAverageConversion =
-    compare && compare.totalCreatedDeals > 0
-      ? (compare.totalWonDeals / compare.totalCreatedDeals) * 100
+    compareCreatedDeals > 0
+      ? (compareWonDeals / compareCreatedDeals) * 100
       : 0
   const currentAverageCycle = weightedAverageCohortCycleDays(report.rows)
   const compareAverageCycle = weightedAverageCohortCycleDays(compare?.rows ?? [])
 
-  const currentBucketDenominator = report.totalCreatedDeals || sumRowsCreatedDeals(report.rows) || 1
+  const currentBucketDenominator = currentCreatedDeals || 1
   const compareBucketDenominator =
     (compare?.rows ? sumRowsCreatedDeals(compare.rows) : 0) ||
     compare?.totalCreatedDeals ||

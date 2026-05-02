@@ -19,6 +19,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { apiClient } from '@/lib/api-client'
 import type {
+  DashboardQuery,
   DealPricingRuleInput,
   LastSyncSummary,
   MetaResponse,
@@ -52,6 +53,8 @@ import type {
   ProtoRuntimeData,
 } from '@/proto/types'
 import { useProtoComments } from '@/proto/use-proto-comments'
+
+type CustomDashboardQuery = Extract<DashboardQuery, { preset: 'custom' }>
 
 function formatDateTime(value: string) {
   const date = new Date(value)
@@ -139,12 +142,15 @@ function formatShortDate(value: string) {
 function omitSalesPlan(runtimeData: ProtoRuntimeData): ProtoRuntimeData {
   const next = { ...runtimeData }
   delete next.salesPlan
+  delete next.salesPlanMonth
+  delete next.salesPlanMonthDashboard
   return next
 }
 
 function omitSalesPlanQuarter(runtimeData: ProtoRuntimeData): ProtoRuntimeData {
   const next = { ...runtimeData }
   delete next.salesPlanQuarter
+  delete next.salesPlanQuarterDashboard
   return next
 }
 
@@ -158,6 +164,60 @@ function resolveSalesPlanQuarter(filters: ProtoFilterState) {
     year: Number.isInteger(year) ? year : new Date().getFullYear(),
     quarter: quarter >= 1 && quarter <= 4 ? quarter : 1,
   }
+}
+
+function parseFilterYearMonth(value: string) {
+  const [yearPart, monthPart] = value.split('-')
+  const year = Number(yearPart)
+  const month = Number(monthPart)
+
+  if (
+    Number.isInteger(year) &&
+    Number.isInteger(month) &&
+    month >= 1 &&
+    month <= 12
+  ) {
+    return { year, month }
+  }
+
+  const fallback = new Date()
+  return { year: fallback.getFullYear(), month: fallback.getMonth() + 1 }
+}
+
+function formatDateInputParts(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function resolveMonthDateRange(filters: ProtoFilterState) {
+  const { year, month } = parseFilterYearMonth(filters.rangeEnd)
+  const lastDay = new Date(year, month, 0).getDate()
+
+  return {
+    rangeStart: formatDateInputParts(year, month, 1),
+    rangeEnd: formatDateInputParts(year, month, lastDay),
+  }
+}
+
+function resolveQuarterDateRange(input: { year: number; quarter: number }) {
+  const firstMonth = (input.quarter - 1) * 3 + 1
+  const lastMonth = firstMonth + 2
+  const lastDay = new Date(input.year, lastMonth, 0).getDate()
+
+  return {
+    rangeStart: formatDateInputParts(input.year, firstMonth, 1),
+    rangeEnd: formatDateInputParts(input.year, lastMonth, lastDay),
+  }
+}
+
+function buildDashboardQueryForDateRange(
+  filters: ProtoFilterState,
+  range: Pick<ProtoFilterState, 'rangeStart' | 'rangeEnd'>,
+): CustomDashboardQuery {
+  return buildDashboardQueryFromProtoFilters({
+    ...filters,
+    ...range,
+    compareRanges: [],
+  }) as CustomDashboardQuery
 }
 
 function summarizeSelection(
@@ -560,8 +620,18 @@ export function ProtoApp() {
         setSyncWarning(resolveSyncHealthWarning(meta))
 
         const query = buildDashboardQueryFromProtoFilters(appliedFilters)
+        const monthQuery = buildDashboardQueryForDateRange(
+          appliedFilters,
+          resolveMonthDateRange(appliedFilters),
+        )
+        const quarterQuery = buildDashboardQueryForDateRange(
+          appliedFilters,
+          resolveQuarterDateRange(salesPlanQuarter),
+        )
         const [
           dashboard,
+          monthDashboard,
+          quarterDashboard,
           activities,
           calls,
           acquisitionOutcomes,
@@ -572,6 +642,8 @@ export function ProtoApp() {
           toc,
         ] = await Promise.all([
           apiClient.getDashboard(query),
+          apiClient.getDashboard(monthQuery),
+          apiClient.getDashboard(quarterQuery),
           apiClient.getActivitiesWorkloadReport(query),
           apiClient.getCallsWorkloadReport(query),
           apiClient.getAcquisitionOutcomesReport(query),
@@ -669,9 +741,12 @@ export function ProtoApp() {
           managerOptions: managerPickerOptions,
           sourceOptions: sourcePickerOptions,
           ...(current.salesPlan ? { salesPlan: current.salesPlan } : {}),
+          ...(current.salesPlanMonth ? { salesPlanMonth: current.salesPlanMonth } : {}),
           ...(current.salesPlanQuarter ? { salesPlanQuarter: current.salesPlanQuarter } : {}),
           pricingSettings,
           salesDashboard: dashboard,
+          salesPlanMonthDashboard: monthDashboard,
+          salesPlanQuarterDashboard: quarterDashboard,
           activitiesWorkload: activities,
           callsWorkload: calls,
           activitiesCalls: mapActivitiesCallsSceneData({ activities, calls }),
@@ -709,7 +784,7 @@ export function ProtoApp() {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters])
+  }, [appliedFilters, salesPlanQuarter])
 
   useEffect(() => {
     let cancelled = false
@@ -723,10 +798,20 @@ export function ProtoApp() {
       setRuntimeData((current) => omitSalesPlan(current))
 
       try {
-        const salesPlan = await apiClient.getEffectiveSalesPlan({
-          from: query.from,
-          to: query.to,
-        })
+        const monthQuery = buildDashboardQueryForDateRange(
+          appliedFilters,
+          resolveMonthDateRange(appliedFilters),
+        )
+        const [salesPlan, salesPlanMonth] = await Promise.all([
+          apiClient.getEffectiveSalesPlan({
+            from: query.from,
+            to: query.to,
+          }),
+          apiClient.getEffectiveSalesPlan({
+            from: monthQuery.from,
+            to: monthQuery.to,
+          }),
+        ])
         if (cancelled) {
           return
         }
@@ -734,6 +819,7 @@ export function ProtoApp() {
         setRuntimeData((current) => ({
           ...current,
           salesPlan,
+          salesPlanMonth,
         }))
       } catch {
         if (cancelled) {
@@ -1230,7 +1316,9 @@ export function ProtoApp() {
                   type="button"
                   className="btn btn-primary h-[42px] whitespace-nowrap px-5"
                   onClick={() => {
-                    setAppliedFilters(cloneFilters(filters))
+                    const nextFilters = cloneFilters(filters)
+                    setAppliedFilters(nextFilters)
+                    setSalesPlanQuarter(resolveSalesPlanQuarter(nextFilters))
                     setLastFiltersApply(new Date().toISOString())
                   }}
                 >

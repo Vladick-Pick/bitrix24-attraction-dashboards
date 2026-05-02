@@ -295,7 +295,10 @@ export interface ProtoRuntimeData {
   sourceOptions: PickerOption[]
   salesDashboard?: DashboardData
   salesPlan?: SalesPlanData
+  salesPlanMonth?: SalesPlanData
+  salesPlanMonthDashboard?: DashboardData
   salesPlanQuarter?: SalesPlanQuarterData
+  salesPlanQuarterDashboard?: DashboardData
   pricingSettings?: DealPricingSettings
   activitiesWorkload?: ActivitiesWorkloadReport
   callsWorkload?: CallsWorkloadReport

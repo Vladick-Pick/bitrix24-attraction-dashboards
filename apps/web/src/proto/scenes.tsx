@@ -2207,6 +2207,26 @@ function formatPlanCompletion(actual: number, planned: number) {
   return `${formatInteger(Math.round((actual / planned) * 100))}%`
 }
 
+function formatPlanCompletionNote(actual: number, planned: number) {
+  return `${formatInteger(actual)} / ${formatInteger(planned)} продаж`
+}
+
+function getDashboardSalesCount(dashboard: DashboardData | undefined) {
+  return (
+    dashboard?.salesSummary?.salesCount ??
+    dashboard?.managerGroups.reduce((total, group) => total + group.totalWonDeals, 0) ??
+    0
+  )
+}
+
+function sumSalesPlanDeals(salesPlan: SalesPlanData | undefined) {
+  return (salesPlan?.rows ?? []).reduce((total, row) => total + row.plannedDeals, 0)
+}
+
+function sumQuarterSalesPlanDeals(salesPlan: SalesPlanQuarterData | undefined) {
+  return (salesPlan?.rows ?? []).reduce((total, row) => total + row.quarterPlannedDeals, 0)
+}
+
 function SalesPlanFactSection({
   dashboard,
   salesPlan,
@@ -3606,9 +3626,17 @@ function ManagerActionOutcomeSection({
 
 function SalesKpiCards({
   dashboard,
+  salesPlanMonth,
+  salesPlanMonthDashboard,
+  salesPlanQuarter,
+  salesPlanQuarterDashboard,
   status,
 }: {
   dashboard: DashboardData | undefined
+  salesPlanMonth: SalesPlanData | undefined
+  salesPlanMonthDashboard: DashboardData | undefined
+  salesPlanQuarter: SalesPlanQuarterData | undefined
+  salesPlanQuarterDashboard: DashboardData | undefined
   status: NonNullable<SceneComponentProps['runtimeData']>['operationalStatus'] | undefined
 }) {
   const pendingState = !dashboard && status !== 'ready'
@@ -3643,6 +3671,12 @@ function SalesKpiCards({
   const pendingValue = status === 'loading' ? '…' : '—'
   const pendingNote =
     status === 'loading' ? 'ожидаем live-данные' : 'live-данные недоступны'
+  const monthActualDeals = getDashboardSalesCount(salesPlanMonthDashboard)
+  const monthPlannedDeals = sumSalesPlanDeals(salesPlanMonth)
+  const quarterActualDeals = getDashboardSalesCount(salesPlanQuarterDashboard)
+  const quarterPlannedDeals = sumQuarterSalesPlanDeals(salesPlanQuarter)
+  const monthPlanPending = !salesPlanMonth || !salesPlanMonthDashboard
+  const quarterPlanPending = !salesPlanQuarter || !salesPlanQuarterDashboard
 
   const cards = [
     {
@@ -3666,16 +3700,26 @@ function SalesKpiCards({
       note: pendingState ? pendingNote : 'стоимость тарифа',
     },
     {
-      label: 'Новые сделки / конверсия',
-      value: pendingState ? pendingValue : formatInteger(salesSummary?.newDealsCount ?? 0),
-      note: pendingState
-        ? pendingNote
-        : `${formatPercent(salesSummary?.conversionRate ?? 0)}% win-rate периода`,
+      label: 'План месяца',
+      value:
+        pendingState || monthPlanPending
+          ? pendingValue
+          : formatPlanCompletion(monthActualDeals, monthPlannedDeals),
+      note:
+        pendingState || monthPlanPending
+          ? pendingNote
+          : formatPlanCompletionNote(monthActualDeals, monthPlannedDeals),
     },
     {
-      label: 'Встречи',
-      value: pendingState ? pendingValue : formatInteger(salesSummary?.meetingsCount ?? 0),
-      note: pendingState ? pendingNote : 'по выигранным сделкам',
+      label: 'План квартала',
+      value:
+        pendingState || quarterPlanPending
+          ? pendingValue
+          : formatPlanCompletion(quarterActualDeals, quarterPlannedDeals),
+      note:
+        pendingState || quarterPlanPending
+          ? pendingNote
+          : formatPlanCompletionNote(quarterActualDeals, quarterPlannedDeals),
     },
   ]
 
@@ -3697,6 +3741,10 @@ function SalesScene({ filters, runtimeData }: SceneComponentProps) {
     <div className="space-y-6">
       <SalesKpiCards
         dashboard={runtimeData?.salesDashboard}
+        salesPlanMonth={runtimeData?.salesPlanMonth}
+        salesPlanMonthDashboard={runtimeData?.salesPlanMonthDashboard}
+        salesPlanQuarter={runtimeData?.salesPlanQuarter}
+        salesPlanQuarterDashboard={runtimeData?.salesPlanQuarterDashboard}
         status={runtimeData?.operationalStatus}
       />
 

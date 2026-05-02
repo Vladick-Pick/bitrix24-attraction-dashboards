@@ -561,11 +561,11 @@ describe('live-reporting', () => {
 
     expect(scene.range).toEqual(report.range)
     expect(scene.kpis).toEqual([
-      expect.objectContaining({ label: 'Средняя когортная конверсия', value: '50%', delta: '0 п.п.' }),
-      expect.objectContaining({ label: 'В 1 месяц', value: '10%', delta: '-2 п.п.' }),
-      expect.objectContaining({ label: 'Во 2 месяц', value: '10%', delta: '-2 п.п.' }),
-      expect.objectContaining({ label: 'В 3 месяц', value: '5%', delta: '-8 п.п.' }),
-      expect.objectContaining({ label: 'В 4+ месяц', value: '10%', delta: '-2 п.п.' }),
+      expect.objectContaining({ label: 'Средняя когортная конверсия', value: '60%', delta: '+10 п.п.' }),
+      expect.objectContaining({ label: 'В 1 месяц', value: '20%', delta: '+8 п.п.' }),
+      expect.objectContaining({ label: 'Во 2 месяц', value: '20%', delta: '+8 п.п.' }),
+      expect.objectContaining({ label: 'В 3 месяц', value: '10%', delta: '-2 п.п.' }),
+      expect.objectContaining({ label: 'В 4+ месяц', value: '20%', delta: '+8 п.п.' }),
       expect.objectContaining({ label: 'Средний цикл', value: '49 дн.', delta: '-5 дн.' }),
     ])
     expect(scene.matrixRows).toEqual([
@@ -583,10 +583,10 @@ describe('live-reporting', () => {
       }),
     ])
     expect(scene.distributionBuckets).toEqual([
-      expect.objectContaining({ label: 'В 1 месяц', value: '10%', compare: 'предыдущий период: 12%', delta: '-2 п.п.' }),
-      expect.objectContaining({ label: 'Во 2 месяц', value: '10%', compare: 'предыдущий период: 12%', delta: '-2 п.п.' }),
-      expect.objectContaining({ label: 'В 3 месяц', value: '5%', compare: 'предыдущий период: 12%', delta: '-8 п.п.' }),
-      expect.objectContaining({ label: 'В 4+ месяц', value: '10%', compare: 'предыдущий период: 12%', delta: '-2 п.п.' }),
+      expect.objectContaining({ label: 'В 1 месяц', value: '20%', compare: 'предыдущий период: 12%', delta: '+8 п.п.' }),
+      expect.objectContaining({ label: 'Во 2 месяц', value: '20%', compare: 'предыдущий период: 12%', delta: '+8 п.п.' }),
+      expect.objectContaining({ label: 'В 3 месяц', value: '10%', compare: 'предыдущий период: 12%', delta: '-2 п.п.' }),
+      expect.objectContaining({ label: 'В 4+ месяц', value: '20%', compare: 'предыдущий период: 12%', delta: '+8 п.п.' }),
     ])
     expect(scene.managerDistribution).toEqual([
       expect.objectContaining({

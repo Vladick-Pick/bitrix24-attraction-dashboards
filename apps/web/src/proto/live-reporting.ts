@@ -302,6 +302,16 @@ function averageRelativeBucketRate(
   )
 }
 
+function recentCohortRows(
+  rows: CohortConversionReportSnapshot['rows'],
+  limit: number,
+) {
+  return [...rows]
+    .filter((row) => Number.isFinite(row.wonConversionRate))
+    .sort((left, right) => left.createdMonth.localeCompare(right.createdMonth))
+    .slice(-limit)
+}
+
 function weightedAverageCohortCycleDays(rows: CohortConversionReportSnapshot['rows']) {
   const totals = rows.reduce(
     (accumulator, row) => {
@@ -364,6 +374,47 @@ function sortBreakdowns<T extends { label: string; report: { totalCreatedDeals: 
     .sort((left, right) => right.report.totalCreatedDeals - left.report.totalCreatedDeals)
 }
 
+type TocStageRow = TocFlowReportSnapshot['rows'][number]
+
+function isTerminalTocStage(row: Pick<TocStageRow, 'stageName' | 'stageSemanticId'>) {
+  if (row.stageSemanticId === 'S' || row.stageSemanticId === 'F') {
+    return true
+  }
+
+  return /передано\s+в\s+клуб|корзин|возврат\s+в\s+лидген/i.test(row.stageName)
+}
+
+function sortActiveTocRows(rows: TocStageRow[]) {
+  return rows
+    .filter((row) => !isTerminalTocStage(row))
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+}
+
+function resolveTocBottleneckRow(
+  rows: TocStageRow[],
+  preferred: Pick<TocStageRow, 'stageId'> | null | undefined,
+) {
+  const preferredRow = preferred
+    ? rows.find((row) => row.stageId === preferred.stageId) ?? null
+    : null
+
+  if (preferredRow) {
+    return preferredRow
+  }
+
+  if (rows.length === 0) {
+    return null
+  }
+
+  return rows.reduce((best, row) => {
+    if (row.throughputPerDay !== best.throughputPerDay) {
+      return row.throughputPerDay < best.throughputPerDay ? row : best
+    }
+
+    return row.queueEnd > best.queueEnd ? row : best
+  })
+}
+
 function formatActivitySummaryValues(
   activityRow: ActivitiesWorkloadReportSnapshot['managerRows'][number] | null,
   callRow: CallsWorkloadReportSnapshot['managerRows'][number] | null,
@@ -401,7 +452,7 @@ function conversionLevel(rate: number) {
 }
 
 function mapTocManagerConversionRow(entry: ManagerTocBreakdown): TocManagerConversionRow & { averageRate: number } {
-  const rows = [...entry.report.rows].sort((left, right) => left.sortOrder - right.sortOrder)
+  const rows = sortActiveTocRows(entry.report.rows)
   const totalEntered = rows.reduce((total, row) => total + row.enteredDeals, 0)
   const totalMovedNext = rows.reduce((total, row) => total + row.movedNextDeals, 0)
   const averageRate = totalEntered > 0 ? (totalMovedNext / totalEntered) * 100 : 0
@@ -426,7 +477,11 @@ function mapTocManagerConversionRow(entry: ManagerTocBreakdown): TocManagerConve
 function buildStableLeaderRows(managerBreakdowns: ManagerTocBreakdown[]): TocStableLeaderRow[] {
   const stageIds = Array.from(
     new Set(
-      managerBreakdowns.flatMap((entry) => entry.report.rows.map((row) => row.stageId)),
+      managerBreakdowns.flatMap((entry) =>
+        entry.report.rows
+          .filter((row) => !isTerminalTocStage(row))
+          .map((row) => row.stageId),
+      ),
     ),
   )
 
@@ -434,7 +489,9 @@ function buildStableLeaderRows(managerBreakdowns: ManagerTocBreakdown[]): TocSta
     .map((stageId) => {
       const currentEntries = managerBreakdowns
         .map((entry) => {
-          const row = entry.report.rows.find((item) => item.stageId === stageId)
+          const row = entry.report.rows.find(
+            (item) => item.stageId === stageId && !isTerminalTocStage(item),
+          )
           if (!row || row.enteredDeals === 0) {
             return null
           }
@@ -469,7 +526,7 @@ function buildStableLeaderRows(managerBreakdowns: ManagerTocBreakdown[]): TocSta
       const compareEntries = managerBreakdowns
         .map((entry) => {
           const row = entry.report.comparisons?.[0]?.snapshot.rows.find(
-            (item) => item.stageId === stageId,
+            (item) => item.stageId === stageId && !isTerminalTocStage(item),
           )
           if (!row || row.enteredDeals === 0) {
             return null
@@ -860,6 +917,11 @@ export function mapCohortSceneData(input: {
     report.rows,
     (row) => row.wonConversionRate,
   )
+  const recentThreeRows = recentCohortRows(report.rows, 3)
+  const recentThreeAverageConversion = averageCohortRowRate(
+    recentThreeRows,
+    (row) => row.wonConversionRate,
+  )
   const currentAverageCycle = weightedAverageCohortCycleDays(report.rows)
 
   const distributionBuckets = cohortBucketOrder.map((bucketKey) => {
@@ -881,6 +943,15 @@ export function mapCohortSceneData(input: {
         value: formatPercentDisplay(currentAverageConversion),
         note: 'среднее по когортам за год',
       }),
+      ...(recentThreeRows.length === 3
+        ? [
+            buildKpi({
+              label: 'Средняя за 3 месяца',
+              value: formatPercentDisplay(recentThreeAverageConversion),
+              note: 'последние 3 когорты',
+            }),
+          ]
+        : []),
       ...distributionBuckets.map((bucket) => buildKpi({
         label: bucket.label,
         value: bucket.value,
@@ -898,7 +969,6 @@ export function mapCohortSceneData(input: {
       .slice(0, 5)
       .map((entry) => mapDistributionRow(entry.label, entry.report)),
     sourceDistribution: sortBreakdowns(sourceBreakdowns)
-      .slice(0, 5)
       .map((entry) => mapDistributionRow(entry.label, entry.report)),
   }
 }
@@ -965,10 +1035,10 @@ export function mapTocFlowSceneData(input: {
 }): TocFlowSceneData {
   const { report, managerBreakdowns = [] } = input
   const compare = getFirstComparison<TocFlowReportSnapshot>(report)
-  const currentRows = [...report.rows].sort((left, right) => left.sortOrder - right.sortOrder)
-  const compareRows = [...(compare?.rows ?? [])].sort(
-    (left, right) => left.sortOrder - right.sortOrder,
-  )
+  const currentRows = sortActiveTocRows(report.rows)
+  const compareRows = sortActiveTocRows(compare?.rows ?? [])
+  const bottleneckRow = resolveTocBottleneckRow(currentRows, report.bottleneck)
+  const compareBottleneckRow = resolveTocBottleneckRow(compareRows, compare?.bottleneck)
   const compareByStageId = new Map(compareRows.map((row) => [row.stageId, row]))
 
   const currentStages: FlowStageMetric[] = currentRows.map((row) => ({
@@ -978,7 +1048,7 @@ export function mapTocFlowSceneData(input: {
     queueEnd: row.queueEnd,
     avgCycleDays: row.averageStageDurationDays,
     note:
-      report.bottleneck?.stageId === row.stageId
+      bottleneckRow?.stageId === row.stageId
         ? 'Главное ограничение периода'
         : row.queueBufferDays
           ? `Буфер ${row.queueBufferDays.toFixed(1)} дн.`
@@ -992,7 +1062,7 @@ export function mapTocFlowSceneData(input: {
     queueEnd: row.queueEnd,
     avgCycleDays: row.averageStageDurationDays,
     note:
-      compare?.bottleneck?.stageId === row.stageId
+      compareBottleneckRow?.stageId === row.stageId
         ? 'Ограничение сравнения'
         : row.queueBufferDays
           ? `Буфер ${row.queueBufferDays.toFixed(1)} дн.`
@@ -1066,10 +1136,10 @@ export function mapTocFlowSceneData(input: {
       }),
       buildKpi({
         label: 'Главное ограничение',
-        value: report.bottleneck?.stageName ?? '—',
+        value: bottleneckRow?.stageName ?? '—',
         note: 'самый плотный этап',
-        compare: report.bottleneck
-          ? `${formatCount(report.bottleneck.queueEnd)} сделок в очереди`
+        compare: bottleneckRow
+          ? `${formatCount(bottleneckRow.queueEnd)} сделок в очереди`
           : undefined,
       }),
       buildKpi({
@@ -1101,8 +1171,8 @@ export function mapTocFlowSceneData(input: {
     stableLeaders: buildStableLeaderRows(managerBreakdowns),
     stageDistribution: mapStageDistribution(report),
     focus: {
-      bottleneckStage: report.bottleneck?.stageName ?? '—',
-      compareBottleneckStage: compare?.bottleneck?.stageName ?? '—',
+      bottleneckStage: bottleneckRow?.stageName ?? '—',
+      compareBottleneckStage: compareBottleneckRow?.stageName ?? '—',
       maxQueueStage:
         currentRows.length > 0
           ? currentRows.reduce((best, row) => (row.queueEnd > best.queueEnd ? row : best)).stageName

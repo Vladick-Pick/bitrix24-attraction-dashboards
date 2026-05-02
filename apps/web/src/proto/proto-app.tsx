@@ -669,7 +669,7 @@ export function ProtoApp() {
         const sourceBreakdownKeys =
           appliedFilters.sources.length > 0
             ? appliedFilters.sources
-            : meta.sourceCatalog.map((entry) => entry.key).slice(0, 5)
+            : meta.sourceCatalog.map((entry) => entry.key)
         const tocManagerBreakdownIds =
           appliedFilters.managers.length > 0
             ? appliedFilters.managers

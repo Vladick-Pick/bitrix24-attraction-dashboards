@@ -740,6 +740,77 @@ describe('live-reporting', () => {
     ])
   })
 
+  it('keeps recent-three-month cohort conversion and all source breakdowns visible', () => {
+    const makeRow = (createdMonth: string, wonConversionRate: number) => ({
+      createdMonth,
+      createdDeals: 10,
+      closedDeals: Math.round(wonConversionRate / 10),
+      wonDeals: Math.round(wonConversionRate / 10),
+      closedRate: wonConversionRate,
+      wonConversionRate,
+      averageDaysToClose: 20,
+      averageDaysToWin: 20,
+      closureBuckets: [],
+      relativeClosureBuckets: [
+        { bucketKey: 'month_1' as const, label: 'В 1 месяц', closedDeals: 1, wonDeals: 1, closedRate: 10, wonConversionRate: 10 },
+        { bucketKey: 'month_2' as const, label: 'Во 2 месяц', closedDeals: 1, wonDeals: 1, closedRate: 10, wonConversionRate: 10 },
+        { bucketKey: 'month_3' as const, label: 'В 3 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+        { bucketKey: 'month_4_plus' as const, label: 'В 4+ месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+      ],
+    })
+    const sourceBreakdowns = [
+      ['paid', 'Платный поиск', 60],
+      ['webinar', 'Вебинары', 50],
+      ['partner', 'Партнёры', 40],
+      ['organic', 'Органика', 30],
+      ['event', 'Мероприятия', 20],
+      ['referral', 'Рекомендации', 10],
+      ['leadgen-us', 'Лидген US', 8],
+      ['internal', 'Внутренняя база', 6],
+    ].map(([key, label, totalCreatedDeals]) => ({
+      key: String(key),
+      label: String(label),
+      report: {
+        totalCreatedDeals: Number(totalCreatedDeals),
+        totalClosedDeals: 1,
+        totalWonDeals: 1,
+        rows: [makeRow('2026-04', 10)],
+      },
+    }))
+
+    const scene = mapCohortSceneData({
+      report: {
+        range: {
+          from: '2025-05-01T00:00:00.000Z',
+          to: '2026-04-30T23:59:59.999Z',
+        },
+        totalCreatedDeals: 40,
+        totalClosedDeals: 10,
+        totalWonDeals: 10,
+        closureMonths: [],
+        relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+        rows: [
+          makeRow('2026-01', 10),
+          makeRow('2026-02', 20),
+          makeRow('2026-03', 30),
+          makeRow('2026-04', 40),
+        ],
+      },
+      managerBreakdowns: [],
+      sourceBreakdowns,
+    })
+
+    expect(scene.kpis).toEqual(
+      expect.arrayContaining([
+        { label: 'Средняя когортная конверсия', value: '25%', note: 'среднее по когортам за год' },
+        { label: 'Средняя за 3 месяца', value: '30%', note: 'последние 3 когорты' },
+      ]),
+    )
+    expect(scene.sourceDistribution.map((row) => row.manager)).toEqual(
+      expect.arrayContaining(['Рекомендации', 'Лидген US', 'Внутренняя база']),
+    )
+  })
+
   it('formats sub-one-percent values without collapsing them to zero', () => {
     const scene = mapCohortSceneData({
       report: {
@@ -1125,5 +1196,92 @@ describe('live-reporting', () => {
         stabilityTone: 'positive',
       },
     ])
+  })
+
+  it('excludes terminal funnel outcomes from toc capacity metrics', () => {
+    const scene = mapTocFlowSceneData({
+      report: {
+        range: {
+          from: '2026-04-01T00:00:00.000Z',
+          to: '2026-04-30T23:59:59.999Z',
+        },
+        businessDays: 22,
+        warnings: [],
+        estimatedGainPerDay: null,
+        rows: [
+          {
+            stageId: 'CALL',
+            stageName: 'Звонок-знакомство',
+            stageSemanticId: null,
+            sortOrder: 10,
+            enteredDeals: 40,
+            movedNextDeals: 20,
+            throughputPerDay: 0.91,
+            queueEnd: 15,
+            queueBufferDays: 16.48,
+            averageStageDurationDays: 4.5,
+          },
+          {
+            stageId: 'WON',
+            stageName: 'Передано в клуб',
+            stageSemanticId: 'S',
+            sortOrder: 20,
+            enteredDeals: 8,
+            movedNextDeals: 0,
+            throughputPerDay: 0.01,
+            queueEnd: 99,
+            queueBufferDays: 9900,
+            averageStageDurationDays: 0,
+          },
+          {
+            stageId: 'LOSE',
+            stageName: 'Корзина',
+            stageSemanticId: 'F',
+            sortOrder: 30,
+            enteredDeals: 4,
+            movedNextDeals: 0,
+            throughputPerDay: 0.01,
+            queueEnd: 88,
+            queueBufferDays: 8800,
+            averageStageDurationDays: 0,
+          },
+          {
+            stageId: 'RETURN',
+            stageName: 'Возврат в Лидген(неквал)',
+            stageSemanticId: 'F',
+            sortOrder: 40,
+            enteredDeals: 3,
+            movedNextDeals: 0,
+            throughputPerDay: 0.01,
+            queueEnd: 77,
+            queueBufferDays: 7700,
+            averageStageDurationDays: 0,
+          },
+        ],
+        bottleneck: {
+          stageId: 'LOSE',
+          stageName: 'Корзина',
+          throughputPerDay: 0.01,
+          queueEnd: 88,
+          queueBufferDays: 8800,
+        },
+        comparisons: [],
+      },
+      managerBreakdowns: [],
+    })
+
+    expect(scene.currentStages.map((stage) => stage.stage)).toEqual(['Звонок-знакомство'])
+    expect(scene.kpis).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Сделок в работе', value: '15' }),
+        expect.objectContaining({ label: 'Главное ограничение', value: 'Звонок-знакомство' }),
+      ]),
+    )
+    expect(scene.focus).toEqual(
+      expect.objectContaining({
+        bottleneckStage: 'Звонок-знакомство',
+        maxQueueStage: 'Звонок-знакомство',
+      }),
+    )
   })
 })

@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/lib/api-client'
 import type {
+  DashboardData,
   DealPricingRuleInput,
+  SalesPlanData,
   SalesPlanInput,
   SalesPlanQuarterData,
   SalesPlanQuarterInput,
@@ -389,6 +391,47 @@ function createQuarterSalesPlan(
   }
 }
 
+function createSalesDashboard(salesCount: number): DashboardData {
+  return {
+    salesSummary: {
+      salesCount,
+      salesAmount: 0,
+      averageSaleAmount: 0,
+      attractionRevenueAmount: 0,
+      averageAttractionRevenueAmount: 0,
+      membershipAmount: 0,
+      averageMembershipAmount: 0,
+      pricingWarnings: [],
+      newDealsCount: 0,
+      conversionRate: 0,
+      meetingsCount: 0,
+    },
+    managerGroups: [],
+    comparisons: [],
+  }
+}
+
+function createSalesPlan(plannedDeals: number): SalesPlanData {
+  return {
+    periodStart: '2026-04-01T00:00:00.000+03:00',
+    periodEnd: '2026-04-30T23:59:59.999+03:00',
+    rows: [
+      {
+        periodStart: '2026-04-01T00:00:00.000+03:00',
+        periodEnd: '2026-04-30T23:59:59.999+03:00',
+        managerId: '78',
+        managerName: 'Потапова Мария',
+        targetGroupKey: 'ClubFirst Russia',
+        targetGroupLabel: 'ClubFirst Russia',
+        plannedDeals,
+        plannedAmount: 0,
+        updatedAt: '2026-04-10T12:00:00.000Z',
+      },
+    ],
+    updatedAt: '2026-04-10T12:00:00.000Z',
+  }
+}
+
 describe('ProtoApp', () => {
   beforeEach(() => {
     vi.useRealTimers()
@@ -532,8 +575,9 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).getByText('8 всего')).toBeInTheDocument()
     expect(within(salesSection!).getByText('6 / 5')).toBeInTheDocument()
     expect(screen.getByLabelText('KPI продаж')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('KPI продаж')).getByText('Встречи')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('KPI продаж')).getByText('2')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('KPI продаж')).getByText('План месяца')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('KPI продаж')).getByText('План квартала')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('KPI продаж')).queryByText('Встречи')).not.toBeInTheDocument()
     expect(screen.queryByText('Продажи по месяцам')).not.toBeInTheDocument()
     expect(screen.queryByText('Матрица по источникам')).not.toBeInTheDocument()
     expect(screen.queryByText('Точки конверсии')).not.toBeInTheDocument()
@@ -552,6 +596,66 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).getByText(/Встреча 13 мар/i)).toBeInTheDocument()
     expect(within(salesSection!).getByText('Звонок-знакомство')).toBeInTheDocument()
     expect(within(salesSection!).getByText('24 ч')).toBeInTheDocument()
+  })
+
+  it('shows monthly and quarterly plan completion in sales KPI cards', async () => {
+    vi.mocked(apiClient.getDashboard)
+      .mockResolvedValueOnce(createSalesDashboard(7))
+      .mockResolvedValueOnce(createSalesDashboard(10))
+      .mockResolvedValueOnce(createSalesDashboard(40))
+    vi.mocked(apiClient.getEffectiveSalesPlan)
+      .mockResolvedValueOnce(createSalesPlan(5))
+      .mockResolvedValueOnce(createSalesPlan(20))
+    vi.mocked(apiClient.getSalesPlanQuarter).mockResolvedValueOnce(
+      createQuarterSalesPlan([
+        {
+          managerId: '78',
+          managerName: 'Потапова Мария',
+          targetGroupKey: 'ClubFirst Russia',
+          targetGroupLabel: 'ClubFirst Russia',
+          quarterPlannedDeals: 80,
+          quarterPlannedAmount: 0,
+          months: [
+            {
+              month: '2026-04',
+              periodStart: '2026-04-01T00:00:00.000+03:00',
+              periodEnd: '2026-04-30T23:59:59.999+03:00',
+              plannedDeals: 20,
+              plannedAmount: 0,
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+            {
+              month: '2026-05',
+              periodStart: '2026-05-01T00:00:00.000+03:00',
+              periodEnd: '2026-05-31T23:59:59.999+03:00',
+              plannedDeals: 30,
+              plannedAmount: 0,
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+            {
+              month: '2026-06',
+              periodStart: '2026-06-01T00:00:00.000+03:00',
+              periodEnd: '2026-06-30T23:59:59.999+03:00',
+              plannedDeals: 30,
+              plannedAmount: 0,
+              updatedAt: '2026-04-10T12:00:00.000Z',
+            },
+          ],
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ]),
+    )
+
+    render(<ProtoApp />)
+
+    const kpiSection = screen.getByLabelText('KPI продаж')
+    expect(await within(kpiSection).findByText('План месяца')).toBeInTheDocument()
+    expect(await within(kpiSection).findByText('План квартала')).toBeInTheDocument()
+    expect(await within(kpiSection).findByText('10 / 20 продаж')).toBeInTheDocument()
+    expect(await within(kpiSection).findByText('40 / 80 продаж')).toBeInTheDocument()
+    expect(within(kpiSection).getAllByText('50%')).toHaveLength(2)
+    expect(within(kpiSection).queryByText('Новые сделки / конверсия')).not.toBeInTheDocument()
+    expect(within(kpiSection).queryByText('Встречи')).not.toBeInTheDocument()
   })
 
   it('edits a quarterly sales plan and compares effective plan with actual sales', async () => {

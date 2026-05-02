@@ -468,6 +468,51 @@ describe('ProtoApp', () => {
     expect(screen.getByText(/фильтры периода и среза/i)).toBeInTheDocument()
   })
 
+  it('loads cohort breakdowns for every source catalog entry', async () => {
+    vi.mocked(apiClient.getMeta).mockResolvedValueOnce({
+      stageCatalog: [],
+      managerCatalog: [],
+      sourceCatalog: [
+        { key: 'paid', label: 'Платный поиск' },
+        { key: 'webinar', label: 'Вебинары' },
+        { key: 'partner', label: 'Партнёры' },
+        { key: 'organic', label: 'Органика' },
+        { key: 'event', label: 'Мероприятия' },
+        { key: 'referral', label: 'Рекомендации' },
+        { key: 'leadgen-us', label: 'Лидген US' },
+        { key: 'internal', label: 'Внутренняя база' },
+      ],
+      wonStageIds: [],
+      defaultPeriodDays: 30,
+      lastSync: null,
+      snapshotStats: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '2026-04-10T12:00:00.000Z',
+        lastSuccessfulSync: null,
+        issues: [],
+        warnings: [],
+      },
+    })
+
+    render(<ProtoApp />)
+
+    await waitFor(() => {
+      const sourceCalls = vi.mocked(apiClient.getCohortConversionReport).mock.calls
+        .map(([query]) => query.sourceKeys?.[0])
+        .filter(Boolean)
+      expect(sourceCalls).toEqual(
+        expect.arrayContaining(['referral', 'leadgen-us', 'internal']),
+      )
+    })
+  })
+
   it('renders live sales by manager with deal details inside the prototype sales scene', async () => {
     vi.mocked(apiClient.getDashboard).mockResolvedValueOnce({
       salesSummary: {

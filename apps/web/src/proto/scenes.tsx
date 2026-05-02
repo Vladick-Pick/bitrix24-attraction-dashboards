@@ -724,6 +724,7 @@ function FunnelTocChart({
   const stageCount = current.length
   const slot = plotWidth / stageCount
   const barWidth = Math.min(22, slot * 0.2)
+  const hasCompare = compare.length > 0
   const maxThroughput = Math.max(...current.map((stage) => stage.throughputPerDay), ...compare.map((stage) => stage.throughputPerDay), 1)
   const maxQueue = Math.max(...current.map((stage) => stage.queueEnd), ...compare.map((stage) => stage.queueEnd), 1)
   const throughputTicks = [0, 0.25, 0.5, 0.75, 1].map((step) => Math.round(maxThroughput * step))
@@ -757,29 +758,33 @@ function FunnelTocChart({
             <span className="inline-flex h-4 w-3 rounded-[4px] bg-slate-900" />
             Текущий ПС
           </span>
-          <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1">
-            <span className="inline-flex h-4 w-3 rounded-[4px] bg-[rgba(77,124,255,0.18)] ring-1 ring-inset ring-blue-200" />
-            ПС сравнение
-          </span>
+          {hasCompare ? (
+            <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1">
+              <span className="inline-flex h-4 w-3 rounded-[4px] bg-[rgba(77,124,255,0.18)] ring-1 ring-inset ring-blue-200" />
+              ПС сравнение
+            </span>
+          ) : null}
           <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1">
             <span className="relative inline-flex h-4 w-8 items-center">
               <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-blue-600" />
             </span>
             Очередь текущая
           </span>
-          <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1">
-            <span className="relative inline-flex h-4 w-8 items-center">
-              <span
-                className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2"
-                style={{
-                  backgroundImage: 'linear-gradient(90deg, #93c5fd 60%, transparent 60%)',
-                  backgroundSize: '10px 3px',
-                  backgroundRepeat: 'repeat-x',
-                }}
-              />
+          {hasCompare ? (
+            <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1">
+              <span className="relative inline-flex h-4 w-8 items-center">
+                <span
+                  className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2"
+                  style={{
+                    backgroundImage: 'linear-gradient(90deg, #93c5fd 60%, transparent 60%)',
+                    backgroundSize: '10px 3px',
+                    backgroundRepeat: 'repeat-x',
+                  }}
+                />
+              </span>
+              Очередь сравнение
             </span>
-            Очередь сравнение
-          </span>
+          ) : null}
         </div>
       </div>
 
@@ -802,31 +807,35 @@ function FunnelTocChart({
 
         {current.map((stage, index) => {
           const baseX = margin.left + slot * index
-          const currentBarX = baseX + slot * 0.24
+          const currentBarX = hasCompare
+            ? baseX + slot * 0.24
+            : baseX + slot * 0.5 - barWidth * 0.5
           const compareBarX = currentBarX + barWidth + 6
 
           return (
             <g key={stage.stage}>
-              <rect
-                x={compareBarX}
-                y={barTop(compare[index]?.throughputPerDay ?? 0)}
-                width={barWidth}
-                height={margin.top + plotHeight - barTop(compare[index]?.throughputPerDay ?? 0)}
-                rx={8}
-                fill="rgba(77,124,255,0.18)"
-                data-testid={`toc-compare-bar-${index}`}
-                onMouseEnter={() =>
-                  setHovered({
-                    x: compareBarX + barWidth * 0.5,
-                    y: barTop(compare[index]?.throughputPerDay ?? 0),
-                    title: stage.stage,
-                    rows: [
-                      `${compareLabel}: ПС ${formatNumber(compare[index]?.throughputPerDay ?? 0)} / день`,
-                      `${compareLabel}: очередь ${formatNumber(compare[index]?.queueEnd ?? 0)}`,
-                    ],
-                  })
-                }
-              />
+              {hasCompare ? (
+                <rect
+                  x={compareBarX}
+                  y={barTop(compare[index]?.throughputPerDay ?? 0)}
+                  width={barWidth}
+                  height={margin.top + plotHeight - barTop(compare[index]?.throughputPerDay ?? 0)}
+                  rx={8}
+                  fill="rgba(77,124,255,0.18)"
+                  data-testid={`toc-compare-bar-${index}`}
+                  onMouseEnter={() =>
+                    setHovered({
+                      x: compareBarX + barWidth * 0.5,
+                      y: barTop(compare[index]?.throughputPerDay ?? 0),
+                      title: stage.stage,
+                      rows: [
+                        `${compareLabel}: ПС ${formatNumber(compare[index]?.throughputPerDay ?? 0)} / день`,
+                        `${compareLabel}: очередь ${formatNumber(compare[index]?.queueEnd ?? 0)}`,
+                      ],
+                    })
+                  }
+                />
+              ) : null}
               <rect
                 x={currentBarX}
                 y={barTop(stage.throughputPerDay)}
@@ -861,10 +870,12 @@ function FunnelTocChart({
           )
         })}
 
-        <path d={buildLinePath(compareLinePoints)} fill="none" stroke="#93c5fd" strokeWidth="2.5" strokeDasharray="8 6" />
+        {hasCompare ? (
+          <path d={buildLinePath(compareLinePoints)} fill="none" stroke="#93c5fd" strokeWidth="2.5" strokeDasharray="8 6" />
+        ) : null}
         <path d={buildLinePath(currentLinePoints)} fill="none" stroke="#2563eb" strokeWidth="3" />
 
-        {compareLinePoints.map((point, index) => (
+        {hasCompare ? compareLinePoints.map((point, index) => (
           <circle
             key={`compare-point-${index}`}
             cx={point.x}
@@ -884,7 +895,7 @@ function FunnelTocChart({
               })
             }
           />
-        ))}
+        )) : null}
         {currentLinePoints.map((point, index) => (
           <circle
             key={`current-point-${index}`}
@@ -963,12 +974,12 @@ function formatDistributionPercent(value: number) {
 type DistributionStageTone = 'process' | 'success' | 'loss'
 
 function getDistributionStageTone(stage: string): DistributionStageTone {
-  if (/корзин|возврат|отказ|проиг|утер|лидген|неквал/i.test(stage)) {
-    return 'loss'
+  if (/контракт|на\s+передаче|передано\s+в\s+клуб|счет|счёт|успеш|won|оплат/i.test(stage)) {
+    return 'success'
   }
 
-  if (/контракт|счет|счёт|успеш|won|оплат/i.test(stage)) {
-    return 'success'
+  if (/корзин|возврат|отказ|проиг|утер|лидген|неквал/i.test(stage)) {
+    return 'loss'
   }
 
   return 'process'
@@ -5978,6 +5989,7 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
 
   const currentLabel = `${formatFilterDate(filters.rangeStart)} - ${formatFilterDate(filters.rangeEnd)}`
   const compareLabel = getCompareRangeLabel(filters)
+  const hasCompare = sceneData.compareStages.length > 0
   const compareByStage = new Map(sceneData.compareStages.map((stage) => [stage.stage, stage]))
   const bottleneck = sceneData.currentStages.reduce((best, current) =>
     current.throughputPerDay < best.throughputPerDay ? current : best,
@@ -6032,9 +6044,11 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
               <p className="text-sm text-slate-500">
                 Буфер очереди: {bottleneckBuffer ? `${bottleneckBuffer.toFixed(1)} дн.` : '—'}
               </p>
-              <p className="text-sm text-slate-500">
-                Сравнение 1: {sceneData.focus.compareBottleneckStage || compareBottleneck?.stage || '—'}
-              </p>
+              {hasCompare ? (
+                <p className="text-sm text-slate-500">
+                  Сравнение 1: {sceneData.focus.compareBottleneckStage || compareBottleneck?.stage || '—'}
+                </p>
+              ) : null}
             </div>
 
             <div className="rounded-xl border border-slate-200/80 bg-white/65 p-3">
@@ -6049,12 +6063,12 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
             <div className="rounded-xl border border-slate-200/80 bg-white/65 p-3">
               <p className="text-xs text-slate-500">Вывод за период</p>
               <p className="text-sm text-slate-700">
-                Самая сильная просадка ПС:{' '}
+                {hasCompare ? 'Самая сильная просадка ПС:' : 'Минимальная ПС:'}{' '}
                 <span className="font-semibold">
                   {sceneData.focus.throughputDropStage || throughputDropStage.stage}
                 </span>{' '}
-                ({formatSignedNumber(throughputDropStage.delta)} сдел./день). Первый фокус: разгрузить этот этап и не переливать
-                входящий поток выше его фактической ПС.
+                {hasCompare ? `(${formatSignedNumber(throughputDropStage.delta)} сдел./день). ` : ''}
+                Первый фокус: разгрузить этот этап и не переливать входящий поток выше его фактической ПС.
               </p>
             </div>
           </div>
@@ -6065,19 +6079,21 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
 
       <section className="panel overflow-auto p-3">
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">
-          Стадии: основной vs сравнение 1
+          {hasCompare ? 'Стадии: основной vs сравнение 1' : 'Стадии: основной период'}
         </h3>
-        <p className="mb-2 text-xs text-slate-500">Сравнение 1: {compareLabel}</p>
+        {hasCompare ? (
+          <p className="mb-2 text-xs text-slate-500">Сравнение 1: {compareLabel}</p>
+        ) : null}
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
               <th className="px-2 py-2">Этап</th>
               <th className="px-2 py-2">Вход в этап</th>
               <th className="px-2 py-2">Текущая ПС/день</th>
-              <th className="px-2 py-2">ПС сравнения/день</th>
-              <th className="px-2 py-2">Изменение ПС</th>
+              {hasCompare ? <th className="px-2 py-2">ПС сравнения/день</th> : null}
+              {hasCompare ? <th className="px-2 py-2">Изменение ПС</th> : null}
               <th className="px-2 py-2">Очередь (текущая)</th>
-              <th className="px-2 py-2">Очередь (сравнение)</th>
+              {hasCompare ? <th className="px-2 py-2">Очередь (сравнение)</th> : null}
               <th className="px-2 py-2">Буфер очереди</th>
             </tr>
           </thead>
@@ -6091,10 +6107,16 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
                   <td className="px-2 py-2 font-semibold text-slate-900">{stage.stage}</td>
                   <td className="px-2 py-2">{formatNumber(stage.entered)}</td>
                   <td className="px-2 py-2">{formatNumber(stage.throughputPerDay)}</td>
-                  <td className="px-2 py-2">{compare ? formatNumber(compare.throughputPerDay) : '—'}</td>
-                  <td className="px-2 py-2">{compare ? formatSignedNumber(stage.throughputPerDay - compare.throughputPerDay) : '—'}</td>
+                  {hasCompare ? (
+                    <td className="px-2 py-2">{compare ? formatNumber(compare.throughputPerDay) : '—'}</td>
+                  ) : null}
+                  {hasCompare ? (
+                    <td className="px-2 py-2">{compare ? formatSignedNumber(stage.throughputPerDay - compare.throughputPerDay) : '—'}</td>
+                  ) : null}
                   <td className="px-2 py-2">{formatNumber(stage.queueEnd)}</td>
-                  <td className="px-2 py-2">{compare ? formatNumber(compare.queueEnd) : '—'}</td>
+                  {hasCompare ? (
+                    <td className="px-2 py-2">{compare ? formatNumber(compare.queueEnd) : '—'}</td>
+                  ) : null}
                   <td className="px-2 py-2">{buffer ? `${buffer.toFixed(1)} дн.` : '—'}</td>
                 </tr>
               )

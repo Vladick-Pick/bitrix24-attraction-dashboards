@@ -312,6 +312,20 @@ vi.mock('@/lib/api-client', () => ({
             dealCount: 3,
             shareOfCreatedDeals: 30,
           },
+          {
+            stageId: 'HANDOFF',
+            stageName: 'На передаче',
+            sortOrder: 4,
+            dealCount: 2,
+            shareOfCreatedDeals: 20,
+          },
+          {
+            stageId: 'WON',
+            stageName: 'Передано в клуб',
+            sortOrder: 5,
+            dealCount: 2,
+            shareOfCreatedDeals: 20,
+          },
         ],
         edges: [
           {
@@ -337,6 +351,22 @@ vi.mock('@/lib/api-client', () => ({
             toStageName: 'Контрактация',
             dealCount: 3,
             conversionRate: 30,
+          },
+          {
+            fromStageId: 'CONTRACT',
+            fromStageName: 'Контрактация',
+            toStageId: 'HANDOFF',
+            toStageName: 'На передаче',
+            dealCount: 2,
+            conversionRate: 66.67,
+          },
+          {
+            fromStageId: 'HANDOFF',
+            fromStageName: 'На передаче',
+            toStageId: 'WON',
+            toStageName: 'Передано в клуб',
+            dealCount: 2,
+            conversionRate: 100,
           },
         ],
         routeNodes: [
@@ -372,6 +402,22 @@ vi.mock('@/lib/api-client', () => ({
             dealCount: 3,
             shareOfCreatedDeals: 30,
           },
+          {
+            step: 3,
+            stageId: 'HANDOFF',
+            stageName: 'На передаче',
+            sortOrder: 4,
+            dealCount: 2,
+            shareOfCreatedDeals: 20,
+          },
+          {
+            step: 4,
+            stageId: 'WON',
+            stageName: 'Передано в клуб',
+            sortOrder: 5,
+            dealCount: 2,
+            shareOfCreatedDeals: 20,
+          },
         ],
         routeEdges: [
           {
@@ -393,6 +439,26 @@ vi.mock('@/lib/api-client', () => ({
             toStageName: 'Контрактация',
             dealCount: 3,
             conversionRate: 60,
+          },
+          {
+            fromStep: 2,
+            fromStageId: 'CONTRACT',
+            fromStageName: 'Контрактация',
+            toStep: 3,
+            toStageId: 'HANDOFF',
+            toStageName: 'На передаче',
+            dealCount: 2,
+            conversionRate: 66.67,
+          },
+          {
+            fromStep: 3,
+            fromStageId: 'HANDOFF',
+            fromStageName: 'На передаче',
+            toStep: 4,
+            toStageId: 'WON',
+            toStageName: 'Передано в клуб',
+            dealCount: 2,
+            conversionRate: 100,
           },
         ],
       },
@@ -886,6 +952,12 @@ describe('App', () => {
     expect(
       screen.getByText(/Звонок-знакомство -> Контрактация: 60% · 3 сдел/i),
     ).toBeInTheDocument()
+    expect(screen.queryByText(/ПС сравнения\/день/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Очередь \(сравнение\)/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Сравнение 1:/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Контрактация -> На передаче: 67% · 2 сдел/i)).toBeInTheDocument()
+    expect(screen.getByText(/На передаче -> Передано в клуб: 100% · 2 сдел/i)).toBeInTheDocument()
+    expect(document.querySelectorAll('rect[fill="#ecfdf5"]').length).toBeGreaterThanOrEqual(3)
   })
 
   it('renders the revenue velocity tab with KPI, sortable table, formula tooltip and conversion-event warning', async () => {

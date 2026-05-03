@@ -18,7 +18,7 @@ describe("buildActivitiesWorkloadReport", () => {
           stageSemanticId: "S",
           opportunity: 12000,
           assignedById: "7",
-          sourceId: "WEB",
+          sourceId: "8",
           qualityValue: "3.1 Готов ко встрече",
           businessClubValue: "ClubOne",
           targetGroupValue: "ClubFirst",
@@ -41,7 +41,7 @@ describe("buildActivitiesWorkloadReport", () => {
           stageSemanticId: "P",
           opportunity: 5000,
           assignedById: "9",
-          sourceId: "WEB",
+          sourceId: "8",
           qualityValue: "3.1 Готов ко встрече",
           businessClubValue: "ClubTwo",
           targetGroupValue: "ClubFuture",
@@ -94,6 +94,14 @@ describe("buildActivitiesWorkloadReport", () => {
           name: "Встреча-знакомство",
           semanticId: "P",
           sortOrder: 30
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "8",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 8
         }
       ],
       stageHistory: [
@@ -513,5 +521,174 @@ describe("buildActivitiesWorkloadReport", () => {
         }
       ]
     });
+  });
+
+  it("scopes SLA metrics to Leadgen US ready-to-meet deals", () => {
+    const result = buildActivitiesWorkloadReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      deals: [
+        {
+          id: "IN_SCOPE",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "8",
+          qualityValue: "3.1 Готов ко встрече с представителем клуба",
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          dateCreate: "2026-04-02T09:00:00.000Z",
+          dateModify: "2026-04-02T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "WRONG_SOURCE",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: "3.1 Готов ко встрече с представителем клуба",
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          dateCreate: "2026-04-03T09:00:00.000Z",
+          dateModify: "2026-04-03T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "WRONG_QUALITY",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "8",
+          qualityValue: "1 Готов к коммуникации",
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          dateCreate: "2026-04-04T09:00:00.000Z",
+          dateModify: "2026-04-04T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "8",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 8
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "WEB",
+          name: "Сайт",
+          semanticId: null,
+          sortOrder: 20
+        }
+      ],
+      stageHistory: [
+        {
+          id: "IN_SCOPE_INTRO",
+          ownerId: "IN_SCOPE",
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-02T10:00:00.000Z"
+        },
+        {
+          id: "WRONG_SOURCE_INTRO",
+          ownerId: "WRONG_SOURCE",
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-03T10:00:00.000Z"
+        },
+        {
+          id: "WRONG_QUALITY_INTRO",
+          ownerId: "WRONG_QUALITY",
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-04T10:00:00.000Z"
+        }
+      ],
+      activities: [],
+      deadlineChanges: [],
+      calls: [],
+      managerDirectory: [{ id: "7", name: "Анна Куратор" }]
+    });
+
+    const managerRow = result.managerRows.find((row) => row.managerId === "7");
+
+    expect(managerRow?.dealCount).toBe(3);
+    expect(managerRow?.slaMetrics).toEqual([
+      {
+        slaKey: "sla1",
+        label: "Время в работу",
+        onTimeCount: 1,
+        lateCount: 0,
+        noTouchCount: 0,
+        medianHours: 1
+      },
+      {
+        slaKey: "sla2",
+        label: "Первый контакт",
+        onTimeCount: 0,
+        lateCount: 0,
+        noTouchCount: 1,
+        medianHours: 0
+      },
+      {
+        slaKey: "sla3",
+        label: "Обработка лида",
+        onTimeCount: 0,
+        lateCount: 0,
+        noTouchCount: 1,
+        medianHours: 0
+      }
+    ]);
   });
 });

@@ -179,6 +179,8 @@ const SLA_THRESHOLDS_HOURS = {
   sla2: 48,
   sla3: 24
 } as const;
+const SLA_SOURCE_LABEL = "лидген ус";
+const SLA_READY_QUALITY_FRAGMENT = "готов ко встрече";
 
 const UNSPECIFIED_MEETING_TYPE = "UNSPECIFIED";
 const UNSPECIFIED_MEETING_TYPE_LABEL = "Без типа встречи";
@@ -586,8 +588,12 @@ function findFirstMatchingStageEntry(
   return null;
 }
 
+function normalizeRuText(value: string | null | undefined) {
+  return (value ?? "").trim().toLocaleLowerCase("ru");
+}
+
 function normalizeStageName(name: string | undefined) {
-  return (name ?? "").trim().toLocaleLowerCase("ru");
+  return normalizeRuText(name);
 }
 
 function isInboundBaseStage(stageId: string, stageName: string | undefined) {
@@ -774,6 +780,18 @@ function recordDealSlaOutcomes(input: {
   recordSlaOutcome(input.accumulatorSet.sla3, sla3Outcome, sla3Duration);
 }
 
+function isDealInSlaScope(
+  deal: DealSnapshot,
+  sourceLabels: Map<string, string>
+) {
+  const source = resolveDealSource(deal, sourceLabels);
+
+  return (
+    normalizeRuText(source.label) === SLA_SOURCE_LABEL &&
+    normalizeRuText(deal.qualityValue).includes(SLA_READY_QUALITY_FRAGMENT)
+  );
+}
+
 function buildSlaMetricsByManager(input: {
   range: ReportRange;
   deals: DealSnapshot[];
@@ -785,6 +803,7 @@ function buildSlaMetricsByManager(input: {
   const fromMs = Date.parse(input.range.from);
   const toMs = Date.parse(input.range.to);
   const stageLookup = buildStageLookup(input.stageCatalog);
+  const sourceLabels = buildSourceLabelMap(input.stageCatalog);
   const dealMap = new Map(input.deals.map((deal) => [deal.id, deal]));
   const stageHistoryMap = buildStageHistoryMap(
     input.stageHistory.filter((row) => dealMap.has(row.ownerId))
@@ -795,6 +814,9 @@ function buildSlaMetricsByManager(input: {
 
   for (const deal of input.deals) {
     if (!isWithinRange(deal.dateCreate, fromMs, toMs)) {
+      continue;
+    }
+    if (!isDealInSlaScope(deal, sourceLabels)) {
       continue;
     }
 

@@ -1839,6 +1839,10 @@ describe('ProtoApp', () => {
     expect(within(conversionSection as HTMLElement).getByText('50%')).toBeInTheDocument()
     expect(screen.queryByText('Данные появятся после настройки.')).not.toBeInTheDocument()
     expect(screen.getByText(/on-time 2/i)).toBeInTheDocument()
+    expect(screen.getByText(/SLA считается только для новых сделок/i)).toBeInTheDocument()
+    const zeroLateBadge = screen.getByText(/late 0/i)
+    expect(zeroLateBadge).toHaveClass('bg-slate-100')
+    expect(zeroLateBadge).toHaveClass('text-slate-700')
   })
 
   it('renders conversion events table in the activity scene without client names', async () => {

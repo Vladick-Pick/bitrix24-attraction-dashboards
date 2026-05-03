@@ -1000,24 +1000,7 @@ describe("createReportingService", () => {
                 }
               ],
               meetingBusinessClubBreakdown: [],
-              slaMetrics: [
-                {
-                  slaKey: "sla1",
-                  label: "Время в работу",
-                  onTimeCount: 0,
-                  lateCount: 0,
-                  noTouchCount: 1,
-                  medianHours: 0
-                },
-                {
-                  slaKey: "sla2",
-                  label: "Первый контакт",
-                  onTimeCount: 0,
-                  lateCount: 0,
-                  noTouchCount: 1,
-                  medianHours: 0
-                }
-              ],
+              slaMetrics: [],
               stageBreakdown: [
                 {
                   stageId: "C10:PREPARATION",

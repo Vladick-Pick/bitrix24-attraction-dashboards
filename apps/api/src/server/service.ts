@@ -1286,7 +1286,7 @@ export function createReportingService(
       ] =
         await Promise.all([
           input.repository.getAllDeals(),
-          getScopedStageCatalog(),
+          getScopedStageCatalog(true),
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
           input.repository.getAllActivityDeadlineChanges(),

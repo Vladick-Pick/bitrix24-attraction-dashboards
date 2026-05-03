@@ -1021,6 +1021,118 @@ describe("createReportingService", () => {
     ]);
   });
 
+  it("keeps source labels available when scoping activities SLA", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "LEADGEN_READY",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 10000,
+          assignedById: "78",
+          sourceId: "8",
+          qualityValue: "3.1 Готов ко встрече с представителем клуба",
+          dateCreate: "2026-04-05T10:00:00.000Z",
+          dateModify: "2026-04-05T11:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "8",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getWonStageIds: async () => ["C10:WON"],
+      getAllStageHistory: async () => [
+        {
+          id: "H1",
+          ownerId: "LEADGEN_READY",
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-05T11:00:00.000Z"
+        }
+      ],
+      getAllActivities: async () => [],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllDealMeetingDateChanges: async () => [],
+      getAllCalls: async () => [],
+      getManagerDirectory: async () => [],
+      upsertManagerDirectory: async () => 1,
+      getLastSyncSummary: async () => null,
+      setWonStageIds: async () => undefined
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T12:00:00.000Z")
+    });
+
+    const report = await service.getActivitiesWorkloadReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      filters: {
+        managerIds: ["78"]
+      }
+    });
+
+    expect(report.managerRows[0]?.slaMetrics).toEqual([
+      {
+        slaKey: "sla1",
+        label: "Время в работу",
+        onTimeCount: 1,
+        lateCount: 0,
+        noTouchCount: 0,
+        medianHours: 1
+      },
+      {
+        slaKey: "sla2",
+        label: "Первый контакт",
+        onTimeCount: 0,
+        lateCount: 0,
+        noTouchCount: 1,
+        medianHours: 0
+      },
+      {
+        slaKey: "sla3",
+        label: "Обработка лида",
+        onTimeCount: 0,
+        lateCount: 0,
+        noTouchCount: 1,
+        medianHours: 0
+      }
+    ]);
+  });
+
   it("builds the cohort report from the latest twelve calendar months regardless of selected ranges", async () => {
     const repository = {
       getAllDeals: async () => [

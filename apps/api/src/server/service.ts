@@ -1346,11 +1346,13 @@ export function createReportingService(
             )
         );
       });
+      const slaAsOf = nowFactory().toISOString();
       const buildSnapshot = (
         targetRange: ReportRange
       ): ActivitiesWorkloadReportSnapshot =>
         buildActivitiesWorkloadReport({
           range: targetRange,
+          slaAsOf,
           deals: scopedDeals,
           stageCatalog,
           stageHistory: scopedStageHistory,
@@ -1515,11 +1517,13 @@ export function createReportingService(
         scopedDealIds.has(row.ownerId)
       );
       const pricingRules = await getPricingRules();
+      const slaAsOf = nowFactory().toISOString();
       const buildSnapshot = (
         targetRange: ReportRange
       ): ManagerActionOutcomeReportSnapshot =>
         buildManagerActionOutcomeReport({
           range: targetRange,
+          slaAsOf,
           wonStageIds,
           deals: scopedDeals,
           stageCatalog,

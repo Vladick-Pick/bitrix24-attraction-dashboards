@@ -4535,7 +4535,7 @@ function ActivitiesSlaSection({
     <section className="panel p-5">
       <PanelHeading
         title="SLA"
-        description="SLA считается только для новых сделок источника «Лидген УС» с итоговым качеством «Готов ко встрече». SLA1 — вход в работу, SLA2 — первый звонок или встреча, SLA3 — выполнение правила двух звонков на этапе «Звонок-знакомство»."
+        description="SLA считается только для новых сделок источника «Лидген УС» с итоговым качеством «Готов ко встрече». SLA1 — перевод из базы входящей в «Звонок-знакомство», SLA2 — первый звонок, SLA3 — два звонка и переход дальше за 3 рабочих дня."
         right={<span className="badge-chip badge-neutral">{getCompareLabel(filters)}</span>}
       />
 
@@ -4546,12 +4546,17 @@ function ActivitiesSlaSection({
             const compareMetrics = new Map(
               (compareRow?.slaMetrics ?? []).map((metric) => [metric.slaKey, metric]),
             )
+            const slaDealCount = row.slaMetrics[0]
+              ? row.slaMetrics[0].onTimeCount +
+                row.slaMetrics[0].lateCount +
+                row.slaMetrics[0].noTouchCount
+              : 0
 
             return (
               <article key={row.managerId} className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
                 <div className="mb-3">
                   <h3 className="text-sm font-semibold text-slate-900">{row.managerName}</h3>
-                  <p className="text-xs text-slate-500">{formatInteger(row.dealCount)} сделок в работе</p>
+                  <p className="text-xs text-slate-500">{formatInteger(slaDealCount)} сделок в SLA</p>
                 </div>
                 <div className="space-y-3">
                   {row.slaMetrics.map((metric) => {

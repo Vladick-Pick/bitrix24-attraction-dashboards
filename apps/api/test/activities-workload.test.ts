@@ -279,10 +279,10 @@ describe("buildActivitiesWorkloadReport", () => {
             {
               slaKey: "sla2",
               label: "Первый контакт",
-              onTimeCount: 1,
-              lateCount: 0,
+              onTimeCount: 0,
+              lateCount: 1,
               noTouchCount: 0,
-              medianHours: 27
+              medianHours: 0
             },
             {
               slaKey: "sla3",
@@ -343,8 +343,8 @@ describe("buildActivitiesWorkloadReport", () => {
             {
               slaKey: "sla1",
               label: "Время в работу",
-              onTimeCount: 0,
-              lateCount: 1,
+              onTimeCount: 1,
+              lateCount: 0,
               noTouchCount: 0,
               medianHours: 3
             },
@@ -352,16 +352,16 @@ describe("buildActivitiesWorkloadReport", () => {
               slaKey: "sla2",
               label: "Первый контакт",
               onTimeCount: 0,
-              lateCount: 0,
-              noTouchCount: 1,
+              lateCount: 1,
+              noTouchCount: 0,
               medianHours: 0
             },
             {
               slaKey: "sla3",
               label: "Обработка лида",
               onTimeCount: 0,
-              lateCount: 0,
-              noTouchCount: 1,
+              lateCount: 1,
+              noTouchCount: 0,
               medianHours: 0
             }
           ],
@@ -677,18 +677,320 @@ describe("buildActivitiesWorkloadReport", () => {
         slaKey: "sla2",
         label: "Первый контакт",
         onTimeCount: 0,
-        lateCount: 0,
-        noTouchCount: 1,
+        lateCount: 1,
+        noTouchCount: 0,
         medianHours: 0
       },
       {
         slaKey: "sla3",
         label: "Обработка лида",
         onTimeCount: 0,
-        lateCount: 0,
-        noTouchCount: 1,
+        lateCount: 1,
+        noTouchCount: 0,
         medianHours: 0
       }
     ]);
+  });
+
+  it("uses business-day SLA rules for intro transition and first call after the created cohort range", () => {
+    const result = buildActivitiesWorkloadReport({
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      slaAsOf: "2026-05-03T12:00:00.000Z",
+      deals: [
+        {
+          id: "SKIPPED_INTRO",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:UC_9E0XYG",
+          stageSemanticId: "P",
+          opportunity: 10000,
+          assignedById: "6994",
+          sourceId: "8",
+          qualityValue: "3.1 Готов ко встрече с представителем клуба",
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          dateCreate: "2026-04-22T10:00:00.000Z",
+          dateModify: "2026-04-28T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:NEW",
+          name: "База входящая",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:UC_9E0XYG",
+          name: "Встреча-знакомство",
+          semanticId: "P",
+          sortOrder: 40
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "8",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 8
+        }
+      ],
+      stageHistory: [
+        {
+          id: "BASE",
+          ownerId: "SKIPPED_INTRO",
+          categoryId: "10",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-22T10:00:00.000Z"
+        },
+        {
+          id: "WORK",
+          ownerId: "SKIPPED_INTRO",
+          categoryId: "10",
+          stageId: "C10:UC_9E0XYG",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-22T11:00:00.000Z"
+        }
+      ],
+      activities: [
+        {
+          id: "LATE_CALL_ACTIVITY",
+          ownerTypeId: "2",
+          ownerId: "SKIPPED_INTRO",
+          typeId: "2",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "6994",
+          createdTime: "2026-04-28T10:00:00.000Z",
+          deadline: "2026-04-28T10:00:00.000Z",
+          lastUpdated: "2026-04-28T10:05:00.000Z",
+          completed: true,
+          completedTime: "2026-04-28T10:05:00.000Z"
+        }
+      ],
+      deadlineChanges: [],
+      calls: [
+        {
+          id: "CALL_AFTER_RANGE",
+          crmActivityId: "LATE_CALL_ACTIVITY",
+          portalUserId: "6994",
+          callType: "1",
+          callStartDate: "2026-04-28T10:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "CONTACT",
+          crmEntityId: "CONTACT_1",
+          callFailedCode: "200"
+        }
+      ],
+      managerDirectory: [{ id: "6994", name: "Анастасия Кузнецова" }]
+    });
+
+    const managerRow = result.managerRows.find((row) => row.managerId === "6994");
+    const sla1 = managerRow?.slaMetrics.find((metric) => metric.slaKey === "sla1");
+    const sla2 = managerRow?.slaMetrics.find((metric) => metric.slaKey === "sla2");
+
+    expect(sla1).toEqual({
+      slaKey: "sla1",
+      label: "Время в работу",
+      onTimeCount: 0,
+      lateCount: 1,
+      noTouchCount: 0,
+      medianHours: 1
+    });
+    expect(sla2).toEqual({
+      slaKey: "sla2",
+      label: "Первый контакт",
+      onTimeCount: 0,
+      lateCount: 1,
+      noTouchCount: 0,
+      medianHours: 96
+    });
+  });
+
+  it("requires two calls and a next-stage transition within three business days on intro stage", () => {
+    const result = buildActivitiesWorkloadReport({
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      slaAsOf: "2026-05-03T12:00:00.000Z",
+      deals: [
+        {
+          id: "INTRO_PROCESSED",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:UC_9E0XYG",
+          stageSemanticId: "P",
+          opportunity: 10000,
+          assignedById: "6994",
+          sourceId: "8",
+          qualityValue: "3.1 Готов ко встрече с представителем клуба",
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          dateCreate: "2026-04-20T09:00:00.000Z",
+          dateModify: "2026-04-22T22:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:NEW",
+          name: "База входящая",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:UC_9E0XYG",
+          name: "Встреча-знакомство",
+          semanticId: "P",
+          sortOrder: 40
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "8",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 8
+        }
+      ],
+      stageHistory: [
+        {
+          id: "BASE",
+          ownerId: "INTRO_PROCESSED",
+          categoryId: "10",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-20T09:00:00.000Z"
+        },
+        {
+          id: "INTRO",
+          ownerId: "INTRO_PROCESSED",
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-20T10:00:00.000Z"
+        },
+        {
+          id: "NEXT",
+          ownerId: "INTRO_PROCESSED",
+          categoryId: "10",
+          stageId: "C10:UC_9E0XYG",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-22T22:00:00.000Z"
+        }
+      ],
+      activities: [
+        {
+          id: "CALL_ACTIVITY_1",
+          ownerTypeId: "2",
+          ownerId: "INTRO_PROCESSED",
+          typeId: "2",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "6994",
+          createdTime: "2026-04-20T11:00:00.000Z",
+          deadline: "2026-04-20T11:00:00.000Z",
+          lastUpdated: "2026-04-20T11:10:00.000Z",
+          completed: true,
+          completedTime: "2026-04-20T11:10:00.000Z"
+        },
+        {
+          id: "CALL_ACTIVITY_2",
+          ownerTypeId: "2",
+          ownerId: "INTRO_PROCESSED",
+          typeId: "2",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "6994",
+          createdTime: "2026-04-22T21:00:00.000Z",
+          deadline: "2026-04-22T21:00:00.000Z",
+          lastUpdated: "2026-04-22T21:10:00.000Z",
+          completed: true,
+          completedTime: "2026-04-22T21:10:00.000Z"
+        }
+      ],
+      deadlineChanges: [],
+      calls: [
+        {
+          id: "CALL_1",
+          crmActivityId: "CALL_ACTIVITY_1",
+          portalUserId: "6994",
+          callType: "1",
+          callStartDate: "2026-04-20T11:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "CONTACT",
+          crmEntityId: "CONTACT_1",
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_2",
+          crmActivityId: "CALL_ACTIVITY_2",
+          portalUserId: "6994",
+          callType: "1",
+          callStartDate: "2026-04-22T21:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "CONTACT",
+          crmEntityId: "CONTACT_1",
+          callFailedCode: "200"
+        }
+      ],
+      managerDirectory: [{ id: "6994", name: "Анастасия Кузнецова" }]
+    });
+
+    const managerRow = result.managerRows.find((row) => row.managerId === "6994");
+    const sla3 = managerRow?.slaMetrics.find((metric) => metric.slaKey === "sla3");
+
+    expect(sla3).toEqual({
+      slaKey: "sla3",
+      label: "Обработка лида",
+      onTimeCount: 1,
+      lateCount: 0,
+      noTouchCount: 0,
+      medianHours: 60
+    });
   });
 });

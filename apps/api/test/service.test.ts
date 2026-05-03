@@ -1112,22 +1112,22 @@ describe("createReportingService", () => {
         onTimeCount: 1,
         lateCount: 0,
         noTouchCount: 0,
-        medianHours: 1
+        medianHours: 0
       },
       {
         slaKey: "sla2",
         label: "Первый контакт",
         onTimeCount: 0,
-        lateCount: 0,
-        noTouchCount: 1,
+        lateCount: 1,
+        noTouchCount: 0,
         medianHours: 0
       },
       {
         slaKey: "sla3",
         label: "Обработка лида",
         onTimeCount: 0,
-        lateCount: 0,
-        noTouchCount: 1,
+        lateCount: 1,
+        noTouchCount: 0,
         medianHours: 0
       }
     ]);

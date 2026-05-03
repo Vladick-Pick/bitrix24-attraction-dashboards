@@ -64,6 +64,7 @@ interface AcquisitionOutcomesInput {
 
 interface ActivitiesWorkloadInput {
   range: ReportRange;
+  slaAsOf?: string;
   deals: DealSnapshot[];
   stageCatalog: StageCatalogEntry[];
   stageHistory: StageHistorySnapshot[];
@@ -102,6 +103,7 @@ interface TargetGroupConversionInput {
 
 interface ManagerActionOutcomeInput {
   range: ReportRange;
+  slaAsOf?: string;
   wonStageIds: string[];
   deals: DealSnapshot[];
   stageCatalog: StageCatalogEntry[];
@@ -174,10 +176,10 @@ const SLA_LABELS = {
   sla3: "Обработка лида"
 } as const;
 
-const SLA_THRESHOLDS_HOURS = {
-  sla1: 2,
-  sla2: 48,
-  sla3: 24
+const SLA_THRESHOLDS_BUSINESS_HOURS = {
+  sla1: 24,
+  sla2: 24,
+  sla3: 72
 } as const;
 const SLA_SOURCE_LABEL = "лидген ус";
 const SLA_READY_QUALITY_FRAGMENT = "готов ко встрече";
@@ -498,6 +500,48 @@ function toDurationHours(start: string | null, end: string | null) {
   return toRoundedNumber(durationMs / 3_600_000);
 }
 
+function isBusinessDayUtc(date: Date) {
+  const day = date.getUTCDay();
+  return day >= 1 && day <= 5;
+}
+
+function toBusinessDurationHours(start: string | null, end: string | null) {
+  if (!start || !end) {
+    return null;
+  }
+
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (
+    !Number.isFinite(startMs) ||
+    !Number.isFinite(endMs) ||
+    endMs < startMs
+  ) {
+    return null;
+  }
+
+  let cursorMs = startMs;
+  let businessMs = 0;
+
+  while (cursorMs < endMs) {
+    const cursor = new Date(cursorMs);
+    const nextDayMs = Date.UTC(
+      cursor.getUTCFullYear(),
+      cursor.getUTCMonth(),
+      cursor.getUTCDate() + 1
+    );
+    const segmentEndMs = Math.min(endMs, nextDayMs);
+
+    if (isBusinessDayUtc(cursor)) {
+      businessMs += segmentEndMs - cursorMs;
+    }
+
+    cursorMs = segmentEndMs;
+  }
+
+  return toRoundedNumber(businessMs / 3_600_000);
+}
+
 function buildCallsByDeal(
   calls: CallSnapshot[],
   activities: ActivitySnapshot[],
@@ -664,15 +708,40 @@ function recordSlaOutcome(
   }
 }
 
-function evaluateTimedSla(
-  durationHours: number | null,
-  maxHours: number
-): SlaOutcome {
-  if (durationHours === null) {
-    return "noTouch";
-  }
+function recordCompletedBusinessSlaOutcome(input: {
+  accumulator: SlaAccumulator;
+  start: string | null;
+  end: string;
+  maxBusinessHours: number;
+}) {
+  const businessDurationHours = toBusinessDurationHours(input.start, input.end);
+  const outcome =
+    businessDurationHours !== null &&
+    businessDurationHours <= input.maxBusinessHours
+      ? "onTime"
+      : "late";
 
-  return durationHours <= maxHours ? "onTime" : "late";
+  recordSlaOutcome(input.accumulator, outcome, businessDurationHours);
+}
+
+function recordPendingBusinessSlaOutcome(input: {
+  accumulator: SlaAccumulator;
+  start: string | null;
+  maxBusinessHours: number;
+  asOfMs: number;
+}) {
+  const asOf =
+    Number.isFinite(input.asOfMs) && input.asOfMs >= 0
+      ? new Date(input.asOfMs).toISOString()
+      : null;
+  const pendingBusinessHours = toBusinessDurationHours(input.start, asOf);
+  const outcome =
+    pendingBusinessHours !== null &&
+    pendingBusinessHours > input.maxBusinessHours
+      ? "late"
+      : "noTouch";
+
+  recordSlaOutcome(input.accumulator, outcome, null);
 }
 
 function toSlaMetrics(accumulatorSet: SlaAccumulatorSet): SlaMetric[] {
@@ -701,56 +770,110 @@ function recordDealSlaOutcomes(input: {
   accumulatorSet: SlaAccumulatorSet;
   stageLookup: Map<string, { stageName: string; sortOrder: number }>;
   stageHistoryMap: Map<string, StageHistorySnapshot[]>;
-  meetingsByDeal: Map<string, ActivitySnapshot[]>;
   callsByDeal: Map<string, CallSnapshot[]>;
-  toMs: number;
+  evaluationToMs: number;
 }) {
   const historyRows = input.stageHistoryMap.get(input.deal.id) ?? [];
   const introEntry = findFirstMatchingStageEntry(historyRows, (row) =>
     isIntroCallStage(row.stageId, input.stageLookup.get(row.stageId)?.stageName)
   );
+  const firstNonBaseStageEntry = findFirstMatchingStageEntry(
+    historyRows,
+    (row) =>
+      !isInboundBaseStage(
+        row.stageId,
+        input.stageLookup.get(row.stageId)?.stageName
+      )
+  );
+  const firstRelevantStageEntry = introEntry ?? firstNonBaseStageEntry;
 
-  const introEnteredAt = introEntry?.row.createdTime ?? null;
   const baseEnteredAt =
     historyRows
-      .slice(0, introEntry?.index ?? 0)
+      .slice(0, firstRelevantStageEntry?.index ?? 0)
       .find((row) =>
         isInboundBaseStage(row.stageId, input.stageLookup.get(row.stageId)?.stageName)
       )?.createdTime ?? input.deal.dateCreate;
-  const sla1Duration = toDurationHours(baseEnteredAt, introEnteredAt);
-  recordSlaOutcome(
-    input.accumulatorSet.sla1,
-    evaluateTimedSla(sla1Duration, SLA_THRESHOLDS_HOURS.sla1),
-    sla1Duration
-  );
 
-  const firstCommunicationAt = [
-    ...(input.callsByDeal.get(input.deal.id) ?? []).map((call) => call.callStartDate),
-    ...(input.meetingsByDeal.get(input.deal.id) ?? []).map((meeting) =>
-      getMeetingCommunicationTime(meeting)
-    )
-  ]
-    .filter((value) => {
-      const timestamp = Date.parse(value);
-      return (
-        Number.isFinite(timestamp) &&
-        timestamp >= Date.parse(input.deal.dateCreate) &&
-        timestamp <= input.toMs
-      );
-    })
-    .sort((left, right) => Date.parse(left) - Date.parse(right))[0] ?? null;
-  const sla2Duration = toDurationHours(input.deal.dateCreate, firstCommunicationAt);
-  recordSlaOutcome(
-    input.accumulatorSet.sla2,
-    evaluateTimedSla(sla2Duration, SLA_THRESHOLDS_HOURS.sla2),
-    sla2Duration
-  );
+  if (introEntry) {
+    recordCompletedBusinessSlaOutcome({
+      accumulator: input.accumulatorSet.sla1,
+      start: baseEnteredAt,
+      end: introEntry.row.createdTime,
+      maxBusinessHours: SLA_THRESHOLDS_BUSINESS_HOURS.sla1
+    });
+  } else if (firstNonBaseStageEntry) {
+    recordSlaOutcome(
+      input.accumulatorSet.sla1,
+      "late",
+      toBusinessDurationHours(baseEnteredAt, firstNonBaseStageEntry.row.createdTime)
+    );
+  } else {
+    recordPendingBusinessSlaOutcome({
+      accumulator: input.accumulatorSet.sla1,
+      start: baseEnteredAt,
+      maxBusinessHours: SLA_THRESHOLDS_BUSINESS_HOURS.sla1,
+      asOfMs: input.evaluationToMs
+    });
+  }
+
+  const firstCallAt =
+    (input.callsByDeal.get(input.deal.id) ?? [])
+      .map((call) => call.callStartDate)
+      .filter((value) => {
+        const timestamp = Date.parse(value);
+        return (
+          Number.isFinite(timestamp) &&
+          timestamp >= Date.parse(input.deal.dateCreate) &&
+          timestamp <= input.evaluationToMs
+        );
+      })
+      .sort((left, right) => Date.parse(left) - Date.parse(right))[0] ?? null;
+
+  if (firstCallAt) {
+    recordCompletedBusinessSlaOutcome({
+      accumulator: input.accumulatorSet.sla2,
+      start: input.deal.dateCreate,
+      end: firstCallAt,
+      maxBusinessHours: SLA_THRESHOLDS_BUSINESS_HOURS.sla2
+    });
+  } else {
+    recordPendingBusinessSlaOutcome({
+      accumulator: input.accumulatorSet.sla2,
+      start: input.deal.dateCreate,
+      maxBusinessHours: SLA_THRESHOLDS_BUSINESS_HOURS.sla2,
+      asOfMs: input.evaluationToMs
+    });
+  }
 
   if (!introEntry) {
+    const missingIntroFailureAt = firstNonBaseStageEntry?.row.createdTime ?? null;
+    if (missingIntroFailureAt) {
+      recordSlaOutcome(
+        input.accumulatorSet.sla3,
+        "late",
+        toBusinessDurationHours(baseEnteredAt, missingIntroFailureAt)
+      );
+    } else {
+      recordPendingBusinessSlaOutcome({
+        accumulator: input.accumulatorSet.sla3,
+        start: baseEnteredAt,
+        maxBusinessHours: SLA_THRESHOLDS_BUSINESS_HOURS.sla3,
+        asOfMs: input.evaluationToMs
+      });
+    }
+
     return;
   }
 
-  const nextStageEntry = historyRows[introEntry.index + 1];
+  const nextStageEntry = historyRows
+    .slice(introEntry.index + 1)
+    .find(
+      (row) =>
+        !isIntroCallStage(
+          row.stageId,
+          input.stageLookup.get(row.stageId)?.stageName
+        )
+    );
   const introExitedAt =
     nextStageEntry?.createdTime ??
     (input.deal.stageId === introEntry.row.stageId
@@ -759,25 +882,42 @@ function recordDealSlaOutcomes(input: {
   const introCalls = (input.callsByDeal.get(input.deal.id) ?? []).filter((call) => {
     const callTime = Date.parse(call.callStartDate);
     const enteredTime = Date.parse(introEntry.row.createdTime);
-    const exitedTime = introExitedAt ? Date.parse(introExitedAt) : Number.POSITIVE_INFINITY;
+    const exitedTime = introExitedAt
+      ? Date.parse(introExitedAt)
+      : input.evaluationToMs;
 
     return (
       Number.isFinite(callTime) &&
       Number.isFinite(enteredTime) &&
+      Number.isFinite(exitedTime) &&
       callTime >= enteredTime &&
-      callTime < exitedTime
+      callTime < exitedTime &&
+      callTime <= input.evaluationToMs
     );
   });
   const secondCallAt = introCalls[1]?.callStartDate ?? null;
-  const sla3Duration = toDurationHours(introEntry.row.createdTime, secondCallAt);
-  const sla3Outcome =
-    secondCallAt !== null
-      ? evaluateTimedSla(sla3Duration, SLA_THRESHOLDS_HOURS.sla3)
-      : introExitedAt
-        ? "late"
-        : "noTouch";
+  const completionAt =
+    secondCallAt && introExitedAt
+      ? [secondCallAt, introExitedAt].sort(
+          (left, right) => Date.parse(right) - Date.parse(left)
+        )[0] ?? null
+      : null;
 
-  recordSlaOutcome(input.accumulatorSet.sla3, sla3Outcome, sla3Duration);
+  if (completionAt) {
+    recordCompletedBusinessSlaOutcome({
+      accumulator: input.accumulatorSet.sla3,
+      start: introEntry.row.createdTime,
+      end: completionAt,
+      maxBusinessHours: SLA_THRESHOLDS_BUSINESS_HOURS.sla3
+    });
+  } else {
+    recordPendingBusinessSlaOutcome({
+      accumulator: input.accumulatorSet.sla3,
+      start: introEntry.row.createdTime,
+      maxBusinessHours: SLA_THRESHOLDS_BUSINESS_HOURS.sla3,
+      asOfMs: input.evaluationToMs
+    });
+  }
 }
 
 function isDealInSlaScope(
@@ -794,6 +934,7 @@ function isDealInSlaScope(
 
 function buildSlaMetricsByManager(input: {
   range: ReportRange;
+  slaAsOf?: string;
   deals: DealSnapshot[];
   stageCatalog: StageCatalogEntry[];
   stageHistory: StageHistorySnapshot[];
@@ -802,13 +943,16 @@ function buildSlaMetricsByManager(input: {
 }) {
   const fromMs = Date.parse(input.range.from);
   const toMs = Date.parse(input.range.to);
+  const rawEvaluationToMs = Date.parse(input.slaAsOf ?? input.range.to);
+  const evaluationToMs = Number.isFinite(rawEvaluationToMs)
+    ? rawEvaluationToMs
+    : toMs;
   const stageLookup = buildStageLookup(input.stageCatalog);
   const sourceLabels = buildSourceLabelMap(input.stageCatalog);
   const dealMap = new Map(input.deals.map((deal) => [deal.id, deal]));
   const stageHistoryMap = buildStageHistoryMap(
     input.stageHistory.filter((row) => dealMap.has(row.ownerId))
   );
-  const meetingsByDeal = buildCompletedMeetingsByDeal(input.activities, dealMap);
   const callsByDeal = buildCallsByDeal(input.calls, input.activities, dealMap);
   const rows = new Map<string, SlaAccumulatorSet>();
 
@@ -827,9 +971,8 @@ function buildSlaMetricsByManager(input: {
       accumulatorSet,
       stageLookup,
       stageHistoryMap,
-      meetingsByDeal,
       callsByDeal,
-      toMs
+      evaluationToMs
     });
 
     rows.set(managerId, accumulatorSet);
@@ -1438,6 +1581,7 @@ export function buildActivitiesWorkloadReport(
   });
   const slaMetricsByManager = buildSlaMetricsByManager({
     range: input.range,
+    ...(input.slaAsOf !== undefined ? { slaAsOf: input.slaAsOf } : {}),
     deals,
     stageCatalog: input.stageCatalog,
     stageHistory: input.stageHistory,
@@ -2068,6 +2212,10 @@ export function buildManagerActionOutcomeReport(
 ): ManagerActionOutcomeReport {
   const fromMs = Date.parse(input.range.from);
   const toMs = Date.parse(input.range.to);
+  const rawEvaluationToMs = Date.parse(input.slaAsOf ?? input.range.to);
+  const evaluationToMs = Number.isFinite(rawEvaluationToMs)
+    ? rawEvaluationToMs
+    : toMs;
   const wonStageIds = new Set(input.wonStageIds);
   const pricingRules = input.pricingRules;
   const pricingWarnings = new Set<string>();
@@ -2101,6 +2249,7 @@ export function buildManagerActionOutcomeReport(
   const callsByDeal = buildCallsByDeal(input.calls, activities, dealMap);
   const slaMetricsByManager = buildSlaMetricsByManager({
     range: input.range,
+    ...(input.slaAsOf !== undefined ? { slaAsOf: input.slaAsOf } : {}),
     deals,
     stageCatalog: input.stageCatalog,
     stageHistory: input.stageHistory,
@@ -2339,9 +2488,8 @@ export function buildManagerActionOutcomeReport(
       accumulatorSet: dealSla,
       stageLookup,
       stageHistoryMap,
-      meetingsByDeal: completedMeetingsByDeal,
       callsByDeal,
-      toMs
+      evaluationToMs
     });
     const terminalAt =
       resolveTerminalClosedAt(deal, stageHistoryMap, wonStageIds) ??
@@ -2384,9 +2532,8 @@ export function buildManagerActionOutcomeReport(
         accumulatorSet: row.sla,
         stageLookup,
         stageHistoryMap,
-        meetingsByDeal: completedMeetingsByDeal,
         callsByDeal,
-        toMs
+        evaluationToMs
       });
     }
   }

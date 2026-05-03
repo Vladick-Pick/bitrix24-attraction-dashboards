@@ -264,7 +264,7 @@ describe("buildManagerActionOutcomeReport", () => {
         sla3OnTimeCount: 1,
         sla3LateCount: 0,
         sla3NoTouchCount: 0,
-        sla3MedianHours: 1.5,
+        sla3MedianHours: 60,
         newDealsCount: 1,
         wonDealsCount: 1,
         winRate: 1,

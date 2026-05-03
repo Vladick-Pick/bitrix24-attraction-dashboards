@@ -1744,7 +1744,7 @@ describe('ProtoApp', () => {
         {
           managerId: '78',
           managerName: 'Егоров Андрей',
-          dealCount: 2,
+          dealCount: 64,
           createdCount: 4,
           rescheduledCount: 0,
           closedCount: 3,
@@ -1772,7 +1772,7 @@ describe('ProtoApp', () => {
             {
               slaKey: 'sla1',
               label: 'Время в работу',
-              onTimeCount: 2,
+              onTimeCount: 8,
               lateCount: 0,
               noTouchCount: 0,
               medianHours: 1.5,
@@ -1838,7 +1838,9 @@ describe('ProtoApp', () => {
     expect(within(conversionSection as HTMLElement).getByText('40%')).toBeInTheDocument()
     expect(within(conversionSection as HTMLElement).getByText('50%')).toBeInTheDocument()
     expect(screen.queryByText('Данные появятся после настройки.')).not.toBeInTheDocument()
-    expect(screen.getByText(/on-time 2/i)).toBeInTheDocument()
+    expect(screen.getByText(/8 сделок в SLA/i)).toBeInTheDocument()
+    expect(screen.queryByText(/64 сделок в работе/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/on-time 8/i)).toBeInTheDocument()
     expect(screen.getByText(/SLA считается только для новых сделок/i)).toBeInTheDocument()
     const zeroLateBadge = screen.getByText(/late 0/i)
     expect(zeroLateBadge).toHaveClass('bg-slate-100')

@@ -4535,7 +4535,7 @@ function ActivitiesSlaSection({
     <section className="panel p-5">
       <PanelHeading
         title="SLA"
-        description="SLA1 — вход в работу, SLA2 — первый звонок или встреча, SLA3 — выполнение правила двух звонков на этапе «Звонок-знакомство»."
+        description="SLA считается только для новых сделок источника «Лидген УС» с итоговым качеством «Готов ко встрече». SLA1 — вход в работу, SLA2 — первый звонок или встреча, SLA3 — выполнение правила двух звонков на этапе «Звонок-знакомство»."
         right={<span className="badge-chip badge-neutral">{getCompareLabel(filters)}</span>}
       />
 
@@ -4568,7 +4568,13 @@ function ActivitiesSlaSection({
                           <span className="rounded-lg bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
                             on-time {metric.onTimeCount}
                           </span>
-                          <span className="rounded-lg bg-amber-50 px-2 py-1 font-semibold text-amber-700">
+                          <span
+                            className={`rounded-lg px-2 py-1 font-semibold ${
+                              metric.lateCount === 0
+                                ? 'bg-slate-100 text-slate-700'
+                                : 'bg-amber-50 text-amber-700'
+                            }`}
+                          >
                             late {metric.lateCount}
                           </span>
                           <span className="rounded-lg bg-slate-100 px-2 py-1 font-semibold text-slate-700">

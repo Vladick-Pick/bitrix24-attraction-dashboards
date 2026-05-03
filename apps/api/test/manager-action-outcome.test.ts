@@ -115,8 +115,8 @@ describe("buildManagerActionOutcomeReport", () => {
           stageSemanticId: "S",
           opportunity: 120000,
           assignedById: "78",
-          sourceId: "WEB",
-          qualityValue: null,
+          sourceId: "8",
+          qualityValue: "3.1 Готов ко встрече с представителем клуба",
           businessClubValue: "ClubOne",
           targetGroupValue: "ClubFirst",
           meetingTypeValue: "Очная",
@@ -157,6 +157,14 @@ describe("buildManagerActionOutcomeReport", () => {
           name: "Выиграно",
           semanticId: "S",
           sortOrder: 100
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "8",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 8
         }
       ],
       stageHistory: [

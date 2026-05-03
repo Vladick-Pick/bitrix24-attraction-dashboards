@@ -58,9 +58,11 @@ If a named preset is unavailable in the current runtime, emulate it with the clo
 - Commit with a focused message that references the issue when available.
 - Push the branch and open a draft PR for non-trivial work.
 - Merge only after tests are green and review comments are resolved or explicitly deferred.
+- For production-requested fixes, do not stop at an unmerged branch or PR. After local verification, push the `codex/*` branch, open the PR, wait for green GitHub checks, merge to `main`, wait for the GitHub Actions `Deploy Production` workflow, then verify production.
 
 ## Proven Git, Deploy, And Server Practices
 - Treat GitHub Actions as the production path: implement locally, run focused checks, commit, push a `codex/*` branch, open a PR, wait for CI, merge, then wait for `Deploy Production`.
+- When a user asks to fix comments/issues found in the deployed app, assume the expected handoff is a deployed production fix through `main` unless they explicitly say to stop before merge/deploy.
 - After a production deploy, verify the actual VPS state, not only GitHub: check `/opt/bitrix24-reporting/app` commit, container status, health endpoint, and the specific API behavior changed by the PR.
 - Keep production verification explicit and repeatable. Good smoke checks include `curl https://dashboardpriv.claricont.com/api/health`, unauthenticated protected endpoint returning `401`, authenticated endpoint behavior with session cookie and CSRF, and direct API port not reachable externally.
 - Never print or paste production passwords, session cookies, Bitrix webhooks, raw tokens, or raw payloads. If a server-side password file exists, read it inside the remote command and only print non-secret status such as `login: ok`.

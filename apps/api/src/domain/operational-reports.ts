@@ -2,6 +2,7 @@ import type {
   AcquisitionOutcomesReport,
   AcquisitionOutcomeBusinessClubByManagerRow,
   ActivitiesWorkloadReport,
+  ActivityBindingSnapshot,
   ActivityDeadlineChangeSnapshot,
   ActivitySnapshot,
   CallsWorkloadReport,
@@ -81,6 +82,7 @@ interface CallsWorkloadInput {
   stageCatalog: StageCatalogEntry[];
   stageHistory: StageHistorySnapshot[];
   activities: ActivitySnapshot[];
+  activityBindings?: ActivityBindingSnapshot[];
   calls: CallSnapshot[];
   managerDirectory?: ManagerDirectoryEntry[];
 }
@@ -2779,6 +2781,10 @@ function normalizeCallStatusCode(value: string | null) {
   return value?.trim() ?? "";
 }
 
+function isDealCallEntityType(value: string | null) {
+  return value === "2" || value?.toUpperCase() === "DEAL";
+}
+
 function isCallSuccessful(call: CallSnapshot) {
   if (call.callDurationSeconds <= 0) {
     return false;
@@ -2823,11 +2829,16 @@ export function buildCallsWorkloadReport(
       .filter(
         (activity) =>
           activity.ownerTypeId === "2" &&
-          activity.providerId === "VOXIMPLANT_CALL" &&
-          dealMap.has(activity.ownerId)
+          activity.providerId === "VOXIMPLANT_CALL"
       )
       .map((activity) => [activity.id, activity])
   );
+  const activityBindingsByActivityId = new Map<string, ActivityBindingSnapshot[]>();
+  for (const binding of input.activityBindings ?? []) {
+    const bindings = activityBindingsByActivityId.get(binding.activityId) ?? [];
+    bindings.push(binding);
+    activityBindingsByActivityId.set(binding.activityId, bindings);
+  }
 
   type CallAccumulator = {
     managerId: string;
@@ -2950,13 +2961,45 @@ export function buildCallsWorkloadReport(
 
   const summaryRows = new Map<string, CallAccumulator>();
   const linkedRows = new Map<string, CallAccumulator>();
+  const resolveLinkedDeal = (
+    call: CallSnapshot,
+    activity: ActivitySnapshot | null
+  ) => {
+    const boundDealIds = call.crmActivityId
+      ? (activityBindingsByActivityId.get(call.crmActivityId) ?? [])
+          .filter((binding) => binding.ownerTypeId === "2")
+          .map((binding) => binding.ownerId)
+      : [];
+
+    for (const dealId of boundDealIds) {
+      const deal = dealMap.get(dealId);
+      if (deal) {
+        return deal;
+      }
+    }
+
+    if (activity) {
+      const deal = dealMap.get(activity.ownerId);
+      if (deal) {
+        return deal;
+      }
+    }
+
+    if (isDealCallEntityType(call.crmEntityType) && call.crmEntityId) {
+      return dealMap.get(call.crmEntityId) ?? null;
+    }
+
+    return null;
+  };
 
   for (const call of input.calls) {
     if (!isWithinRange(call.callStartDate, fromMs, toMs)) {
       continue;
     }
 
-    const activity = call.crmActivityId ? activityMap.get(call.crmActivityId) : null;
+    const activity = call.crmActivityId
+      ? activityMap.get(call.crmActivityId) ?? null
+      : null;
     const direction = resolveCallDirection(call.callType);
     const connected = isCallConnected(call);
     const failed = isCallFailed(call);
@@ -2976,16 +3019,7 @@ export function buildCallsWorkloadReport(
     );
     summaryRows.set(summaryManagerId, summaryRow);
 
-    const dealId =
-      activity?.ownerId ??
-      (call.crmEntityType === "DEAL" && call.crmEntityId
-        ? call.crmEntityId
-        : null);
-    if (!dealId) {
-      continue;
-    }
-
-    const deal = dealMap.get(dealId);
+    const deal = resolveLinkedDeal(call, activity);
     if (!deal) {
       continue;
     }

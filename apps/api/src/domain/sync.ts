@@ -1,4 +1,5 @@
 import type {
+  ActivityBindingSnapshot,
   ActivityDeadlineChangeSnapshot,
   ActivitySnapshot,
   CallSnapshot,
@@ -64,6 +65,12 @@ export interface ActivityRow {
   COMPLETED_DATE?: string | null;
 }
 
+export interface ActivityBindingRow {
+  activityId: string | number;
+  ownerTypeId: string | number;
+  ownerId: string | number;
+}
+
 export interface CallRow {
   ID: string | number;
   CRM_ACTIVITY_ID: string | number | null;
@@ -119,6 +126,7 @@ export interface SyncClient {
     providerId?: string;
   }): Promise<ActivityRow[]>;
   listActivitiesByIds?(activityIds: string[]): Promise<ActivityRow[]>;
+  listActivityBindings?(activityIds: string[]): Promise<ActivityBindingRow[]>;
   listCalls(input: {
     activityIds?: string[];
     callStartDateFrom?: string;
@@ -207,6 +215,7 @@ export interface SyncRepository {
   upsertDeals(rows: DealSnapshot[]): Promise<number>;
   upsertStageHistory(rows: StageHistorySnapshot[]): Promise<number>;
   upsertActivities(rows: ActivitySnapshot[]): Promise<number>;
+  upsertActivityBindings?(rows: ActivityBindingSnapshot[]): Promise<number>;
   upsertActivityDeadlineChanges(
     rows: ActivityDeadlineChangeSnapshot[]
   ): Promise<number>;
@@ -290,7 +299,7 @@ export const DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION =
   "deal-meeting-date-field-v1";
 export const CALL_STATS_COVERAGE_STREAM = "call_stats";
 export const CALL_STATS_COVERAGE_PROVIDER = "VOXIMPLANT_CALL";
-export const CALL_STATS_COVERAGE_VERSION = "call-stats-refresh-v3";
+export const CALL_STATS_COVERAGE_VERSION = "call-stats-refresh-v4";
 export const CONVERSION_EVENT_VISITS_COVERAGE_STREAM =
   "conversion_event_visits";
 export const CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER = "smart_process";
@@ -773,6 +782,14 @@ function mapActivityRow(row: ActivityRow): ActivitySnapshot {
     lastUpdated: row.LAST_UPDATED,
     completed,
     completedTime: completed ? row.COMPLETED_DATE ?? row.LAST_UPDATED : null
+  };
+}
+
+function mapActivityBindingRow(row: ActivityBindingRow): ActivityBindingSnapshot {
+  return {
+    activityId: String(row.activityId),
+    ownerTypeId: String(row.ownerTypeId),
+    ownerId: String(row.ownerId)
   };
 }
 
@@ -1952,14 +1969,11 @@ export async function performManualSync(
         ? (
             await input.client.listActivitiesByIds(missingSupplementalActivityIds)
           ).filter(
-            (row) =>
-              String(row.OWNER_TYPE_ID) === "2" &&
-              callStatsOwnerIdSet.has(String(row.OWNER_ID))
+            (row) => String(row.OWNER_TYPE_ID) === "2"
           )
         : [];
     const scopedSupplementalActivities = storedSupplementalActivities.filter(
-      (activity) =>
-        activity.ownerTypeId === "2" && callStatsOwnerIdSet.has(activity.ownerId)
+      (activity) => activity.ownerTypeId === "2"
     );
     const fetchedSupplementalActivities =
       fetchedSupplementalActivityRows.map(mapActivityRow);
@@ -1973,6 +1987,15 @@ export async function performManualSync(
       ).values()
     );
     const activityIds = activities.map((activity) => activity.id);
+    const callActivityIdsForBindings = activities
+      .filter((activity) => activity.providerId === "VOXIMPLANT_CALL")
+      .map((activity) => activity.id);
+    const activityBindings =
+      input.client.listActivityBindings && callActivityIdsForBindings.length > 0
+        ? (await input.client.listActivityBindings(callActivityIdsForBindings)).map(
+            mapActivityBindingRow
+          )
+        : [];
     const previousActivities =
       activityIds.length > 0
         ? await input.repository.getActivitiesByIds(activityIds)
@@ -1999,26 +2022,12 @@ export async function performManualSync(
         startedAt
       })
     );
-    const scopedActivityIds = new Set([
-      ...initialCallActivityIds,
-      ...scopedSupplementalActivities.map((activity) => activity.id),
-      ...fetchedSupplementalActivities.map((activity) => activity.id)
-    ]);
     const callRows = Array.from(
       new Map(
-        [...callRowsByActivity, ...supplementalCallRows]
-          .filter((row) => {
-            const activityId = normalizeString(row.CRM_ACTIVITY_ID);
-            const crmEntityType = normalizeString(row.CRM_ENTITY_TYPE);
-            const crmEntityId = normalizeString(row.CRM_ENTITY_ID);
-
-            return (
-              Boolean(activityId && scopedActivityIds.has(activityId)) ||
-              (crmEntityType === "DEAL" &&
-                Boolean(crmEntityId && callStatsOwnerIdSet.has(crmEntityId)))
-            );
-          })
-          .map((row) => [String(row.ID), row])
+        [...callRowsByActivity, ...supplementalCallRows].map((row) => [
+          String(row.ID),
+          row
+        ])
       ).values()
     );
     const managerIds = Array.from(
@@ -2127,6 +2136,9 @@ export async function performManualSync(
       }
 
       void input.repository.upsertActivities(activities);
+      if (input.repository.upsertActivityBindings) {
+        void input.repository.upsertActivityBindings(activityBindings);
+      }
       void input.repository.upsertActivityDeadlineChanges(deadlineChanges);
       if (input.repository.upsertDealMeetingDateChanges) {
         void input.repository.upsertDealMeetingDateChanges(dealMeetingDateChanges);

@@ -390,6 +390,7 @@ describe("Bitrix transport security", () => {
       "crm.item.list",
       "crm.stagehistory.list",
       "crm.activity.list",
+      "crm.activity.binding.list",
       "voximplant.statistic.get",
       "user.get"
     ]);

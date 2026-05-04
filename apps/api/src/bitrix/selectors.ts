@@ -45,6 +45,7 @@ export const ALLOWED_BITRIX_METHODS = [
   "crm.item.list",
   "crm.stagehistory.list",
   "crm.activity.list",
+  "crm.activity.binding.list",
   "voximplant.statistic.get",
   "user.get"
 ] as const;

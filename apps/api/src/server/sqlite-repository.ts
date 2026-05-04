@@ -4,6 +4,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import Database from "better-sqlite3";
 import type {
   ActivityDeadlineChangeSnapshot,
+  ActivityBindingSnapshot,
   ActivitySnapshot,
   CallSnapshot,
   ConversionEventVisitSnapshot,
@@ -172,6 +173,7 @@ export interface SqliteRepository {
   upsertDeals(rows: DealSnapshot[]): Promise<number>;
   upsertStageHistory(rows: StageHistorySnapshot[]): Promise<number>;
   upsertActivities(rows: ActivitySnapshot[]): Promise<number>;
+  upsertActivityBindings(rows: ActivityBindingSnapshot[]): Promise<number>;
   upsertActivityDeadlineChanges(
     rows: ActivityDeadlineChangeSnapshot[]
   ): Promise<number>;
@@ -221,6 +223,7 @@ export interface SqliteRepository {
   getAllDeals(): Promise<DealSnapshot[]>;
   getAllStageHistory(): Promise<StageHistorySnapshot[]>;
   getAllActivities(): Promise<ActivitySnapshot[]>;
+  getAllActivityBindings(): Promise<ActivityBindingSnapshot[]>;
   getAllActivityDeadlineChanges(): Promise<ActivityDeadlineChangeSnapshot[]>;
   getAllDealMeetingDateChanges(): Promise<DealMeetingDateChangeSnapshot[]>;
   getAllConversionEventVisits(): Promise<ConversionEventVisitSnapshot[]>;
@@ -530,6 +533,13 @@ export function createSqliteRepository(
       completed_time TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS activity_binding_snapshots (
+      activity_id TEXT NOT NULL,
+      owner_type_id TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      PRIMARY KEY (activity_id, owner_type_id, owner_id)
+    );
+
     CREATE TABLE IF NOT EXISTS activity_deadline_changes (
       id TEXT PRIMARY KEY,
       activity_id TEXT NOT NULL,
@@ -636,6 +646,8 @@ export function createSqliteRepository(
       ON activity_snapshots (owner_id);
     CREATE INDEX IF NOT EXISTS idx_activity_provider_created
       ON activity_snapshots (provider_id, created_time);
+    CREATE INDEX IF NOT EXISTS idx_activity_binding_owner
+      ON activity_binding_snapshots (owner_type_id, owner_id);
     CREATE INDEX IF NOT EXISTS idx_deal_meeting_date_changes_deal_id
       ON deal_meeting_date_changes (deal_id);
     CREATE INDEX IF NOT EXISTS idx_deal_meeting_date_changes_changed_at
@@ -858,6 +870,23 @@ export function createSqliteRepository(
       last_updated = excluded.last_updated,
       completed = excluded.completed,
       completed_time = excluded.completed_time
+  `);
+
+  const deleteActivityBindingsStatement = database.prepare(`
+    DELETE FROM activity_binding_snapshots
+    WHERE activity_id = ?
+  `);
+  const insertActivityBindingStatement = database.prepare(`
+    INSERT INTO activity_binding_snapshots (
+      activity_id,
+      owner_type_id,
+      owner_id
+    ) VALUES (
+      @activityId,
+      @ownerTypeId,
+      @ownerId
+    )
+    ON CONFLICT(activity_id, owner_type_id, owner_id) DO NOTHING
   `);
 
   const upsertDeadlineChangeStatement = database.prepare(`
@@ -1834,6 +1863,23 @@ export function createSqliteRepository(
       return Promise.resolve(rows.length);
     },
 
+    upsertActivityBindings(rows) {
+      const transaction = database.transaction(
+        (nextRows: ActivityBindingSnapshot[]) => {
+          const activityIds = new Set(nextRows.map((row) => row.activityId));
+          for (const activityId of activityIds) {
+            deleteActivityBindingsStatement.run(activityId);
+          }
+
+          for (const row of nextRows) {
+            insertActivityBindingStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
     upsertActivityDeadlineChanges(rows) {
       const transaction = database.transaction(
         (nextRows: ActivityDeadlineChangeSnapshot[]) => {
@@ -2123,6 +2169,19 @@ export function createSqliteRepository(
       >;
 
       return mapActivityRows(rows);
+    },
+
+    async getAllActivityBindings() {
+      return database
+        .prepare(
+          `SELECT
+            activity_id AS activityId,
+            owner_type_id AS ownerTypeId,
+            owner_id AS ownerId
+          FROM activity_binding_snapshots
+          ORDER BY activity_id ASC, owner_type_id ASC, owner_id ASC`
+        )
+        .all() as ActivityBindingSnapshot[];
     },
 
     async getAllActivityDeadlineChanges() {

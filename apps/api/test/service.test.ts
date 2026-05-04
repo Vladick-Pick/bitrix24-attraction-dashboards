@@ -280,6 +280,138 @@ describe("createReportingService", () => {
     ).toBe("Website");
   });
 
+  it("counts manager phone calls even when Bitrix attaches the activity to another funnel", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "ATTRACTION_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "2236",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-04-24T17:51:42.000Z",
+          dateModify: "2026-04-24T17:51:42.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 10
+        }
+      ],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [
+        {
+          id: "A_LEADGEN_CALL",
+          ownerTypeId: "2",
+          ownerId: "LEADGEN_DEAL",
+          typeId: "2",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "2236",
+          createdTime: "2026-04-27T19:22:33.000Z",
+          deadline: null,
+          lastUpdated: "2026-04-27T19:22:33.000Z",
+          completed: true,
+          completedTime: "2026-04-27T19:22:33.000Z"
+        }
+      ],
+      getAllActivityBindings: async () => [
+        {
+          activityId: "A_LEADGEN_CALL",
+          ownerTypeId: "2",
+          ownerId: "LEADGEN_DEAL"
+        },
+        {
+          activityId: "A_LEADGEN_CALL",
+          ownerTypeId: "2",
+          ownerId: "ATTRACTION_DEAL"
+        }
+      ],
+      getAllCalls: async () => [
+        {
+          id: "CALL_BOUND_TO_ATTRACTION",
+          crmActivityId: "A_LEADGEN_CALL",
+          portalUserId: "2236",
+          callType: "1",
+          callStartDate: "2026-04-27T19:22:33.000Z",
+          callDurationSeconds: 240,
+          crmEntityType: "CONTACT",
+          crmEntityId: "37454",
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_MANAGER_CONTACT_ONLY",
+          crmActivityId: null,
+          portalUserId: "2236",
+          callType: "2",
+          callStartDate: "2026-04-28T10:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "CONTACT",
+          crmEntityId: "37454",
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_OUTSIDER",
+          crmActivityId: null,
+          portalUserId: "999",
+          callType: "1",
+          callStartDate: "2026-04-28T11:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "CONTACT",
+          crmEntityId: "1",
+          callFailedCode: "200"
+        }
+      ],
+      getManagerDirectory: async () => [
+        { id: "2236", name: "Потапова Мария" },
+        { id: "999", name: "Лишний Менеджер" }
+      ],
+      upsertManagerDirectory: async () => 1
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-30T12:00:00.000Z")
+    });
+
+    const report = await service.getCallsWorkloadReport({
+      range: {
+        from: "2026-04-27T00:00:00.000Z",
+        to: "2026-05-01T23:59:59.999Z"
+      }
+    });
+    const potapova = report.managerRows.find((row) => row.managerId === "2236");
+
+    expect(report.allCalls.totalCalls).toBe(2);
+    expect(report.linkedDealCalls.totalCalls).toBe(1);
+    expect(potapova?.allCalls.totalCalls).toBe(2);
+    expect(potapova?.linkedDealCalls).toMatchObject({
+      dealCount: 1,
+      totalCalls: 1
+    });
+    expect(report.managerRows.map((row) => row.managerId)).not.toContain("999");
+  });
+
   it("warns when manager action outcome historical activity coverage is missing", async () => {
     const repository = {
       getAllDeals: async () => [
@@ -699,7 +831,8 @@ describe("createReportingService", () => {
     );
     expect(dashboard.salesSummary.newDealsCount).toBe(1);
     expect(calls.managerRows.map((row) => row.managerId)).not.toContain("999");
-    expect(calls.totalCalls).toBe(0);
+    expect(calls.totalCalls).toBe(1);
+    expect(calls.linkedDealCalls.totalCalls).toBe(0);
   });
 
   it("applies shared manager and source filters and exposes filter catalogs", async () => {
@@ -1284,7 +1417,7 @@ describe("createReportingService", () => {
     expect(report.comparisons).toBeUndefined();
   });
 
-  it("drops broad call snapshots when calls are not linked to scoped funnel deals or activities", async () => {
+  it("keeps broad manager call snapshots in all-calls while leaving them unlinked to scoped funnel deals", async () => {
     const repository = {
       getAllDeals: async () => [
         {
@@ -1385,9 +1518,13 @@ describe("createReportingService", () => {
         managerId: "78",
         managerName: "Егоров Андрей",
         dealCount: 0,
-        totalCalls: 0,
-        outgoingCalls: 0,
-        connectedCallsOverThirtySeconds: 0,
+        totalCalls: 1,
+        outgoingCalls: 1,
+        connectedCallsOverThirtySeconds: 1,
+        linkedDealCalls: expect.objectContaining({
+          dealCount: 0,
+          totalCalls: 0
+        }),
         stageBreakdown: []
       })
     ]);

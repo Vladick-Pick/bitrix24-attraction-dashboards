@@ -1554,37 +1554,30 @@ export function createReportingService(
 
     async getCallsWorkloadReport({ periodDays, range, compareRanges, filters }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
-      const [deals, stageCatalog, stageHistory, activities, calls] =
+      const repositoryWithActivityBindings = input.repository as Partial<SqliteRepository>;
+      const [deals, stageCatalog, stageHistory, activities, activityBindings, calls] =
         await Promise.all([
           input.repository.getAllDeals(),
           getScopedStageCatalog(),
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
+          typeof repositoryWithActivityBindings.getAllActivityBindings === "function"
+            ? repositoryWithActivityBindings.getAllActivityBindings()
+            : Promise.resolve([]),
           input.repository.getAllCalls()
         ]);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters, {
         includeManagerFilter: false
       });
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const scopedActivities = activities.filter((activity) => scopedDealIds.has(activity.ownerId));
-      const activityById = new Map(scopedActivities.map((activity) => [activity.id, activity]));
+      const activityById = new Map(activities.map((activity) => [activity.id, activity]));
       const managerIds = new Set(scopedFilters.managerIds ?? []);
-      const scopedCalls = calls.filter((call) => {
+      const managerScopedCalls = calls.filter((call) => {
         const activity = call.crmActivityId ? activityById.get(call.crmActivityId) : null;
-        const hasScopedDealLink =
-          Boolean(activity) ||
-          (call.crmEntityType === "DEAL" &&
-            Boolean(call.crmEntityId) &&
-            scopedDealIds.has(call.crmEntityId ?? ""));
-
         const managerId =
           call.portalUserId ?? activity?.responsibleId ?? UNASSIGNED_MANAGER_ID;
 
         if (managerIds.size > 0 && !managerIds.has(managerId)) {
-          return false;
-        }
-
-        if (!hasScopedDealLink) {
           return false;
         }
 
@@ -1593,8 +1586,8 @@ export function createReportingService(
       const managerDirectory = await ensureManagerDirectory(
         uniqueStrings([
           ...Array.from(managerIds),
-          ...scopedCalls.map((row) => row.portalUserId),
-          ...scopedCalls.map((row) =>
+          ...managerScopedCalls.map((row) => row.portalUserId),
+          ...managerScopedCalls.map((row) =>
             row.crmActivityId
               ? activityById.get(row.crmActivityId)?.responsibleId ?? null
               : null
@@ -1611,8 +1604,9 @@ export function createReportingService(
           deals: scopedDeals,
           stageCatalog,
           stageHistory: scopedStageHistory,
-          activities: scopedActivities,
-          calls: scopedCalls,
+          activities,
+          activityBindings,
+          calls: managerScopedCalls,
           managerDirectory
         });
       const resolvedRange = resolveRange(

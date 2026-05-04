@@ -3,6 +3,131 @@ import { describe, expect, it } from "vitest";
 import { buildCallsWorkloadReport } from "../src/domain/operational-reports";
 
 describe("buildCallsWorkloadReport", () => {
+  it("links calls through activity bindings when Bitrix primary owner is another funnel", () => {
+    const input = {
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      deals: [
+        {
+          id: "ATTRACTION_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "2236",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-04-24T17:51:42.000Z",
+          dateModify: "2026-04-24T17:51:42.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "LEADGEN_DEAL",
+          leadId: null,
+          categoryId: "28",
+          stageId: "C28:WON",
+          stageSemanticId: "S",
+          opportunity: 0,
+          assignedById: "12028",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-04-24T11:08:50.000Z",
+          dateModify: "2026-04-24T11:08:50.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        }
+      ],
+      stageHistory: [],
+      activities: [
+        {
+          id: "CALL_ACTIVITY",
+          ownerTypeId: "2",
+          ownerId: "LEADGEN_DEAL",
+          typeId: "2",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "2236",
+          createdTime: "2026-04-27T19:22:33.000Z",
+          deadline: null,
+          lastUpdated: "2026-04-27T19:22:33.000Z",
+          completed: true,
+          completedTime: "2026-04-27T19:22:33.000Z"
+        }
+      ],
+      activityBindings: [
+        {
+          activityId: "CALL_ACTIVITY",
+          ownerTypeId: "2",
+          ownerId: "LEADGEN_DEAL"
+        },
+        {
+          activityId: "CALL_ACTIVITY",
+          ownerTypeId: "2",
+          ownerId: "ATTRACTION_DEAL"
+        }
+      ],
+      calls: [
+        {
+          id: "CALL",
+          crmActivityId: "CALL_ACTIVITY",
+          portalUserId: "2236",
+          callType: "1",
+          callStartDate: "2026-04-27T19:22:33.000Z",
+          callDurationSeconds: 240,
+          crmEntityType: "CONTACT",
+          crmEntityId: "37454",
+          callFailedCode: "200"
+        }
+      ],
+      managerDirectory: [{ id: "2236", name: "Потапова Мария" }]
+    } as Parameters<typeof buildCallsWorkloadReport>[0] & {
+      activityBindings: Array<{
+        activityId: string;
+        ownerTypeId: string;
+        ownerId: string;
+      }>;
+    };
+
+    const result = buildCallsWorkloadReport(input);
+    const potapova = result.managerRows.find((row) => row.managerId === "2236");
+
+    expect(result.allCalls.totalCalls).toBe(1);
+    expect(result.linkedDealCalls.totalCalls).toBe(1);
+    expect(result.linkedDealCalls.totalDealCount).toBe(1);
+    expect(potapova?.linkedDealCalls).toMatchObject({
+      dealCount: 1,
+      totalCalls: 1,
+      connectedCalls: 1
+    });
+    expect(potapova?.stageBreakdown).toEqual([
+      expect.objectContaining({
+        stageId: "C10:PREPARATION",
+        totalCalls: 1
+      })
+    ]);
+  });
+
   it("aggregates call direction and connection semantics by manager and stage through activity linkage", () => {
     const result = buildCallsWorkloadReport({
       range: {

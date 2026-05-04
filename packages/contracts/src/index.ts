@@ -117,6 +117,12 @@ export interface ActivitySnapshot {
   completedTime: string | null;
 }
 
+export interface ActivityBindingSnapshot {
+  activityId: string;
+  ownerTypeId: string;
+  ownerId: string;
+}
+
 export interface ActivityDeadlineChangeSnapshot {
   id: string;
   activityId: string;

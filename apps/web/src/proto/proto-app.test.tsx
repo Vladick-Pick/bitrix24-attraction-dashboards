@@ -832,10 +832,11 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp />)
 
+    const expectedDefaultFilters = createDefaultFilters()
     await waitFor(() => {
       expect(apiClient.getEffectiveSalesPlan).toHaveBeenCalledWith({
-        from: '2026-04-20T00:00:00.000+03:00',
-        to: '2026-04-26T23:59:59.999+03:00',
+        from: `${expectedDefaultFilters.rangeStart}T00:00:00.000+03:00`,
+        to: `${expectedDefaultFilters.rangeEnd}T23:59:59.999+03:00`,
       })
     })
 

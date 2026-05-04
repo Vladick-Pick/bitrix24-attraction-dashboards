@@ -704,6 +704,19 @@ describe("createSqliteRepository", () => {
       }
     ]);
 
+    await repository.upsertActivityBindings([
+      {
+        activityId: "A_CALL_NO_STAT",
+        ownerTypeId: "2",
+        ownerId: "D1"
+      },
+      {
+        activityId: "A_CALL_NO_STAT",
+        ownerTypeId: "3",
+        ownerId: "C1"
+      }
+    ]);
+
     await repository.upsertActivityDeadlineChanges([
       {
         id: "A1:2026-04-08T12:00:00.000Z",
@@ -833,6 +846,18 @@ describe("createSqliteRepository", () => {
         lastUpdated: "2026-04-08T13:01:00.000Z",
         completed: true,
         completedTime: "2026-04-08T13:01:00.000Z"
+      }
+    ]);
+    expect(await repository.getAllActivityBindings()).toEqual([
+      {
+        activityId: "A_CALL_NO_STAT",
+        ownerTypeId: "2",
+        ownerId: "D1"
+      },
+      {
+        activityId: "A_CALL_NO_STAT",
+        ownerTypeId: "3",
+        ownerId: "C1"
       }
     ]);
     expect(await repository.getAllActivityDeadlineChanges()).toEqual([

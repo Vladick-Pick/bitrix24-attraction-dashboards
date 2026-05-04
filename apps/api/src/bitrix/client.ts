@@ -116,6 +116,17 @@ export interface ActivityRow {
   COMPLETED_DATE?: string | null;
 }
 
+interface ActivityBindingListRow {
+  entityTypeId: string | number;
+  entityId: string | number;
+}
+
+export interface ActivityBindingRow {
+  activityId: string;
+  ownerTypeId: string;
+  ownerId: string;
+}
+
 export interface CallRow {
   ID: string;
   CRM_ACTIVITY_ID: string | null;
@@ -1197,6 +1208,32 @@ export class BitrixClient {
         return this.extractItems(response);
       }
     );
+  }
+
+  async listActivityBindings(activityIds: string[]) {
+    if (activityIds.length === 0) {
+      return [];
+    }
+
+    const rows: ActivityBindingRow[] = [];
+    for (const activityId of Array.from(new Set(activityIds))) {
+      const response = await this.call<ActivityBindingListRow[]>(
+        "crm.activity.binding.list",
+        {
+          activityId
+        }
+      );
+
+      rows.push(
+        ...this.extractItems(response).map((row) => ({
+          activityId,
+          ownerTypeId: String(row.entityTypeId),
+          ownerId: String(row.entityId)
+        }))
+      );
+    }
+
+    return rows;
   }
 
   async listCalls(input: {

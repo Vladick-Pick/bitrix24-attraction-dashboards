@@ -3069,6 +3069,12 @@ describe("performManualSync", () => {
         crmEntityId: "D1"
       }),
       expect.objectContaining({
+        id: "CALL_SUPPLEMENTAL_CONTACT_LEVEL",
+        crmActivityId: null,
+        crmEntityType: "CONTACT",
+        crmEntityId: "C1"
+      }),
+      expect.objectContaining({
         id: "CALL_SUPPLEMENTAL_CONTACT_ACTIVITY",
         crmActivityId: "A_EXISTING_CONTACT_CALL",
         crmEntityType: "CONTACT",

@@ -354,6 +354,51 @@ describe("BitrixClient pagination", () => {
     });
   });
 
+  it("fetches CRM activity bindings for call attribution", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: [
+            { entityTypeId: 2, entityId: 155566 },
+            { entityTypeId: 2, entityId: 155616 },
+            { entityTypeId: 3, entityId: 37454 }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: [{ entityTypeId: 2, entityId: 155804 }]
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(client.listActivityBindings(["482408", "483950"])).resolves.toEqual([
+      { activityId: "482408", ownerTypeId: "2", ownerId: "155566" },
+      { activityId: "482408", ownerTypeId: "2", ownerId: "155616" },
+      { activityId: "482408", ownerTypeId: "3", ownerId: "37454" },
+      { activityId: "483950", ownerTypeId: "2", ownerId: "155804" }
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      activityId: "482408"
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      activityId: "483950"
+    });
+  });
+
   it("discovers and loads conversion event smart-process visits without returning raw titles", async () => {
     const fetchMock = vi
       .fn()

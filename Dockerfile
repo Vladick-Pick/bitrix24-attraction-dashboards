@@ -2,6 +2,14 @@ FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
 
+ENV PYTHON=/usr/bin/python3
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    g++ \
+    make \
+    python3 \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -12,7 +20,11 @@ COPY packages/contracts/package.json packages/contracts/package.json
 
 RUN pnpm install --frozen-lockfile
 
+ARG SOURCE_REVISION=unknown
+
 COPY . .
+
+RUN printf '%s\n' "$SOURCE_REVISION" > /app/.build-revision
 
 RUN pnpm --filter @bitrix24-reporting/contracts build \
   && pnpm --filter @bitrix24-reporting/web build \
@@ -20,6 +32,10 @@ RUN pnpm --filter @bitrix24-reporting/contracts build \
   && pnpm prune --prod
 
 FROM node:24-bookworm-slim AS runner
+
+ARG SOURCE_REVISION=unknown
+
+LABEL org.opencontainers.image.revision=$SOURCE_REVISION
 
 ENV NODE_ENV=production \
   AUTH_MODE=password \

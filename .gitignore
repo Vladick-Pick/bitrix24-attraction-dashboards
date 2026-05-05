@@ -14,3 +14,4 @@ backups/*.bundle
 *.db-wal
 .codex/
 .codex/proto-comments
+.docker-source-revision

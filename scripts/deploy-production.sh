@@ -38,6 +38,44 @@ wait_for_http_code() {
   return 1
 }
 
+build_compose_project() {
+  local ref="$1"
+  local build_status=0
+
+  printf '%s\n' "$ref" > .docker-source-revision
+  docker compose -p "$COMPOSE_PROJECT" build \
+    --build-arg SOURCE_REVISION="$ref" \
+    app || build_status=$?
+  rm -f .docker-source-revision
+
+  if [ "$build_status" -ne 0 ]; then
+    return "$build_status"
+  fi
+
+  docker compose -p "$COMPOSE_PROJECT" up -d --remove-orphans app
+}
+
+verify_image_revision() {
+  local expected_ref="$1"
+  local allow_missing="${2:-false}"
+  local actual_ref
+
+  actual_ref="$(
+    docker compose -p "$COMPOSE_PROJECT" exec -T app \
+      sh -c "cat /app/.build-revision 2>/dev/null || true" | tr -d "\r\n"
+  )"
+
+  if [ -z "$actual_ref" ] && [ "$allow_missing" = "true" ]; then
+    log "Warning: running image has no build revision marker; accepting legacy rollback image"
+    return 0
+  fi
+
+  if [ "$actual_ref" != "$expected_ref" ]; then
+    printf 'Expected running image revision %s, got %s\n' "$expected_ref" "${actual_ref:-missing}" >&2
+    return 1
+  fi
+}
+
 clone_or_update_repo() {
   install -d -m 755 "$(dirname "$APP_DIR")"
 
@@ -66,6 +104,10 @@ clone_or_update_repo() {
 }
 
 verify_runtime() {
+  local expected_ref="$1"
+  local allow_missing_revision="${2:-false}"
+
+  verify_image_revision "$expected_ref" "$allow_missing_revision"
   wait_for_http_code "$HEALTH_URL" 200
 
   local dashboard_code
@@ -115,23 +157,23 @@ main() {
   git clean -fdx -e .env.production
 
   log "Building and starting compose project"
-  if ! docker compose -p "$COMPOSE_PROJECT" up -d --build --remove-orphans; then
+  if ! build_compose_project "$DEPLOY_REF"; then
     if [ -n "$previous_ref" ]; then
       log "Build/start failed, rolling back to $previous_ref"
       git reset --hard "$previous_ref"
       git clean -fdx -e .env.production
-      docker compose -p "$COMPOSE_PROJECT" up -d --build --remove-orphans
+      build_compose_project "$previous_ref"
     fi
     exit 1
   fi
 
-  if ! verify_runtime; then
+  if ! verify_runtime "$DEPLOY_REF"; then
     if [ -n "$previous_ref" ]; then
       log "Runtime verification failed, rolling back to $previous_ref"
       git reset --hard "$previous_ref"
       git clean -fdx -e .env.production
-      docker compose -p "$COMPOSE_PROJECT" up -d --build --remove-orphans
-      verify_runtime
+      build_compose_project "$previous_ref"
+      verify_runtime "$previous_ref" true
     fi
     exit 1
   fi

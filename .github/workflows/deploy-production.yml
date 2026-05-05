@@ -86,6 +86,8 @@ jobs:
           ssh -i ~/.ssh/production_deploy_key \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=12 \
             "$VPS_USER@$VPS_HOST" \
             "DEPLOY_REPO='$DEPLOY_REPO' DEPLOY_REF='$DEPLOY_REF' DEPLOY_HEALTH_URL='$PRODUCTION_URL/api/health' DEPLOY_DASHBOARD_URL='$PRODUCTION_URL/api/dashboard' bash -s" \
             < scripts/deploy-production.sh

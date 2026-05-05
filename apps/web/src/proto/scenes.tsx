@@ -89,10 +89,10 @@ const salesRows: SalesRow[] = [
 ]
 
 const activityRows: ActivitySummaryRow[] = [
-  { manager: 'Анна Петрова', createdTasks: '118', outgoing: '88', successfulCalls: '57', otherOutgoing: '12', incoming: '42', noAnswer: '19', closedTasks: '104' },
-  { manager: 'Илья Ковалёв', createdTasks: '96', outgoing: '72', successfulCalls: '41', otherOutgoing: '20', incoming: '37', noAnswer: '11', closedTasks: '79' },
-  { manager: 'Марина Орлова', createdTasks: '103', outgoing: '91', successfulCalls: '63', otherOutgoing: '18', incoming: '28', noAnswer: '10', closedTasks: '84' },
-  { manager: 'Ольга Лунёва', createdTasks: '88', outgoing: '63', successfulCalls: '39', otherOutgoing: '15', incoming: '24', noAnswer: '9', closedTasks: '77' },
+  { manager: 'Анна Петрова', createdTasks: '118', outgoing: '88', successfulCalls: '57', otherOutgoing: '12', missedIncoming: '3', incoming: '42', noAnswer: '19', closedTasks: '104' },
+  { manager: 'Илья Ковалёв', createdTasks: '96', outgoing: '72', successfulCalls: '41', otherOutgoing: '20', missedIncoming: '2', incoming: '37', noAnswer: '11', closedTasks: '79' },
+  { manager: 'Марина Орлова', createdTasks: '103', outgoing: '91', successfulCalls: '63', otherOutgoing: '18', missedIncoming: '1', incoming: '28', noAnswer: '10', closedTasks: '84' },
+  { manager: 'Ольга Лунёва', createdTasks: '88', outgoing: '63', successfulCalls: '39', otherOutgoing: '15', missedIncoming: '2', incoming: '24', noAnswer: '9', closedTasks: '77' },
 ]
 
 const activityStages = [
@@ -365,7 +365,8 @@ const activitySummaryColumns = [
   { index: 3, label: 'Успешные >30 сек' },
   { index: 4, label: 'Прочие исходящие' },
   { index: 5, label: 'Недозвоны' },
-  { index: 6, label: 'Входящие' },
+  { index: 6, label: 'Пропущенные' },
+  { index: 7, label: 'Входящие' },
 ]
 
 function getActivitySummaryCells(row: ActivitySummaryRow) {
@@ -380,6 +381,7 @@ function getActivitySummaryCells(row: ActivitySummaryRow) {
     { key: 'successful', value: row.successfulCalls },
     { key: 'other', value: row.otherOutgoing },
     { key: 'no-answer', value: row.noAnswer },
+    { key: 'missed-incoming', value: row.missedIncoming },
     { key: 'incoming', value: row.incoming },
   ]
 }

@@ -267,13 +267,14 @@ describe('live-reporting', () => {
         outgoing: '17',
         successfulCalls: '12',
         otherOutgoing: '0',
+        missedIncoming: '0',
         incoming: '8',
         noAnswer: '5',
         comparePoints: [
           {
             label: 'С1',
-            values: ['32', '24', '12', '7', '2', '3', '4'],
-            deltas: ['+25%', '+33%', '+42%', '+71%', '-100%', '+67%', '+100%'],
+            values: ['32', '24', '12', '7', '2', '3', '0', '4'],
+            deltas: ['+25%', '+33%', '+42%', '+71%', '-100%', '+67%', '0%', '+100%'],
           },
         ],
       }),

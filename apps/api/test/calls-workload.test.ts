@@ -128,6 +128,54 @@ describe("buildCallsWorkloadReport", () => {
     ]);
   });
 
+  it("separates missed incoming calls from successful incoming calls", () => {
+    const result = buildCallsWorkloadReport({
+      range: {
+        from: "2026-05-04T00:00:00.000Z",
+        to: "2026-05-05T23:59:59.999Z"
+      },
+      deals: [],
+      stageCatalog: [],
+      stageHistory: [],
+      activities: [],
+      calls: [
+        {
+          id: "INCOMING_CONNECTED",
+          crmActivityId: null,
+          portalUserId: "72",
+          callType: "2",
+          callStartDate: "2026-05-04T10:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "200"
+        },
+        {
+          id: "INCOMING_MISSED",
+          crmActivityId: null,
+          portalUserId: "72",
+          callType: "2",
+          callStartDate: "2026-05-04T11:00:00.000Z",
+          callDurationSeconds: 0,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "304"
+        }
+      ],
+      managerDirectory: [{ id: "72", name: "Мария Крохалева" }]
+    });
+
+    const row = result.managerRows.find((item) => item.managerId === "72");
+
+    expect(row?.totalCalls).toBe(2);
+    expect(row?.incomingCalls).toBe(1);
+    expect((row as any)?.missedIncomingCalls).toBe(1);
+    expect(row?.allCalls.incomingCalls).toBe(1);
+    expect((row?.allCalls as any)?.missedIncomingCalls).toBe(1);
+    expect(result.totalIncomingCalls).toBe(1);
+    expect((result as any).totalMissedIncomingCalls).toBe(1);
+  });
+
   it("aggregates call direction and connection semantics by manager and stage through activity linkage", () => {
     const result = buildCallsWorkloadReport({
       range: {
@@ -330,7 +378,8 @@ describe("buildCallsWorkloadReport", () => {
       },
       totalDealCount: 2,
       totalCalls: 5,
-      totalIncomingCalls: 2,
+      totalIncomingCalls: 1,
+      totalMissedIncomingCalls: 1,
       totalOutgoingCalls: 3,
       totalOtherOutgoingCalls: 1,
       totalConnectedCalls: 3,
@@ -339,7 +388,8 @@ describe("buildCallsWorkloadReport", () => {
       totalConnectedCallsOverThirtySeconds: 1,
       allCalls: {
         totalCalls: 5,
-        incomingCalls: 2,
+        incomingCalls: 1,
+        missedIncomingCalls: 1,
         outgoingCalls: 3,
         otherOutgoingCalls: 1,
         connectedCalls: 3,
@@ -351,7 +401,8 @@ describe("buildCallsWorkloadReport", () => {
       linkedDealCalls: {
         totalDealCount: 2,
         totalCalls: 4,
-        incomingCalls: 2,
+        incomingCalls: 1,
+        missedIncomingCalls: 1,
         outgoingCalls: 2,
         otherOutgoingCalls: 1,
         connectedCalls: 3,
@@ -368,6 +419,7 @@ describe("buildCallsWorkloadReport", () => {
           dealCount: 0,
           totalCalls: 1,
           incomingCalls: 0,
+          missedIncomingCalls: 0,
           outgoingCalls: 1,
           otherOutgoingCalls: 0,
           connectedCalls: 0,
@@ -379,6 +431,7 @@ describe("buildCallsWorkloadReport", () => {
           allCalls: {
             totalCalls: 1,
             incomingCalls: 0,
+            missedIncomingCalls: 0,
             outgoingCalls: 1,
             otherOutgoingCalls: 0,
             connectedCalls: 0,
@@ -391,6 +444,7 @@ describe("buildCallsWorkloadReport", () => {
             dealCount: 0,
             totalCalls: 0,
             incomingCalls: 0,
+            missedIncomingCalls: 0,
             outgoingCalls: 0,
             otherOutgoingCalls: 0,
             connectedCalls: 0,
@@ -409,6 +463,7 @@ describe("buildCallsWorkloadReport", () => {
           dealCount: 1,
           totalCalls: 2,
           incomingCalls: 0,
+          missedIncomingCalls: 0,
           outgoingCalls: 2,
           otherOutgoingCalls: 1,
           connectedCalls: 2,
@@ -420,6 +475,7 @@ describe("buildCallsWorkloadReport", () => {
           allCalls: {
             totalCalls: 2,
             incomingCalls: 0,
+            missedIncomingCalls: 0,
             outgoingCalls: 2,
             otherOutgoingCalls: 1,
             connectedCalls: 2,
@@ -432,6 +488,7 @@ describe("buildCallsWorkloadReport", () => {
             dealCount: 1,
             totalCalls: 2,
             incomingCalls: 0,
+            missedIncomingCalls: 0,
             outgoingCalls: 2,
             otherOutgoingCalls: 1,
             connectedCalls: 2,
@@ -447,6 +504,7 @@ describe("buildCallsWorkloadReport", () => {
                 dealCount: 1,
                 totalCalls: 2,
                 incomingCalls: 0,
+                missedIncomingCalls: 0,
                 outgoingCalls: 2,
                 otherOutgoingCalls: 1,
                 connectedCalls: 2,
@@ -465,6 +523,7 @@ describe("buildCallsWorkloadReport", () => {
               dealCount: 1,
               totalCalls: 2,
               incomingCalls: 0,
+              missedIncomingCalls: 0,
               outgoingCalls: 2,
               otherOutgoingCalls: 1,
               connectedCalls: 2,
@@ -481,7 +540,8 @@ describe("buildCallsWorkloadReport", () => {
           managerName: "Илья Менеджер",
           dealCount: 1,
           totalCalls: 2,
-          incomingCalls: 2,
+          incomingCalls: 1,
+          missedIncomingCalls: 1,
           outgoingCalls: 0,
           otherOutgoingCalls: 0,
           connectedCalls: 1,
@@ -492,7 +552,8 @@ describe("buildCallsWorkloadReport", () => {
           averageDurationSeconds: 30,
           allCalls: {
             totalCalls: 2,
-            incomingCalls: 2,
+            incomingCalls: 1,
+            missedIncomingCalls: 1,
             outgoingCalls: 0,
             otherOutgoingCalls: 0,
             connectedCalls: 1,
@@ -504,7 +565,8 @@ describe("buildCallsWorkloadReport", () => {
           linkedDealCalls: {
             dealCount: 1,
             totalCalls: 2,
-            incomingCalls: 2,
+            incomingCalls: 1,
+            missedIncomingCalls: 1,
             outgoingCalls: 0,
             otherOutgoingCalls: 0,
             connectedCalls: 1,
@@ -519,7 +581,8 @@ describe("buildCallsWorkloadReport", () => {
                 stageName: "Звонок-знакомство",
                 dealCount: 1,
                 totalCalls: 2,
-                incomingCalls: 2,
+                incomingCalls: 1,
+                missedIncomingCalls: 1,
                 outgoingCalls: 0,
                 otherOutgoingCalls: 0,
                 connectedCalls: 1,
@@ -537,7 +600,8 @@ describe("buildCallsWorkloadReport", () => {
               stageName: "Звонок-знакомство",
               dealCount: 1,
               totalCalls: 2,
-              incomingCalls: 2,
+              incomingCalls: 1,
+              missedIncomingCalls: 1,
               outgoingCalls: 0,
               otherOutgoingCalls: 0,
               connectedCalls: 1,
@@ -555,6 +619,7 @@ describe("buildCallsWorkloadReport", () => {
           dealCount: 0,
           totalCalls: 0,
           incomingCalls: 0,
+          missedIncomingCalls: 0,
           outgoingCalls: 0,
           otherOutgoingCalls: 0,
           connectedCalls: 0,
@@ -566,6 +631,7 @@ describe("buildCallsWorkloadReport", () => {
           allCalls: {
             totalCalls: 0,
             incomingCalls: 0,
+            missedIncomingCalls: 0,
             outgoingCalls: 0,
             otherOutgoingCalls: 0,
             connectedCalls: 0,
@@ -578,6 +644,7 @@ describe("buildCallsWorkloadReport", () => {
             dealCount: 0,
             totalCalls: 0,
             incomingCalls: 0,
+            missedIncomingCalls: 0,
             outgoingCalls: 0,
             otherOutgoingCalls: 0,
             connectedCalls: 0,

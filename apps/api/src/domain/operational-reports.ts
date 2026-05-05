@@ -2687,6 +2687,7 @@ function buildCallsStageBreakdown(
       dealIds: Set<string>;
       totalCalls: number;
       incomingCalls: number;
+      missedIncomingCalls: number;
       outgoingCalls: number;
       otherOutgoingCalls: number;
       connectedCalls: number;
@@ -2705,6 +2706,7 @@ function buildCallsStageBreakdown(
       dealIds: new Set<string>(),
       totalCalls: 0,
       incomingCalls: 0,
+      missedIncomingCalls: 0,
       outgoingCalls: 0,
       otherOutgoingCalls: 0,
       connectedCalls: 0,
@@ -2717,8 +2719,10 @@ function buildCallsStageBreakdown(
     current.dealIds.add(item.dealId);
     current.totalCalls += 1;
     current.totalDurationSeconds += item.durationSeconds;
-    if (item.direction === "incoming") {
+    if (item.direction === "incoming" && item.connected) {
       current.incomingCalls += 1;
+    } else if (item.direction === "incoming") {
+      current.missedIncomingCalls += 1;
     } else if (item.direction === "outgoing") {
       current.outgoingCalls += 1;
       if (!item.failed && !(item.connectedOverThirtySeconds ?? false)) {
@@ -2749,6 +2753,7 @@ function buildCallsStageBreakdown(
         dealCount: row.dealIds.size,
         totalCalls: row.totalCalls,
         incomingCalls: row.incomingCalls,
+        missedIncomingCalls: row.missedIncomingCalls,
         outgoingCalls: row.outgoingCalls,
         otherOutgoingCalls: row.otherOutgoingCalls,
         connectedCalls: row.connectedCalls,
@@ -2845,6 +2850,7 @@ export function buildCallsWorkloadReport(
     dealIds: Set<string>;
     totalCalls: number;
     incomingCalls: number;
+    missedIncomingCalls: number;
     outgoingCalls: number;
     otherOutgoingCalls: number;
     connectedCalls: number;
@@ -2869,6 +2875,7 @@ export function buildCallsWorkloadReport(
     dealIds: new Set<string>(),
     totalCalls: 0,
     incomingCalls: 0,
+    missedIncomingCalls: 0,
     outgoingCalls: 0,
     otherOutgoingCalls: 0,
     connectedCalls: 0,
@@ -2889,8 +2896,10 @@ export function buildCallsWorkloadReport(
   ) => {
     accumulator.totalCalls += 1;
     accumulator.totalDurationSeconds += call.callDurationSeconds;
-    if (direction === "incoming") {
+    if (direction === "incoming" && connected) {
       accumulator.incomingCalls += 1;
+    } else if (direction === "incoming") {
+      accumulator.missedIncomingCalls += 1;
     } else if (direction === "outgoing") {
       accumulator.outgoingCalls += 1;
       if (!failed && !(connected && overThirtySeconds)) {
@@ -2913,6 +2922,7 @@ export function buildCallsWorkloadReport(
   const toCallPopulationSummary = (accumulator: CallAccumulator) => ({
     totalCalls: accumulator.totalCalls,
     incomingCalls: accumulator.incomingCalls,
+    missedIncomingCalls: accumulator.missedIncomingCalls,
     outgoingCalls: accumulator.outgoingCalls,
     otherOutgoingCalls: accumulator.otherOutgoingCalls,
     connectedCalls: accumulator.connectedCalls,
@@ -2945,6 +2955,7 @@ export function buildCallsWorkloadReport(
       }
       combined.totalCalls += accumulator.totalCalls;
       combined.incomingCalls += accumulator.incomingCalls;
+      combined.missedIncomingCalls += accumulator.missedIncomingCalls;
       combined.outgoingCalls += accumulator.outgoingCalls;
       combined.otherOutgoingCalls += accumulator.otherOutgoingCalls;
       combined.connectedCalls += accumulator.connectedCalls;
@@ -3070,6 +3081,7 @@ export function buildCallsWorkloadReport(
         dealCount: linked.dealIds.size,
         totalCalls: summary.totalCalls,
         incomingCalls: summary.incomingCalls,
+        missedIncomingCalls: summary.missedIncomingCalls,
         outgoingCalls: summary.outgoingCalls,
         otherOutgoingCalls: summary.otherOutgoingCalls,
         connectedCalls: summary.connectedCalls,
@@ -3112,6 +3124,10 @@ export function buildCallsWorkloadReport(
       (total, row) => total + row.incomingCalls,
       0
     ),
+    totalMissedIncomingCalls: managerRowsResult.reduce(
+      (total, row) => total + row.missedIncomingCalls,
+      0
+    ),
     totalOutgoingCalls: managerRowsResult.reduce(
       (total, row) => total + row.outgoingCalls,
       0
@@ -3141,6 +3157,7 @@ export function buildCallsWorkloadReport(
       totalDealCount: linkedDealCallsSummary.dealCount,
       totalCalls: linkedDealCallsSummary.totalCalls,
       incomingCalls: linkedDealCallsSummary.incomingCalls,
+      missedIncomingCalls: linkedDealCallsSummary.missedIncomingCalls,
       outgoingCalls: linkedDealCallsSummary.outgoingCalls,
       otherOutgoingCalls: linkedDealCallsSummary.otherOutgoingCalls,
       connectedCalls: linkedDealCallsSummary.connectedCalls,

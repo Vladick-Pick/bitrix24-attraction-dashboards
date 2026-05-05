@@ -157,6 +157,7 @@ function createCorsTestApp(config?: {
         totalDealCount: 0,
         totalCalls: 0,
         totalIncomingCalls: 0,
+        totalMissedIncomingCalls: 0,
         totalOutgoingCalls: 0,
         totalOtherOutgoingCalls: 0,
         totalConnectedCalls: 0,
@@ -166,6 +167,7 @@ function createCorsTestApp(config?: {
         allCalls: {
           totalCalls: 0,
           incomingCalls: 0,
+          missedIncomingCalls: 0,
           outgoingCalls: 0,
           otherOutgoingCalls: 0,
           connectedCalls: 0,
@@ -178,6 +180,7 @@ function createCorsTestApp(config?: {
           totalDealCount: 0,
           totalCalls: 0,
           incomingCalls: 0,
+          missedIncomingCalls: 0,
           outgoingCalls: 0,
           otherOutgoingCalls: 0,
           connectedCalls: 0,

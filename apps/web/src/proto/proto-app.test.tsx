@@ -2221,7 +2221,8 @@ describe('ProtoApp', () => {
     expect(headers[4]).toBe('Успешные >30 сек')
     expect(headers[5]).toBe('Прочие исходящие')
     expect(headers[6]).toBe('Недозвоны')
-    expect(headers[7]).toBe('Входящие')
+    expect(headers[7]).toBe('Пропущенные')
+    expect(headers[8]).toBe('Входящие')
     expect(within(summarySection!).getByText('= 4 + 2 + 3')).toBeInTheDocument()
   })
 

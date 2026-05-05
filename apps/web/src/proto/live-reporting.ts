@@ -426,6 +426,7 @@ function formatActivitySummaryValues(
     callRow?.connectedCallsOverThirtySeconds ?? 0,
     callRow?.otherOutgoingCalls ?? 0,
     callRow?.failedCalls ?? 0,
+    callRow?.missedIncomingCalls ?? 0,
     callRow?.incomingCalls ?? 0,
   ]
 
@@ -691,7 +692,8 @@ export function mapActivitiesCallsSceneData(input: {
       successfulCalls: currentSummary.values[3]!,
       otherOutgoing: currentSummary.values[4]!,
       noAnswer: currentSummary.values[5]!,
-      incoming: currentSummary.values[6]!,
+      missedIncoming: currentSummary.values[6]!,
+      incoming: currentSummary.values[7]!,
       deltas: firstCompareDeltas,
       comparePoints,
     }

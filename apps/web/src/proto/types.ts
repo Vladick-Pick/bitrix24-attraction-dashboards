@@ -69,6 +69,7 @@ export interface ActivitySummaryRow {
   outgoing: string
   successfulCalls: string
   otherOutgoing: string
+  missedIncoming: string
   incoming: string
   noAnswer: string
   closedTasks: string

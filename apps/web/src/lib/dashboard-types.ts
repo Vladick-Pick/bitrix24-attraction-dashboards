@@ -415,6 +415,7 @@ export interface StageCallMetric {
   dealCount: number
   totalCalls: number
   incomingCalls: number
+  missedIncomingCalls?: number
   outgoingCalls: number
   otherOutgoingCalls: number
   connectedCalls: number
@@ -428,6 +429,7 @@ export interface StageCallMetric {
 export interface CallPopulationSummary {
   totalCalls: number
   incomingCalls: number
+  missedIncomingCalls?: number
   outgoingCalls: number
   otherOutgoingCalls: number
   connectedCalls: number
@@ -453,6 +455,7 @@ export interface ManagerCallsWorkloadRow {
   dealCount: number
   totalCalls: number
   incomingCalls: number
+  missedIncomingCalls?: number
   outgoingCalls: number
   otherOutgoingCalls: number
   connectedCalls: number
@@ -471,6 +474,7 @@ export interface CallsWorkloadReportSnapshot {
   totalDealCount: number
   totalCalls: number
   totalIncomingCalls: number
+  totalMissedIncomingCalls?: number
   totalOutgoingCalls: number
   totalOtherOutgoingCalls: number
   totalConnectedCalls: number

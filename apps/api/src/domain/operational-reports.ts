@@ -60,6 +60,7 @@ interface AcquisitionOutcomesInput {
   range: ReportRange;
   deals: DealSnapshot[];
   stageCatalog: StageCatalogEntry[];
+  stageHistory?: StageHistorySnapshot[];
   managerDirectory?: ManagerDirectoryEntry[];
 }
 
@@ -312,6 +313,22 @@ function resolveTerminalClosedAt(
   }
 
   return null;
+}
+
+function resolveLostAt(
+  deal: DealSnapshot,
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>
+) {
+  if (deal.stageSemanticId !== "F") {
+    return null;
+  }
+
+  const lostAt = getLatestStageHistoryTime(
+    stageHistoryMap.get(deal.id) ?? [],
+    (row) => row.stageId === deal.stageId || row.stageSemanticId === "F"
+  );
+
+  return lostAt ?? deal.dateClosed ?? null;
 }
 
 function resolveStageAtTime(
@@ -1172,13 +1189,14 @@ export function buildAcquisitionOutcomesReport(
   const scopedDeals = input.deals.filter((deal) =>
     allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
   );
+  const stageHistoryMap = buildStageHistoryMap(input.stageHistory ?? []);
   const newDeals = scopedDeals.filter((deal) =>
     isWithinRange(deal.dateCreate, fromMs, toMs)
   );
   const lostDeals = scopedDeals.filter(
     (deal) =>
       deal.stageSemanticId === "F" &&
-      isWithinRange(deal.dateClosed ?? deal.dateModify, fromMs, toMs)
+      isWithinRange(resolveLostAt(deal, stageHistoryMap), fromMs, toMs)
   );
   const activeDeals = scopedDeals.filter((deal) => deal.stageSemanticId === "P");
 

@@ -61,6 +61,19 @@ const managerDirectory: ManagerDirectoryEntry[] = [
   { id: "11234", name: "Ромашова Ольга" }
 ];
 
+function stageHistory(
+  input: Partial<StageHistorySnapshot> & Pick<StageHistorySnapshot, "id" | "ownerId">
+): StageHistorySnapshot {
+  return {
+    categoryId: "10",
+    stageId: "C10:LOSE",
+    stageSemanticId: "F",
+    typeId: null,
+    createdTime: "2026-05-05T10:00:00.000Z",
+    ...input
+  };
+}
+
 function deal(input: Partial<DealSnapshot> & Pick<DealSnapshot, "id">): DealSnapshot {
   return {
     leadId: null,
@@ -88,20 +101,58 @@ function deal(input: Partial<DealSnapshot> & Pick<DealSnapshot, "id">): DealSnap
   };
 }
 
-function stageHistory(
-  input: Partial<StageHistorySnapshot> & Pick<StageHistorySnapshot, "id" | "ownerId">
-): StageHistorySnapshot {
-  return {
-    categoryId: "10",
-    stageId: "C10:LOSE",
-    stageSemanticId: "F",
-    typeId: null,
-    createdTime: "2026-05-05T10:00:00.000Z",
-    ...input
-  };
-}
-
 describe("buildAcquisitionOutcomesReport", () => {
+  it("uses lost-stage transition time instead of dateModify for lost period counts", () => {
+    const report = buildAcquisitionOutcomesReport({
+      range: {
+        from: "2026-05-04T00:00:00.000+03:00",
+        to: "2026-05-05T23:59:59.999+03:00"
+      },
+      deals: [
+        deal({
+          id: "STALE_LOST",
+          assignedById: "78",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          dateCreate: "2023-03-12T23:08:34.000+03:00",
+          dateModify: "2026-05-05T12:55:54.000+03:00",
+          dateClosed: null
+        }),
+        deal({
+          id: "ACTUAL_LOST",
+          assignedById: "78",
+          stageId: "C10:LOSE",
+          stageSemanticId: "F",
+          dateCreate: "2026-05-04T09:00:00.000+03:00",
+          dateModify: "2026-05-05T12:55:54.000+03:00",
+          dateClosed: null
+        })
+      ],
+      stageCatalog,
+      stageHistory: [
+        stageHistory({
+          id: "H_ACTUAL_LOST",
+          ownerId: "ACTUAL_LOST",
+          stageId: "C10:LOSE",
+          createdTime: "2026-05-04T12:00:00.000+03:00"
+        })
+      ],
+      managerDirectory
+    });
+
+    expect(report.totalLostDeals).toBe(1);
+    expect(report.lostStages).toEqual([
+      {
+        stageId: "C10:LOSE",
+        stageName: "Корзина",
+        count: 1
+      }
+    ]);
+    expect(report.lostDealDetails.map((row) => row.dealId)).toEqual([
+      "ACTUAL_LOST"
+    ]);
+  });
+
   it("groups outcomes by period and customer workload by open funnel deals", () => {
     const report = buildAcquisitionOutcomesReport({
       range,

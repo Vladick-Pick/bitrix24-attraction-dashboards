@@ -322,6 +322,10 @@ function resolveLostAt(
   deal: DealSnapshot,
   stageHistoryMap: Map<string, StageHistorySnapshot[]>
 ) {
+  if (deal.stageSemanticId !== "F") {
+    return null;
+  }
+
   const stageHistoryRows = stageHistoryMap.get(deal.id) ?? [];
   const currentLostStageAt = getLatestStageHistoryTime(
     stageHistoryRows,
@@ -332,7 +336,7 @@ function resolveLostAt(
     (row) => row.stageSemanticId === "F"
   );
 
-  return currentLostStageAt ?? terminalLostAt ?? deal.dateClosed ?? deal.dateModify;
+  return currentLostStageAt ?? terminalLostAt ?? deal.dateClosed ?? null;
 }
 
 function resolveStageAtTime(

@@ -1,0 +1,22 @@
+# Dashboard Modules
+
+Each business module must have a module ontology before Paperclip agents or dashboard code are expected to work reliably.
+
+Module ontology is not a narrative description. It is the operating contract for:
+
+- what entities exist;
+- which roles can see or change what;
+- what states and transitions are valid;
+- which reports and metrics belong to the module;
+- what source systems and data scopes are allowed;
+- what personal data must be excluded from storage, UI, and Paperclip payloads.
+
+## Required File
+
+Every module gets:
+
+```text
+docs/modules/<module-key>/MODULE_ONTOLOGY.md
+```
+
+Use `docs/modules/attraction/MODULE_ONTOLOGY.md` as the V1 example.

@@ -40,7 +40,7 @@ import type {
   PasswordAuthService,
   SqliteAuthStore
 } from "./auth.js";
-import { AuthError, hashPassword } from "./auth.js";
+import { AuthError, hashPassword, verifyPassword } from "./auth.js";
 import type {
   DashboardCommentContext,
   DashboardCommentRecord,
@@ -342,11 +342,16 @@ const updateCommentBodySchema = z.object({
 
 const createModuleUserBodySchema = z.object({
   login: z.string().trim().email().max(200),
+  firstName: z.string().trim().max(100).nullable().optional(),
+  lastName: z.string().trim().max(100).nullable().optional(),
   password: z.string().min(8).max(200),
   role: z.enum(["leader", "employee"]).default("employee")
 });
 
 const updateModuleUserBodySchema = z.object({
+  firstName: z.string().trim().max(100).nullable().optional(),
+  lastName: z.string().trim().max(100).nullable().optional(),
+  password: z.string().min(8).max(200).optional(),
   role: z.enum(["leader", "employee"]).optional(),
   disabled: z.boolean().optional(),
   membershipStatus: z.enum(["active", "disabled"]).optional()
@@ -508,6 +513,16 @@ const loginBodySchema = z.object({
   password: z.string().min(1).max(1024)
 });
 
+const updateCurrentUserBodySchema = z.object({
+  firstName: z.string().trim().max(100).nullable().optional(),
+  lastName: z.string().trim().max(100).nullable().optional()
+});
+
+const changePasswordBodySchema = z.object({
+  currentPassword: z.string().min(1).max(1024),
+  newPassword: z.string().min(8).max(200)
+});
+
 function parseRangeRequest(query: unknown): RangeRequest {
   const parsed = reportQuerySchema.parse(query);
   const compareRanges = (parsed.compareFrom ?? []).map((from, index) => ({
@@ -578,6 +593,19 @@ function createErrorResponse(code: string, details?: unknown) {
     code,
     ...(details === undefined ? {} : { details })
   };
+}
+
+function normalizeProfileField(value: string | null | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 const mutatingMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -888,7 +916,6 @@ function isAllowedWebOrigin(origin: string, webOrigin: string) {
 
     return (
       candidate.protocol === configured.protocol &&
-      candidate.port === configured.port &&
       localWebHostnames.has(candidate.hostname) &&
       localWebHostnames.has(configured.hostname)
     );
@@ -1058,6 +1085,83 @@ export function createApp(
         user: session.user,
         csrfToken: await auth.issueCsrfToken(session)
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/auth/me", async (request, response, next) => {
+    if (!auth || !config.authStore) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      const session = readAuthSession(response);
+      if (!session) {
+        response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+        return;
+      }
+
+      const payload = updateCurrentUserBodySchema.parse(request.body);
+      const user = await config.authStore.updateUserProfile({
+        userId: session.user.id,
+        ...(payload.firstName !== undefined
+          ? { firstName: normalizeProfileField(payload.firstName) ?? null }
+          : {}),
+        ...(payload.lastName !== undefined
+          ? { lastName: normalizeProfileField(payload.lastName) ?? null }
+          : {})
+      });
+      if (!user) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      response.json({
+        user: {
+          id: user.id,
+          login: user.login,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: "admin",
+          modules: await config.authStore.listUserModules(user.id)
+        },
+        csrfToken: await auth.issueCsrfToken(session)
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/change-password", async (request, response, next) => {
+    if (!auth || !config.authStore) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      const session = readAuthSession(response);
+      if (!session) {
+        response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+        return;
+      }
+
+      const payload = changePasswordBodySchema.parse(request.body);
+      const user = await config.authStore.findUserByLogin(session.user.login);
+      const validCurrentPassword = user
+        ? await verifyPassword(payload.currentPassword, user.passwordHash)
+        : false;
+
+      if (!user || !validCurrentPassword) {
+        throw new AuthError("CURRENT_PASSWORD_INVALID", 403);
+      }
+
+      await config.authStore.resetPassword({
+        login: user.login,
+        passwordHash: await hashPassword(payload.newPassword)
+      });
+      response.status(204).end();
     } catch (error) {
       next(error);
     }
@@ -1445,6 +1549,8 @@ export function createApp(
       const payload = createModuleUserBodySchema.parse(request.body);
       const user = await config.authStore.createUser({
         login: payload.login,
+        firstName: normalizeProfileField(payload.firstName) ?? null,
+        lastName: normalizeProfileField(payload.lastName) ?? null,
         passwordHash: await hashPassword(payload.password)
       });
       await config.authStore.setModuleMembership({
@@ -1485,11 +1591,56 @@ export function createApp(
       const user = await config.authStore.updateModuleUser({
         userId,
         moduleId: access.module.id,
+        ...(payload.firstName !== undefined
+          ? { firstName: normalizeProfileField(payload.firstName) ?? null }
+          : {}),
+        ...(payload.lastName !== undefined
+          ? { lastName: normalizeProfileField(payload.lastName) ?? null }
+          : {}),
+        ...(payload.password ? { passwordHash: await hashPassword(payload.password) } : {}),
         ...(payload.role ? { role: payload.role as ModuleRole } : {}),
         ...(payload.disabled !== undefined ? { disabled: payload.disabled } : {}),
         ...(payload.membershipStatus
           ? { membershipStatus: payload.membershipStatus }
           : {})
+      });
+      if (!user) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      response.json({ user });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/admin/module-users/:id", async (request, response, next) => {
+    if (!config.authStore) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+    const access = requireModuleAccess(response, "module-users:manage");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const userId = Number(request.params.id);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        response.status(400).json(createErrorResponse("VALIDATION_ERROR"));
+        return;
+      }
+      if (userId === access.session.user.id) {
+        response.status(400).json(createErrorResponse("CANNOT_DELETE_SELF"));
+        return;
+      }
+
+      const user = await config.authStore.updateModuleUser({
+        userId,
+        moduleId: access.module.id,
+        disabled: true,
+        membershipStatus: "disabled"
       });
       if (!user) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));

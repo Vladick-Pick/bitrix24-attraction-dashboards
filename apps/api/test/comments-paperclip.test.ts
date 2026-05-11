@@ -218,6 +218,62 @@ describe("dashboard comments to Paperclip", () => {
     store.close();
   });
 
+  it("lets authenticated users update profile names and change their own password", async () => {
+    const { app, agent, csrfToken, store } = await createCommentsApp();
+
+    await agent
+      .patch("/api/auth/me")
+      .set("X-CSRF-Token", csrfToken)
+      .send({ firstName: "Мария", lastName: "Потапова" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.user).toEqual(
+          expect.objectContaining({
+            login: "user@example.com",
+            firstName: "Мария",
+            lastName: "Потапова"
+          })
+        );
+      });
+
+    await agent
+      .post("/api/auth/change-password")
+      .set("X-CSRF-Token", csrfToken)
+      .send({
+        currentPassword: "wrong-password",
+        newPassword: "updated-password"
+      })
+      .expect(403)
+      .expect(({ body }) => {
+        expect(body.code).toBe("CURRENT_PASSWORD_INVALID");
+      });
+
+    await agent
+      .post("/api/auth/change-password")
+      .set("X-CSRF-Token", csrfToken)
+      .send({
+        currentPassword: "correct-password",
+        newPassword: "updated-password"
+      })
+      .expect(204);
+
+    const nextAgent = request.agent(app);
+    await nextAgent
+      .post("/api/auth/login")
+      .send({ login: "user@example.com", password: "correct-password" })
+      .expect(401);
+    await agent
+      .post("/api/auth/logout")
+      .set("X-CSRF-Token", csrfToken)
+      .expect(204);
+    await nextAgent
+      .post("/api/auth/login")
+      .send({ login: "user@example.com", password: "updated-password" })
+      .expect(200);
+
+    store.close();
+  });
+
   it("persists a comment first and marks it sent when Paperclip issue creation succeeds", async () => {
     const { agent, csrfToken, paperclip, store } = await createCommentsApp();
 
@@ -328,6 +384,8 @@ describe("dashboard comments to Paperclip", () => {
       .set("X-CSRF-Token", leader.csrfToken)
       .send({
         login: "employee@example.com",
+        firstName: "Анна",
+        lastName: "Егорова",
         password: "correct-password",
         role: "employee"
       })
@@ -335,6 +393,8 @@ describe("dashboard comments to Paperclip", () => {
 
     expect(created.body.user).toMatchObject({
       login: "employee@example.com",
+      firstName: "Анна",
+      lastName: "Егорова",
       moduleId: "attraction",
       moduleRole: "employee",
       membershipStatus: "active",
@@ -358,12 +418,45 @@ describe("dashboard comments to Paperclip", () => {
     await leader.agent
       .patch(`/api/admin/module-users/${created.body.user.id}`)
       .set("X-CSRF-Token", leader.csrfToken)
-      .send({ disabled: true, membershipStatus: "disabled" })
+      .send({
+        firstName: "Анна",
+        lastName: "Петрова",
+        role: "leader",
+        password: "next-password"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.user.firstName).toBe("Анна");
+        expect(body.user.lastName).toBe("Петрова");
+        expect(body.user.moduleRole).toBe("leader");
+      });
+
+    await leader.agent
+      .delete(`/api/admin/module-users/${created.body.user.id}`)
+      .set("X-CSRF-Token", leader.csrfToken)
       .expect(200)
       .expect(({ body }) => {
         expect(body.user.disabled).toBe(true);
         expect(body.user.membershipStatus).toBe("disabled");
       });
+
+    const outsider = await leader.store.createUser({
+      login: "outsider@example.com",
+      firstName: null,
+      lastName: null,
+      passwordHash: await hashPassword("outsider-password")
+    });
+    await leader.agent
+      .patch(`/api/admin/module-users/${outsider.id}`)
+      .set("X-CSRF-Token", leader.csrfToken)
+      .send({ firstName: "Вне", password: "changed-password" })
+      .expect(404);
+    await expect(leader.store.findUserByLogin("outsider@example.com")).resolves.toEqual(
+      expect.objectContaining({
+        firstName: null,
+        lastName: null
+      })
+    );
 
     leader.store.close();
 

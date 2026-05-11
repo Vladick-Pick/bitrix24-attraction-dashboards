@@ -54,7 +54,7 @@ export function prepareLocalDev() {
   const envSource = readFileSync(ENV_PATH, 'utf8')
   const env = parseEnv(envSource)
   const apiPort = env.API_PORT || '8787'
-  const apiBaseUrl = `http://localhost:${apiPort}`
+  const apiBaseUrl = `http://127.0.0.1:${apiPort}`
 
   mkdirSync(dirname(WEB_ENV_PATH), { recursive: true })
 

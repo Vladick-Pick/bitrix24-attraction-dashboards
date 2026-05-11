@@ -29,6 +29,8 @@ vi.mock('@/lib/api-client', () => ({
       user: {
         id: 1,
         login: 'admin',
+        firstName: null,
+        lastName: null,
         role: 'admin',
         modules: [],
       },
@@ -38,6 +40,8 @@ vi.mock('@/lib/api-client', () => ({
       user: {
         id: 1,
         login: 'admin',
+        firstName: null,
+        lastName: null,
         role: 'admin',
         modules: [],
       },
@@ -843,6 +847,7 @@ describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockState.unauthorizedListener = null
+    window.history.pushState({}, '', '/')
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -883,6 +888,8 @@ describe('App', () => {
         user: {
           id: 1,
           login: 'admin',
+          firstName: null,
+          lastName: null,
           role: 'admin',
           modules: [],
         },

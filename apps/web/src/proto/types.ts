@@ -88,6 +88,8 @@ export interface AuthModule {
 export interface AuthUser {
   id: number
   login: string
+  firstName: string | null
+  lastName: string | null
   role: 'admin'
   modules: AuthModule[]
 }
@@ -106,6 +108,8 @@ export interface CommentNotification {
 export interface ModuleUser {
   id: number
   login: string
+  firstName: string | null
+  lastName: string | null
   disabled: boolean
   moduleId: string
   moduleRole: ModuleRole

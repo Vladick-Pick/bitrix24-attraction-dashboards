@@ -138,6 +138,8 @@ function normalizeAuthResponse(value: unknown): AuthResponse {
     user: {
       id: asNumber(user.id),
       login: asString(user.login),
+      firstName: asNullableString(user.firstName),
+      lastName: asNullableString(user.lastName),
       role: 'admin',
       modules: asArray(user.modules, normalizeAuthModule).filter(
         (module) => module.id && module.slug,
@@ -304,6 +306,8 @@ function normalizeModuleUser(value: unknown): ModuleUser {
   return {
     id: asNumber(data.id),
     login: asString(data.login),
+    firstName: asNullableString(data.firstName),
+    lastName: asNullableString(data.lastName),
     disabled: asBoolean(data.disabled),
     moduleId: asString(data.moduleId),
     moduleRole: normalizeModuleRole(data.moduleRole),
@@ -2100,6 +2104,23 @@ export const apiClient = {
     await requestVoid(buildUrl('/api/auth/logout'), { method: 'POST' })
     csrfToken = null
   },
+  async updateCurrentUser(input: { firstName?: string | null; lastName?: string | null }) {
+    const response = await requestJson(
+      buildUrl('/api/auth/me'),
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+      normalizeAuthResponse,
+    )
+    return setCsrfTokenFromResponse(response)
+  },
+  async changeCurrentPassword(input: { currentPassword: string; newPassword: string }) {
+    await requestVoid(buildUrl('/api/auth/change-password'), {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  },
   async getProtoComments() {
     return requestJson(
       buildUrl('/api/proto-comments'),
@@ -2183,6 +2204,8 @@ export const apiClient = {
   },
   async createModuleUser(input: {
     login: string
+    firstName?: string | null
+    lastName?: string | null
     password: string
     role: ModuleRole
   }) {
@@ -2198,6 +2221,9 @@ export const apiClient = {
   async updateModuleUser(
     id: number,
     input: {
+      firstName?: string | null
+      lastName?: string | null
+      password?: string
       role?: ModuleRole
       disabled?: boolean
       membershipStatus?: 'active' | 'disabled'
@@ -2209,6 +2235,13 @@ export const apiClient = {
         method: 'PATCH',
         body: JSON.stringify(input),
       },
+      normalizeModuleUserResponse,
+    )
+  },
+  async deleteModuleUser(id: number) {
+    return requestJson(
+      buildUrl(`/api/admin/module-users/${id}`),
+      { method: 'DELETE' },
       normalizeModuleUserResponse,
     )
   },

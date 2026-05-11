@@ -404,6 +404,17 @@ vi.mock('@/lib/api-client', () => ({
     getCommentNotifications: vi.fn(async () => ({
       notifications: [],
     })),
+    updateCurrentUser: vi.fn(async (input: { firstName?: string; lastName?: string }) => ({
+      user: {
+        id: 1,
+        login: 'leader@example.com',
+        firstName: input.firstName ?? 'Мария',
+        lastName: input.lastName ?? 'Потапова',
+        role: 'admin' as const,
+        modules: [],
+      },
+    })),
+    changeCurrentPassword: vi.fn(async () => undefined),
     getModuleUsers: vi.fn(async () => ({
       users: [],
     })),
@@ -411,6 +422,8 @@ vi.mock('@/lib/api-client', () => ({
       user: {
         id: 2,
         login: input.login,
+        firstName: null,
+        lastName: null,
         disabled: false,
         moduleId: 'attraction',
         moduleRole: input.role,
@@ -423,10 +436,26 @@ vi.mock('@/lib/api-client', () => ({
       user: {
         id,
         login: 'employee@example.com',
+        firstName: null,
+        lastName: null,
         disabled: false,
         moduleId: 'attraction',
         moduleRole: input.role ?? 'employee',
         membershipStatus: 'active',
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:05:00.000Z',
+      },
+    })),
+    deleteModuleUser: vi.fn(async (id: number) => ({
+      user: {
+        id,
+        login: 'employee@example.com',
+        firstName: null,
+        lastName: null,
+        disabled: true,
+        moduleId: 'attraction',
+        moduleRole: 'employee',
+        membershipStatus: 'disabled',
         createdAt: '2026-04-10T12:00:00.000Z',
         updatedAt: '2026-04-10T12:05:00.000Z',
       },
@@ -521,6 +550,7 @@ describe('ProtoApp', () => {
   beforeEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
+    window.history.pushState({}, '', '/')
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -553,7 +583,7 @@ describe('ProtoApp', () => {
     expect(screen.getByText(/фильтры периода и среза/i)).toBeInTheDocument()
   })
 
-  it('renders Paperclip status notifications without requiring Paperclip links', async () => {
+  it('renders development team status notifications without requiring issue links', async () => {
     vi.mocked(apiClient.getCommentNotifications).mockResolvedValueOnce({
       notifications: [
         {
@@ -581,15 +611,28 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp />)
 
+    const notificationsButton = await screen.findByRole('button', {
+      name: /уведомления команды разработки/i,
+    })
+    expect(screen.queryByText(/в работе · 1/i)).not.toBeInTheDocument()
+
+    await userEvent.click(notificationsButton)
+
     expect(await screen.findByText(/в работе · 1/i)).toBeInTheDocument()
     expect(screen.getByText(/ошибка · 1/i)).toBeInTheDocument()
+    expect(screen.getByText('Проверить KPI')).toBeInTheDocument()
+    expect(screen.getByText('Уточнить фильтр')).toBeInTheDocument()
+    expect(screen.getByText(/команда разработки unavailable/i)).toBeInTheDocument()
+    expect(screen.queryByText(/paperclip/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /bit-1/i })).not.toBeInTheDocument()
   })
 
-  it('shows module user admin only to attraction leaders', async () => {
+  it('opens the account page and shows module admin only to attraction leaders', async () => {
     const leader: AuthUser = {
       id: 1,
       login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
       role: 'admin' as const,
       modules: [
         {
@@ -615,6 +658,8 @@ describe('ProtoApp', () => {
         {
           id: 2,
           login: 'employee@example.com',
+          firstName: 'Анна',
+          lastName: 'Егорова',
           disabled: false,
           moduleId: 'attraction',
           moduleRole: 'employee',
@@ -627,8 +672,30 @@ describe('ProtoApp', () => {
 
     const { unmount } = render(<ProtoApp currentUser={leader} />)
 
-    expect(await screen.findByText(/пользователи модуля/i)).toBeInTheDocument()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /^личный кабинет$/i }),
+    ).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/account')
+    expect(screen.getByDisplayValue('Мария')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Потапова')).toBeInTheDocument()
+    expect(screen.getByText(/логин для входа/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/модуль/i).length).toBeGreaterThan(0)
+    expect(screen.getByText('Привлечение')).toBeInTheDocument()
+    expect(screen.getByText(/рабочие правила/i)).toBeInTheDocument()
+    expect(screen.getByText(/преднастройки фильтров/i)).toBeInTheDocument()
+    expect(screen.getByText(/пользователи модуля/i)).toBeInTheDocument()
     expect(screen.getByText('employee@example.com')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+    ).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /к дашборду/i }))
+
+    expect(window.location.pathname).toBe('/')
     expect(await screen.findByText(/sales report live/i)).toBeInTheDocument()
     unmount()
 
@@ -647,8 +714,12 @@ describe('ProtoApp', () => {
       />,
     )
 
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+
+    expect(window.location.pathname).toBe('/account')
     expect(screen.queryByText(/пользователи модуля/i)).not.toBeInTheDocument()
-    expect(await screen.findByText(/sales report live/i)).toBeInTheDocument()
   })
 
   it('loads cohort breakdowns for every source catalog entry', async () => {

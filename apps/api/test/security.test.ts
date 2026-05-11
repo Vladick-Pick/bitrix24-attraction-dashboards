@@ -456,6 +456,16 @@ describe("Bitrix transport security", () => {
 
     await request(app)
       .get("/api/health")
+      .set("Origin", "http://127.0.0.1:5174")
+      .expect(200)
+      .expect((response) => {
+        expect(response.headers["access-control-allow-origin"]).toBe(
+          "http://127.0.0.1:5174"
+        );
+      });
+
+    await request(app)
+      .get("/api/health")
       .set("Origin", "https://evil.example")
       .expect(200)
       .expect((response) => {

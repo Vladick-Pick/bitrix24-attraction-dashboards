@@ -204,7 +204,7 @@ export function useProtoComments() {
       setError(
         retryError instanceof Error
           ? retryError.message
-          : 'Не удалось повторить отправку в Paperclip',
+          : 'Не удалось повторить отправку в команду разработки',
       )
     }
   }, [])

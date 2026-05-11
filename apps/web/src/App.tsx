@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 
 import { apiClient } from '@/lib/api-client'
+import type { AuthUser } from '@/proto/types'
 import { ProtoApp } from '@/proto/proto-app'
 
 type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated'
@@ -105,6 +106,7 @@ function App() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
   const [authError, setAuthError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -115,8 +117,9 @@ function App() {
 
     apiClient
       .getCurrentUser()
-      .then(() => {
+      .then((response) => {
         if (!cancelled) {
+          setCurrentUser(response.user)
           setAuthStatus('authenticated')
           setAuthError(null)
         }
@@ -124,6 +127,7 @@ function App() {
       .catch((error: unknown) => {
         if (!cancelled) {
           setAuthStatus('unauthenticated')
+          setCurrentUser(null)
           setAuthError(
             getErrorStatus(error) === 401 &&
               getErrorMessage(error) !== 'SESSION_EXPIRED'
@@ -145,10 +149,12 @@ function App() {
 
     try {
       await apiClient.login(input)
-      await apiClient.getCurrentUser()
+      const response = await apiClient.getCurrentUser()
+      setCurrentUser(response.user)
       setAuthStatus('authenticated')
     } catch (error) {
       setAuthStatus('unauthenticated')
+      setCurrentUser(null)
       setAuthError(resolveAuthError(error))
     } finally {
       setSubmitting(false)
@@ -173,7 +179,7 @@ function App() {
     )
   }
 
-  return <ProtoApp />
+  return <ProtoApp currentUser={currentUser} />
 }
 
 export default App

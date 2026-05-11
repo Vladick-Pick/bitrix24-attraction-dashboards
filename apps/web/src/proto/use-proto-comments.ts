@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { fetchCommentStore, saveCommentStore } from '@/proto/comments-api'
+import {
+  archiveComment as archiveServerComment,
+  createComment as createServerComment,
+  fetchCommentStore,
+  retryComment as retryServerComment,
+  saveCommentStore,
+  updateComment as updateServerComment,
+  usesDashboardCommentApi,
+} from '@/proto/comments-api'
 import type { ProtoComment } from '@/proto/types'
 
 type Status = 'loading' | 'ready' | 'saving' | 'error'
@@ -76,6 +84,47 @@ export function useProtoComments() {
 
   const upsertComment = useCallback(
     async (comment: ProtoComment) => {
+      if (usesDashboardCommentApi()) {
+        setStatus('saving')
+        setError(null)
+
+        try {
+          const existing = comments.find((item) => item.id === comment.id)
+          const response = existing
+            ? await updateServerComment(comment.id, {
+                text: comment.text,
+                ...(comment.context ? { context: comment.context } : {}),
+              })
+            : await createServerComment({
+                sceneId: comment.sceneId,
+                x: comment.x,
+                y: comment.y,
+                text: comment.text,
+                ...(comment.anchor ? { anchor: comment.anchor } : {}),
+                ...(comment.context ? { context: comment.context } : {}),
+              })
+          const saved = normalizeComment(response.comment)
+          setComments((current) =>
+            current.some((item) => item.id === saved.id)
+              ? current.map((item) => (item.id === saved.id ? saved : item))
+              : [
+                  ...current.filter((item) => item.id !== comment.id),
+                  saved,
+                ],
+          )
+          setUpdatedAt(saved.updatedAt)
+          setStatus('ready')
+        } catch (saveError) {
+          setStatus('error')
+          setError(
+            saveError instanceof Error
+              ? saveError.message
+              : 'Не удалось сохранить комментарий',
+          )
+        }
+        return
+      }
+
       const nextComments = comments.some((item) => item.id === comment.id)
         ? comments.map((item) => (item.id === comment.id ? comment : item))
         : [...comments, comment]
@@ -85,15 +134,31 @@ export function useProtoComments() {
     [comments, persist],
   )
 
-  const removeComment = useCallback(
-    async (commentId: string) => {
-      await persist(comments.filter((item) => item.id !== commentId))
-    },
-    [comments, persist],
-  )
-
   const archiveComment = useCallback(
     async (commentId: string) => {
+      if (usesDashboardCommentApi()) {
+        setStatus('saving')
+        setError(null)
+
+        try {
+          const response = await archiveServerComment(commentId)
+          const archived = normalizeComment(response.comment)
+          setComments((current) =>
+            current.map((item) => (item.id === commentId ? archived : item)),
+          )
+          setUpdatedAt(archived.updatedAt)
+          setStatus('ready')
+        } catch (archiveError) {
+          setStatus('error')
+          setError(
+            archiveError instanceof Error
+              ? archiveError.message
+              : 'Не удалось архивировать комментарий',
+          )
+        }
+        return
+      }
+
       const now = new Date().toISOString()
       await persist(
         comments.map((item) =>
@@ -106,6 +171,44 @@ export function useProtoComments() {
     [comments, persist],
   )
 
+  const removeComment = useCallback(
+    async (commentId: string) => {
+      if (usesDashboardCommentApi()) {
+        await archiveComment(commentId)
+        return
+      }
+
+      await persist(comments.filter((item) => item.id !== commentId))
+    },
+    [archiveComment, comments, persist],
+  )
+
+  const retryComment = useCallback(async (commentId: string) => {
+    if (!usesDashboardCommentApi()) {
+      return
+    }
+
+    setStatus('saving')
+    setError(null)
+
+    try {
+      const response = await retryServerComment(commentId)
+      const retried = normalizeComment(response.comment)
+      setComments((current) =>
+        current.map((item) => (item.id === commentId ? retried : item)),
+      )
+      setUpdatedAt(retried.updatedAt)
+      setStatus('ready')
+    } catch (retryError) {
+      setStatus('error')
+      setError(
+        retryError instanceof Error
+          ? retryError.message
+          : 'Не удалось повторить отправку в Paperclip',
+      )
+    }
+  }, [])
+
   return {
     comments,
     updatedAt,
@@ -114,5 +217,6 @@ export function useProtoComments() {
     upsertComment,
     removeComment,
     archiveComment,
+    retryComment,
   }
 }

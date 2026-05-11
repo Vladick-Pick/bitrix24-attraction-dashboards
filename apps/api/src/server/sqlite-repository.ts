@@ -115,6 +115,35 @@ export interface ProtoCommentRecord {
   anchor?: ProtoCommentAnchor;
 }
 
+export type PaperclipCommentStatus =
+  | "queued"
+  | "sent"
+  | "in_work"
+  | "needs_input"
+  | "done"
+  | "failed";
+
+export type PaperclipSyncStatus = "queued" | "syncing" | "sent" | "failed";
+
+export interface DashboardCommentContext {
+  filters?: unknown;
+  [key: string]: unknown;
+}
+
+export interface DashboardCommentRecord extends ProtoCommentRecord {
+  moduleId: string;
+  authorUserId: number;
+  authorLogin: string;
+  paperclipIssueId: string | null;
+  paperclipIssueIdentifier: string | null;
+  paperclipStatus: PaperclipCommentStatus;
+  paperclipSyncStatus: PaperclipSyncStatus;
+  paperclipError: string | null;
+  paperclipLastSyncedAt: string | null;
+  paperclipRetryCount: number;
+  context?: DashboardCommentContext;
+}
+
 export interface ProtoCommentStore {
   comments: ProtoCommentRecord[];
   updatedAt: string | null;
@@ -237,6 +266,33 @@ export interface SqliteRepository {
   replacePricingRules(input: ReplacePricingRulesInput): Promise<DealPricingRule[]>;
   getProtoComments(): Promise<ProtoCommentStore>;
   replaceProtoComments(input: ProtoCommentStore): Promise<ProtoCommentStore>;
+  getDashboardComments(moduleId: string): Promise<{
+    comments: DashboardCommentRecord[];
+    updatedAt: string | null;
+  }>;
+  getDashboardCommentById(id: string): Promise<DashboardCommentRecord | null>;
+  createDashboardComment(input: DashboardCommentRecord): Promise<DashboardCommentRecord>;
+  updateDashboardComment(input: {
+    id: string;
+    text?: string;
+    context?: DashboardCommentContext;
+    updatedAt: string;
+  }): Promise<DashboardCommentRecord | null>;
+  archiveDashboardComment(input: {
+    id: string;
+    archivedAt: string;
+    updatedAt: string;
+  }): Promise<DashboardCommentRecord | null>;
+  updateDashboardCommentPaperclip(input: {
+    id: string;
+    paperclipIssueId?: string | null;
+    paperclipIssueIdentifier?: string | null;
+    paperclipStatus: PaperclipCommentStatus;
+    paperclipSyncStatus: PaperclipSyncStatus;
+    paperclipError?: string | null;
+    paperclipLastSyncedAt?: string | null;
+    incrementRetryCount?: boolean;
+  }): Promise<DashboardCommentRecord | null>;
   getWonStageIds(): Promise<string[]>;
   setWonStageIds(stageIds: string[]): Promise<void>;
   getLastSyncSummary(scopeKey?: string): Promise<LastSyncSummary | null>;
@@ -352,6 +408,65 @@ function parseProtoCommentAnchor(value: string | null): ProtoCommentAnchor | und
   } catch {
     return undefined;
   }
+}
+
+function parseDashboardCommentContext(
+  value: string | null
+): DashboardCommentContext | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as DashboardCommentContext)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizePaperclipCommentStatus(value: string | null): PaperclipCommentStatus {
+  if (
+    value === "sent" ||
+    value === "in_work" ||
+    value === "needs_input" ||
+    value === "done" ||
+    value === "failed"
+  ) {
+    return value;
+  }
+
+  return "queued";
+}
+
+function normalizePaperclipSyncStatus(value: string | null): PaperclipSyncStatus {
+  if (value === "syncing" || value === "sent" || value === "failed") {
+    return value;
+  }
+
+  return "queued";
+}
+
+function readDashboardComment(
+  row: Omit<DashboardCommentRecord, "anchor" | "context"> & {
+    anchorJson: string | null;
+    contextJson: string | null;
+  }
+): DashboardCommentRecord {
+  const { anchorJson, contextJson, paperclipStatus, paperclipSyncStatus, ...comment } =
+    row;
+  const anchor = parseProtoCommentAnchor(anchorJson);
+  const context = parseDashboardCommentContext(contextJson);
+
+  return {
+    ...comment,
+    paperclipStatus: normalizePaperclipCommentStatus(paperclipStatus),
+    paperclipSyncStatus: normalizePaperclipSyncStatus(paperclipSyncStatus),
+    ...(anchor ? { anchor } : {}),
+    ...(context ? { context } : {})
+  };
 }
 
 function ensureColumn(
@@ -678,6 +793,45 @@ export function createSqliteRepository(
   ensureColumn(database, "sync_runs", "scope_key", "TEXT");
   ensureColumn(database, "sync_runs", "deal_breakdown_json", "TEXT");
   ensureColumn(database, "sync_runs", "diagnostics_json", "TEXT");
+  ensureColumn(
+    database,
+    "proto_comments",
+    "module_id",
+    "TEXT NOT NULL DEFAULT 'attraction'"
+  );
+  ensureColumn(database, "proto_comments", "author_user_id", "INTEGER");
+  ensureColumn(database, "proto_comments", "author_login", "TEXT");
+  ensureColumn(database, "proto_comments", "paperclip_issue_id", "TEXT");
+  ensureColumn(database, "proto_comments", "paperclip_issue_identifier", "TEXT");
+  ensureColumn(
+    database,
+    "proto_comments",
+    "paperclip_status",
+    "TEXT NOT NULL DEFAULT 'queued'"
+  );
+  ensureColumn(
+    database,
+    "proto_comments",
+    "paperclip_sync_status",
+    "TEXT NOT NULL DEFAULT 'queued'"
+  );
+  ensureColumn(database, "proto_comments", "paperclip_error", "TEXT");
+  ensureColumn(database, "proto_comments", "paperclip_last_synced_at", "TEXT");
+  ensureColumn(
+    database,
+    "proto_comments",
+    "paperclip_retry_count",
+    "INTEGER NOT NULL DEFAULT 0"
+  );
+  ensureColumn(database, "proto_comments", "context_json", "TEXT");
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_proto_comments_module_status
+      ON proto_comments (module_id, status);
+    CREATE INDEX IF NOT EXISTS idx_proto_comments_author_module
+      ON proto_comments (author_user_id, module_id);
+    CREATE INDEX IF NOT EXISTS idx_proto_comments_paperclip_sync
+      ON proto_comments (module_id, paperclip_sync_status);
+  `);
 
   const existingWonStages = database
     .prepare("SELECT COUNT(*) AS count FROM won_stage_config")
@@ -1138,6 +1292,119 @@ export function createSqliteRepository(
       @anchorJson,
       @sortOrder
     )
+  `);
+  const insertDashboardCommentStatement = database.prepare(`
+    INSERT INTO proto_comments (
+      id,
+      scene_id,
+      x,
+      y,
+      text,
+      status,
+      archived_at,
+      created_at,
+      updated_at,
+      anchor_json,
+      sort_order,
+      module_id,
+      author_user_id,
+      author_login,
+      paperclip_issue_id,
+      paperclip_issue_identifier,
+      paperclip_status,
+      paperclip_sync_status,
+      paperclip_error,
+      paperclip_last_synced_at,
+      paperclip_retry_count,
+      context_json
+    ) VALUES (
+      @id,
+      @sceneId,
+      @x,
+      @y,
+      @text,
+      @status,
+      @archivedAt,
+      @createdAt,
+      @updatedAt,
+      @anchorJson,
+      @sortOrder,
+      @moduleId,
+      @authorUserId,
+      @authorLogin,
+      @paperclipIssueId,
+      @paperclipIssueIdentifier,
+      @paperclipStatus,
+      @paperclipSyncStatus,
+      @paperclipError,
+      @paperclipLastSyncedAt,
+      @paperclipRetryCount,
+      @contextJson
+    )
+  `);
+  const selectDashboardCommentSql = `
+    SELECT
+      id,
+      scene_id AS sceneId,
+      x,
+      y,
+      text,
+      status,
+      archived_at AS archivedAt,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      anchor_json AS anchorJson,
+      module_id AS moduleId,
+      COALESCE(author_user_id, 0) AS authorUserId,
+      COALESCE(author_login, '') AS authorLogin,
+      paperclip_issue_id AS paperclipIssueId,
+      paperclip_issue_identifier AS paperclipIssueIdentifier,
+      paperclip_status AS paperclipStatus,
+      paperclip_sync_status AS paperclipSyncStatus,
+      paperclip_error AS paperclipError,
+      paperclip_last_synced_at AS paperclipLastSyncedAt,
+      paperclip_retry_count AS paperclipRetryCount,
+      context_json AS contextJson
+    FROM proto_comments
+  `;
+  const getDashboardCommentByIdStatement = database.prepare(`
+    ${selectDashboardCommentSql}
+    WHERE id = ?
+  `);
+  const listDashboardCommentsStatement = database.prepare(`
+    ${selectDashboardCommentSql}
+    WHERE module_id = ?
+    ORDER BY created_at ASC, id ASC
+  `);
+  const updateDashboardCommentStatement = database.prepare(`
+    UPDATE proto_comments
+    SET text = COALESCE(@text, text),
+      context_json = COALESCE(@contextJson, context_json),
+      updated_at = @updatedAt
+    WHERE id = @id
+  `);
+  const archiveDashboardCommentStatement = database.prepare(`
+    UPDATE proto_comments
+    SET status = 'archived',
+      archived_at = @archivedAt,
+      updated_at = @updatedAt
+    WHERE id = @id
+  `);
+  const updateDashboardCommentPaperclipStatement = database.prepare(`
+    UPDATE proto_comments
+    SET paperclip_issue_id = COALESCE(@paperclipIssueId, paperclip_issue_id),
+      paperclip_issue_identifier = COALESCE(@paperclipIssueIdentifier, paperclip_issue_identifier),
+      paperclip_status = @paperclipStatus,
+      paperclip_sync_status = @paperclipSyncStatus,
+      paperclip_error = @paperclipError,
+      paperclip_last_synced_at = @paperclipLastSyncedAt,
+      paperclip_retry_count = paperclip_retry_count + @retryIncrement,
+      updated_at = COALESCE(@paperclipLastSyncedAt, updated_at)
+    WHERE id = @id
+  `);
+  const nextCommentSortOrderStatement = database.prepare(`
+    SELECT COALESCE(MAX(sort_order), -1) + 1 AS sortOrder
+    FROM proto_comments
   `);
   const replaceSalesPlanRowsTransaction = database.transaction(
     (input: ReplaceSalesPlanRowsInput) => {
@@ -2379,6 +2646,105 @@ export function createSqliteRepository(
     async replaceProtoComments(input) {
       replaceProtoCommentsTransaction(input);
       return this.getProtoComments();
+    },
+
+    async getDashboardComments(moduleId) {
+      const meta = database
+        .prepare("SELECT updated_at AS updatedAt FROM proto_comment_store WHERE id = 1")
+        .get() as { updatedAt: string | null } | undefined;
+      const rows = listDashboardCommentsStatement.all(moduleId) as Parameters<
+        typeof readDashboardComment
+      >[0][];
+
+      return {
+        updatedAt: meta?.updatedAt ?? null,
+        comments: rows.map(readDashboardComment)
+      };
+    },
+
+    async getDashboardCommentById(id) {
+      const row = getDashboardCommentByIdStatement.get(id) as
+        | Parameters<typeof readDashboardComment>[0]
+        | undefined;
+      return row ? readDashboardComment(row) : null;
+    },
+
+    async createDashboardComment(inputComment) {
+      const sortOrder = (
+        nextCommentSortOrderStatement.get() as { sortOrder: number }
+      ).sortOrder;
+      insertDashboardCommentStatement.run({
+        id: inputComment.id,
+        sceneId: inputComment.sceneId,
+        x: inputComment.x,
+        y: inputComment.y,
+        text: inputComment.text,
+        status: inputComment.status ?? "open",
+        archivedAt: inputComment.archivedAt ?? null,
+        createdAt: inputComment.createdAt,
+        updatedAt: inputComment.updatedAt,
+        anchorJson: inputComment.anchor ? JSON.stringify(inputComment.anchor) : null,
+        sortOrder,
+        moduleId: inputComment.moduleId,
+        authorUserId: inputComment.authorUserId,
+        authorLogin: inputComment.authorLogin,
+        paperclipIssueId: inputComment.paperclipIssueId,
+        paperclipIssueIdentifier: inputComment.paperclipIssueIdentifier,
+        paperclipStatus: inputComment.paperclipStatus,
+        paperclipSyncStatus: inputComment.paperclipSyncStatus,
+        paperclipError: inputComment.paperclipError,
+        paperclipLastSyncedAt: inputComment.paperclipLastSyncedAt,
+        paperclipRetryCount: inputComment.paperclipRetryCount,
+        contextJson: inputComment.context ? JSON.stringify(inputComment.context) : null
+      });
+      database
+        .prepare(
+          `INSERT INTO proto_comment_store (id, updated_at)
+          VALUES (1, ?)
+          ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at`
+        )
+        .run(inputComment.updatedAt);
+
+      const created = await this.getDashboardCommentById(inputComment.id);
+      if (!created) {
+        throw new Error("Failed to create dashboard comment.");
+      }
+      return created;
+    },
+
+    async updateDashboardComment(inputComment) {
+      updateDashboardCommentStatement.run({
+        id: inputComment.id,
+        text: inputComment.text ?? null,
+        contextJson: inputComment.context
+          ? JSON.stringify(inputComment.context)
+          : null,
+        updatedAt: inputComment.updatedAt
+      });
+      return this.getDashboardCommentById(inputComment.id);
+    },
+
+    async archiveDashboardComment(inputComment) {
+      archiveDashboardCommentStatement.run({
+        id: inputComment.id,
+        archivedAt: inputComment.archivedAt,
+        updatedAt: inputComment.updatedAt
+      });
+      return this.getDashboardCommentById(inputComment.id);
+    },
+
+    async updateDashboardCommentPaperclip(inputComment) {
+      updateDashboardCommentPaperclipStatement.run({
+        id: inputComment.id,
+        paperclipIssueId: inputComment.paperclipIssueId ?? null,
+        paperclipIssueIdentifier: inputComment.paperclipIssueIdentifier ?? null,
+        paperclipStatus: inputComment.paperclipStatus,
+        paperclipSyncStatus: inputComment.paperclipSyncStatus,
+        paperclipError: inputComment.paperclipError ?? null,
+        paperclipLastSyncedAt: inputComment.paperclipLastSyncedAt ?? null,
+        retryIncrement: inputComment.incrementRetryCount ? 1 : 0
+      });
+      return this.getDashboardCommentById(inputComment.id);
     },
 
     async getWonStageIds() {

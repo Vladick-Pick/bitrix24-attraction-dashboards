@@ -17,6 +17,9 @@ import type {
 
 export interface ProtoComment {
   id: string
+  moduleId?: string
+  authorUserId?: number | null
+  authorLogin?: string | null
   sceneId: string
   x: number
   y: number
@@ -26,6 +29,14 @@ export interface ProtoComment {
   createdAt: string
   updatedAt: string
   anchor?: ProtoCommentAnchor
+  context?: ProtoCommentContext
+  paperclipIssueId?: string | null
+  paperclipIssueIdentifier?: string | null
+  paperclipStatus?: PaperclipCommentStatus
+  paperclipSyncStatus?: PaperclipSyncStatus
+  paperclipError?: string | null
+  paperclipLastSyncedAt?: string | null
+  paperclipRetryCount?: number
 }
 
 export interface ProtoCommentAnchor {
@@ -37,6 +48,70 @@ export interface ProtoCommentAnchor {
   elementLabel: string
   relativeX: number
   relativeY: number
+}
+
+export type PaperclipCommentStatus =
+  | 'queued'
+  | 'sent'
+  | 'in_work'
+  | 'needs_input'
+  | 'done'
+  | 'failed'
+
+export type PaperclipSyncStatus = 'queued' | 'syncing' | 'sent' | 'failed'
+
+export interface ProtoCommentContext {
+  filters?: unknown
+  [key: string]: unknown
+}
+
+export type ModuleRole = 'leader' | 'employee'
+
+export type ModulePermission =
+  | 'comments:create'
+  | 'comments:update'
+  | 'comments:archive'
+  | 'module-users:manage'
+
+export interface AuthModule {
+  id: string
+  slug: string
+  name: string
+  role: ModuleRole
+  permissions: ModulePermission[]
+  paperclipCompanyId?: string | null
+  paperclipProjectId?: string | null
+  paperclipGoalId?: string | null
+  paperclipTriageAgentId?: string | null
+}
+
+export interface AuthUser {
+  id: number
+  login: string
+  role: 'admin'
+  modules: AuthModule[]
+}
+
+export interface CommentNotification {
+  id: string
+  sceneId: string
+  text: string
+  status: PaperclipCommentStatus
+  paperclipSyncStatus: PaperclipSyncStatus
+  paperclipIssueIdentifier: string | null
+  paperclipError: string | null
+  updatedAt: string
+}
+
+export interface ModuleUser {
+  id: number
+  login: string
+  disabled: boolean
+  moduleId: string
+  moduleRole: ModuleRole
+  membershipStatus: 'active' | 'disabled'
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CompareRange {

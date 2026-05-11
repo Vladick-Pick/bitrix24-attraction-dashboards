@@ -784,4 +784,136 @@ describe('apiClient', () => {
       'X-CSRF-Token': 'csrf-from-me',
     })
   })
+
+  it('creates dashboard comments and manages module users through the module API', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: {
+            id: 1,
+            login: 'leader@example.com',
+            role: 'admin',
+            modules: [
+              {
+                id: 'attraction',
+                slug: 'attraction',
+                name: 'Привлечение',
+                role: 'leader',
+                permissions: ['comments:create', 'module-users:manage'],
+              },
+            ],
+          },
+          csrfToken: 'csrf-from-me',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          comment: {
+            id: 'comment-1',
+            moduleId: 'attraction',
+            authorUserId: 1,
+            authorLogin: 'leader@example.com',
+            sceneId: 'sales',
+            x: 0.25,
+            y: 0.5,
+            text: 'Проверь блок',
+            status: 'open',
+            archivedAt: null,
+            createdAt: '2026-04-10T12:00:00.000Z',
+            updatedAt: '2026-04-10T12:00:00.000Z',
+            paperclipIssueId: 'issue-1',
+            paperclipIssueIdentifier: 'BIT-1',
+            paperclipStatus: 'sent',
+            paperclipSyncStatus: 'sent',
+            paperclipError: null,
+            paperclipRetryCount: 0,
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          notifications: [
+            {
+              id: 'comment-1',
+              sceneId: 'sales',
+              text: 'Проверь блок',
+              status: 'in_work',
+              paperclipSyncStatus: 'sent',
+              paperclipIssueIdentifier: 'BIT-1',
+              paperclipError: null,
+              updatedAt: '2026-04-10T12:05:00.000Z',
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: {
+            id: 2,
+            login: 'employee@example.com',
+            disabled: false,
+            moduleId: 'attraction',
+            moduleRole: 'employee',
+            membershipStatus: 'active',
+            createdAt: '2026-04-10T12:00:00.000Z',
+            updatedAt: '2026-04-10T12:00:00.000Z',
+          },
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const auth = await apiClient.getCurrentUser()
+    const created = await apiClient.createComment({
+      sceneId: 'sales',
+      x: 0.25,
+      y: 0.5,
+      text: 'Проверь блок',
+      context: {
+        filters: {
+          managers: ['78'],
+        },
+      },
+    })
+    const notifications = await apiClient.getCommentNotifications()
+    const moduleUser = await apiClient.createModuleUser({
+      login: 'employee@example.com',
+      password: 'correct-password',
+      role: 'employee',
+    })
+
+    expect(auth.user.modules[0]).toMatchObject({
+      id: 'attraction',
+      role: 'leader',
+      permissions: ['comments:create', 'module-users:manage'],
+    })
+    expect(created.comment.paperclipStatus).toBe('sent')
+    expect(notifications.notifications[0]?.status).toBe('in_work')
+    expect(moduleUser.user.moduleRole).toBe('employee')
+
+    const [, createCommentInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+    const [notificationsUrl] = fetchMock.mock.calls[2] as [string, RequestInit]
+    const [createUserUrl, createUserInit] = fetchMock.mock.calls[3] as [
+      string,
+      RequestInit,
+    ]
+
+    expect(new URL(notificationsUrl, window.location.origin).pathname).toBe(
+      '/api/comment-notifications',
+    )
+    expect(createCommentInit.headers).toMatchObject({
+      'X-CSRF-Token': 'csrf-from-me',
+    })
+    expect(new URL(createUserUrl, window.location.origin).pathname).toBe(
+      '/api/admin/module-users',
+    )
+    expect(createUserInit.headers).toMatchObject({
+      'X-CSRF-Token': 'csrf-from-me',
+    })
+  })
 })

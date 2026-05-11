@@ -13,6 +13,7 @@ import type {
 } from '@/lib/dashboard-types'
 import { createCompareRange, ProtoApp } from '@/proto/proto-app'
 import { createDefaultFilters } from '@/proto/scenes'
+import type { AuthUser } from '@/proto/types'
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -346,6 +347,90 @@ vi.mock('@/lib/api-client', () => ({
       },
       diagnostics: ['dealCursor=2026-04-26T16:00:00.000Z'],
     })),
+    getComments: vi.fn(async () => ({ comments: [], updatedAt: null })),
+    createComment: vi.fn(async (input: unknown) => ({
+      comment: {
+        ...(input as object),
+        id: 'comment-1',
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:00:00.000Z',
+        status: 'open',
+        archivedAt: null,
+        paperclipStatus: 'sent',
+        paperclipSyncStatus: 'sent',
+      },
+    })),
+    updateComment: vi.fn(async (id: string, input: unknown) => ({
+      comment: {
+        ...(input as object),
+        id,
+        sceneId: 'sales',
+        x: 0.1,
+        y: 0.1,
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:05:00.000Z',
+        status: 'open',
+        archivedAt: null,
+      },
+    })),
+    archiveComment: vi.fn(async (id: string) => ({
+      comment: {
+        id,
+        sceneId: 'sales',
+        x: 0.1,
+        y: 0.1,
+        text: 'Архив',
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:05:00.000Z',
+        status: 'archived',
+        archivedAt: '2026-04-10T12:05:00.000Z',
+      },
+    })),
+    retryComment: vi.fn(async (id: string) => ({
+      comment: {
+        id,
+        sceneId: 'sales',
+        x: 0.1,
+        y: 0.1,
+        text: 'Повтор',
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:05:00.000Z',
+        status: 'open',
+        archivedAt: null,
+        paperclipStatus: 'sent',
+        paperclipSyncStatus: 'sent',
+      },
+    })),
+    getCommentNotifications: vi.fn(async () => ({
+      notifications: [],
+    })),
+    getModuleUsers: vi.fn(async () => ({
+      users: [],
+    })),
+    createModuleUser: vi.fn(async (input: { login: string; role: 'leader' | 'employee' }) => ({
+      user: {
+        id: 2,
+        login: input.login,
+        disabled: false,
+        moduleId: 'attraction',
+        moduleRole: input.role,
+        membershipStatus: 'active',
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:00:00.000Z',
+      },
+    })),
+    updateModuleUser: vi.fn(async (id: number, input: { role?: 'leader' | 'employee' }) => ({
+      user: {
+        id,
+        login: 'employee@example.com',
+        disabled: false,
+        moduleId: 'attraction',
+        moduleRole: input.role ?? 'employee',
+        membershipStatus: 'active',
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:05:00.000Z',
+      },
+    })),
   },
 }))
 
@@ -466,6 +551,104 @@ describe('ProtoApp', () => {
       screen.getByRole('button', { name: /^comment mode$/i }),
     ).toBeInTheDocument()
     expect(screen.getByText(/фильтры периода и среза/i)).toBeInTheDocument()
+  })
+
+  it('renders Paperclip status notifications without requiring Paperclip links', async () => {
+    vi.mocked(apiClient.getCommentNotifications).mockResolvedValueOnce({
+      notifications: [
+        {
+          id: 'comment-1',
+          sceneId: 'sales',
+          text: 'Проверить KPI',
+          status: 'in_work',
+          paperclipSyncStatus: 'sent',
+          paperclipIssueIdentifier: 'BIT-1',
+          paperclipError: null,
+          updatedAt: '2026-04-10T12:05:00.000Z',
+        },
+        {
+          id: 'comment-2',
+          sceneId: 'sales',
+          text: 'Уточнить фильтр',
+          status: 'failed',
+          paperclipSyncStatus: 'failed',
+          paperclipIssueIdentifier: null,
+          paperclipError: 'Paperclip unavailable',
+          updatedAt: '2026-04-10T12:06:00.000Z',
+        },
+      ],
+    })
+
+    render(<ProtoApp />)
+
+    expect(await screen.findByText(/в работе · 1/i)).toBeInTheDocument()
+    expect(screen.getByText(/ошибка · 1/i)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /bit-1/i })).not.toBeInTheDocument()
+  })
+
+  it('shows module user admin only to attraction leaders', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    vi.mocked(apiClient.getModuleUsers).mockResolvedValueOnce({
+      users: [
+        {
+          id: 2,
+          login: 'employee@example.com',
+          disabled: false,
+          moduleId: 'attraction',
+          moduleRole: 'employee',
+          membershipStatus: 'active',
+          createdAt: '2026-04-10T12:00:00.000Z',
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+    })
+
+    const { unmount } = render(<ProtoApp currentUser={leader} />)
+
+    expect(await screen.findByText(/пользователи модуля/i)).toBeInTheDocument()
+    expect(screen.getByText('employee@example.com')).toBeInTheDocument()
+    expect(await screen.findByText(/sales report live/i)).toBeInTheDocument()
+    unmount()
+
+    render(
+      <ProtoApp
+        currentUser={{
+          ...leader,
+          modules: [
+            {
+              ...leader.modules[0]!,
+              role: 'employee',
+              permissions: ['comments:create', 'comments:update'],
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.queryByText(/пользователи модуля/i)).not.toBeInTheDocument()
+    expect(await screen.findByText(/sales report live/i)).toBeInTheDocument()
   })
 
   it('loads cohort breakdowns for every source catalog entry', async () => {

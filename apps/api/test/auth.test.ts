@@ -143,10 +143,14 @@ describe("password session auth", () => {
       .expect(200);
 
     expect(loginResponse.headers["set-cookie"]?.[0]).toContain("HttpOnly");
-    expect(loginResponse.body.user).toEqual({
-      login: "admin",
-      role: "admin"
-    });
+    expect(loginResponse.body.user).toEqual(
+      expect.objectContaining({
+        id: expect.any(Number),
+        login: "admin",
+        role: "admin",
+        modules: expect.any(Array)
+      })
+    );
     expect(loginResponse.body.csrfToken).toEqual(expect.any(String));
 
     await agent

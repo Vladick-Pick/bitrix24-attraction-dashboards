@@ -741,6 +741,7 @@ describe('ProtoApp', () => {
               businessClubValue: 'ClubOne',
               targetGroupValue: 'ClubFirst',
               meetingTypeValue: 'Очная',
+              meetingDateValue: '2026-03-14T16:00:00.000Z',
               tariffValue: 'Федеральный Москва',
               cohortContext: {
                 createdMonth: '2026-03',
@@ -780,6 +781,14 @@ describe('ProtoApp', () => {
                       completed: false,
                     },
                   ],
+                },
+                {
+                  stageId: 'C10:MEETING',
+                  stageName: 'Встреча-знакомство',
+                  enteredAt: '2026-03-14T10:00:00.000Z',
+                  leftAt: '2026-03-15T10:00:00.000Z',
+                  durationHours: 24,
+                  meetingEvents: [],
                 },
               ],
             },
@@ -822,8 +831,11 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).getByText('Федеральный Москва')).toBeInTheDocument()
     expect(within(salesSection!).getByText('2 встреч')).toBeInTheDocument()
     expect(within(salesSection!).getByText(/Встреча 13 мар/i)).toBeInTheDocument()
+    expect(within(salesSection!).getByText(/Встреча 14 мар/i)).toBeInTheDocument()
+    expect(within(salesSection!).getAllByText(/Встреча 14 мар/i)).toHaveLength(1)
     expect(within(salesSection!).getByText('Звонок-знакомство')).toBeInTheDocument()
-    expect(within(salesSection!).getByText('24 ч')).toBeInTheDocument()
+    expect(within(salesSection!).getByText('Встреча-знакомство')).toBeInTheDocument()
+    expect(within(salesSection!).getAllByText('24 ч').length).toBeGreaterThan(0)
   })
 
   it('shows monthly and quarterly plan completion in sales KPI cards', async () => {
@@ -1344,6 +1356,7 @@ describe('ProtoApp', () => {
               businessClubValue: 'ClubFirst One',
               targetGroupValue: 'ClubFirst Russia',
               meetingTypeValue: 'Мероприятие',
+              meetingDateValue: '2026-04-04T12:00:00.000Z',
               tariffValue: 'Федеральный Москва',
               taskSummary: { created: 1, closed: 1 },
               callSummary: {
@@ -1366,8 +1379,8 @@ describe('ProtoApp', () => {
                   stageId: 'C10:WON',
                   stageName: 'Передано в клуб',
                   enteredAt: '2026-04-04T10:00:00.000Z',
-                  leftAt: '2026-04-04T10:00:00.000Z',
-                  durationHours: 0,
+                  leftAt: '2026-04-05T10:00:00.000Z',
+                  durationHours: 24,
                   meetingEvents: [],
                 },
               ],
@@ -1514,6 +1527,7 @@ describe('ProtoApp', () => {
     expect(within(actionSection as HTMLElement).getByText('Атрибуты сделки')).toBeInTheDocument()
     expect(within(actionSection as HTMLElement).getByText('2 Пришёл на мероприятие')).toBeInTheDocument()
     expect(within(actionSection as HTMLElement).getByText('Передано в клуб')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText(/Встреча 04 апр/i)).toBeInTheDocument()
   })
 
   it('keeps the manager filter prebuilt to the attraction team fallback list', async () => {

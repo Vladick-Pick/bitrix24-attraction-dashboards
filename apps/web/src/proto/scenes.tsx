@@ -6,6 +6,7 @@ import type {
   ConversionEventsReport,
   ConversionEventBreakdownRow,
   DashboardData,
+  DealStageTimelineEntry,
   DealPricingRuleInput,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeReport,
@@ -1744,6 +1745,53 @@ function formatCompareDelta(current: number, previous: number, kind: 'count' | '
   return formatSignedNumber(current - previous)
 }
 
+type StageMeetingBadge = {
+  key: string
+  dateValue: string
+}
+
+function parseTimelineTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function isDateInsideStageInterval(stage: DealStageTimelineEntry, dateValue: string | null | undefined) {
+  const meetingAt = parseTimelineTimestamp(dateValue)
+  const enteredAt = parseTimelineTimestamp(stage.enteredAt)
+  const leftAt = parseTimelineTimestamp(stage.leftAt)
+
+  if (meetingAt === null || enteredAt === null || leftAt === null) {
+    return false
+  }
+
+  return meetingAt >= enteredAt && meetingAt <= leftAt
+}
+
+function getStageMeetingBadges(stage: DealStageTimelineEntry, meetingDateValue: string | null | undefined) {
+  const badges: StageMeetingBadge[] = (stage.meetingEvents ?? []).map((meeting) => ({
+    key: meeting.activityId,
+    dateValue: meeting.timelineAt,
+  }))
+  const renderedDates = new Set(badges.map((badge) => formatShortDate(badge.dateValue)))
+
+  if (meetingDateValue && isDateInsideStageInterval(stage, meetingDateValue)) {
+    const fallbackDate = formatShortDate(meetingDateValue)
+
+    if (!renderedDates.has(fallbackDate)) {
+      badges.push({
+        key: `meeting-date-${stage.stageId}-${meetingDateValue}`,
+        dateValue: meetingDateValue,
+      })
+    }
+  }
+
+  return badges
+}
+
 function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
   const detailFields = [
     { label: 'Итоговое качество', value: deal.qualityValue ?? '—' },
@@ -1835,35 +1883,39 @@ function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
         </div>
         <div className="divide-y divide-slate-100">
           {deal.stageTimeline.length > 0 ? (
-            deal.stageTimeline.map((stage) => (
-              <div
-                key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
-                className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
-                  {stage.meetingEvents && stage.meetingEvents.length > 0 ? (
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {stage.meetingEvents.map((meeting) => (
-                        <span
-                          key={meeting.activityId}
-                          className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
-                        >
-                          Встреча {formatShortDate(meeting.timelineAt)}
-                        </span>
-                      ))}
+            deal.stageTimeline.map((stage) => {
+              const meetingBadges = getStageMeetingBadges(stage, deal.meetingDateValue)
+
+              return (
+                <div
+                  key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
+                  className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
+                    {meetingBadges.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {meetingBadges.map((meeting) => (
+                          <span
+                            key={meeting.key}
+                            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
+                          >
+                            Встреча {formatShortDate(meeting.dateValue)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="truncate text-xs text-slate-500">
+                      до {formatShortDate(stage.leftAt)}
                     </div>
-                  ) : null}
-                  <div className="truncate text-xs text-slate-500">
-                    до {formatShortDate(stage.leftAt)}
                   </div>
+                  <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
+                  <span className="text-right font-semibold text-slate-900">
+                    {formatSalesHours(stage.durationHours)}
+                  </span>
                 </div>
-                <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
-                <span className="text-right font-semibold text-slate-900">
-                  {formatSalesHours(stage.durationHours)}
-                </span>
-              </div>
-            ))
+              )
+            })
           ) : (
             <div className="px-4 py-5 text-sm text-slate-500">
               История этапов по сделке пока не подтянута.
@@ -3142,35 +3194,39 @@ function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDeta
         </div>
         <div className="divide-y divide-slate-100">
           {deal.stageTimeline.length > 0 ? (
-            deal.stageTimeline.map((stage) => (
-              <div
-                key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
-                className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
-                  {stage.meetingEvents && stage.meetingEvents.length > 0 ? (
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {stage.meetingEvents.map((meeting) => (
-                        <span
-                          key={meeting.activityId}
-                          className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
-                        >
-                          Встреча {formatShortDate(meeting.timelineAt)}
-                        </span>
-                      ))}
+            deal.stageTimeline.map((stage) => {
+              const meetingBadges = getStageMeetingBadges(stage, deal.meetingDateValue)
+
+              return (
+                <div
+                  key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
+                  className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
+                    {meetingBadges.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {meetingBadges.map((meeting) => (
+                          <span
+                            key={meeting.key}
+                            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
+                          >
+                            Встреча {formatShortDate(meeting.dateValue)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="truncate text-xs text-slate-500">
+                      до {formatShortDate(stage.leftAt)}
                     </div>
-                  ) : null}
-                  <div className="truncate text-xs text-slate-500">
-                    до {formatShortDate(stage.leftAt)}
                   </div>
+                  <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
+                  <span className="text-right font-semibold text-slate-900">
+                    {formatSalesHours(stage.durationHours)}
+                  </span>
                 </div>
-                <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
-                <span className="text-right font-semibold text-slate-900">
-                  {formatSalesHours(stage.durationHours)}
-                </span>
-              </div>
-            ))
+              )
+            })
           ) : (
             <div className="px-4 py-5 text-sm text-slate-500">
               История этапов по сделке пока не подтянута.

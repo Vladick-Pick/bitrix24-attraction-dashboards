@@ -27,19 +27,29 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: {
     getCurrentUser: vi.fn(async () => ({
       user: {
+        id: 1,
         login: 'admin',
         role: 'admin',
+        modules: [],
       },
       csrfToken: 'csrf-token',
     })),
     login: vi.fn(async () => ({
       user: {
+        id: 1,
         login: 'admin',
         role: 'admin',
+        modules: [],
       },
       csrfToken: 'csrf-token',
     })),
     logout: vi.fn(async () => undefined),
+    getCommentNotifications: vi.fn(async () => ({
+      notifications: [],
+    })),
+    getModuleUsers: vi.fn(async () => ({
+      users: [],
+    })),
     onUnauthorized: vi.fn((listener: () => void) => {
       mockState.unauthorizedListener = listener
       return () => {
@@ -871,8 +881,10 @@ describe('App', () => {
       .mockRejectedValueOnce(Object.assign(new Error('UNAUTHORIZED'), { status: 401 }))
       .mockResolvedValueOnce({
         user: {
+          id: 1,
           login: 'admin',
           role: 'admin',
+          modules: [],
         },
         csrfToken: 'csrf-token',
       })

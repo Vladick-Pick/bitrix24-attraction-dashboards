@@ -27,16 +27,27 @@ import type {
   TargetGroupConversionReport,
   TocFlowReport
 } from "@bitrix24-reporting/contracts";
+import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
 
 import type {
   AuthenticatedSession,
-  PasswordAuthService
+  AuthenticatedModule,
+  ModulePermission,
+  ModuleRole,
+  PasswordAuthService,
+  SqliteAuthStore
 } from "./auth.js";
-import { AuthError } from "./auth.js";
-import type { ProtoCommentStore } from "./sqlite-repository.js";
+import { AuthError, hashPassword } from "./auth.js";
+import type {
+  DashboardCommentContext,
+  DashboardCommentRecord,
+  PaperclipCommentStatus,
+  ProtoCommentStore
+} from "./sqlite-repository.js";
+import type { PaperclipIssueClient } from "./paperclip-client.js";
 
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
@@ -134,10 +145,43 @@ interface ProtoCommentsStore {
   replaceProtoComments(input: ProtoCommentStore): Promise<ProtoCommentStore>;
 }
 
+interface DashboardCommentsStore {
+  getDashboardComments(moduleId: string): Promise<{
+    comments: DashboardCommentRecord[];
+    updatedAt: string | null;
+  }>;
+  getDashboardCommentById(id: string): Promise<DashboardCommentRecord | null>;
+  createDashboardComment(input: DashboardCommentRecord): Promise<DashboardCommentRecord>;
+  updateDashboardComment(input: {
+    id: string;
+    text?: string;
+    context?: DashboardCommentContext;
+    updatedAt: string;
+  }): Promise<DashboardCommentRecord | null>;
+  archiveDashboardComment(input: {
+    id: string;
+    archivedAt: string;
+    updatedAt: string;
+  }): Promise<DashboardCommentRecord | null>;
+  updateDashboardCommentPaperclip(input: {
+    id: string;
+    paperclipIssueId?: string | null;
+    paperclipIssueIdentifier?: string | null;
+    paperclipStatus: PaperclipCommentStatus;
+    paperclipSyncStatus: "queued" | "syncing" | "sent" | "failed";
+    paperclipError?: string | null;
+    paperclipLastSyncedAt?: string | null;
+    incrementRetryCount?: boolean;
+  }): Promise<DashboardCommentRecord | null>;
+}
+
 interface AppConfig {
   webOrigin?: string;
   apiAuthToken?: string;
   auth?: PasswordAuthService;
+  authStore?: SqliteAuthStore;
+  comments?: DashboardCommentsStore;
+  paperclip?: PaperclipIssueClient;
   protoComments?: ProtoCommentsStore;
   jsonBodyLimit?: string;
   trustProxy?: string | boolean | number;
@@ -273,6 +317,39 @@ const protoCommentSchema = z.object({
 
 const protoCommentsBodySchema = z.object({
   comments: z.array(protoCommentSchema).max(500)
+});
+
+const commentContextSchema = z
+  .object({
+    filters: z.unknown().optional()
+  })
+  .catchall(z.unknown())
+  .optional();
+
+const createCommentBodySchema = z.object({
+  sceneId: z.string().trim().min(1).max(200),
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
+  text: z.string().trim().min(1).max(5000),
+  anchor: protoCommentAnchorSchema.optional(),
+  context: commentContextSchema
+});
+
+const updateCommentBodySchema = z.object({
+  text: z.string().trim().min(1).max(5000).optional(),
+  context: commentContextSchema
+});
+
+const createModuleUserBodySchema = z.object({
+  login: z.string().trim().email().max(200),
+  password: z.string().min(8).max(200),
+  role: z.enum(["leader", "employee"]).default("employee")
+});
+
+const updateModuleUserBodySchema = z.object({
+  role: z.enum(["leader", "employee"]).optional(),
+  disabled: z.boolean().optional(),
+  membershipStatus: z.enum(["active", "disabled"]).optional()
 });
 
 const revenueVelocityExtraQuerySchema = z.object({
@@ -536,6 +613,124 @@ function readSessionCookie(request: express.Request, cookieName: string) {
 
 function readAuthSession(response: express.Response) {
   return response.locals.authSession as AuthenticatedSession | undefined;
+}
+
+function getModuleAccess(
+  session: AuthenticatedSession | undefined,
+  moduleId = "attraction"
+): AuthenticatedModule | null {
+  return (
+    session?.user.modules.find(
+      (module) => module.id === moduleId || module.slug === moduleId
+    ) ?? null
+  );
+}
+
+function hasModulePermission(
+  module: AuthenticatedModule,
+  permission: ModulePermission
+) {
+  return module.permissions.includes(permission);
+}
+
+function requireModuleAccess(
+  response: express.Response,
+  permission?: ModulePermission
+) {
+  const session = readAuthSession(response);
+  const module = getModuleAccess(session);
+
+  if (!session || !module) {
+    return null;
+  }
+
+  if (permission && !hasModulePermission(module, permission)) {
+    return null;
+  }
+
+  return {
+    session,
+    module
+  };
+}
+
+function sanitizePaperclipText(value: string) {
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, "[redacted-phone]")
+    .replace(/BITRIX24_WEBHOOK_TOKEN\s*[:=]\s*\S+/gi, "BITRIX24_WEBHOOK_TOKEN=[redacted]");
+}
+
+function formatJsonForPaperclip(value: unknown) {
+  if (value === undefined || value === null) {
+    return "null";
+  }
+
+  return sanitizePaperclipText(JSON.stringify(value, null, 2));
+}
+
+function buildPaperclipIssueDescription(input: {
+  module: AuthenticatedModule;
+  authorLogin: string;
+  comment: DashboardCommentRecord;
+}) {
+  const anchor = input.comment.anchor
+    ? {
+        blockId: input.comment.anchor.blockId,
+        blockLabel: input.comment.anchor.blockLabel,
+        blockSelector: input.comment.anchor.blockSelector,
+        blockRole: input.comment.anchor.blockRole,
+        elementSelector: input.comment.anchor.elementSelector,
+        elementLabel: input.comment.anchor.elementLabel,
+        relativeX: input.comment.anchor.relativeX,
+        relativeY: input.comment.anchor.relativeY
+      }
+    : null;
+
+  return [
+    "## Dashboard Comment",
+    "",
+    `Module: ${input.module.slug}`,
+    `Author login: ${sanitizePaperclipText(input.authorLogin)}`,
+    `Scene: ${input.comment.sceneId}`,
+    "",
+    "### Anchor",
+    "",
+    "```json",
+    formatJsonForPaperclip(anchor),
+    "```",
+    "",
+    "### Filters And Range",
+    "",
+    "```json",
+    formatJsonForPaperclip(input.comment.context ?? null),
+    "```",
+    "",
+    "### Comment Text",
+    "",
+    sanitizePaperclipText(input.comment.text),
+    "",
+    "### Implementation Instructions",
+    "",
+    "- Work in the Bitrix24 attraction dashboard repository.",
+    "- Keep attraction manager scoping intact.",
+    "- Do not request SSH/root access as part of normal implementation.",
+    "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
+    "- Create a focused branch/PR through the normal GitHub/CI workflow."
+  ].join("\n");
+}
+
+function mapPaperclipIssueStatus(status: string | null | undefined): PaperclipCommentStatus {
+  if (status === "in_progress" || status === "in_review") {
+    return "in_work";
+  }
+  if (status === "blocked") {
+    return "needs_input";
+  }
+  if (status === "done" || status === "cancelled") {
+    return "done";
+  }
+  return "sent";
 }
 
 function writeSessionCookie(
@@ -886,6 +1081,91 @@ export function createApp(
     }
   });
 
+  async function deliverCommentToPaperclip(
+    comment: DashboardCommentRecord,
+    module: AuthenticatedModule
+  ) {
+    if (!config.comments) {
+      return comment;
+    }
+
+    if (!config.paperclip || !module.paperclipCompanyId) {
+      return config.comments.updateDashboardCommentPaperclip({
+        id: comment.id,
+        paperclipStatus: "failed",
+        paperclipSyncStatus: "failed",
+        paperclipError: "Paperclip integration is not configured.",
+        paperclipLastSyncedAt: new Date().toISOString()
+      });
+    }
+
+    try {
+      await config.comments.updateDashboardCommentPaperclip({
+        id: comment.id,
+        paperclipStatus: "queued",
+        paperclipSyncStatus: "syncing",
+        paperclipError: null
+      });
+      const issue = await config.paperclip.createIssue({
+        companyId: module.paperclipCompanyId,
+        projectId: module.paperclipProjectId,
+        goalId: module.paperclipGoalId,
+        assigneeAgentId: module.paperclipTriageAgentId,
+        title: `Dashboard comment: ${comment.anchor?.blockLabel ?? comment.sceneId}`,
+        description: buildPaperclipIssueDescription({
+          module,
+          authorLogin: comment.authorLogin,
+          comment
+        }),
+        priority: "medium"
+      });
+
+      return config.comments.updateDashboardCommentPaperclip({
+        id: comment.id,
+        paperclipIssueId: issue.id,
+        paperclipIssueIdentifier: issue.identifier,
+        paperclipStatus: mapPaperclipIssueStatus(issue.status),
+        paperclipSyncStatus: "sent",
+        paperclipError: null,
+        paperclipLastSyncedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Paperclip issue creation failed.";
+      return config.comments.updateDashboardCommentPaperclip({
+        id: comment.id,
+        paperclipStatus: "failed",
+        paperclipSyncStatus: "failed",
+        paperclipError: message,
+        paperclipLastSyncedAt: new Date().toISOString(),
+        incrementRetryCount: true
+      });
+    }
+  }
+
+  async function refreshCommentPaperclipStatus(comment: DashboardCommentRecord) {
+    if (!config.comments || !config.paperclip || !comment.paperclipIssueId) {
+      return comment;
+    }
+
+    try {
+      const issue = await config.paperclip.getIssue({
+        issueId: comment.paperclipIssueId
+      });
+      return config.comments.updateDashboardCommentPaperclip({
+        id: comment.id,
+        paperclipIssueId: issue.id || comment.paperclipIssueId,
+        paperclipIssueIdentifier: issue.identifier ?? comment.paperclipIssueIdentifier,
+        paperclipStatus: mapPaperclipIssueStatus(issue.status),
+        paperclipSyncStatus: "sent",
+        paperclipError: null,
+        paperclipLastSyncedAt: new Date().toISOString()
+      });
+    } catch {
+      return comment;
+    }
+  }
+
   app.get("/api/proto-comments", async (_request, response, next) => {
     if (!config.protoComments) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -924,6 +1204,298 @@ export function createApp(
           updatedAt: new Date().toISOString()
         })
       );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/comments", async (_request, response, next) => {
+    if (!config.comments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    const access = requireModuleAccess(response);
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      response.json(await config.comments.getDashboardComments(access.module.id));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/comments", async (request, response, next) => {
+    if (!config.comments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    const access = requireModuleAccess(response, "comments:create");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const payload = createCommentBodySchema.parse(request.body);
+      const now = new Date().toISOString();
+      const created = await config.comments.createDashboardComment({
+        id: randomUUID(),
+        moduleId: access.module.id,
+        authorUserId: access.session.user.id,
+        authorLogin: access.session.user.login,
+        sceneId: payload.sceneId,
+        x: payload.x,
+        y: payload.y,
+        text: payload.text,
+        status: "open",
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+        ...(payload.anchor ? { anchor: payload.anchor } : {}),
+        ...(payload.context ? { context: payload.context } : {}),
+        paperclipIssueId: null,
+        paperclipIssueIdentifier: null,
+        paperclipStatus: "queued",
+        paperclipSyncStatus: "queued",
+        paperclipError: null,
+        paperclipLastSyncedAt: null,
+        paperclipRetryCount: 0
+      });
+      const delivered = await deliverCommentToPaperclip(created, access.module);
+      response.status(201).json({ comment: delivered ?? created });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/comments/:id", async (request, response, next) => {
+    if (!config.comments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    const access = requireModuleAccess(response, "comments:update");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const existing = await config.comments.getDashboardCommentById(request.params.id);
+      if (!existing || existing.moduleId !== access.module.id) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      if (
+        existing.authorUserId !== access.session.user.id &&
+        access.module.role !== "leader"
+      ) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      const payload = updateCommentBodySchema.parse(request.body);
+      const comment = await config.comments.updateDashboardComment({
+        id: existing.id,
+        ...(payload.text ? { text: payload.text } : {}),
+        ...(payload.context ? { context: payload.context } : {}),
+        updatedAt: new Date().toISOString()
+      });
+      response.json({ comment });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/comments/:id/archive", async (request, response, next) => {
+    if (!config.comments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    const access = requireModuleAccess(response, "comments:archive");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const existing = await config.comments.getDashboardCommentById(request.params.id);
+      if (!existing || existing.moduleId !== access.module.id) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      const now = new Date().toISOString();
+      const comment = await config.comments.archiveDashboardComment({
+        id: existing.id,
+        archivedAt: now,
+        updatedAt: now
+      });
+      response.json({ comment });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/comments/:id/retry", async (request, response, next) => {
+    if (!config.comments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    const access = requireModuleAccess(response, "comments:create");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const existing = await config.comments.getDashboardCommentById(request.params.id);
+      if (!existing || existing.moduleId !== access.module.id) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      if (
+        existing.authorUserId !== access.session.user.id &&
+        access.module.role !== "leader"
+      ) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+      const delivered = await deliverCommentToPaperclip(existing, access.module);
+      response.json({ comment: delivered ?? existing });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/comment-notifications", async (_request, response, next) => {
+    if (!config.comments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    const access = requireModuleAccess(response);
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const store = await config.comments.getDashboardComments(access.module.id);
+      const refreshedComments = await Promise.all(
+        store.comments
+          .filter((comment) => (comment.status ?? "open") === "open")
+          .map(refreshCommentPaperclipStatus)
+      );
+      response.json({
+        notifications: refreshedComments
+          .filter((comment): comment is DashboardCommentRecord => Boolean(comment))
+          .map((comment) => ({
+            id: comment.id,
+            sceneId: comment.sceneId,
+            text: comment.text,
+            status: comment.paperclipStatus,
+            paperclipSyncStatus: comment.paperclipSyncStatus,
+            paperclipIssueIdentifier: comment.paperclipIssueIdentifier,
+            paperclipError: comment.paperclipError,
+            updatedAt: comment.updatedAt
+          }))
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/module-users", async (_request, response, next) => {
+    if (!config.authStore) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+    const access = requireModuleAccess(response, "module-users:manage");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      response.json({ users: await config.authStore.listModuleUsers(access.module.id) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/module-users", async (request, response, next) => {
+    if (!config.authStore) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+    const access = requireModuleAccess(response, "module-users:manage");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const payload = createModuleUserBodySchema.parse(request.body);
+      const user = await config.authStore.createUser({
+        login: payload.login,
+        passwordHash: await hashPassword(payload.password)
+      });
+      await config.authStore.setModuleMembership({
+        userId: user.id,
+        moduleId: access.module.id,
+        role: payload.role,
+        status: "active"
+      });
+      response.status(201).json({
+        user: await config.authStore.updateModuleUser({
+          userId: user.id,
+          moduleId: access.module.id
+        })
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/admin/module-users/:id", async (request, response, next) => {
+    if (!config.authStore) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+    const access = requireModuleAccess(response, "module-users:manage");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const userId = Number(request.params.id);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        response.status(400).json(createErrorResponse("VALIDATION_ERROR"));
+        return;
+      }
+      const payload = updateModuleUserBodySchema.parse(request.body);
+      const user = await config.authStore.updateModuleUser({
+        userId,
+        moduleId: access.module.id,
+        ...(payload.role ? { role: payload.role as ModuleRole } : {}),
+        ...(payload.disabled !== undefined ? { disabled: payload.disabled } : {}),
+        ...(payload.membershipStatus
+          ? { membershipStatus: payload.membershipStatus }
+          : {})
+      });
+      if (!user) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      response.json({ user });
     } catch (error) {
       next(error);
     }

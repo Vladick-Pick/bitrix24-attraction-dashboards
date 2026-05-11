@@ -44,7 +44,20 @@ import type {
   TocFlowReportSnapshot,
   TocStageDistribution,
 } from '@/lib/dashboard-types'
-import type { CommentStore, ProtoComment, ProtoCommentAnchor } from '@/proto/types'
+import type {
+  AuthModule,
+  AuthUser,
+  CommentNotification,
+  CommentStore,
+  ModulePermission,
+  ModuleRole,
+  ModuleUser,
+  PaperclipCommentStatus,
+  PaperclipSyncStatus,
+  ProtoComment,
+  ProtoCommentAnchor,
+  ProtoCommentContext,
+} from '@/proto/types'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
@@ -56,11 +69,6 @@ class ApiClientError extends Error {
     this.name = 'ApiClientError'
     this.status = status
   }
-}
-
-interface AuthUser {
-  login: string
-  role: 'admin'
 }
 
 interface AuthResponse {
@@ -108,6 +116,10 @@ function asNullableNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function asBoolean(value: unknown, fallback = false) {
+  return typeof value === 'boolean' ? value : fallback
+}
+
 function asArray<T>(value: unknown, mapper: (input: unknown) => T): T[] {
   return Array.isArray(value) ? value.map(mapper) : []
 }
@@ -124,11 +136,65 @@ function normalizeAuthResponse(value: unknown): AuthResponse {
 
   return {
     user: {
+      id: asNumber(user.id),
       login: asString(user.login),
       role: 'admin',
+      modules: asArray(user.modules, normalizeAuthModule).filter(
+        (module) => module.id && module.slug,
+      ),
     },
     csrfToken: asString(data.csrfToken),
   }
+}
+
+function normalizeModuleRole(value: unknown): ModuleRole {
+  return value === 'leader' ? 'leader' : 'employee'
+}
+
+function normalizeModulePermission(value: unknown): ModulePermission | null {
+  return value === 'comments:create' ||
+    value === 'comments:update' ||
+    value === 'comments:archive' ||
+    value === 'module-users:manage'
+    ? value
+    : null
+}
+
+function normalizeAuthModule(value: unknown): AuthModule {
+  const data = isRecord(value) ? value : {}
+  return {
+    id: asString(data.id),
+    slug: asString(data.slug),
+    name: asString(data.name),
+    role: normalizeModuleRole(data.role),
+    permissions: asArray(data.permissions, normalizeModulePermission).filter(
+      (permission): permission is ModulePermission => Boolean(permission),
+    ),
+    paperclipCompanyId: asNullableString(data.paperclipCompanyId),
+    paperclipProjectId: asNullableString(data.paperclipProjectId),
+    paperclipGoalId: asNullableString(data.paperclipGoalId),
+    paperclipTriageAgentId: asNullableString(data.paperclipTriageAgentId),
+  }
+}
+
+function normalizePaperclipCommentStatus(value: unknown): PaperclipCommentStatus {
+  return value === 'sent' ||
+    value === 'in_work' ||
+    value === 'needs_input' ||
+    value === 'done' ||
+    value === 'failed'
+    ? value
+    : 'queued'
+}
+
+function normalizePaperclipSyncStatus(value: unknown): PaperclipSyncStatus {
+  return value === 'syncing' || value === 'sent' || value === 'failed'
+    ? value
+    : 'queued'
+}
+
+function normalizeProtoCommentContext(value: unknown): ProtoCommentContext | undefined {
+  return isRecord(value) ? value : undefined
 }
 
 function normalizeProtoCommentAnchor(value: unknown): ProtoCommentAnchor | undefined {
@@ -163,6 +229,9 @@ function normalizeProtoComment(value: unknown): ProtoComment {
 
   const comment: ProtoComment = {
     id: asString(data.id),
+    moduleId: asString(data.moduleId),
+    authorUserId: asNullableNumber(data.authorUserId),
+    authorLogin: asNullableString(data.authorLogin),
     sceneId: asString(data.sceneId),
     x: asNumber(data.x),
     y: asNumber(data.y),
@@ -171,9 +240,22 @@ function normalizeProtoComment(value: unknown): ProtoComment {
     archivedAt: asNullableString(data.archivedAt),
     createdAt: asString(data.createdAt),
     updatedAt: asString(data.updatedAt),
+    paperclipIssueId: asNullableString(data.paperclipIssueId),
+    paperclipIssueIdentifier: asNullableString(data.paperclipIssueIdentifier),
+    paperclipStatus: normalizePaperclipCommentStatus(data.paperclipStatus),
+    paperclipSyncStatus: normalizePaperclipSyncStatus(data.paperclipSyncStatus),
+    paperclipError: asNullableString(data.paperclipError),
+    paperclipLastSyncedAt: asNullableString(data.paperclipLastSyncedAt),
+    paperclipRetryCount: asNumber(data.paperclipRetryCount),
   }
 
-  return anchor ? { ...comment, anchor } : comment
+  const context = normalizeProtoCommentContext(data.context)
+
+  return {
+    ...comment,
+    ...(anchor ? { anchor } : {}),
+    ...(context ? { context } : {}),
+  }
 }
 
 function normalizeCommentStore(value: unknown): CommentStore {
@@ -184,6 +266,64 @@ function normalizeCommentStore(value: unknown): CommentStore {
       (comment) => comment.id && comment.sceneId,
     ),
     updatedAt: asNullableString(data.updatedAt),
+  }
+}
+
+function normalizeCommentResponse(value: unknown) {
+  const data = isRecord(value) ? value : {}
+  return {
+    comment: normalizeProtoComment(data.comment),
+  }
+}
+
+function normalizeCommentNotification(value: unknown): CommentNotification {
+  const data = isRecord(value) ? value : {}
+  return {
+    id: asString(data.id),
+    sceneId: asString(data.sceneId),
+    text: asString(data.text),
+    status: normalizePaperclipCommentStatus(data.status),
+    paperclipSyncStatus: normalizePaperclipSyncStatus(data.paperclipSyncStatus),
+    paperclipIssueIdentifier: asNullableString(data.paperclipIssueIdentifier),
+    paperclipError: asNullableString(data.paperclipError),
+    updatedAt: asString(data.updatedAt),
+  }
+}
+
+function normalizeCommentNotificationsResponse(value: unknown) {
+  const data = isRecord(value) ? value : {}
+  return {
+    notifications: asArray(data.notifications, normalizeCommentNotification).filter(
+      (notification) => notification.id,
+    ),
+  }
+}
+
+function normalizeModuleUser(value: unknown): ModuleUser {
+  const data = isRecord(value) ? value : {}
+  return {
+    id: asNumber(data.id),
+    login: asString(data.login),
+    disabled: asBoolean(data.disabled),
+    moduleId: asString(data.moduleId),
+    moduleRole: normalizeModuleRole(data.moduleRole),
+    membershipStatus: data.membershipStatus === 'disabled' ? 'disabled' : 'active',
+    createdAt: asString(data.createdAt),
+    updatedAt: asString(data.updatedAt),
+  }
+}
+
+function normalizeModuleUsersResponse(value: unknown) {
+  const data = isRecord(value) ? value : {}
+  return {
+    users: asArray(data.users, normalizeModuleUser).filter((user) => user.id > 0),
+  }
+}
+
+function normalizeModuleUserResponse(value: unknown) {
+  const data = isRecord(value) ? value : {}
+  return {
+    user: normalizeModuleUser(data.user),
   }
 }
 
@@ -1975,6 +2115,101 @@ export const apiClient = {
         body: JSON.stringify({ comments }),
       },
       normalizeCommentStore,
+    )
+  },
+  async getComments() {
+    return requestJson(buildUrl('/api/comments'), { method: 'GET' }, normalizeCommentStore)
+  },
+  async createComment(input: {
+    sceneId: string
+    x: number
+    y: number
+    text: string
+    anchor?: ProtoCommentAnchor
+    context?: ProtoCommentContext
+  }) {
+    return requestJson(
+      buildUrl('/api/comments'),
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      normalizeCommentResponse,
+    )
+  },
+  async updateComment(
+    id: string,
+    input: {
+      text?: string
+      context?: ProtoCommentContext
+    },
+  ) {
+    return requestJson(
+      buildUrl(`/api/comments/${encodeURIComponent(id)}`),
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+      normalizeCommentResponse,
+    )
+  },
+  async archiveComment(id: string) {
+    return requestJson(
+      buildUrl(`/api/comments/${encodeURIComponent(id)}/archive`),
+      { method: 'POST' },
+      normalizeCommentResponse,
+    )
+  },
+  async retryComment(id: string) {
+    return requestJson(
+      buildUrl(`/api/comments/${encodeURIComponent(id)}/retry`),
+      { method: 'POST' },
+      normalizeCommentResponse,
+    )
+  },
+  async getCommentNotifications() {
+    return requestJson(
+      buildUrl('/api/comment-notifications'),
+      { method: 'GET' },
+      normalizeCommentNotificationsResponse,
+    )
+  },
+  async getModuleUsers() {
+    return requestJson(
+      buildUrl('/api/admin/module-users'),
+      { method: 'GET' },
+      normalizeModuleUsersResponse,
+    )
+  },
+  async createModuleUser(input: {
+    login: string
+    password: string
+    role: ModuleRole
+  }) {
+    return requestJson(
+      buildUrl('/api/admin/module-users'),
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      normalizeModuleUserResponse,
+    )
+  },
+  async updateModuleUser(
+    id: number,
+    input: {
+      role?: ModuleRole
+      disabled?: boolean
+      membershipStatus?: 'active' | 'disabled'
+    },
+  ) {
+    return requestJson(
+      buildUrl(`/api/admin/module-users/${id}`),
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+      normalizeModuleUserResponse,
     )
   },
   async getDashboard(query: DashboardQuery) {

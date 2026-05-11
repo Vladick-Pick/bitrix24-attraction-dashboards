@@ -12,6 +12,7 @@ This repository contains Bitrix24 attraction dashboards: local API, SQLite-backe
 - Never leave important work only in stash. If unrelated WIP blocks cleanup or implementation, move it to a clearly named backup branch/commit and report that branch before continuing.
 - Prefer small, reviewable changes over broad mixed commits.
 - Do not commit local runtime state, raw Codex comments, SQLite databases, secrets, or Bitrix snapshots.
+- Do not commit runtime Paperclip proof folders under `.paperclip/tasks/` unless an issue explicitly asks for durable evidence in git.
 - Convert prototype comments from `.codex/proto-comments/comments.json` into GitHub issues or `docs/backlog.md` items before implementation.
 - Use the Context7 MCP server frequently when library/framework/API documentation may affect implementation details or when current docs are needed.
 
@@ -37,6 +38,35 @@ This repository contains Bitrix24 attraction dashboards: local API, SQLite-backe
 - Generic implementation tasks: `worker_high`, `worker_xhigh`, or `worker_mini`.
 
 If a named preset is unavailable in the current runtime, emulate it with the closest built-in agent while preserving the preset's intent.
+
+## Paperclip Operating Layer
+- Paperclip company `Bitrix24 Dashboards` is configured as the agent runtime for dashboard comments and small maintenance work.
+- Versioned Paperclip operating docs live under `ops/paperclip/`; update these before changing live Paperclip instructions when feasible.
+- Active runtime agents are documented in `ops/paperclip/agents/README.md`; their canonical instruction bundles live under `ops/paperclip/agents/<agent-slug>/`.
+- The normal dashboard-comment workflow is: module ontology -> persisted dashboard comment -> Paperclip issue -> triage/spec -> specialist implementation -> proof artifacts -> fresh review -> PR/deploy -> status notification.
+- The normal workflow does not use SSH/root access. Server work requires an explicit release/devops or incident task with approval and redacted output.
+- Keep Paperclip dashboard notifications product-level in V1: sent, in work, needs input, done, failed. Do not expose Paperclip links in the dashboard unless a reviewed product issue changes that rule.
+
+## Module Ontology
+- Every business module must have `docs/modules/<module-key>/MODULE_ONTOLOGY.md` before broad automation or Paperclip delegation.
+- Module ontology must define entities, roles, states, data scope, report ownership, access boundaries, and privacy exclusions.
+- V1 module is `attraction`; use `docs/modules/attraction/MODULE_ONTOLOGY.md` as the current module contract.
+- Future modules may have different dashboard interfaces. Do not force new modules into the attraction UI if their workflow, metrics, or roles differ.
+- Shared platform changes must state which modules and roles they affect and how attraction behavior remains protected.
+
+## Paperclip Proof Loop
+- For non-trivial Paperclip development tasks, follow `ops/paperclip/proof-loop.md`.
+- Full proof mode is required for auth, RBAC, database, migrations, reporting SQL, Paperclip integration, production/deploy, cross-module, and multi-agent changes.
+- Required artifact names are `spec.md`, `evidence.md`, `evidence.json`, `verdict.json`, and `problems.md` under `.paperclip/tasks/<paperclip-issue-id>/` while working. Full proof mode also requires a durable handoff in the Paperclip issue or an explicitly tracked sanitized evidence folder before review.
+- Light mode is allowed only for small copy/UI-only changes and the reason must be documented in the issue.
+- Implementation and final verification should be separated by role or fresh context whenever practical.
+
+## Paperclip Team Evolution
+- Do not add agents just because a role can be named. Split a role only when it has distinct context, quality criteria, recurring deliverables, and enough task volume.
+- `Dashboard Engineering Manager` owns triage, planning, orchestration, final readiness, and agent-ops governance until volume justifies split-out roles.
+- Split out `Agent Operations Manager` when repeated process defects, stale skills/MCP config, or more than five Paperclip tasks per week make it useful.
+- Split out `Release / DevOps Agent` when deploys, server checks, or production incidents become recurring Paperclip work.
+- Self-correction is reactive after failures; self-improvement is periodic and proposal-based. Agents must not silently rewrite team rules, tools, skills, or MCP servers.
 
 ## Reporting Rules
 - All business dashboards must stay scoped to the agreed attraction manager whitelist unless an issue explicitly changes that rule.

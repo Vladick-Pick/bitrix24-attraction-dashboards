@@ -28,6 +28,50 @@ export interface AuthUser {
   disabled: boolean;
 }
 
+export type ModuleRole = "leader" | "employee";
+export type ModuleMembershipStatus = "active" | "disabled";
+export type ModulePermission =
+  | "comments:create"
+  | "comments:update"
+  | "comments:archive"
+  | "module-users:manage";
+
+export interface ModuleSeedInput {
+  id: string;
+  slug: string;
+  name: string;
+  bitrixCategoryId: string;
+  paperclipCompanyId?: string | null;
+  paperclipProjectId?: string | null;
+  paperclipGoalId?: string | null;
+  paperclipTriageAgentId?: string | null;
+}
+
+export interface AuthenticatedModule {
+  id: string;
+  slug: string;
+  name: string;
+  role: ModuleRole;
+  permissions: ModulePermission[];
+  bitrixCategoryId: string;
+  paperclipCompanyId: string | null;
+  paperclipProjectId: string | null;
+  paperclipGoalId: string | null;
+  paperclipTriageAgentId: string | null;
+}
+
+export interface ModuleUser {
+  id: number;
+  login: string;
+  disabled: boolean;
+  moduleId: string;
+  moduleSlug: string;
+  moduleRole: ModuleRole;
+  membershipStatus: ModuleMembershipStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AuthSession {
   tokenHash: string;
   userId: number;
@@ -77,12 +121,33 @@ export interface SqliteAuthStore {
   touchSession(input: { tokenHash: string; now: Date }): Promise<void>;
   deleteSession(tokenHash: string): Promise<void>;
   deleteExpiredSessions(now: Date): Promise<void>;
+  ensureModule(input: ModuleSeedInput): Promise<void>;
+  ensureDefaultModuleLeader(moduleId: string): Promise<void>;
+  listUserModules(userId: number): Promise<AuthenticatedModule[]>;
+  setModuleMembership(input: {
+    userId: number;
+    moduleId: string;
+    role: ModuleRole;
+    status: ModuleMembershipStatus;
+    now?: Date;
+  }): Promise<void>;
+  listModuleUsers(moduleId: string): Promise<ModuleUser[]>;
+  updateModuleUser(input: {
+    userId: number;
+    moduleId: string;
+    role?: ModuleRole;
+    disabled?: boolean;
+    membershipStatus?: ModuleMembershipStatus;
+    now?: Date;
+  }): Promise<ModuleUser | null>;
   close(): void;
 }
 
 export interface AuthenticatedUser {
+  id: number;
   login: string;
   role: "admin";
+  modules: AuthenticatedModule[];
 }
 
 export interface AuthenticatedSession {
@@ -277,6 +342,91 @@ function readAuthSession(row: unknown, sessionToken: string): AuthSession | null
   };
 }
 
+function normalizeModuleRole(value: string | null | undefined): ModuleRole {
+  return value === "leader" ? "leader" : "employee";
+}
+
+function normalizeModuleMembershipStatus(
+  value: string | null | undefined
+): ModuleMembershipStatus {
+  return value === "disabled" ? "disabled" : "active";
+}
+
+export function permissionsForModuleRole(role: ModuleRole): ModulePermission[] {
+  if (role === "leader") {
+    return [
+      "comments:create",
+      "comments:update",
+      "comments:archive",
+      "module-users:manage"
+    ];
+  }
+
+  return ["comments:create", "comments:update"];
+}
+
+function readAuthenticatedModule(row: unknown): AuthenticatedModule | null {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const data = row as {
+    id: string;
+    slug: string;
+    name: string;
+    role: string;
+    bitrixCategoryId: string;
+    paperclipCompanyId: string | null;
+    paperclipProjectId: string | null;
+    paperclipGoalId: string | null;
+    paperclipTriageAgentId: string | null;
+  };
+  const role = normalizeModuleRole(data.role);
+
+  return {
+    id: data.id,
+    slug: data.slug,
+    name: data.name,
+    role,
+    permissions: permissionsForModuleRole(role),
+    bitrixCategoryId: data.bitrixCategoryId,
+    paperclipCompanyId: data.paperclipCompanyId ?? null,
+    paperclipProjectId: data.paperclipProjectId ?? null,
+    paperclipGoalId: data.paperclipGoalId ?? null,
+    paperclipTriageAgentId: data.paperclipTriageAgentId ?? null
+  };
+}
+
+function readModuleUser(row: unknown): ModuleUser | null {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const data = row as {
+    id: number;
+    login: string;
+    disabled: number;
+    moduleId: string;
+    moduleSlug: string;
+    role: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+
+  return {
+    id: data.id,
+    login: data.login,
+    disabled: data.disabled === 1,
+    moduleId: data.moduleId,
+    moduleSlug: data.moduleSlug,
+    moduleRole: normalizeModuleRole(data.role),
+    membershipStatus: normalizeModuleMembershipStatus(data.status),
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt
+  };
+}
+
 export function createSqliteAuthStore(input: {
   databaseUrl: string;
 }): SqliteAuthStore {
@@ -314,6 +464,34 @@ export function createSqliteAuthStore(input: {
 
     CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_expires
       ON auth_sessions (user_id, expires_at);
+
+    CREATE TABLE IF NOT EXISTS modules (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      bitrix_category_id TEXT NOT NULL,
+      paperclip_company_id TEXT,
+      paperclip_project_id TEXT,
+      paperclip_goal_id TEXT,
+      paperclip_triage_agent_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS module_memberships (
+      user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+      module_id TEXT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, module_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_module_memberships_module_status
+      ON module_memberships (module_id, status);
+    CREATE INDEX IF NOT EXISTS idx_module_memberships_user_status
+      ON module_memberships (user_id, status);
   `);
 
   const createUserStatement = database.prepare(`
@@ -406,6 +584,140 @@ export function createSqliteAuthStore(input: {
     WHERE expires_at <= @now
       AND invalidated_at IS NULL
   `);
+  const ensureModuleStatement = database.prepare(`
+    INSERT INTO modules (
+      id,
+      slug,
+      name,
+      bitrix_category_id,
+      paperclip_company_id,
+      paperclip_project_id,
+      paperclip_goal_id,
+      paperclip_triage_agent_id,
+      created_at,
+      updated_at
+    ) VALUES (
+      @id,
+      @slug,
+      @name,
+      @bitrixCategoryId,
+      @paperclipCompanyId,
+      @paperclipProjectId,
+      @paperclipGoalId,
+      @paperclipTriageAgentId,
+      @createdAt,
+      @updatedAt
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      slug = excluded.slug,
+      name = excluded.name,
+      bitrix_category_id = excluded.bitrix_category_id,
+      paperclip_company_id = excluded.paperclip_company_id,
+      paperclip_project_id = excluded.paperclip_project_id,
+      paperclip_goal_id = excluded.paperclip_goal_id,
+      paperclip_triage_agent_id = excluded.paperclip_triage_agent_id,
+      updated_at = excluded.updated_at
+  `);
+  const listUserModulesStatement = database.prepare(`
+    SELECT
+      modules.id,
+      modules.slug,
+      modules.name,
+      module_memberships.role,
+      modules.bitrix_category_id AS bitrixCategoryId,
+      modules.paperclip_company_id AS paperclipCompanyId,
+      modules.paperclip_project_id AS paperclipProjectId,
+      modules.paperclip_goal_id AS paperclipGoalId,
+      modules.paperclip_triage_agent_id AS paperclipTriageAgentId
+    FROM module_memberships
+    INNER JOIN modules ON modules.id = module_memberships.module_id
+    WHERE module_memberships.user_id = ?
+      AND module_memberships.status = 'active'
+    ORDER BY modules.slug ASC
+  `);
+  const setModuleMembershipStatement = database.prepare(`
+    INSERT INTO module_memberships (
+      user_id,
+      module_id,
+      role,
+      status,
+      created_at,
+      updated_at
+    ) VALUES (
+      @userId,
+      @moduleId,
+      @role,
+      @status,
+      @createdAt,
+      @updatedAt
+    )
+    ON CONFLICT(user_id, module_id) DO UPDATE SET
+      role = excluded.role,
+      status = excluded.status,
+      updated_at = excluded.updated_at
+  `);
+  const listModuleUsersStatement = database.prepare(`
+    SELECT
+      auth_users.id,
+      auth_users.login,
+      auth_users.disabled,
+      modules.id AS moduleId,
+      modules.slug AS moduleSlug,
+      module_memberships.role,
+      module_memberships.status,
+      module_memberships.created_at AS createdAt,
+      module_memberships.updated_at AS updatedAt
+    FROM module_memberships
+    INNER JOIN auth_users ON auth_users.id = module_memberships.user_id
+    INNER JOIN modules ON modules.id = module_memberships.module_id
+    WHERE module_memberships.module_id = ?
+    ORDER BY auth_users.login ASC
+  `);
+  const updateAuthUserByIdStatement = database.prepare(`
+    UPDATE auth_users
+    SET disabled = @disabled,
+      disabled_at = @disabledAt,
+      updated_at = @updatedAt
+    WHERE id = @userId
+  `);
+  const updateModuleMembershipStatement = database.prepare(`
+    UPDATE module_memberships
+    SET role = COALESCE(@role, role),
+      status = COALESCE(@status, status),
+      updated_at = @updatedAt
+    WHERE user_id = @userId
+      AND module_id = @moduleId
+  `);
+  const getModuleUserStatement = database.prepare(`
+    SELECT
+      auth_users.id,
+      auth_users.login,
+      auth_users.disabled,
+      modules.id AS moduleId,
+      modules.slug AS moduleSlug,
+      module_memberships.role,
+      module_memberships.status,
+      module_memberships.created_at AS createdAt,
+      module_memberships.updated_at AS updatedAt
+    FROM module_memberships
+    INNER JOIN auth_users ON auth_users.id = module_memberships.user_id
+    INNER JOIN modules ON modules.id = module_memberships.module_id
+    WHERE module_memberships.user_id = ?
+      AND module_memberships.module_id = ?
+  `);
+  const activeModuleMembershipCountStatement = database.prepare(`
+    SELECT COUNT(*) AS count
+    FROM module_memberships
+    WHERE module_id = ?
+      AND status = 'active'
+  `);
+  const firstActiveUserStatement = database.prepare(`
+    SELECT id, login, password_hash, disabled
+    FROM auth_users
+    WHERE disabled = 0
+    ORDER BY id ASC
+    LIMIT 1
+  `);
 
   return {
     async createUser(inputUser) {
@@ -494,6 +806,92 @@ export function createSqliteAuthStore(input: {
         now: nowIso,
         invalidatedAt: nowIso
       });
+    },
+    async ensureModule(inputModule) {
+      const nowIso = toIso(new Date());
+      ensureModuleStatement.run({
+        id: inputModule.id,
+        slug: inputModule.slug,
+        name: inputModule.name,
+        bitrixCategoryId: inputModule.bitrixCategoryId,
+        paperclipCompanyId: inputModule.paperclipCompanyId ?? null,
+        paperclipProjectId: inputModule.paperclipProjectId ?? null,
+        paperclipGoalId: inputModule.paperclipGoalId ?? null,
+        paperclipTriageAgentId: inputModule.paperclipTriageAgentId ?? null,
+        createdAt: nowIso,
+        updatedAt: nowIso
+      });
+    },
+    async ensureDefaultModuleLeader(moduleId) {
+      const count = (
+        activeModuleMembershipCountStatement.get(moduleId) as { count: number }
+      ).count;
+      if (count > 0) {
+        return;
+      }
+
+      const user = readAuthUser(firstActiveUserStatement.get());
+      if (!user) {
+        return;
+      }
+
+      const nowIso = toIso(new Date());
+      setModuleMembershipStatement.run({
+        userId: user.id,
+        moduleId,
+        role: "leader",
+        status: "active",
+        createdAt: nowIso,
+        updatedAt: nowIso
+      });
+    },
+    async listUserModules(userId) {
+      return listUserModulesStatement
+        .all(userId)
+        .map(readAuthenticatedModule)
+        .filter((module): module is AuthenticatedModule => Boolean(module));
+    },
+    async setModuleMembership(inputMembership) {
+      const nowIso = toIso(inputMembership.now ?? new Date());
+      setModuleMembershipStatement.run({
+        userId: inputMembership.userId,
+        moduleId: inputMembership.moduleId,
+        role: inputMembership.role,
+        status: inputMembership.status,
+        createdAt: nowIso,
+        updatedAt: nowIso
+      });
+    },
+    async listModuleUsers(moduleId) {
+      return listModuleUsersStatement
+        .all(moduleId)
+        .map(readModuleUser)
+        .filter((user): user is ModuleUser => Boolean(user));
+    },
+    async updateModuleUser(inputUser) {
+      const nowIso = toIso(inputUser.now ?? new Date());
+      if (inputUser.disabled !== undefined) {
+        updateAuthUserByIdStatement.run({
+          userId: inputUser.userId,
+          disabled: inputUser.disabled ? 1 : 0,
+          disabledAt: inputUser.disabled ? nowIso : null,
+          updatedAt: nowIso
+        });
+      }
+
+      if (inputUser.role !== undefined || inputUser.membershipStatus !== undefined) {
+        updateModuleMembershipStatement.run({
+          userId: inputUser.userId,
+          moduleId: inputUser.moduleId,
+          role: inputUser.role ?? null,
+          status: inputUser.membershipStatus ?? null,
+          updatedAt: nowIso
+        });
+      }
+
+      return readModuleUser(
+        getModuleUserStatement.get(inputUser.userId, inputUser.moduleId)
+      );
     },
     close() {
       database.close();
@@ -597,8 +995,10 @@ export function createPasswordAuthService(input: {
 
       return {
         user: {
+          id: user.id,
           login: user.login,
-          role: "admin"
+          role: "admin",
+          modules: await input.store.listUserModules(user.id)
         },
         sessionToken,
         csrfToken,
@@ -631,8 +1031,10 @@ export function createPasswordAuthService(input: {
 
       return {
         user: {
+          id: session.userId,
           login: session.login,
-          role: "admin"
+          role: "admin",
+          modules: await input.store.listUserModules(session.userId)
         },
         sessionToken,
         tokenHash,

@@ -1,6 +1,6 @@
 import '@/proto/proto.css'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 
 import {
@@ -45,9 +45,14 @@ import {
 } from '@/proto/live-reporting'
 import type {
   CompareRange,
+  AuthUser,
+  CommentNotification,
+  ModuleRole,
+  ModuleUser,
   PickerOption,
   ProtoComment,
   ProtoCommentAnchor,
+  ProtoCommentContext,
   ProtoFilterState,
   ProtoKpi,
   ProtoRuntimeData,
@@ -55,6 +60,28 @@ import type {
 import { useProtoComments } from '@/proto/use-proto-comments'
 
 type CustomDashboardQuery = Extract<DashboardQuery, { preset: 'custom' }>
+
+type ProtoAppProps = {
+  currentUser?: AuthUser | null
+}
+
+const notificationLabels: Record<CommentNotification['status'], string> = {
+  queued: 'В очереди',
+  sent: 'Отправлено',
+  in_work: 'В работе',
+  needs_input: 'Нужно уточнение',
+  done: 'Готово',
+  failed: 'Ошибка',
+}
+
+const notificationClasses: Record<CommentNotification['status'], string> = {
+  queued: 'badge-neutral',
+  sent: 'badge-green',
+  in_work: 'badge-green',
+  needs_input: 'badge-neutral',
+  done: 'badge-green',
+  failed: 'badge-neutral',
+}
 
 function formatDateTime(value: string) {
   const date = new Date(value)
@@ -486,7 +513,7 @@ function MultiSelectField({
   )
 }
 
-export function ProtoApp() {
+export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [activeSceneId, setActiveSceneId] = useState(scenes[0]?.id ?? 'sales')
   const [commentMode, setCommentMode] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -513,6 +540,15 @@ export function ProtoApp() {
   const [pricingSettingsLoading, setPricingSettingsLoading] = useState(false)
   const [pricingSettingsSaving, setPricingSettingsSaving] = useState(false)
   const [pricingSettingsSaveError, setPricingSettingsSaveError] = useState<string | null>(null)
+  const [commentNotifications, setCommentNotifications] = useState<CommentNotification[]>([])
+  const [moduleUsers, setModuleUsers] = useState<ModuleUser[]>([])
+  const [moduleUsersStatus, setModuleUsersStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [moduleUsersError, setModuleUsersError] = useState<string | null>(null)
+  const [newModuleUser, setNewModuleUser] = useState({
+    login: '',
+    password: '',
+    role: 'employee' as ModuleRole,
+  })
   const [snapshotStats, setSnapshotStats] = useState<SnapshotStats | null>(null)
   const [lastSync, setLastSync] = useState<LastSyncSummary | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
@@ -533,9 +569,18 @@ export function ProtoApp() {
     status,
     error,
     upsertComment,
-    removeComment,
     archiveComment,
+    retryComment,
   } = useProtoComments()
+
+  const attractionModule = useMemo(
+    () => currentUser?.modules.find((module) => module.id === 'attraction') ?? null,
+    [currentUser],
+  )
+  const canArchiveComments =
+    attractionModule?.permissions.includes('comments:archive') === true
+  const canManageModuleUsers =
+    attractionModule?.permissions.includes('module-users:manage') === true
 
   const activeScene = useMemo(
     () => scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0]!,
@@ -579,11 +624,51 @@ export function ProtoApp() {
       ),
     [activeScene.id, comments],
   )
+  const notificationSummary = useMemo(() => {
+    const counts = new Map<CommentNotification['status'], number>()
+    for (const notification of commentNotifications) {
+      counts.set(notification.status, (counts.get(notification.status) ?? 0) + 1)
+    }
+
+    return Array.from(counts.entries())
+  }, [commentNotifications])
   const ActiveSceneComponent = activeScene.component
   const availableManagerOptions =
     runtimeData.managerOptions.length > 0 ? runtimeData.managerOptions : managerOptions
   const availableSourceOptions =
     runtimeData.sourceOptions.length > 0 ? runtimeData.sourceOptions : sourceOptions
+
+  const refreshCommentNotifications = useCallback(async () => {
+    try {
+      const response = await apiClient.getCommentNotifications()
+      setCommentNotifications(response.notifications)
+    } catch {
+      setCommentNotifications([])
+    }
+  }, [])
+
+  const refreshModuleUsers = useCallback(async () => {
+    if (!canManageModuleUsers) {
+      setModuleUsers([])
+      return
+    }
+
+    setModuleUsersStatus('loading')
+    setModuleUsersError(null)
+
+    try {
+      const response = await apiClient.getModuleUsers()
+      setModuleUsers(response.users)
+      setModuleUsersStatus('idle')
+    } catch (loadError) {
+      setModuleUsersStatus('error')
+      setModuleUsersError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Не удалось загрузить пользователей модуля',
+      )
+    }
+  }, [canManageModuleUsers])
 
   useEffect(() => {
     let cancelled = false
@@ -785,6 +870,14 @@ export function ProtoApp() {
       cancelled = true
     }
   }, [appliedFilters, salesPlanQuarter])
+
+  useEffect(() => {
+    void refreshCommentNotifications()
+  }, [refreshCommentNotifications])
+
+  useEffect(() => {
+    void refreshModuleUsers()
+  }, [refreshModuleUsers])
 
   useEffect(() => {
     let cancelled = false
@@ -1089,6 +1182,9 @@ export function ProtoApp() {
     }
 
     const now = new Date().toISOString()
+    const context: ProtoCommentContext = {
+      filters: appliedFilters,
+    }
     await upsertComment({
       id: draftComment.id ?? crypto.randomUUID(),
       sceneId: activeScene.id,
@@ -1101,7 +1197,9 @@ export function ProtoApp() {
       updatedAt: now,
       status: 'open',
       archivedAt: null,
+      context,
     })
+    await refreshCommentNotifications()
     setDraftComment(null)
     setCommentsOpen(false)
   }
@@ -1111,16 +1209,72 @@ export function ProtoApp() {
     setCommentsOpen(false)
   }
 
-  async function handleRemoveComment(commentId: string) {
-    await removeComment(commentId)
+  async function handleArchiveComment(commentId: string) {
+    await archiveComment(commentId)
+    await refreshCommentNotifications()
     setDraftComment(null)
     setCommentsOpen(false)
   }
 
-  async function handleArchiveComment(commentId: string) {
-    await archiveComment(commentId)
-    setDraftComment(null)
-    setCommentsOpen(false)
+  async function handleRetryComment(commentId: string) {
+    await retryComment(commentId)
+    await refreshCommentNotifications()
+  }
+
+  async function handleCreateModuleUser() {
+    const login = newModuleUser.login.trim()
+    const password = newModuleUser.password
+    if (!login || password.length < 8) {
+      setModuleUsersError('Логин и пароль от 8 символов обязательны.')
+      return
+    }
+
+    setModuleUsersStatus('loading')
+    setModuleUsersError(null)
+
+    try {
+      await apiClient.createModuleUser({
+        login,
+        password,
+        role: newModuleUser.role,
+      })
+      setNewModuleUser({
+        login: '',
+        password: '',
+        role: 'employee',
+      })
+      await refreshModuleUsers()
+    } catch (createError) {
+      setModuleUsersStatus('error')
+      setModuleUsersError(
+        createError instanceof Error
+          ? createError.message
+          : 'Не удалось создать пользователя',
+      )
+    }
+  }
+
+  async function handleUpdateModuleUser(
+    user: ModuleUser,
+    patch: { role?: ModuleRole; disabled?: boolean; membershipStatus?: 'active' | 'disabled' },
+  ) {
+    setModuleUsersStatus('loading')
+    setModuleUsersError(null)
+
+    try {
+      const response = await apiClient.updateModuleUser(user.id, patch)
+      setModuleUsers((current) =>
+        current.map((item) => (item.id === user.id ? response.user : item)),
+      )
+      setModuleUsersStatus('idle')
+    } catch (updateError) {
+      setModuleUsersStatus('error')
+      setModuleUsersError(
+        updateError instanceof Error
+          ? updateError.message
+          : 'Не удалось обновить пользователя',
+      )
+    }
   }
 
   return (
@@ -1179,6 +1333,22 @@ export function ProtoApp() {
             >
               {commentMode ? 'Выйти из comment mode' : 'Comment mode'}
             </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2" aria-live="polite">
+            <span className="subtle-label">Paperclip</span>
+            {notificationSummary.length === 0 ? (
+              <span className="badge-chip badge-neutral">Нет активных задач</span>
+            ) : (
+              notificationSummary.map(([notificationStatus, count]) => (
+                <span
+                  key={notificationStatus}
+                  className={cn('badge-chip', notificationClasses[notificationStatus])}
+                >
+                  {notificationLabels[notificationStatus]} · {count}
+                </span>
+              ))
+            )}
           </div>
 
           <div className="sync-strip mt-3" aria-live="polite">
@@ -1463,7 +1633,7 @@ export function ProtoApp() {
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="subtle-label">Локальные комментарии</div>
+              <div className="subtle-label">Комментарии модуля</div>
               <h2 className="mt-1 text-xl font-bold text-slate-900">{sceneComments.length} заметок</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {updatedAt
@@ -1512,7 +1682,7 @@ export function ProtoApp() {
               >
                 Отмена
               </button>
-              {draftComment?.id ? (
+              {draftComment?.id && canArchiveComments ? (
                 <button
                   className="btn btn-ghost"
                   onClick={() => void handleArchiveComment(draftComment.id!)}
@@ -1520,12 +1690,14 @@ export function ProtoApp() {
                   В архив
                 </button>
               ) : null}
-              {draftComment?.id ? (
+              {draftComment?.id &&
+              comments.find((comment) => comment.id === draftComment.id)
+                ?.paperclipSyncStatus === 'failed' ? (
                 <button
                   className="btn btn-ghost"
-                  onClick={() => void handleRemoveComment(draftComment.id!)}
+                  onClick={() => void handleRetryComment(draftComment.id!)}
                 >
-                  Удалить
+                  Повторить
                 </button>
               ) : null}
             </div>
@@ -1557,11 +1729,138 @@ export function ProtoApp() {
                       </div>
                     ) : null}
                     <div className="mt-1 text-xs text-slate-500">{formatDateTime(comment.updatedAt)}</div>
+                    {comment.paperclipStatus ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={cn(
+                            'badge-chip',
+                            notificationClasses[comment.paperclipStatus],
+                          )}
+                        >
+                          {notificationLabels[comment.paperclipStatus]}
+                        </span>
+                        {comment.paperclipSyncStatus === 'failed' ? (
+                          <span className="text-xs text-red-600">
+                            {comment.paperclipError ?? 'Paperclip недоступен'}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </button>
               ))
             )}
           </div>
+
+          {canManageModuleUsers ? (
+            <section className="border-t border-slate-200 pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="subtle-label">Доступы</div>
+                  <h3 className="mt-1 text-base font-bold text-slate-900">
+                    Пользователи модуля
+                  </h3>
+                </div>
+                <span className="badge-chip badge-neutral">{moduleUsersStatus}</span>
+              </div>
+              {moduleUsersError ? (
+                <p className="mt-2 text-sm text-red-600">{moduleUsersError}</p>
+              ) : null}
+
+              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <input
+                  className="field"
+                  type="email"
+                  placeholder="email"
+                  value={newModuleUser.login}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      login: event.target.value,
+                    }))
+                  }
+                />
+                <input
+                  className="field"
+                  type="password"
+                  placeholder="пароль"
+                  value={newModuleUser.password}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      password: event.target.value,
+                    }))
+                  }
+                />
+                <select
+                  className="field"
+                  value={newModuleUser.role}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      role: event.target.value as ModuleRole,
+                    }))
+                  }
+                >
+                  <option value="employee">Сотрудник</option>
+                  <option value="leader">Лидер</option>
+                </select>
+              </div>
+              <button
+                className="btn btn-primary mt-2"
+                onClick={() => void handleCreateModuleUser()}
+                disabled={moduleUsersStatus === 'loading'}
+              >
+                Добавить
+              </button>
+
+              <div className="mt-3 flex flex-col gap-2">
+                {moduleUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className="grid gap-2 rounded-xl border border-slate-200 bg-white/70 p-3 md:grid-cols-[minmax(0,1fr)_8rem_auto]"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-bold text-slate-900">
+                        {user.login}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {user.disabled || user.membershipStatus === 'disabled'
+                          ? 'Отключен'
+                          : 'Активен'}
+                      </div>
+                    </div>
+                    <select
+                      className="field"
+                      value={user.moduleRole}
+                      onChange={(event) =>
+                        void handleUpdateModuleUser(user, {
+                          role: event.target.value as ModuleRole,
+                        })
+                      }
+                    >
+                      <option value="employee">Сотрудник</option>
+                      <option value="leader">Лидер</option>
+                    </select>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() =>
+                        void handleUpdateModuleUser(user, {
+                          disabled: !user.disabled,
+                          membershipStatus:
+                            user.membershipStatus === 'active' ? 'disabled' : 'active',
+                        })
+                      }
+                    >
+                      {user.disabled || user.membershipStatus === 'disabled'
+                        ? 'Включить'
+                        : 'Отключить'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </aside>
 
         {sceneComments.map((comment, index) => (

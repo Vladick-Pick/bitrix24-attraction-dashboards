@@ -19,6 +19,7 @@ vi.mock('@hugeicons/core-free-icons', () => {
     'InformationCircleIcon',
     'Loading03Icon',
     'MultiplicationSignCircleIcon',
+    'Notification03Icon',
     'RefreshIcon',
     'SaleTag02Icon',
     'SearchIcon',

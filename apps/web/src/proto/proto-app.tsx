@@ -2,6 +2,8 @@ import '@/proto/proto.css'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
+import { Notification03Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 
 import {
   Command,
@@ -65,6 +67,8 @@ type ProtoAppProps = {
   currentUser?: AuthUser | null
 }
 
+type ProtoRoute = 'dashboard' | 'account'
+
 const notificationLabels: Record<CommentNotification['status'], string> = {
   queued: 'В очереди',
   sent: 'Отправлено',
@@ -83,12 +87,86 @@ const notificationClasses: Record<CommentNotification['status'], string> = {
   failed: 'badge-neutral',
 }
 
+const notificationSyncLabels: Record<CommentNotification['paperclipSyncStatus'], string> = {
+  queued: 'Ожидает отправки',
+  syncing: 'Синхронизация',
+  sent: 'Синхронизировано',
+  failed: 'Ошибка отправки',
+}
+
+function formatDevelopmentTeamError(value: string) {
+  return value.replace(/paperclip/gi, 'команда разработки')
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
     return value
   }
   return date.toLocaleString('ru-RU', { hour12: false })
+}
+
+function getUserDisplayName(user: AuthUser | null | undefined) {
+  if (!user) {
+    return ''
+  }
+
+  const fullName = [user.firstName, user.lastName]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(' ')
+
+  return fullName || user.login
+}
+
+function getUserInitials(user: AuthUser | null | undefined) {
+  const displayName = getUserDisplayName(user)
+  if (!displayName) {
+    return 'ЛК'
+  }
+
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+
+  return initials || 'ЛК'
+}
+
+function generateTemporaryPassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+  const bytes = new Uint32Array(14)
+
+  if (typeof window !== 'undefined' && window.crypto) {
+    window.crypto.getRandomValues(bytes)
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * alphabet.length)
+    }
+  }
+
+  return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join('')
+}
+
+function readProtoRoute(): ProtoRoute {
+  if (typeof window === 'undefined') {
+    return 'dashboard'
+  }
+
+  return window.location.pathname === '/account' ? 'account' : 'dashboard'
+}
+
+function writeProtoRoute(route: ProtoRoute) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const nextPath = route === 'account' ? '/account' : '/'
+  if (window.location.pathname !== nextPath) {
+    window.history.pushState({}, '', nextPath)
+  }
 }
 
 function formatCount(value: number) {
@@ -513,10 +591,127 @@ function MultiSelectField({
   )
 }
 
+type PaperclipNotificationsProps = {
+  notifications: CommentNotification[]
+  summary: Array<[CommentNotification['status'], number]>
+}
+
+function PaperclipNotifications({ notifications, summary }: PaperclipNotificationsProps) {
+  const totalCount = notifications.length
+  const countLabel = totalCount > 99 ? '99+' : String(totalCount)
+  const buttonLabel =
+    totalCount === 0
+      ? 'Уведомления команды разработки: нет активных задач'
+      : `Уведомления команды разработки: ${totalCount}`
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="btn btn-ghost relative h-12 w-12 rounded-2xl p-0 text-slate-800"
+          aria-label={buttonLabel}
+        >
+          <HugeiconsIcon
+            icon={Notification03Icon}
+            size={28}
+            strokeWidth={2.2}
+            aria-hidden="true"
+          />
+          {totalCount > 0 ? (
+            <span
+              className="absolute -right-1 -top-1 grid min-h-6 min-w-6 place-items-center rounded-full bg-slate-900 px-1.5 text-[0.7rem] font-bold leading-none text-white ring-2 ring-white"
+              aria-hidden="true"
+            >
+              {countLabel}
+            </span>
+          ) : null}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-[min(24rem,calc(100vw-2rem))] rounded-2xl p-4"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="subtle-label">Команда разработки</div>
+            <h2 className="mt-1 text-base font-bold text-slate-900">Уведомления</h2>
+          </div>
+          <span className="badge-chip badge-neutral">{totalCount}</span>
+        </div>
+
+        {summary.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {summary.map(([notificationStatus, count]) => (
+              <span
+                key={notificationStatus}
+                className={cn('badge-chip', notificationClasses[notificationStatus])}
+              >
+                {notificationLabels[notificationStatus]} · {count}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-600">
+            Нет активных задач команды разработки.
+          </div>
+        )}
+
+        {notifications.length > 0 ? (
+          <div className="grid max-h-[24rem] gap-2 overflow-auto pr-1">
+            {notifications.map((notification) => (
+              <article
+                key={notification.id}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className={cn('badge-chip', notificationClasses[notification.status])}>
+                    {notificationLabels[notification.status]}
+                  </span>
+                  <time className="text-xs font-semibold text-slate-500">
+                    {formatDateTime(notification.updatedAt)}
+                  </time>
+                </div>
+                <p className="mt-2 text-sm font-semibold text-slate-900">
+                  {notification.text}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                  <span>{notificationSyncLabels[notification.paperclipSyncStatus]}</span>
+                  {notification.paperclipIssueIdentifier ? (
+                    <span>{notification.paperclipIssueIdentifier}</span>
+                  ) : null}
+                </div>
+                {notification.paperclipError ? (
+                  <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">
+                    {formatDevelopmentTeamError(notification.paperclipError)}
+                  </p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
+  const [route, setRoute] = useState<ProtoRoute>(() => readProtoRoute())
   const [activeSceneId, setActiveSceneId] = useState(scenes[0]?.id ?? 'sales')
   const [commentMode, setCommentMode] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
+  const [accountUser, setAccountUser] = useState<AuthUser | null>(currentUser ?? null)
+  const [accountStatus, setAccountStatus] = useState<'idle' | 'saving' | 'error'>('idle')
+  const [accountMessage, setAccountMessage] = useState<string | null>(null)
+  const [profileDraft, setProfileDraft] = useState({
+    firstName: currentUser?.firstName ?? '',
+    lastName: currentUser?.lastName ?? '',
+  })
+  const [passwordDraft, setPasswordDraft] = useState({
+    currentPassword: '',
+    newPassword: '',
+  })
   const [filters, setFilters] = useState<ProtoFilterState>(() => createDefaultFilters())
   const [appliedFilters, setAppliedFilters] = useState<ProtoFilterState>(() => createDefaultFilters())
   const [salesPlanQuarter, setSalesPlanQuarter] = useState(() =>
@@ -545,10 +740,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [moduleUsersStatus, setModuleUsersStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [moduleUsersError, setModuleUsersError] = useState<string | null>(null)
   const [newModuleUser, setNewModuleUser] = useState({
+    firstName: '',
+    lastName: '',
     login: '',
     password: '',
     role: 'employee' as ModuleRole,
   })
+  const [createdCredentials, setCreatedCredentials] = useState<string | null>(null)
   const [snapshotStats, setSnapshotStats] = useState<SnapshotStats | null>(null)
   const [lastSync, setLastSync] = useState<LastSyncSummary | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
@@ -573,9 +771,26 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     retryComment,
   } = useProtoComments()
 
+  useEffect(() => {
+    function handlePopState() {
+      setRoute(readProtoRoute())
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    setAccountUser(currentUser ?? null)
+    setProfileDraft({
+      firstName: currentUser?.firstName ?? '',
+      lastName: currentUser?.lastName ?? '',
+    })
+  }, [currentUser])
+
   const attractionModule = useMemo(
-    () => currentUser?.modules.find((module) => module.id === 'attraction') ?? null,
-    [currentUser],
+    () => accountUser?.modules.find((module) => module.id === 'attraction') ?? null,
+    [accountUser],
   )
   const canArchiveComments =
     attractionModule?.permissions.includes('comments:archive') === true
@@ -637,6 +852,19 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     runtimeData.managerOptions.length > 0 ? runtimeData.managerOptions : managerOptions
   const availableSourceOptions =
     runtimeData.sourceOptions.length > 0 ? runtimeData.sourceOptions : sourceOptions
+
+  function navigateToAccount() {
+    writeProtoRoute('account')
+    setRoute('account')
+    setCommentsOpen(false)
+    setCommentMode(false)
+    setDraftComment(null)
+  }
+
+  function navigateToDashboard() {
+    writeProtoRoute('dashboard')
+    setRoute('dashboard')
+  }
 
   const refreshCommentNotifications = useCallback(async () => {
     try {
@@ -1221,6 +1449,72 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     await refreshCommentNotifications()
   }
 
+  async function handleSaveProfile() {
+    setAccountStatus('saving')
+    setAccountMessage(null)
+
+    try {
+      const response = await apiClient.updateCurrentUser({
+        firstName: profileDraft.firstName.trim() || null,
+        lastName: profileDraft.lastName.trim() || null,
+      })
+      setAccountUser(response.user)
+      setAccountStatus('idle')
+      setAccountMessage('Профиль обновлен.')
+    } catch (profileError) {
+      setAccountStatus('error')
+      setAccountMessage(
+        profileError instanceof Error ? profileError.message : 'Не удалось сохранить профиль.',
+      )
+    }
+  }
+
+  async function handleChangePassword() {
+    if (passwordDraft.newPassword.length < 8) {
+      setAccountStatus('error')
+      setAccountMessage('Новый пароль должен быть не короче 8 символов.')
+      return
+    }
+
+    setAccountStatus('saving')
+    setAccountMessage(null)
+
+    try {
+      await apiClient.changeCurrentPassword(passwordDraft)
+      setPasswordDraft({
+        currentPassword: '',
+        newPassword: '',
+      })
+      setAccountStatus('idle')
+      setAccountMessage('Пароль обновлен.')
+    } catch (passwordError) {
+      setAccountStatus('error')
+      setAccountMessage(
+        passwordError instanceof Error ? passwordError.message : 'Не удалось сменить пароль.',
+      )
+    }
+  }
+
+  function handleGeneratePassword() {
+    setNewModuleUser((current) => ({
+      ...current,
+      password: generateTemporaryPassword(),
+    }))
+  }
+
+  async function handleCopyCredentials() {
+    if (!createdCredentials) {
+      return
+    }
+
+    try {
+      await navigator.clipboard?.writeText(createdCredentials)
+      setModuleUsersError(null)
+    } catch {
+      setModuleUsersError('Не удалось скопировать доступы автоматически.')
+    }
+  }
+
   async function handleCreateModuleUser() {
     const login = newModuleUser.login.trim()
     const password = newModuleUser.password
@@ -1235,10 +1529,15 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     try {
       await apiClient.createModuleUser({
         login,
+        firstName: newModuleUser.firstName.trim() || null,
+        lastName: newModuleUser.lastName.trim() || null,
         password,
         role: newModuleUser.role,
       })
+      setCreatedCredentials(`Логин: ${login}\nПароль: ${password}`)
       setNewModuleUser({
+        firstName: '',
+        lastName: '',
         login: '',
         password: '',
         role: 'employee',
@@ -1256,7 +1555,14 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
   async function handleUpdateModuleUser(
     user: ModuleUser,
-    patch: { role?: ModuleRole; disabled?: boolean; membershipStatus?: 'active' | 'disabled' },
+    patch: {
+      firstName?: string | null
+      lastName?: string | null
+      password?: string
+      role?: ModuleRole
+      disabled?: boolean
+      membershipStatus?: 'active' | 'disabled'
+    },
   ) {
     setModuleUsersStatus('loading')
     setModuleUsersError(null)
@@ -1275,6 +1581,402 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           : 'Не удалось обновить пользователя',
       )
     }
+  }
+
+  async function handleDeleteModuleUser(user: ModuleUser) {
+    setModuleUsersStatus('loading')
+    setModuleUsersError(null)
+
+    try {
+      const response = await apiClient.deleteModuleUser(user.id)
+      setModuleUsers((current) =>
+        current.map((item) => (item.id === user.id ? response.user : item)),
+      )
+      setModuleUsersStatus('idle')
+    } catch (deleteError) {
+      setModuleUsersStatus('error')
+      setModuleUsersError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Не удалось удалить пользователя',
+      )
+    }
+  }
+
+  if (route === 'account') {
+    return (
+      <main className="px-4 py-6 md:px-8 md:py-8">
+        <div className="mx-auto flex w-full max-w-[1420px] flex-col gap-6">
+          <header className="panel p-4 md:p-5" data-no-comment="true">
+            <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto] lg:items-center">
+              <div>
+                <p className="subtle-label">Модуль «Привлечение»</p>
+                <h1 className="mt-1 text-3xl font-bold text-slate-900">
+                  Личный кабинет
+                </h1>
+                <p className="mt-1 text-sm text-slate-600">
+                  {accountUser ? getUserDisplayName(accountUser) : 'Пользователь не определен'}
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                <button type="button" className="btn btn-ghost" onClick={navigateToDashboard}>
+                  К дашборду
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {accountMessage ? (
+            <div
+              className={cn(
+                'rounded-xl border px-3 py-2 text-sm font-semibold',
+                accountStatus === 'error'
+                  ? 'border-red-200 bg-red-50 text-red-700'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700',
+              )}
+              role={accountStatus === 'error' ? 'alert' : 'status'}
+            >
+              {accountMessage}
+            </div>
+          ) : null}
+
+          <section className="panel grid gap-4 p-5">
+            <div>
+              <div className="subtle-label">Профиль</div>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">Имя и вход</h2>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1.5">
+                <span className="subtle-label">Имя</span>
+                <input
+                  className="field"
+                  value={profileDraft.firstName}
+                  onChange={(event) =>
+                    setProfileDraft((current) => ({
+                      ...current,
+                      firstName: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="subtle-label">Фамилия</span>
+                <input
+                  className="field"
+                  value={profileDraft.lastName}
+                  onChange={(event) =>
+                    setProfileDraft((current) => ({
+                      ...current,
+                      lastName: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <div className="subtle-label">Логин для входа</div>
+              <div className="mt-1 font-semibold text-slate-900">
+                {accountUser?.login ?? 'Нет активной сессии'}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary w-fit"
+              onClick={() => void handleSaveProfile()}
+              disabled={accountStatus === 'saving' || !accountUser}
+            >
+              Сохранить профиль
+            </button>
+          </section>
+
+          <section className="panel grid gap-4 p-5">
+            <div>
+              <div className="subtle-label">Пароль</div>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">Смена пароля</h2>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input
+                className="field"
+                type="password"
+                placeholder="текущий пароль"
+                value={passwordDraft.currentPassword}
+                onChange={(event) =>
+                  setPasswordDraft((current) => ({
+                    ...current,
+                    currentPassword: event.target.value,
+                  }))
+                }
+              />
+              <input
+                className="field"
+                type="password"
+                placeholder="новый пароль"
+                value={passwordDraft.newPassword}
+                onChange={(event) =>
+                  setPasswordDraft((current) => ({
+                    ...current,
+                    newPassword: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost w-fit"
+              onClick={() => void handleChangePassword()}
+              disabled={accountStatus === 'saving' || !passwordDraft.currentPassword}
+            >
+              Сменить пароль
+            </button>
+          </section>
+
+          <section className="panel grid gap-4 p-5">
+            <div>
+              <div className="subtle-label">Модуль</div>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">
+                {attractionModule?.name ?? 'Привлечение'}
+              </h2>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="subtle-label">Роль</div>
+                <div className="mt-1 font-semibold text-slate-900">
+                  {attractionModule?.role === 'leader' ? 'Лидер модуля' : 'Сотрудник'}
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="subtle-label">Slug</div>
+                <div className="mt-1 font-semibold text-slate-900">
+                  {attractionModule?.slug ?? 'attraction'}
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="subtle-label">Права</div>
+                <div className="mt-1 font-semibold text-slate-900">
+                  {attractionModule?.permissions.length ?? 0}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="panel grid gap-4 p-5">
+            <div>
+              <div className="subtle-label">Настройки модуля</div>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">Рабочие правила</h2>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-3">
+              {[
+                ['Менеджеры', 'Преднастройки фильтров'],
+                ['Контракты', 'Стоимость и тарифы'],
+                ['Воронки', 'Источник расчета'],
+              ].map(([title, label]) => (
+                <div
+                  key={title}
+                  className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3"
+                >
+                  <div className="subtle-label">{title}</div>
+                  <div className="mt-1 font-semibold text-slate-900">{label}</div>
+                  <span className="badge-chip badge-neutral mt-3">Запланировано</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {canManageModuleUsers ? (
+            <section className="panel grid gap-4 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="subtle-label">Команда</div>
+                  <h2 className="mt-1 text-xl font-bold text-slate-900">
+                    Пользователи модуля
+                  </h2>
+                </div>
+                <span className="badge-chip badge-neutral">{moduleUsersStatus}</span>
+              </div>
+              {moduleUsersError ? (
+                <p className="text-sm font-semibold text-red-600">{moduleUsersError}</p>
+              ) : null}
+
+              <div className="grid gap-2 md:grid-cols-2">
+                <input
+                  className="field"
+                  placeholder="имя"
+                  value={newModuleUser.firstName}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      firstName: event.target.value,
+                    }))
+                  }
+                />
+                <input
+                  className="field"
+                  placeholder="фамилия"
+                  value={newModuleUser.lastName}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      lastName: event.target.value,
+                    }))
+                  }
+                />
+                <input
+                  className="field"
+                  type="email"
+                  placeholder="логин email"
+                  value={newModuleUser.login}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      login: event.target.value,
+                    }))
+                  }
+                />
+                <div className="flex gap-2">
+                  <input
+                    className="field"
+                    type="text"
+                    placeholder="пароль"
+                    value={newModuleUser.password}
+                    onChange={(event) =>
+                      setNewModuleUser((current) => ({
+                        ...current,
+                        password: event.target.value,
+                      }))
+                    }
+                  />
+                  <button type="button" className="btn btn-ghost px-3" onClick={handleGeneratePassword}>
+                    Сгенерировать
+                  </button>
+                </div>
+                <select
+                  className="field"
+                  value={newModuleUser.role}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      role: event.target.value as ModuleRole,
+                    }))
+                  }
+                >
+                  <option value="employee">Сотрудник</option>
+                  <option value="leader">Лидер</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void handleCreateModuleUser()}
+                  disabled={moduleUsersStatus === 'loading'}
+                >
+                  Создать сотрудника
+                </button>
+              </div>
+
+              {createdCredentials ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <div className="subtle-label text-emerald-800">Новые доступы</div>
+                  <pre className="mt-2 whitespace-pre-wrap text-sm font-semibold text-emerald-950">
+                    {createdCredentials}
+                  </pre>
+                  <button
+                    type="button"
+                    className="btn btn-ghost mt-3"
+                    onClick={() => void handleCopyCredentials()}
+                  >
+                    Скопировать логин и пароль
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="grid gap-2">
+                {moduleUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 xl:grid-cols-[1.2fr_1fr_1fr_9rem_auto_auto]"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-bold text-slate-900">
+                        {user.login}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {user.disabled || user.membershipStatus === 'disabled'
+                          ? 'Удален'
+                          : 'Активен'}
+                      </div>
+                    </div>
+                    <input
+                      className="field"
+                      placeholder="имя"
+                      value={user.firstName ?? ''}
+                      onChange={(event) =>
+                        setModuleUsers((current) =>
+                          current.map((item) =>
+                            item.id === user.id
+                              ? { ...item, firstName: event.target.value }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                    <input
+                      className="field"
+                      placeholder="фамилия"
+                      value={user.lastName ?? ''}
+                      onChange={(event) =>
+                        setModuleUsers((current) =>
+                          current.map((item) =>
+                            item.id === user.id
+                              ? { ...item, lastName: event.target.value }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                    <select
+                      className="field"
+                      value={user.moduleRole}
+                      onChange={(event) =>
+                        setModuleUsers((current) =>
+                          current.map((item) =>
+                            item.id === user.id
+                              ? { ...item, moduleRole: event.target.value as ModuleRole }
+                              : item,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="employee">Сотрудник</option>
+                      <option value="leader">Лидер</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() =>
+                        void handleUpdateModuleUser(user, {
+                          firstName: user.firstName?.trim() || null,
+                          lastName: user.lastName?.trim() || null,
+                          role: user.moduleRole,
+                        })
+                      }
+                    >
+                      Обновить
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => void handleDeleteModuleUser(user)}
+                      disabled={user.disabled || user.membershipStatus === 'disabled'}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </main>
+    )
   }
 
   return (
@@ -1297,6 +1999,23 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+              <PaperclipNotifications
+                notifications={commentNotifications}
+                summary={notificationSummary}
+              />
+              {accountUser ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost gap-2"
+                  onClick={navigateToAccount}
+                  aria-label="Личный кабинет"
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                    {getUserInitials(accountUser)}
+                  </span>
+                  <span>Личный кабинет</span>
+                </button>
+              ) : null}
               <span className="badge-chip badge-neutral">Desktop only</span>
               <span className="badge-chip badge-green">
                 {activeScene.id === 'sales'
@@ -1333,22 +2052,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             >
               {commentMode ? 'Выйти из comment mode' : 'Comment mode'}
             </button>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2" aria-live="polite">
-            <span className="subtle-label">Paperclip</span>
-            {notificationSummary.length === 0 ? (
-              <span className="badge-chip badge-neutral">Нет активных задач</span>
-            ) : (
-              notificationSummary.map(([notificationStatus, count]) => (
-                <span
-                  key={notificationStatus}
-                  className={cn('badge-chip', notificationClasses[notificationStatus])}
-                >
-                  {notificationLabels[notificationStatus]} · {count}
-                </span>
-              ))
-            )}
           </div>
 
           <div className="sync-strip mt-3" aria-live="polite">
@@ -1741,7 +2444,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                         </span>
                         {comment.paperclipSyncStatus === 'failed' ? (
                           <span className="text-xs text-red-600">
-                            {comment.paperclipError ?? 'Paperclip недоступен'}
+                            {comment.paperclipError
+                              ? formatDevelopmentTeamError(comment.paperclipError)
+                              : 'Команда разработки недоступна'}
                           </span>
                         ) : null}
                       </div>
@@ -1752,115 +2457,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             )}
           </div>
 
-          {canManageModuleUsers ? (
-            <section className="border-t border-slate-200 pt-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="subtle-label">Доступы</div>
-                  <h3 className="mt-1 text-base font-bold text-slate-900">
-                    Пользователи модуля
-                  </h3>
-                </div>
-                <span className="badge-chip badge-neutral">{moduleUsersStatus}</span>
-              </div>
-              {moduleUsersError ? (
-                <p className="mt-2 text-sm text-red-600">{moduleUsersError}</p>
-              ) : null}
-
-              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                <input
-                  className="field"
-                  type="email"
-                  placeholder="email"
-                  value={newModuleUser.login}
-                  onChange={(event) =>
-                    setNewModuleUser((current) => ({
-                      ...current,
-                      login: event.target.value,
-                    }))
-                  }
-                />
-                <input
-                  className="field"
-                  type="password"
-                  placeholder="пароль"
-                  value={newModuleUser.password}
-                  onChange={(event) =>
-                    setNewModuleUser((current) => ({
-                      ...current,
-                      password: event.target.value,
-                    }))
-                  }
-                />
-                <select
-                  className="field"
-                  value={newModuleUser.role}
-                  onChange={(event) =>
-                    setNewModuleUser((current) => ({
-                      ...current,
-                      role: event.target.value as ModuleRole,
-                    }))
-                  }
-                >
-                  <option value="employee">Сотрудник</option>
-                  <option value="leader">Лидер</option>
-                </select>
-              </div>
-              <button
-                className="btn btn-primary mt-2"
-                onClick={() => void handleCreateModuleUser()}
-                disabled={moduleUsersStatus === 'loading'}
-              >
-                Добавить
-              </button>
-
-              <div className="mt-3 flex flex-col gap-2">
-                {moduleUsers.map((user) => (
-                  <div
-                    key={user.id}
-                    className="grid gap-2 rounded-xl border border-slate-200 bg-white/70 p-3 md:grid-cols-[minmax(0,1fr)_8rem_auto]"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-bold text-slate-900">
-                        {user.login}
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {user.disabled || user.membershipStatus === 'disabled'
-                          ? 'Отключен'
-                          : 'Активен'}
-                      </div>
-                    </div>
-                    <select
-                      className="field"
-                      value={user.moduleRole}
-                      onChange={(event) =>
-                        void handleUpdateModuleUser(user, {
-                          role: event.target.value as ModuleRole,
-                        })
-                      }
-                    >
-                      <option value="employee">Сотрудник</option>
-                      <option value="leader">Лидер</option>
-                    </select>
-                    <button
-                      className="btn btn-ghost"
-                      onClick={() =>
-                        void handleUpdateModuleUser(user, {
-                          disabled: !user.disabled,
-                          membershipStatus:
-                            user.membershipStatus === 'active' ? 'disabled' : 'active',
-                        })
-                      }
-                    >
-                      {user.disabled || user.membershipStatus === 'disabled'
-                        ? 'Включить'
-                        : 'Отключить'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
         </aside>
 
         {sceneComments.map((comment, index) => (

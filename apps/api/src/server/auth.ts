@@ -24,6 +24,8 @@ const DUMMY_PASSWORD_HASH =
 export interface AuthUser {
   id: number;
   login: string;
+  firstName: string | null;
+  lastName: string | null;
   passwordHash: string;
   disabled: boolean;
 }
@@ -63,6 +65,8 @@ export interface AuthenticatedModule {
 export interface ModuleUser {
   id: number;
   login: string;
+  firstName: string | null;
+  lastName: string | null;
   disabled: boolean;
   moduleId: string;
   moduleSlug: string;
@@ -76,6 +80,8 @@ export interface AuthSession {
   tokenHash: string;
   userId: number;
   login: string;
+  firstName: string | null;
+  lastName: string | null;
   csrfTokenHash: string;
   expiresAt: string;
   lastSeenAt: string;
@@ -85,6 +91,8 @@ export interface AuthSession {
 
 export interface AuthUserInput {
   login: string;
+  firstName?: string | null;
+  lastName?: string | null;
   passwordHash: string;
   disabled?: boolean;
   now?: Date;
@@ -101,6 +109,12 @@ export interface AuthSessionInput {
 
 export interface SqliteAuthStore {
   createUser(input: AuthUserInput): Promise<AuthUser>;
+  updateUserProfile(input: {
+    userId: number;
+    firstName?: string | null;
+    lastName?: string | null;
+    now?: Date;
+  }): Promise<AuthUser | null>;
   resetPassword(input: {
     login: string;
     passwordHash: string;
@@ -135,6 +149,9 @@ export interface SqliteAuthStore {
   updateModuleUser(input: {
     userId: number;
     moduleId: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    passwordHash?: string;
     role?: ModuleRole;
     disabled?: boolean;
     membershipStatus?: ModuleMembershipStatus;
@@ -146,6 +163,8 @@ export interface SqliteAuthStore {
 export interface AuthenticatedUser {
   id: number;
   login: string;
+  firstName: string | null;
+  lastName: string | null;
   role: "admin";
   modules: AuthenticatedModule[];
 }
@@ -303,6 +322,8 @@ function readAuthUser(row: unknown): AuthUser | null {
   const data = row as {
     id: number;
     login: string;
+    first_name: string | null;
+    last_name: string | null;
     password_hash: string;
     disabled: number;
   };
@@ -310,6 +331,8 @@ function readAuthUser(row: unknown): AuthUser | null {
   return {
     id: data.id,
     login: data.login,
+    firstName: data.first_name ?? null,
+    lastName: data.last_name ?? null,
     passwordHash: data.password_hash,
     disabled: data.disabled === 1
   };
@@ -324,6 +347,8 @@ function readAuthSession(row: unknown, sessionToken: string): AuthSession | null
     token_hash: string;
     user_id: number;
     login: string;
+    first_name: string | null;
+    last_name: string | null;
     csrf_token_hash: string;
     expires_at: string;
     last_seen_at: string;
@@ -334,6 +359,8 @@ function readAuthSession(row: unknown, sessionToken: string): AuthSession | null
     tokenHash: data.token_hash,
     userId: data.user_id,
     login: data.login,
+    firstName: data.first_name ?? null,
+    lastName: data.last_name ?? null,
     csrfTokenHash: data.csrf_token_hash,
     expiresAt: data.expires_at,
     lastSeenAt: data.last_seen_at,
@@ -405,6 +432,8 @@ function readModuleUser(row: unknown): ModuleUser | null {
   const data = row as {
     id: number;
     login: string;
+    firstName: string | null;
+    lastName: string | null;
     disabled: number;
     moduleId: string;
     moduleSlug: string;
@@ -417,6 +446,8 @@ function readModuleUser(row: unknown): ModuleUser | null {
   return {
     id: data.id,
     login: data.login,
+    firstName: data.firstName ?? null,
+    lastName: data.lastName ?? null,
     disabled: data.disabled === 1,
     moduleId: data.moduleId,
     moduleSlug: data.moduleSlug,
@@ -425,6 +456,21 @@ function readModuleUser(row: unknown): ModuleUser | null {
     createdAt: data.createdAt,
     updatedAt: data.updatedAt
   };
+}
+
+function ensureAuthColumn(
+  database: Database.Database,
+  tableName: string,
+  columnName: string,
+  definition: string
+) {
+  const columns = database
+    .prepare(`PRAGMA table_info(${tableName})`)
+    .all() as Array<{ name: string }>;
+
+  if (!columns.some((column) => column.name === columnName)) {
+    database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
 }
 
 export function createSqliteAuthStore(input: {
@@ -443,6 +489,8 @@ export function createSqliteAuthStore(input: {
     CREATE TABLE IF NOT EXISTS auth_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       login TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      first_name TEXT,
+      last_name TEXT,
       password_hash TEXT NOT NULL,
       disabled INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
@@ -494,9 +542,14 @@ export function createSqliteAuthStore(input: {
       ON module_memberships (user_id, status);
   `);
 
+  ensureAuthColumn(database, "auth_users", "first_name", "TEXT");
+  ensureAuthColumn(database, "auth_users", "last_name", "TEXT");
+
   const createUserStatement = database.prepare(`
     INSERT INTO auth_users (
       login,
+      first_name,
+      last_name,
       password_hash,
       disabled,
       created_at,
@@ -504,6 +557,8 @@ export function createSqliteAuthStore(input: {
       disabled_at
     ) VALUES (
       @login,
+      @firstName,
+      @lastName,
       @passwordHash,
       @disabled,
       @createdAt,
@@ -512,9 +567,21 @@ export function createSqliteAuthStore(input: {
     )
   `);
   const findUserByLoginStatement = database.prepare(`
-    SELECT id, login, password_hash, disabled
+    SELECT id, login, first_name, last_name, password_hash, disabled
     FROM auth_users
     WHERE login = ?
+  `);
+  const findUserByIdStatement = database.prepare(`
+    SELECT id, login, first_name, last_name, password_hash, disabled
+    FROM auth_users
+    WHERE id = ?
+  `);
+  const updateAuthUserProfileStatement = database.prepare(`
+    UPDATE auth_users
+    SET first_name = @firstName,
+      last_name = @lastName,
+      updated_at = @updatedAt
+    WHERE id = @userId
   `);
   const resetPasswordStatement = database.prepare(`
     UPDATE auth_users
@@ -559,6 +626,8 @@ export function createSqliteAuthStore(input: {
       auth_sessions.token_hash,
       auth_sessions.user_id,
       auth_users.login,
+      auth_users.first_name,
+      auth_users.last_name,
       auth_sessions.csrf_token_hash,
       auth_sessions.expires_at,
       auth_sessions.last_seen_at,
@@ -660,6 +729,8 @@ export function createSqliteAuthStore(input: {
     SELECT
       auth_users.id,
       auth_users.login,
+      auth_users.first_name AS firstName,
+      auth_users.last_name AS lastName,
       auth_users.disabled,
       modules.id AS moduleId,
       modules.slug AS moduleSlug,
@@ -675,8 +746,21 @@ export function createSqliteAuthStore(input: {
   `);
   const updateAuthUserByIdStatement = database.prepare(`
     UPDATE auth_users
-    SET disabled = @disabled,
-      disabled_at = @disabledAt,
+    SET first_name = CASE
+        WHEN @profileChanged = 1 THEN @firstName
+        ELSE first_name
+      END,
+      last_name = CASE
+        WHEN @profileChanged = 1 THEN @lastName
+        ELSE last_name
+      END,
+      password_hash = COALESCE(@passwordHash, password_hash),
+      disabled = COALESCE(@disabled, disabled),
+      disabled_at = CASE
+        WHEN @disabled IS NULL THEN disabled_at
+        WHEN @disabled = 1 THEN @updatedAt
+        ELSE NULL
+      END,
       updated_at = @updatedAt
     WHERE id = @userId
   `);
@@ -692,6 +776,8 @@ export function createSqliteAuthStore(input: {
     SELECT
       auth_users.id,
       auth_users.login,
+      auth_users.first_name AS firstName,
+      auth_users.last_name AS lastName,
       auth_users.disabled,
       modules.id AS moduleId,
       modules.slug AS moduleSlug,
@@ -712,7 +798,7 @@ export function createSqliteAuthStore(input: {
       AND status = 'active'
   `);
   const firstActiveUserStatement = database.prepare(`
-    SELECT id, login, password_hash, disabled
+    SELECT id, login, first_name, last_name, password_hash, disabled
     FROM auth_users
     WHERE disabled = 0
     ORDER BY id ASC
@@ -726,6 +812,8 @@ export function createSqliteAuthStore(input: {
       const login = normalizeLogin(inputUser.login);
       createUserStatement.run({
         login,
+        firstName: inputUser.firstName ?? null,
+        lastName: inputUser.lastName ?? null,
         passwordHash: inputUser.passwordHash,
         disabled: inputUser.disabled ? 1 : 0,
         createdAt: nowIso,
@@ -739,6 +827,24 @@ export function createSqliteAuthStore(input: {
       }
 
       return user;
+    },
+    async updateUserProfile(inputUser) {
+      const nowIso = toIso(inputUser.now ?? new Date());
+      const existing = readAuthUser(findUserByIdStatement.get(inputUser.userId));
+      if (!existing) {
+        return null;
+      }
+
+      updateAuthUserProfileStatement.run({
+        userId: inputUser.userId,
+        firstName:
+          inputUser.firstName !== undefined ? inputUser.firstName : existing.firstName,
+        lastName:
+          inputUser.lastName !== undefined ? inputUser.lastName : existing.lastName,
+        updatedAt: nowIso
+      });
+
+      return readAuthUser(findUserByIdStatement.get(inputUser.userId));
     },
     async resetPassword(inputPassword) {
       const result = resetPasswordStatement.run({
@@ -870,11 +976,33 @@ export function createSqliteAuthStore(input: {
     },
     async updateModuleUser(inputUser) {
       const nowIso = toIso(inputUser.now ?? new Date());
-      if (inputUser.disabled !== undefined) {
+      const existing = readModuleUser(
+        getModuleUserStatement.get(inputUser.userId, inputUser.moduleId)
+      );
+      if (!existing) {
+        return null;
+      }
+
+      const profileChanged =
+        inputUser.firstName !== undefined || inputUser.lastName !== undefined;
+
+      if (
+        profileChanged ||
+        inputUser.passwordHash !== undefined ||
+        inputUser.disabled !== undefined
+      ) {
         updateAuthUserByIdStatement.run({
           userId: inputUser.userId,
-          disabled: inputUser.disabled ? 1 : 0,
-          disabledAt: inputUser.disabled ? nowIso : null,
+          profileChanged: profileChanged ? 1 : 0,
+          firstName:
+            inputUser.firstName !== undefined
+              ? inputUser.firstName
+              : existing?.firstName ?? null,
+          lastName:
+            inputUser.lastName !== undefined ? inputUser.lastName : existing?.lastName ?? null,
+          passwordHash: inputUser.passwordHash ?? null,
+          disabled:
+            inputUser.disabled === undefined ? null : inputUser.disabled ? 1 : 0,
           updatedAt: nowIso
         });
       }
@@ -997,6 +1125,8 @@ export function createPasswordAuthService(input: {
         user: {
           id: user.id,
           login: user.login,
+          firstName: user.firstName,
+          lastName: user.lastName,
           role: "admin",
           modules: await input.store.listUserModules(user.id)
         },
@@ -1033,6 +1163,8 @@ export function createPasswordAuthService(input: {
         user: {
           id: session.userId,
           login: session.login,
+          firstName: session.firstName,
+          lastName: session.lastName,
           role: "admin",
           modules: await input.store.listUserModules(session.userId)
         },

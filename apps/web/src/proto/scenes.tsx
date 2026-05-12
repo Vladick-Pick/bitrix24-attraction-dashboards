@@ -1759,7 +1759,11 @@ function parseTimelineTimestamp(value: string | null | undefined) {
   return Number.isFinite(timestamp) ? timestamp : null
 }
 
-function isDateInsideStageInterval(stage: DealStageTimelineEntry, dateValue: string | null | undefined) {
+function isDateInsideStageInterval(
+  stage: DealStageTimelineEntry,
+  dateValue: string | null | undefined,
+  isLastStage: boolean,
+) {
   const meetingAt = parseTimelineTimestamp(dateValue)
   const enteredAt = parseTimelineTimestamp(stage.enteredAt)
   const leftAt = parseTimelineTimestamp(stage.leftAt)
@@ -1768,17 +1772,30 @@ function isDateInsideStageInterval(stage: DealStageTimelineEntry, dateValue: str
     return false
   }
 
-  return meetingAt >= enteredAt && meetingAt <= leftAt
+  return meetingAt >= enteredAt && (isLastStage ? meetingAt <= leftAt : meetingAt < leftAt)
 }
 
-function getStageMeetingBadges(stage: DealStageTimelineEntry, meetingDateValue: string | null | undefined) {
+function getMeetingDateFallbackStageIndex(
+  stageTimeline: DealStageTimelineEntry[],
+  meetingDateValue: string | null | undefined,
+) {
+  return stageTimeline.findIndex((stage, index) =>
+    isDateInsideStageInterval(stage, meetingDateValue, index === stageTimeline.length - 1),
+  )
+}
+
+function getStageMeetingBadges(
+  stage: DealStageTimelineEntry,
+  meetingDateValue: string | null | undefined,
+  includeMeetingDateFallback: boolean,
+) {
   const badges: StageMeetingBadge[] = (stage.meetingEvents ?? []).map((meeting) => ({
     key: meeting.activityId,
     dateValue: meeting.timelineAt,
   }))
   const renderedDates = new Set(badges.map((badge) => formatShortDate(badge.dateValue)))
 
-  if (meetingDateValue && isDateInsideStageInterval(stage, meetingDateValue)) {
+  if (meetingDateValue && includeMeetingDateFallback) {
     const fallbackDate = formatShortDate(meetingDateValue)
 
     if (!renderedDates.has(fallbackDate)) {
@@ -1793,6 +1810,10 @@ function getStageMeetingBadges(stage: DealStageTimelineEntry, meetingDateValue: 
 }
 
 function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
+  const meetingDateFallbackStageIndex = getMeetingDateFallbackStageIndex(
+    deal.stageTimeline,
+    deal.meetingDateValue,
+  )
   const detailFields = [
     { label: 'Итоговое качество', value: deal.qualityValue ?? '—' },
     { label: 'Источник', value: deal.sourceLabel ?? '—' },
@@ -1883,8 +1904,12 @@ function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
         </div>
         <div className="divide-y divide-slate-100">
           {deal.stageTimeline.length > 0 ? (
-            deal.stageTimeline.map((stage) => {
-              const meetingBadges = getStageMeetingBadges(stage, deal.meetingDateValue)
+            deal.stageTimeline.map((stage, stageIndex) => {
+              const meetingBadges = getStageMeetingBadges(
+                stage,
+                deal.meetingDateValue,
+                stageIndex === meetingDateFallbackStageIndex,
+              )
 
               return (
                 <div
@@ -3135,6 +3160,10 @@ function formatDealSlaStatus(value: ManagerActionOutcomeDealDetail['sla']['sla1'
 }
 
 function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDetail }) {
+  const meetingDateFallbackStageIndex = getMeetingDateFallbackStageIndex(
+    deal.stageTimeline,
+    deal.meetingDateValue,
+  )
   const detailFields = [
     { label: 'Итоговое качество', value: deal.qualityValue ?? '—' },
     { label: 'Источник', value: deal.sourceLabel ?? '—' },
@@ -3194,8 +3223,12 @@ function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDeta
         </div>
         <div className="divide-y divide-slate-100">
           {deal.stageTimeline.length > 0 ? (
-            deal.stageTimeline.map((stage) => {
-              const meetingBadges = getStageMeetingBadges(stage, deal.meetingDateValue)
+            deal.stageTimeline.map((stage, stageIndex) => {
+              const meetingBadges = getStageMeetingBadges(
+                stage,
+                deal.meetingDateValue,
+                stageIndex === meetingDateFallbackStageIndex,
+              )
 
               return (
                 <div

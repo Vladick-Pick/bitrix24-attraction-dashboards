@@ -781,6 +781,79 @@ describe("buildManagerActionOutcomeReport", () => {
     expect(detail?.stageTimeline[0]?.stageName).toBe("Передана");
   });
 
+  it("uses a safe timeline label when a historical category stage is missing from the catalog", () => {
+    const report = buildManagerActionOutcomeReport({
+      range: {
+        from: "2026-01-01T00:00:00.000Z",
+        to: "2026-05-31T20:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      deals: [
+        {
+          id: "142306",
+          title: null,
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WORK",
+          stageSemanticId: "P",
+          opportunity: 300000,
+          assignedById: "78",
+          sourceId: null,
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          tariffValue: null,
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-02-07T09:00:00.000Z",
+          dateModify: "2026-05-07T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:WORK",
+          name: "В работе",
+          semanticId: "P",
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H-142306-MISSING-CATALOG-STAGE",
+          ownerId: "142306",
+          categoryId: "10",
+          stageId: "C10:UC_Z8RAZJ",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-03-07T09:00:00.000Z"
+        }
+      ],
+      activities: [],
+      calls: [],
+      managerDirectory: [{ id: "78", name: "Егоров Андрей" }]
+    });
+
+    const detail = report.cohortStatusRows[0]?.dealDetails[0];
+
+    expect(detail?.dealId).toBe("142306");
+    expect(detail?.stageTimeline[0]?.stageId).toBe("C10:UC_Z8RAZJ");
+    expect(detail?.stageTimeline[0]?.stageName).not.toBe("C10:UC_Z8RAZJ");
+    expect(detail?.stageTimeline[0]?.stageName).toBe("Этап недоступен");
+    expect(report.warnings).toContain(
+      "Некоторые исторические этапы отсутствуют в локальном справочнике стадий."
+    );
+  });
+
   it("includes no-touch deals in the SLA on-time denominator", () => {
     const report = buildManagerActionOutcomeReport({
       range: {

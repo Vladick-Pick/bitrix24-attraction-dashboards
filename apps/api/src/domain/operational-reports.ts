@@ -193,6 +193,9 @@ const UNSPECIFIED_BUSINESS_CLUB_LABEL = "Без бизнес-клуба зака
 const UNSPECIFIED_TARGET_GROUP = "UNSPECIFIED";
 const UNSPECIFIED_TARGET_GROUP_LABEL = "Без таргет-группы";
 const TASK_ACTIVITY_PROVIDER_IDS = new Set(["CRM_TODO", "CRM_TASKS_TASK"]);
+const MANAGER_ACTION_MISSING_STAGE_LABEL = "Этап недоступен";
+const MANAGER_ACTION_MISSING_STAGE_WARNING =
+  "Некоторые исторические этапы отсутствуют в локальном справочнике стадий.";
 
 const COHORT_RELATIVE_BUCKETS: Array<{
   key: CohortRelativeBucketKey;
@@ -1500,6 +1503,20 @@ function buildStageLookup(stageCatalog: StageCatalogEntry[]) {
   return lookup;
 }
 
+function resolveManagerActionStageName(
+  stageId: string,
+  stageLookup: Map<string, { stageName: string; sortOrder: number }>,
+  warnings: Set<string>
+) {
+  const stageName = stageLookup.get(stageId)?.stageName;
+  if (stageName) {
+    return stageName;
+  }
+
+  warnings.add(MANAGER_ACTION_MISSING_STAGE_WARNING);
+  return MANAGER_ACTION_MISSING_STAGE_LABEL;
+}
+
 function sortStageMetrics<T extends { stageId: string }>(
   rows: T[],
   stageLookup: Map<string, { stageName: string; sortOrder: number }>
@@ -2095,6 +2112,7 @@ function buildManagerActionStageTimeline(input: {
   stageLookup: Map<string, { stageName: string; sortOrder: number }>;
   terminalAt: string;
   meetingEvents: DealMeetingEvent[];
+  warnings: Set<string>;
 }): DealStageTimelineEntry[] {
   const rows =
     input.stageHistoryRows.length === 0
@@ -2114,7 +2132,11 @@ function buildManagerActionStageTimeline(input: {
 
     return {
       stageId: row.stageId,
-      stageName: input.stageLookup.get(row.stageId)?.stageName ?? row.stageId,
+      stageName: resolveManagerActionStageName(
+        row.stageId,
+        input.stageLookup,
+        input.warnings
+      ),
       enteredAt: row.createdTime,
       leftAt,
       durationHours: toDurationHours(row.createdTime, leftAt) ?? 0,
@@ -2162,6 +2184,7 @@ function buildManagerActionDealDetail(input: {
   deal: DealSnapshot;
   amount: number;
   stageLookup: Map<string, { stageName: string; sortOrder: number }>;
+  warnings: Set<string>;
   stageHistoryRows: StageHistorySnapshot[];
   sourceLabels: Map<string, string>;
   taskCreatedCount: number;
@@ -2191,7 +2214,11 @@ function buildManagerActionDealDetail(input: {
   return {
     dealId: input.deal.id,
     stageId: input.deal.stageId,
-    stageName: input.stageLookup.get(input.deal.stageId)?.stageName ?? input.deal.stageId,
+    stageName: resolveManagerActionStageName(
+      input.deal.stageId,
+      input.stageLookup,
+      input.warnings
+    ),
     amount: input.amount,
     dateCreate: input.deal.dateCreate,
     dateClosed: input.deal.dateClosed,
@@ -2225,7 +2252,8 @@ function buildManagerActionDealDetail(input: {
       stageHistoryRows: input.stageHistoryRows,
       stageLookup: input.stageLookup,
       terminalAt: input.terminalAt,
-      meetingEvents
+      meetingEvents,
+      warnings: input.warnings
     })
   };
 }
@@ -2242,6 +2270,7 @@ export function buildManagerActionOutcomeReport(
   const wonStageIds = new Set(input.wonStageIds);
   const pricingRules = input.pricingRules;
   const pricingWarnings = new Set<string>();
+  const stageWarnings = new Set<string>();
   const allowedCategoryIds = getAllowedCategoryIds(input.stageCatalog);
   const deals = input.deals.filter((deal) =>
     allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
@@ -2528,6 +2557,7 @@ export function buildManagerActionOutcomeReport(
       deal,
       amount: financialAmount,
       stageLookup,
+      warnings: stageWarnings,
       stageHistoryRows: stageHistoryMap.get(deal.id) ?? [],
       sourceLabels,
       taskCreatedCount,
@@ -2586,7 +2616,7 @@ export function buildManagerActionOutcomeReport(
 
   return {
     range: input.range,
-    warnings: Array.from(pricingWarnings),
+    warnings: Array.from(new Set([...pricingWarnings, ...stageWarnings])),
     cohortMonths: Array.from(cohortMonthCounts.entries())
       .map(([cohortMonth, totalCreatedDeals]) => ({
         cohortMonth,

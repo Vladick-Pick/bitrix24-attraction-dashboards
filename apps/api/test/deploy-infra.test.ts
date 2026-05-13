@@ -82,6 +82,24 @@ describe("production deployment infrastructure", () => {
     );
   });
 
+  it("installs and configures Caddy when no supported reverse proxy exists", () => {
+    const deployScript = readRepoFile("scripts/deploy-production.sh");
+    const ensureReverseProxy = deployScript.slice(
+      deployScript.indexOf("ensure_reverse_proxy()"),
+      deployScript.indexOf("wait_for_http_code()"),
+    );
+
+    expect(deployScript).toContain("install_caddy_reverse_proxy");
+    expect(deployScript).toContain("apt-get install -y --no-install-recommends caddy");
+    expect(deployScript).toContain("/etc/apt/sources.list.d/caddy-stable.list");
+    expect(ensureReverseProxy).toMatch(
+      /if ! install_caddy_reverse_proxy; then\s+return 1\s+fi\s+if ! ensure_caddy_reverse_proxy "\$public_host"; then\s+return 1\s+fi/,
+    );
+    expect(ensureReverseProxy).not.toContain(
+      "log \"Warning: no supported reverse proxy found; public health check may fail\"",
+    );
+  });
+
   it("fails runtime verification when non-proxy critical checks fail", () => {
     const deployScript = readRepoFile("scripts/deploy-production.sh");
     const verifyRuntime = deployScript.slice(

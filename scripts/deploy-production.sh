@@ -83,6 +83,74 @@ ensure_caddy_reverse_proxy() {
   fi
 }
 
+install_caddy_reverse_proxy() {
+  local keyring="/usr/share/keyrings/caddy-stable-archive-keyring.gpg"
+  local keyring_tmp="${keyring}.tmp"
+  local source_list="/etc/apt/sources.list.d/caddy-stable.list"
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: Caddy installation requires root deploy user"
+    return 1
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    log "Warning: systemctl unavailable; cannot install managed Caddy service"
+    return 1
+  fi
+  if ! command -v apt-get >/dev/null 2>&1; then
+    log "Warning: apt-get unavailable; cannot install Caddy reverse proxy"
+    return 1
+  fi
+
+  log "No supported reverse proxy found; installing Caddy"
+  if ! apt-get update; then
+    return 1
+  fi
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    debian-keyring \
+    debian-archive-keyring \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gpg; then
+    return 1
+  fi
+  if ! install -d -m 755 "$(dirname "$keyring")" "$(dirname "$source_list")"; then
+    return 1
+  fi
+
+  rm -f "$keyring_tmp"
+  if ! curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+    | gpg --dearmor -o "$keyring_tmp"; then
+    rm -f "$keyring_tmp"
+    return 1
+  fi
+  if ! mv "$keyring_tmp" "$keyring"; then
+    rm -f "$keyring_tmp"
+    return 1
+  fi
+  if ! chmod 644 "$keyring"; then
+    return 1
+  fi
+  if ! curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+    -o "$source_list"; then
+    return 1
+  fi
+  if ! chmod 644 "$source_list"; then
+    return 1
+  fi
+
+  if ! apt-get update; then
+    return 1
+  fi
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends caddy; then
+    return 1
+  fi
+  if ! command -v caddy >/dev/null 2>&1; then
+    log "Warning: Caddy install completed but caddy command is unavailable"
+    return 1
+  fi
+}
+
 ensure_reverse_proxy() {
   local public_host
 
@@ -103,7 +171,12 @@ ensure_reverse_proxy() {
     return $?
   fi
 
-  log "Warning: no supported reverse proxy found; public health check may fail"
+  if ! install_caddy_reverse_proxy; then
+    return 1
+  fi
+  if ! ensure_caddy_reverse_proxy "$public_host"; then
+    return 1
+  fi
 }
 
 wait_for_http_code() {

@@ -1859,6 +1859,66 @@ function getStageMeetingBadges(
   return badges
 }
 
+function hasStageCallSummary(summary: DealStageTimelineEntry['callSummary']) {
+  return Boolean(
+    summary &&
+      (summary.total > 0 ||
+        summary.incoming > 0 ||
+        summary.outgoing > 0 ||
+        summary.successful > 0 ||
+        summary.failed > 0 ||
+        summary.connectedOverThirtySeconds > 0),
+  )
+}
+
+function hasStageTaskSummary(summary: DealStageTimelineEntry['taskSummary']) {
+  return Boolean(summary && (summary.created > 0 || summary.closed > 0))
+}
+
+function StageTimelineInteractionBadges({
+  stage,
+  meetingBadges,
+}: {
+  stage: DealStageTimelineEntry
+  meetingBadges: StageMeetingBadge[]
+}) {
+  const callSummary = stage.callSummary
+  const taskSummary = stage.taskSummary
+  const showCalls = hasStageCallSummary(callSummary)
+  const showTasks = hasStageTaskSummary(taskSummary)
+
+  return (
+    <div className="mt-1 flex min-w-0 flex-wrap gap-1.5">
+      {meetingBadges.map((meeting) => (
+        <span
+          key={meeting.key}
+          className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold leading-tight text-amber-800"
+        >
+          Встреча {formatShortDate(meeting.dateValue)}
+        </span>
+      ))}
+      {showCalls && callSummary ? (
+        <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold leading-tight text-sky-800 ring-1 ring-sky-100">
+          Звонки {formatInteger(callSummary.total)} · {formatInteger(callSummary.incoming)} вход. ·{' '}
+          {formatInteger(callSummary.outgoing)} исход. ·{' '}
+          {formatInteger(callSummary.connectedOverThirtySeconds)} &gt;30с
+        </span>
+      ) : null}
+      {showTasks && taskSummary ? (
+        <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold leading-tight text-emerald-800 ring-1 ring-emerald-100">
+          Дела {formatInteger(taskSummary.created)} / {formatInteger(taskSummary.closed)}
+        </span>
+      ) : null}
+      <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-400">
+        Конверсии недоступны
+      </span>
+      <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-400">
+        Сообщения недоступны
+      </span>
+    </div>
+  )
+}
+
 function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
   const meetingDateResolution = resolveMeetingDateTimeline(
     deal.stageTimeline,
@@ -1948,7 +2008,7 @@ function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white/75">
-        <div className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+        <div className="hidden grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 sm:grid">
           <span>Этап</span>
           <span>Вход</span>
           <span className="text-right">Время</span>
@@ -1971,28 +2031,21 @@ function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
               return (
                 <div
                   key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
-                  className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
+                  data-stage-timeline-row
+                  className="grid grid-cols-1 gap-2 px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_7rem_6rem] sm:gap-3"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
-                    {meetingBadges.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {meetingBadges.map((meeting) => (
-                          <span
-                            key={meeting.key}
-                            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
-                          >
-                            Встреча {formatShortDate(meeting.dateValue)}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
+                    <StageTimelineInteractionBadges
+                      stage={stage}
+                      meetingBadges={meetingBadges}
+                    />
                     <div className="truncate text-xs text-slate-500">
                       до {formatShortDate(stage.leftAt)}
                     </div>
                   </div>
                   <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
-                  <span className="text-right font-semibold text-slate-900">
+                  <span className="text-left font-semibold text-slate-900 sm:text-right">
                     {formatSalesHours(stage.durationHours)}
                   </span>
                 </div>
@@ -3274,7 +3327,7 @@ function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDeta
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white/80">
-        <div className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+        <div className="hidden grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 sm:grid">
           <span>Этап</span>
           <span>Вход</span>
           <span className="text-right">Время</span>
@@ -3297,28 +3350,21 @@ function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDeta
               return (
                 <div
                   key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
-                  className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
+                  data-stage-timeline-row
+                  className="grid grid-cols-1 gap-2 px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_7rem_6rem] sm:gap-3"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
-                    {meetingBadges.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {meetingBadges.map((meeting) => (
-                          <span
-                            key={meeting.key}
-                            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
-                          >
-                            Встреча {formatShortDate(meeting.dateValue)}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
+                    <StageTimelineInteractionBadges
+                      stage={stage}
+                      meetingBadges={meetingBadges}
+                    />
                     <div className="truncate text-xs text-slate-500">
                       до {formatShortDate(stage.leftAt)}
                     </div>
                   </div>
                   <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
-                  <span className="text-right font-semibold text-slate-900">
+                  <span className="text-left font-semibold text-slate-900 sm:text-right">
                     {formatSalesHours(stage.durationHours)}
                   </span>
                 </div>

@@ -136,6 +136,8 @@ export interface DealStageTimelineEntry {
   enteredAt: string
   leftAt: string
   durationHours: number
+  callSummary?: DealCallSummary
+  taskSummary?: DealTaskSummary
   meetingEvents?: DealMeetingEvent[]
 }
 

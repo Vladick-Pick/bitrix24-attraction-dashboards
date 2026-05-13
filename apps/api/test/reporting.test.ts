@@ -200,14 +200,16 @@ describe("buildDashboard", () => {
         cycleDays: 58.04
       })
     );
-    expect(januaryResult.managerGroups[0]?.deals[0]?.stageTimeline.at(-1)).toEqual({
-      stageId: "C10:WON",
-      stageName: "Передано в клуб",
-      enteredAt: "2025-01-29T17:16:22+03:00",
-      leftAt: "2025-01-29T17:16:22+03:00",
-      durationHours: 0,
-      meetingEvents: []
-    });
+    expect(januaryResult.managerGroups[0]?.deals[0]?.stageTimeline.at(-1)).toEqual(
+      expect.objectContaining({
+        stageId: "C10:WON",
+        stageName: "Передано в клуб",
+        enteredAt: "2025-01-29T17:16:22+03:00",
+        leftAt: "2025-01-29T17:16:22+03:00",
+        durationHours: 0,
+        meetingEvents: []
+      })
+    );
   });
 
   it("builds a won-deal drilldown with cohort, call, task and stage timeline details", () => {
@@ -814,7 +816,7 @@ describe("buildDashboard", () => {
     });
 
     expect(result.managerGroups[0]?.deals[0]?.stageTimeline).toEqual([
-      {
+      expect.objectContaining({
         stageId: "C1:NEW",
         stageName: "New",
         enteredAt: "2026-03-10T10:00:00.000Z",
@@ -829,23 +831,268 @@ describe("buildDashboard", () => {
             completed: false
           }
         ]
-      },
-      {
+      }),
+      expect.objectContaining({
         stageId: "C1:CALL",
         stageName: "Call",
         enteredAt: "2026-03-14T10:00:00.000Z",
         leftAt: "2026-03-20T10:00:00.000Z",
         durationHours: 144,
         meetingEvents: []
-      },
-      {
+      }),
+      expect.objectContaining({
         stageId: "C1:WON",
         stageName: "Won",
         enteredAt: "2026-03-20T10:00:00.000Z",
         leftAt: "2026-03-20T10:00:00.000Z",
         durationHours: 0,
         meetingEvents: []
-      }
+      })
+    ]);
+  });
+
+  it("adds call and task summaries to each stage timeline entry by interval", () => {
+    const result = buildDashboard({
+      range: {
+        from: "2026-03-01T00:00:00.000Z",
+        to: "2026-03-31T23:59:59.999Z"
+      },
+      wonStageIds: ["C1:WON"],
+      leads: [],
+      deals: [
+        {
+          id: "D-STAGE-ACTIONS",
+          leadId: null,
+          categoryId: "1",
+          stageId: "C1:WON",
+          stageSemanticId: "S",
+          opportunity: 100000,
+          assignedById: "7",
+          sourceId: null,
+          qualityValue: null,
+          targetGroupValue: null,
+          tariffValue: null,
+          dateCreate: "2026-03-10T10:00:00.000Z",
+          dateModify: "2026-03-20T10:00:00.000Z",
+          dateClosed: "2026-03-20T10:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "1",
+          statusId: "C1:NEW",
+          name: "New",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "deal",
+          categoryId: "1",
+          statusId: "C1:CALL",
+          name: "Call",
+          semanticId: "P",
+          sortOrder: 20
+        },
+        {
+          entityType: "deal",
+          categoryId: "1",
+          statusId: "C1:WON",
+          name: "Won",
+          semanticId: "S",
+          sortOrder: 30
+        }
+      ],
+      stageHistory: [
+        {
+          id: "SH-STAGE-ACTIONS-1",
+          ownerId: "D-STAGE-ACTIONS",
+          categoryId: "1",
+          stageId: "C1:NEW",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-03-10T10:00:00.000Z"
+        },
+        {
+          id: "SH-STAGE-ACTIONS-2",
+          ownerId: "D-STAGE-ACTIONS",
+          categoryId: "1",
+          stageId: "C1:CALL",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-03-14T10:00:00.000Z"
+        },
+        {
+          id: "SH-STAGE-ACTIONS-3",
+          ownerId: "D-STAGE-ACTIONS",
+          categoryId: "1",
+          stageId: "C1:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-03-20T10:00:00.000Z"
+        }
+      ],
+      activities: [
+        {
+          id: "TASK-STAGE-A",
+          ownerTypeId: "2",
+          ownerId: "D-STAGE-ACTIONS",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "7",
+          createdTime: "2026-03-12T09:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-03-16T09:00:00.000Z",
+          completed: true,
+          completedTime: "2026-03-16T09:00:00.000Z"
+        },
+        {
+          id: "TASK-STAGE-B",
+          ownerTypeId: "2",
+          ownerId: "D-STAGE-ACTIONS",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "7",
+          createdTime: "2026-03-15T09:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-03-20T10:00:00.000Z",
+          completed: true,
+          completedTime: "2026-03-20T10:00:00.000Z"
+        },
+        {
+          id: "MEETING-STAGE",
+          ownerTypeId: "2",
+          ownerId: "D-STAGE-ACTIONS",
+          typeId: "1",
+          providerId: "CRM_MEETING",
+          responsibleId: "7",
+          createdTime: "2026-03-15T11:00:00.000Z",
+          deadline: "2026-03-17T11:00:00.000Z",
+          lastUpdated: "2026-03-15T11:00:00.000Z",
+          completed: false,
+          completedTime: null
+        }
+      ],
+      calls: [
+        {
+          id: "CALL-STAGE-NEW",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "2",
+          callStartDate: "2026-03-12T10:00:00.000Z",
+          callDurationSeconds: 20,
+          crmEntityType: "DEAL",
+          crmEntityId: "D-STAGE-ACTIONS",
+          callFailedCode: null
+        },
+        {
+          id: "CALL-STAGE-BOUNDARY",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "1",
+          callStartDate: "2026-03-14T10:00:00.000Z",
+          callDurationSeconds: 0,
+          crmEntityType: "DEAL",
+          crmEntityId: "D-STAGE-ACTIONS",
+          callFailedCode: "486"
+        },
+        {
+          id: "CALL-STAGE-WON",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "1",
+          callStartDate: "2026-03-20T10:00:00.000Z",
+          callDurationSeconds: 65,
+          crmEntityType: "DEAL",
+          crmEntityId: "D-STAGE-ACTIONS",
+          callFailedCode: "200"
+        }
+      ],
+      managerDirectory: [{ id: "7", name: "Анна Петрова" }]
+    });
+
+    expect(result.managerGroups[0]?.deals[0]).toEqual(
+      expect.objectContaining({
+        callSummary: {
+          total: 3,
+          incoming: 1,
+          outgoing: 2,
+          successful: 2,
+          failed: 1,
+          overThirtySeconds: 1,
+          connectedOverThirtySeconds: 1
+        },
+        taskSummary: {
+          created: 2,
+          closed: 2
+        }
+      })
+    );
+    expect(result.managerGroups[0]?.deals[0]?.stageTimeline).toEqual([
+      expect.objectContaining({
+        stageId: "C1:NEW",
+        callSummary: {
+          total: 1,
+          incoming: 1,
+          outgoing: 0,
+          successful: 1,
+          failed: 0,
+          overThirtySeconds: 0,
+          connectedOverThirtySeconds: 0
+        },
+        taskSummary: {
+          created: 1,
+          closed: 0
+        },
+        meetingEvents: []
+      }),
+      expect.objectContaining({
+        stageId: "C1:CALL",
+        callSummary: {
+          total: 1,
+          incoming: 0,
+          outgoing: 1,
+          successful: 0,
+          failed: 1,
+          overThirtySeconds: 0,
+          connectedOverThirtySeconds: 0
+        },
+        taskSummary: {
+          created: 1,
+          closed: 1
+        },
+        meetingEvents: [
+          {
+            activityId: "MEETING-STAGE",
+            createdAt: "2026-03-15T11:00:00.000Z",
+            timelineAt: "2026-03-15T11:00:00.000Z",
+            scheduledAt: "2026-03-17T11:00:00.000Z",
+            completed: false
+          }
+        ]
+      }),
+      expect.objectContaining({
+        stageId: "C1:WON",
+        callSummary: {
+          total: 1,
+          incoming: 0,
+          outgoing: 1,
+          successful: 1,
+          failed: 0,
+          overThirtySeconds: 1,
+          connectedOverThirtySeconds: 1
+        },
+        taskSummary: {
+          created: 0,
+          closed: 1
+        },
+        meetingEvents: []
+      })
     ]);
   });
 

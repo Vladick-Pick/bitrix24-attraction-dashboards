@@ -2118,6 +2118,11 @@ function buildManagerActionStageTimeline(input: {
       enteredAt: row.createdTime,
       leftAt,
       durationHours: toDurationHours(row.createdTime, leftAt) ?? 0,
+      callSummary: buildManagerActionCallSummary([]),
+      taskSummary: {
+        created: 0,
+        closed: 0
+      },
       meetingEvents: []
     };
   });

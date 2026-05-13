@@ -260,6 +260,37 @@ function buildCallSummary(calls: CallSnapshot[]): DealCallSummary {
   };
 }
 
+function emptyCallSummary(): DealCallSummary {
+  return buildCallSummary([]);
+}
+
+function emptyTaskSummary(): DealTaskSummary {
+  return {
+    created: 0,
+    closed: 0
+  };
+}
+
+function isWithinStageInterval(
+  value: string | null | undefined,
+  stage: DealStageTimelineEntry,
+  index: number,
+  timelineLength: number
+) {
+  const timestamp = toTimestamp(value);
+  const stageStart = toTimestamp(stage.enteredAt);
+  const stageEnd = toTimestamp(stage.leftAt);
+  const isLast = index === timelineLength - 1;
+
+  return (
+    Number.isFinite(timestamp) &&
+    Number.isFinite(stageStart) &&
+    Number.isFinite(stageEnd) &&
+    timestamp >= stageStart &&
+    (isLast ? timestamp <= stageEnd : timestamp < stageEnd)
+  );
+}
+
 function buildStageTimeline(input: {
   deal: DealSnapshot;
   stageHistoryRows: StageHistorySnapshot[];
@@ -276,7 +307,9 @@ function buildStageTimeline(input: {
         stageName: stageNames.get(deal.stageId) ?? deal.stageId,
         enteredAt: deal.dateCreate,
         leftAt: terminalAt,
-        durationHours: hoursBetween(deal.dateCreate, terminalAt)
+        durationHours: hoursBetween(deal.dateCreate, terminalAt),
+        callSummary: emptyCallSummary(),
+        taskSummary: emptyTaskSummary()
       }
     ];
   }
@@ -290,9 +323,50 @@ function buildStageTimeline(input: {
       stageName: stageNames.get(row.stageId) ?? row.stageId,
       enteredAt: row.createdTime,
       leftAt,
-      durationHours: hoursBetween(row.createdTime, leftAt)
+      durationHours: hoursBetween(row.createdTime, leftAt),
+      callSummary: emptyCallSummary(),
+      taskSummary: emptyTaskSummary()
     };
   });
+}
+
+function attachInteractionSummariesToStageTimeline(input: {
+  stageTimeline: DealStageTimelineEntry[];
+  calls: CallSnapshot[];
+  activities: ActivitySnapshot[];
+}) {
+  const dealTasks = input.activities.filter(
+    (activity) => !isCallActivity(activity) && !isMeetingActivity(activity)
+  );
+
+  return input.stageTimeline.map((stage, index) => ({
+    ...stage,
+    callSummary: buildCallSummary(
+      input.calls.filter((call) =>
+        isWithinStageInterval(call.callStartDate, stage, index, input.stageTimeline.length)
+      )
+    ),
+    taskSummary: {
+      created: dealTasks.filter((activity) =>
+        isWithinStageInterval(
+          activity.createdTime,
+          stage,
+          index,
+          input.stageTimeline.length
+        )
+      ).length,
+      closed: dealTasks.filter(
+        (activity) =>
+          activity.completed &&
+          isWithinStageInterval(
+            activity.completedTime,
+            stage,
+            index,
+            input.stageTimeline.length
+          )
+      ).length
+    }
+  }));
 }
 
 function attachMeetingEventsToStageTimeline(
@@ -496,13 +570,18 @@ export function buildDashboard(input: DashboardInput): DashboardData {
     const stageHistoryRows = stageHistoryByDeal.get(deal.id) ?? [];
     const source = resolveDealSource(deal, sourceLabels);
     const activities = activitiesByDeal.get(deal.id) ?? [];
+    const calls = callsByDeal.get(deal.id) ?? [];
     const meetingEvents = buildMeetingEvents(activities);
     const stageTimeline = attachMeetingEventsToStageTimeline(
-      buildStageTimeline({
-        deal,
-        stageHistoryRows,
-        stageNames,
-        terminalAt: wonAt
+      attachInteractionSummariesToStageTimeline({
+        stageTimeline: buildStageTimeline({
+          deal,
+          stageHistoryRows,
+          stageNames,
+          terminalAt: wonAt
+        }),
+        calls,
+        activities
       }),
       meetingEvents
     );
@@ -541,7 +620,7 @@ export function buildDashboard(input: DashboardInput): DashboardData {
             ? 0
             : round((cohort.cohortWonDeals / cohort.cohortCreatedDeals) * 100)
       },
-      callSummary: buildCallSummary(callsByDeal.get(deal.id) ?? []),
+      callSummary: buildCallSummary(calls),
       taskSummary: buildTaskSummary(activities),
       meetingSummary: buildMeetingSummary(activities),
       stageTimeline

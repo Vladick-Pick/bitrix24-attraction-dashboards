@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.9.0",
   "scripts": {
     "prepare:local": "node ./scripts/prepare-local-dev.mjs",
+    "check:paperclip-runtime": "node ./scripts/check-paperclip-runtime.mjs",
     "start": "node ./scripts/start-local.mjs",
     "start:local": "node ./scripts/start-local.mjs",
     "dev:api": "pnpm --filter @bitrix24-reporting/api dev",

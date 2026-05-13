@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { ApiClientError } from '@/lib/api-client'
 import {
   archiveComment as archiveServerComment,
   createComment as createServerComment,
@@ -20,6 +21,33 @@ function normalizeComment(comment: ProtoComment): ProtoComment {
     status: comment.status ?? 'open',
     archivedAt: comment.archivedAt ?? null,
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function getCommentFromApiError(error: unknown) {
+  if (!(error instanceof ApiClientError) || !isRecord(error.payload)) {
+    return null
+  }
+
+  const comment = error.payload.comment
+  return isRecord(comment) ? normalizeComment(comment as unknown as ProtoComment) : null
+}
+
+function formatCommentError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback
+
+  if (message === 'PAPERCLIP_REWORK_FAILED') {
+    return 'Не удалось отправить комментарий команде разработки. Статус комментария сохранен, можно повторить позже.'
+  }
+
+  if (message === 'PAPERCLIP_NOT_CONFIGURED') {
+    return 'Команда разработки сейчас недоступна. Статус комментария сохранен, можно повторить позже.'
+  }
+
+  return message.replace(/paperclip/gi, 'команда разработки')
 }
 
 export function useProtoComments() {
@@ -228,12 +256,17 @@ export function useProtoComments() {
       setStatus('ready')
       return true
     } catch (reworkError) {
-      setStatus('error')
-      setError(
-        reworkError instanceof Error
-          ? reworkError.message
-          : 'Не удалось вернуть комментарий в работу',
-      )
+      const failedComment = getCommentFromApiError(reworkError)
+      if (failedComment) {
+        setComments((current) =>
+          current.map((item) => (item.id === commentId ? failedComment : item)),
+        )
+        setUpdatedAt(failedComment.updatedAt)
+        setStatus('ready')
+      } else {
+        setStatus('error')
+      }
+      setError(formatCommentError(reworkError, 'Не удалось вернуть комментарий в работу'))
       return false
     }
   }, [])

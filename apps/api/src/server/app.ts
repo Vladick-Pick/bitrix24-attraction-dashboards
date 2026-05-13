@@ -1318,11 +1318,26 @@ export function createApp(
       const issue = await config.paperclip.getIssue({
         issueId: comment.paperclipIssueId
       });
+      const paperclipIssueId = issue.id || comment.paperclipIssueId;
+      const paperclipIssueIdentifier =
+        issue.identifier ?? comment.paperclipIssueIdentifier;
+      const paperclipStatus = mapPaperclipIssueStatus(issue.status);
+      const hasPaperclipChange =
+        paperclipIssueId !== comment.paperclipIssueId ||
+        paperclipIssueIdentifier !== comment.paperclipIssueIdentifier ||
+        paperclipStatus !== comment.paperclipStatus ||
+        comment.paperclipSyncStatus !== "sent" ||
+        comment.paperclipError !== null;
+
+      if (!hasPaperclipChange) {
+        return comment;
+      }
+
       return config.comments.updateDashboardCommentPaperclip({
         id: comment.id,
-        paperclipIssueId: issue.id || comment.paperclipIssueId,
-        paperclipIssueIdentifier: issue.identifier ?? comment.paperclipIssueIdentifier,
-        paperclipStatus: mapPaperclipIssueStatus(issue.status),
+        paperclipIssueId,
+        paperclipIssueIdentifier,
+        paperclipStatus,
         paperclipSyncStatus: "sent",
         paperclipError: null,
         paperclipLastSyncedAt: new Date().toISOString()
@@ -1330,6 +1345,16 @@ export function createApp(
     } catch {
       return comment;
     }
+  }
+
+  async function refreshOpenDashboardComments(comments: DashboardCommentRecord[]) {
+    return Promise.all(
+      comments.map((comment) =>
+        (comment.status ?? "open") === "open"
+          ? refreshCommentPaperclipStatus(comment)
+          : comment
+      )
+    );
   }
 
   app.get("/api/proto-comments", async (_request, response, next) => {
@@ -1388,7 +1413,11 @@ export function createApp(
     }
 
     try {
-      response.json(await config.comments.getDashboardComments(access.module.id));
+      const store = await config.comments.getDashboardComments(access.module.id);
+      response.json({
+        ...store,
+        comments: await refreshOpenDashboardComments(store.comments)
+      });
     } catch (error) {
       next(error);
     }
@@ -1649,14 +1678,11 @@ export function createApp(
 
     try {
       const store = await config.comments.getDashboardComments(access.module.id);
-      const refreshedComments = await Promise.all(
-        store.comments
-          .filter((comment) => (comment.status ?? "open") === "open")
-          .map(refreshCommentPaperclipStatus)
-      );
+      const refreshedComments = await refreshOpenDashboardComments(store.comments);
       response.json({
         notifications: refreshedComments
           .filter((comment): comment is DashboardCommentRecord => Boolean(comment))
+          .filter((comment) => (comment.status ?? "open") === "open")
           .map((comment) => ({
             id: comment.id,
             sceneId: comment.sceneId,

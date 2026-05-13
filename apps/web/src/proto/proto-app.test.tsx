@@ -627,6 +627,75 @@ describe('ProtoApp', () => {
     expect(screen.queryByRole('link', { name: /bit-1/i })).not.toBeInTheDocument()
   })
 
+  it('keeps the development rework form inside a scrollable comments panel body', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: ['comments:create', 'comments:update', 'comments:archive'],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      createResponse({
+        comments: [
+          {
+            id: 'comment-143570',
+            sceneId: 'sales',
+            x: 0.5,
+            y: 0.5,
+            text: 'Дата встречи не видна в таймлайне',
+            status: 'open',
+            archivedAt: null,
+            createdAt: '2026-05-13T07:55:00.000Z',
+            updatedAt: '2026-05-13T07:55:00.000Z',
+            anchor: {
+              blockId: 'deal-143570',
+              blockLabel: '143570',
+              blockSelector: '[data-comment-block-id="deal-143570"]',
+              blockRole: null,
+              elementSelector: '[data-comment-block-id="deal-143570"]',
+              elementLabel: '143570',
+              relativeX: 0.5,
+              relativeY: 0.5,
+            },
+            paperclipIssueId: 'issue-1',
+            paperclipIssueIdentifier: 'BIT-1',
+            paperclipStatus: 'done',
+            paperclipSyncStatus: 'sent',
+            paperclipError: null,
+          },
+        ],
+        updatedAt: '2026-05-13T07:55:46.000Z',
+      }),
+    )
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^комментарии$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /дата встречи не видна/i }))
+
+    const reworkTextarea = screen.getByPlaceholderText(/комментарий к доработке/i)
+    const panelBody = reworkTextarea.closest('[data-comment-panel-body="true"]')
+
+    expect(panelBody).not.toBeNull()
+    expect(panelBody).toHaveClass('min-h-0', 'overflow-y-auto', 'overscroll-contain')
+    expect(reworkTextarea).toHaveClass('max-h-72', 'overflow-y-auto', 'overscroll-contain')
+  })
+
   it('opens the account page and shows module admin only to attraction leaders', async () => {
     const leader: AuthUser = {
       id: 1,

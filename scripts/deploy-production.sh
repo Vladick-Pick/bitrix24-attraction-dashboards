@@ -9,6 +9,7 @@ COMPOSE_PROJECT="${DEPLOY_COMPOSE_PROJECT:-bitrix24-reporting}"
 HEALTH_URL="${DEPLOY_HEALTH_URL:-https://dashboardpriv.claricont.com/api/health}"
 DASHBOARD_URL="${DEPLOY_DASHBOARD_URL:-https://dashboardpriv.claricont.com/api/dashboard}"
 BACKUP_ROOT="${DEPLOY_BACKUP_ROOT:-/opt/bitrix24-reporting/backups/deploy}"
+CADDYFILE="${DEPLOY_CADDYFILE:-/etc/caddy/Caddyfile}"
 
 log() {
   printf '[deploy] %s\n' "$*"
@@ -19,6 +20,90 @@ require_command() {
     printf 'Missing required command: %s\n' "$1" >&2
     exit 1
   fi
+}
+
+public_host_from_url() {
+  local url="$1"
+  local host="${url#*://}"
+
+  host="${host%%/*}"
+  host="${host%%:*}"
+  if [ "$host" = "$url" ]; then
+    host=""
+  fi
+
+  printf '%s\n' "$host"
+}
+
+ensure_caddy_reverse_proxy() {
+  local host="$1"
+  local backup=""
+  local changed="false"
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    log "Warning: systemctl unavailable; cannot manage Caddy"
+    return 1
+  fi
+
+  install -d -m 755 "$(dirname "$CADDYFILE")"
+  if [ ! -f "$CADDYFILE" ]; then
+    : > "$CADDYFILE"
+    changed="true"
+  fi
+
+  if ! grep -Fq "$host {" "$CADDYFILE"; then
+    if [ "$changed" != "true" ]; then
+      backup="${CADDYFILE}.bitrix24-reporting-$(date +%Y%m%d%H%M%S).bak"
+      cp -p "$CADDYFILE" "$backup"
+    fi
+
+    {
+      printf '\n%s {\n' "$host"
+      printf '  encode zstd gzip\n'
+      printf '  reverse_proxy 127.0.0.1:8787\n'
+      printf '}\n'
+    } >> "$CADDYFILE"
+    changed="true"
+    log "Added Caddy reverse proxy block for $host"
+  fi
+
+  if ! caddy validate --config "$CADDYFILE"; then
+    if [ -n "$backup" ]; then
+      cp -p "$backup" "$CADDYFILE"
+    elif [ "$changed" = "true" ]; then
+      rm -f "$CADDYFILE"
+    fi
+    return 1
+  fi
+
+  if systemctl is-active --quiet caddy; then
+    systemctl reload caddy
+  else
+    systemctl enable --now caddy || systemctl start caddy
+  fi
+}
+
+ensure_reverse_proxy() {
+  local public_host
+
+  public_host="$(public_host_from_url "$HEALTH_URL")"
+  if [ -z "$public_host" ]; then
+    log "Warning: could not infer public host from health URL"
+    return 0
+  fi
+
+  if command -v caddy >/dev/null 2>&1; then
+    ensure_caddy_reverse_proxy "$public_host"
+    return
+  fi
+
+  if command -v nginx >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
+    log "Caddy unavailable; starting existing nginx reverse proxy"
+    systemctl start nginx
+    return 0
+  fi
+
+  log "Warning: no supported reverse proxy found; public health check may fail"
 }
 
 wait_for_http_code() {
@@ -108,6 +193,7 @@ verify_runtime() {
   local allow_missing_revision="${2:-false}"
 
   verify_image_revision "$expected_ref" "$allow_missing_revision"
+  ensure_reverse_proxy
   wait_for_http_code "$HEALTH_URL" 200
 
   local dashboard_code

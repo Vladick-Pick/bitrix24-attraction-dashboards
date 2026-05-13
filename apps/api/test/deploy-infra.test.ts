@@ -42,4 +42,23 @@ describe("production deployment infrastructure", () => {
     expect(deployWorkflow).toContain("-o ServerAliveInterval=15");
     expect(deployWorkflow).toContain("-o ServerAliveCountMax=12");
   });
+
+  it("restores the Caddy reverse proxy before public health verification", () => {
+    const deployScript = readRepoFile("scripts/deploy-production.sh");
+
+    expect(deployScript).toContain("ensure_reverse_proxy");
+    expect(deployScript).toContain("ensure_caddy_reverse_proxy");
+    expect(deployScript).toContain("reverse_proxy 127.0.0.1:8787");
+    expect(deployScript).toContain("caddy validate --config");
+    expect(deployScript).toContain("systemctl reload caddy");
+    const verifyRuntime = deployScript.slice(
+      deployScript.indexOf("verify_runtime()"),
+      deployScript.indexOf("main()"),
+    );
+
+    expect(verifyRuntime.indexOf("ensure_reverse_proxy")).toBeGreaterThan(-1);
+    expect(verifyRuntime.indexOf("ensure_reverse_proxy")).toBeLessThan(
+      verifyRuntime.indexOf("wait_for_http_code \"$HEALTH_URL\" 200"),
+    );
+  });
 });

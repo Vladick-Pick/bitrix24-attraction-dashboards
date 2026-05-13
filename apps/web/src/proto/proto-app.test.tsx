@@ -1516,6 +1516,13 @@ describe('ProtoApp', () => {
     expect(within(callStageRow as HTMLElement).getByText(/Конверсии недоступны/i)).toBeInTheDocument()
     expect(within(callStageRow as HTMLElement).getByText(/Сообщения недоступны/i)).toBeInTheDocument()
     expect(within(callStageRow as HTMLElement).getAllByText(/Встреча 13 мар/i)).toHaveLength(1)
+    expect(callStageRow as HTMLElement).toHaveClass('grid-cols-1')
+    expect((callStageRow as HTMLElement).className).toContain('sm:grid-cols-[minmax(0,1fr)_7rem_6rem]')
+    expect(within(callStageRow as HTMLElement).getByText(/Звонки 3/i)).toHaveClass(
+      'max-w-full',
+      'whitespace-normal',
+      'break-words',
+    )
   })
 
   it('shows monthly and quarterly plan completion in sales KPI cards', async () => {

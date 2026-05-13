@@ -1750,6 +1750,11 @@ type StageMeetingBadge = {
   dateValue: string
 }
 
+type MeetingDateTimelineResolution =
+  | { kind: 'badge'; stageIndex: number }
+  | { kind: 'beforeTimeline' }
+  | { kind: 'none' }
+
 function parseTimelineTimestamp(value: string | null | undefined) {
   if (!value) {
     return null
@@ -1757,6 +1762,29 @@ function parseTimelineTimestamp(value: string | null | undefined) {
 
   const timestamp = new Date(value).getTime()
   return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function getTimelineCalendarKey(value: string | null | undefined) {
+  const trimmed = value?.trim()
+
+  if (!trimmed) {
+    return null
+  }
+
+  const isoDateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(trimmed)
+  if (isoDateMatch) {
+    return isoDateMatch[1] ?? null
+  }
+
+  const date = new Date(trimmed)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function isDateInsideStageInterval(
@@ -1775,13 +1803,35 @@ function isDateInsideStageInterval(
   return meetingAt >= enteredAt && (isLastStage ? meetingAt <= leftAt : meetingAt < leftAt)
 }
 
-function getMeetingDateFallbackStageIndex(
+function resolveMeetingDateTimeline(
   stageTimeline: DealStageTimelineEntry[],
   meetingDateValue: string | null | undefined,
-) {
-  return stageTimeline.findIndex((stage, index) =>
+  dealCreatedAt?: string | null,
+): MeetingDateTimelineResolution {
+  const meetingAt = parseTimelineTimestamp(meetingDateValue)
+
+  if (meetingAt === null) {
+    return { kind: 'none' }
+  }
+
+  const meetingDay = getTimelineCalendarKey(meetingDateValue)
+  const createdDay = getTimelineCalendarKey(dealCreatedAt)
+  const firstStageEnteredDay = getTimelineCalendarKey(stageTimeline[0]?.enteredAt)
+
+  if (
+    (meetingDay !== null && createdDay !== null && meetingDay < createdDay) ||
+    (meetingDay !== null &&
+      firstStageEnteredDay !== null &&
+      meetingDay < firstStageEnteredDay)
+  ) {
+    return { kind: 'beforeTimeline' }
+  }
+
+  const stageIndex = stageTimeline.findIndex((stage, index) =>
     isDateInsideStageInterval(stage, meetingDateValue, index === stageTimeline.length - 1),
   )
+
+  return stageIndex === -1 ? { kind: 'none' } : { kind: 'badge', stageIndex }
 }
 
 function getStageMeetingBadges(
@@ -1810,9 +1860,10 @@ function getStageMeetingBadges(
 }
 
 function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
-  const meetingDateFallbackStageIndex = getMeetingDateFallbackStageIndex(
+  const meetingDateResolution = resolveMeetingDateTimeline(
     deal.stageTimeline,
     deal.meetingDateValue,
+    deal.dateCreate,
   )
   const detailFields = [
     { label: 'Итоговое качество', value: deal.qualityValue ?? '—' },
@@ -1903,12 +1954,18 @@ function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
           <span className="text-right">Время</span>
         </div>
         <div className="divide-y divide-slate-100">
+          {meetingDateResolution.kind === 'beforeTimeline' ? (
+            <div className="border-b border-amber-100 bg-amber-50/80 px-4 py-2 text-xs font-semibold text-amber-800">
+              Дата встречи раньше создания сделки
+            </div>
+          ) : null}
           {deal.stageTimeline.length > 0 ? (
             deal.stageTimeline.map((stage, stageIndex) => {
               const meetingBadges = getStageMeetingBadges(
                 stage,
                 deal.meetingDateValue,
-                stageIndex === meetingDateFallbackStageIndex,
+                meetingDateResolution.kind === 'badge' &&
+                  stageIndex === meetingDateResolution.stageIndex,
               )
 
               return (
@@ -3160,9 +3217,10 @@ function formatDealSlaStatus(value: ManagerActionOutcomeDealDetail['sla']['sla1'
 }
 
 function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDetail }) {
-  const meetingDateFallbackStageIndex = getMeetingDateFallbackStageIndex(
+  const meetingDateResolution = resolveMeetingDateTimeline(
     deal.stageTimeline,
     deal.meetingDateValue,
+    deal.dateCreate,
   )
   const detailFields = [
     { label: 'Итоговое качество', value: deal.qualityValue ?? '—' },
@@ -3222,12 +3280,18 @@ function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDeta
           <span className="text-right">Время</span>
         </div>
         <div className="divide-y divide-slate-100">
+          {meetingDateResolution.kind === 'beforeTimeline' ? (
+            <div className="border-b border-amber-100 bg-amber-50/80 px-4 py-2 text-xs font-semibold text-amber-800">
+              Дата встречи раньше создания сделки
+            </div>
+          ) : null}
           {deal.stageTimeline.length > 0 ? (
             deal.stageTimeline.map((stage, stageIndex) => {
               const meetingBadges = getStageMeetingBadges(
                 stage,
                 deal.meetingDateValue,
-                stageIndex === meetingDateFallbackStageIndex,
+                meetingDateResolution.kind === 'badge' &&
+                  stageIndex === meetingDateResolution.stageIndex,
               )
 
               return (

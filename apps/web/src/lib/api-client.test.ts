@@ -105,6 +105,59 @@ describe('apiClient', () => {
     expect(saved.rows[0]?.plannedAmount).toBe(3000000)
   })
 
+  it('returns a dashboard comment to development as a rework thread reply', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        comment: {
+          id: 'comment-1',
+          moduleId: 'attraction',
+          sceneId: 'sales',
+          x: 0.25,
+          y: 0.4,
+          text: 'Дата встречи есть в атрибутах',
+          status: 'open',
+          archivedAt: null,
+          createdAt: '2026-05-12T15:00:00.000Z',
+          updatedAt: '2026-05-12T16:00:00.000Z',
+          paperclipIssueId: 'issue-143570',
+          paperclipIssueIdentifier: 'BIT-6',
+          paperclipStatus: 'in_work',
+          paperclipSyncStatus: 'sent',
+          paperclipError: null,
+          paperclipLastSyncedAt: '2026-05-12T16:00:00.000Z',
+          paperclipRetryCount: 0,
+        },
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = apiClient as typeof apiClient & {
+      reworkComment(id: string, input: { text: string }): Promise<{
+        comment: {
+          id: string
+          paperclipStatus?: string
+          paperclipSyncStatus?: string
+        }
+      }>
+    }
+    const result = await client.reworkComment('comment-1', {
+      text: 'Покажите предупреждение: дата встречи раньше создания сделки',
+    })
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+
+    expect(new URL(url, window.location.origin).pathname).toBe('/api/comments/comment-1/rework')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({
+      text: 'Покажите предупреждение: дата встречи раньше создания сделки',
+    })
+    expect(result.comment.id).toBe('comment-1')
+    expect(result.comment.paperclipStatus).toBe('in_work')
+    expect(result.comment.paperclipSyncStatus).toBe('sent')
+  })
+
   it('loads effective and quarterly sales plans', async () => {
     const fetchMock = vi
       .fn()

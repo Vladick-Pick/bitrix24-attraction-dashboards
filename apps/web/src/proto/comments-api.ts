@@ -111,3 +111,11 @@ export async function retryComment(id: string) {
 
   return { comment: { id } as ProtoComment }
 }
+
+export async function reworkComment(id: string, input: { text: string }) {
+  if (shouldUseDashboardComments()) {
+    return apiClient.reworkComment(id, input)
+  }
+
+  return { comment: { id } as ProtoComment }
+}

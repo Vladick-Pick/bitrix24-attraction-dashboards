@@ -1,3 +1,5 @@
+const REPORT_TIME_ZONE = 'Europe/Istanbul'
+
 export function formatInteger(value: number) {
   return new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 0,
@@ -28,6 +30,7 @@ export function formatShortDate(value: string) {
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
     month: 'short',
+    timeZone: REPORT_TIME_ZONE,
   }).format(date)
 }
 

@@ -4,6 +4,7 @@ import {
   archiveComment as archiveServerComment,
   createComment as createServerComment,
   fetchCommentStore,
+  reworkComment as reworkServerComment,
   retryComment as retryServerComment,
   saveCommentStore,
   updateComment as updateServerComment,
@@ -209,6 +210,34 @@ export function useProtoComments() {
     }
   }, [])
 
+  const reworkComment = useCallback(async (commentId: string, text: string) => {
+    if (!usesDashboardCommentApi()) {
+      return false
+    }
+
+    setStatus('saving')
+    setError(null)
+
+    try {
+      const response = await reworkServerComment(commentId, { text })
+      const reworked = normalizeComment(response.comment)
+      setComments((current) =>
+        current.map((item) => (item.id === commentId ? reworked : item)),
+      )
+      setUpdatedAt(reworked.updatedAt)
+      setStatus('ready')
+      return true
+    } catch (reworkError) {
+      setStatus('error')
+      setError(
+        reworkError instanceof Error
+          ? reworkError.message
+          : 'Не удалось вернуть комментарий в работу',
+      )
+      return false
+    }
+  }, [])
+
   return {
     comments,
     updatedAt,
@@ -218,5 +247,6 @@ export function useProtoComments() {
     removeComment,
     archiveComment,
     retryComment,
+    reworkComment,
   }
 }

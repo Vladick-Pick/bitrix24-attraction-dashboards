@@ -109,7 +109,8 @@ const paperclip =
   env.PAPERCLIP_API_URL && env.PAPERCLIP_API_TOKEN
     ? new PaperclipClient({
         apiUrl: env.PAPERCLIP_API_URL,
-        apiToken: env.PAPERCLIP_API_TOKEN
+        apiToken: env.PAPERCLIP_API_TOKEN,
+        reworkCommentMode: env.PAPERCLIP_REWORK_COMMENT_MODE
       })
     : undefined;
 const app = createApp(service, {

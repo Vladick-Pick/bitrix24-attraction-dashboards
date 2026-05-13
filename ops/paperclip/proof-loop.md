@@ -32,6 +32,8 @@ Full mode requires a durable handoff before review. The assignee must either:
 
 Fresh verification must not rely only on a local ignored `.paperclip/tasks` folder from another workspace.
 
+If a required environment capability is unavailable, the task is `blocked`, not `ready`. Missing GitHub push/PR access, missing browser/Playwright runtime, missing Context7/current-doc access for dependency-sensitive work, or missing production/deploy access must be recorded in `problems.md` and `verdict.json.unrunChecks`. A manager may explicitly accept the residual risk, but an assignee must not claim "ready" while the user-visible verification path is unavailable.
+
 ## Full Mode Artifacts
 
 - `spec.md`: frozen task spec, acceptance criteria, module context, constraints, and non-goals.
@@ -39,6 +41,10 @@ Fresh verification must not rely only on a local ignored `.paperclip/tasks` fold
 - `evidence.json`: machine-readable commands, status, artifacts, changed files, screenshots, PR/check links.
 - `verdict.json`: fresh verifier result: `pass`, `fail`, `retry`, or `blocked`, with blocking findings.
 - `problems.md`: process defects, unclear instructions, missing tools, flaky checks, or data gaps found during work.
+
+For user-reported regressions, `spec.md` and `evidence.md` must include the sanitized real scenario that was checked. Capture identifiers such as deal id, screen, filter/date range, stage names, expected label, and the observed failure. Do not include names, phones, emails, tokens, raw Bitrix payloads, cookies, or secrets.
+
+If the user-visible result depends on a design/product decision, the assignee must pause and ask the board/owner with a concrete recommendation or choice set. Examples: whether an out-of-timeline meeting date should attach to a semantic stage, render a warning, or be hidden. The decision and owner response must be included in the final handoff.
 
 ## Loop
 

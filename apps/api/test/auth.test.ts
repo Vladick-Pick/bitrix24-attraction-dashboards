@@ -12,6 +12,11 @@ import {
   hashPassword
 } from "../src/server/auth";
 import { createApp } from "../src/server/app";
+import type {
+  DashboardCommentRecord,
+  PaperclipCommentStatus,
+  PaperclipSyncStatus
+} from "../src/server/sqlite-repository";
 
 function createMinimalService(): Parameters<typeof createApp>[0] {
   const dashboard: DashboardData = {
@@ -89,16 +94,34 @@ describe("password session auth", () => {
       windowMs: number;
     };
     now?: () => Date;
+    configOverrides?: Partial<Parameters<typeof createApp>[1]>;
   } = {}) {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
     directories.push(directory);
     const store = createSqliteAuthStore({
       databaseUrl: `file:${join(directory, "reporting.sqlite")}`
     });
-    await store.createUser({
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10",
+      paperclipCompanyId: "company-1",
+      paperclipProjectId: "project-1",
+      paperclipGoalId: "goal-1",
+      paperclipTriageAgentId: "agent-1"
+    });
+    const user = await store.createUser({
       login: "admin",
       passwordHash: await hashPassword("correct-password"),
       disabled: input.disabled ?? false,
+      now: new Date("2026-04-30T10:00:00.000Z")
+    });
+    await store.setModuleMembership({
+      userId: user.id,
+      moduleId: "attraction",
+      role: "leader",
+      status: "active",
       now: new Date("2026-04-30T10:00:00.000Z")
     });
     const auth = createPasswordAuthService({
@@ -113,7 +136,8 @@ describe("password session auth", () => {
 
     return {
       app: createApp(createMinimalService(), {
-        auth
+        auth,
+        ...input.configOverrides
       }),
       store
     };
@@ -234,6 +258,203 @@ describe("password session auth", () => {
       .set("X-CSRF-Token", csrfToken)
       .expect(204);
     await agent.get("/api/auth/me").expect(401);
+
+    store.close();
+  });
+
+  it("returns a dashboard comment to the existing Paperclip issue as a board-originated rework note", async () => {
+    let commentRecord: DashboardCommentRecord = {
+      id: "comment-rework-1",
+      moduleId: "attraction",
+      authorUserId: 0,
+      authorLogin: "admin",
+      sceneId: "sales",
+      x: 0.25,
+      y: 0.4,
+      text: "Дата встречи есть в атрибутах, но нет предупреждения в таймлайне",
+      status: "open" as const,
+      archivedAt: null,
+      createdAt: "2026-05-12T15:00:00.000Z",
+      updatedAt: "2026-05-12T15:00:00.000Z",
+      anchor: {
+        blockId: "deal-143570",
+        blockLabel: "143570",
+        blockSelector: "[data-deal-id=\"143570\"]",
+        blockRole: "sales-deal",
+        elementSelector: "[data-stage-timeline]",
+        elementLabel: "Таймлайн этапов",
+        relativeX: 0.5,
+        relativeY: 0.5
+      },
+      context: {
+        dealId: "143570",
+        range: {
+          from: "2026-02-01T00:00:00.000+03:00",
+          to: "2026-05-12T23:59:59.999+03:00"
+        }
+      },
+      paperclipIssueId: "issue-143570",
+      paperclipIssueIdentifier: "BIT-6",
+      paperclipStatus: "done" as const,
+      paperclipSyncStatus: "sent" as const,
+      paperclipError: null,
+      paperclipLastSyncedAt: "2026-05-12T16:00:00.000Z",
+      paperclipRetryCount: 0
+    };
+    const paperclipComments: Array<{
+      issueId: string;
+      body: string;
+      reopen?: boolean;
+      origin?: string;
+    }> = [];
+    const comments = {
+      getDashboardComments: async () => ({
+        comments: [commentRecord],
+        updatedAt: commentRecord.updatedAt
+      }),
+      getDashboardCommentById: async (id: string) =>
+        id === commentRecord.id ? commentRecord : null,
+      createDashboardComment: async () => commentRecord,
+      updateDashboardComment: async () => commentRecord,
+      archiveDashboardComment: async () => commentRecord,
+      updateDashboardCommentPaperclip: async (input: {
+        id: string;
+        paperclipStatus: PaperclipCommentStatus;
+        paperclipSyncStatus: PaperclipSyncStatus;
+        paperclipError?: string | null;
+        paperclipLastSyncedAt?: string | null;
+      }) => {
+        commentRecord = {
+          ...commentRecord,
+          paperclipStatus: input.paperclipStatus,
+          paperclipSyncStatus: input.paperclipSyncStatus,
+          paperclipError: input.paperclipError ?? null,
+          paperclipLastSyncedAt: input.paperclipLastSyncedAt ?? null,
+          updatedAt: input.paperclipLastSyncedAt ?? commentRecord.updatedAt
+        };
+        return commentRecord;
+      }
+    };
+    const paperclip = {
+      createIssue: async () => ({
+        id: "unused",
+        identifier: "BIT-unused",
+        status: "todo"
+      }),
+      getIssue: async () => ({
+        id: "issue-143570",
+        identifier: "BIT-6",
+        status: "done"
+      }),
+      addIssueComment: async (input: {
+        issueId: string;
+        body: string;
+        reopen?: boolean;
+      }) => {
+        paperclipComments.push(input);
+      }
+    };
+    const { app, store } = await createAuthTestApp({
+      configOverrides: {
+        comments,
+        paperclip
+      } as unknown as Partial<Parameters<typeof createApp>[1]>
+    });
+    const agent = request.agent(app);
+    const loginResponse = await agent
+      .post("/api/auth/login")
+      .send({ login: "admin", password: "correct-password" })
+      .expect(200);
+    commentRecord = {
+      ...commentRecord,
+      authorUserId: loginResponse.body.user.id as number
+    };
+
+    await agent
+      .post("/api/comments/comment-rework-1/rework")
+      .set("X-CSRF-Token", loginResponse.body.csrfToken as string)
+      .send({
+        text: "Нужно не переносить бейдж на этап встречи, а показать предупреждение: Дата встречи раньше создания сделки. Телефон +7 999 123-45-67"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comment.paperclipStatus).toBe("in_work");
+        expect(body.comment.paperclipSyncStatus).toBe("sent");
+        expect(body.comment.status).toBe("open");
+      });
+
+    expect(paperclipComments).toHaveLength(1);
+    expect(paperclipComments[0]).toEqual(
+        expect.objectContaining({
+          issueId: "issue-143570",
+          origin: "dashboard_rework",
+          reopen: true
+        })
+    );
+    expect(paperclipComments[0]?.body).toContain("@Dashboard Engineering Manager");
+    expect(paperclipComments[0]?.body).toContain("Возврат на доработку из dashboard review");
+    expect(paperclipComments[0]?.body).toContain(
+      "Source: dashboard-system / board-originated rework"
+    );
+    expect(paperclipComments[0]?.body).toContain("Дата встречи раньше создания сделки");
+    expect(paperclipComments[0]?.body).toContain("[redacted-phone]");
+    expect(paperclipComments[0]?.body).not.toContain("+7 999 123-45-67");
+
+    store.close();
+  });
+
+  it("rejects dashboard rework when the comment has no linked Paperclip issue", async () => {
+    const commentRecord = {
+      id: "comment-without-paperclip",
+      moduleId: "attraction",
+      authorUserId: 0,
+      authorLogin: "admin",
+      sceneId: "sales",
+      x: 0.25,
+      y: 0.4,
+      text: "Комментарий без связанной задачи",
+      status: "open" as const,
+      archivedAt: null,
+      createdAt: "2026-05-12T15:00:00.000Z",
+      updatedAt: "2026-05-12T15:00:00.000Z",
+      paperclipIssueId: null,
+      paperclipIssueIdentifier: null,
+      paperclipStatus: "sent" as const,
+      paperclipSyncStatus: "sent" as const,
+      paperclipError: null,
+      paperclipLastSyncedAt: null,
+      paperclipRetryCount: 0
+    };
+    const comments = {
+      getDashboardComments: async () => ({
+        comments: [commentRecord],
+        updatedAt: commentRecord.updatedAt
+      }),
+      getDashboardCommentById: async () => commentRecord,
+      createDashboardComment: async () => commentRecord,
+      updateDashboardComment: async () => commentRecord,
+      archiveDashboardComment: async () => commentRecord,
+      updateDashboardCommentPaperclip: async () => commentRecord
+    };
+    const { app, store } = await createAuthTestApp({
+      configOverrides: {
+        comments
+      } as unknown as Partial<Parameters<typeof createApp>[1]>
+    });
+    const agent = request.agent(app);
+    const loginResponse = await agent
+      .post("/api/auth/login")
+      .send({ login: "admin", password: "correct-password" })
+      .expect(200);
+
+    await agent
+      .post("/api/comments/comment-without-paperclip/rework")
+      .set("X-CSRF-Token", loginResponse.body.csrfToken as string)
+      .send({ text: "Вернуть в работу" })
+      .expect(409)
+      .expect(({ body }) => {
+        expect(body.code).toBe("PAPERCLIP_ISSUE_NOT_LINKED");
+      });
 
     store.close();
   });

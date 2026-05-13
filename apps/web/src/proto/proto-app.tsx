@@ -73,8 +73,8 @@ const notificationLabels: Record<CommentNotification['status'], string> = {
   queued: 'В очереди',
   sent: 'Отправлено',
   in_work: 'В работе',
-  needs_input: 'Нужно уточнение',
-  done: 'Готово',
+  needs_input: 'Нужен ответ',
+  done: 'На проверку',
   failed: 'Ошибка',
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { apiClient } from '@/lib/api-client'
+import { apiClient, ApiClientError } from '@/lib/api-client'
 
 describe('apiClient', () => {
   afterEach(() => {
@@ -270,6 +270,57 @@ describe('apiClient', () => {
     expect(result.comment.id).toBe('comment-1')
     expect(result.comment.paperclipStatus).toBe('in_work')
     expect(result.comment.paperclipSyncStatus).toBe('sent')
+  })
+
+  it('keeps failed rework response payload on ApiClientError', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      json: async () => ({
+        code: 'PAPERCLIP_REWORK_FAILED',
+        comment: {
+          id: 'comment-1',
+          moduleId: 'attraction',
+          sceneId: 'sales',
+          x: 0.25,
+          y: 0.4,
+          text: 'Дата встречи есть в атрибутах',
+          status: 'open',
+          archivedAt: null,
+          createdAt: '2026-05-12T15:00:00.000Z',
+          updatedAt: '2026-05-12T16:05:00.000Z',
+          paperclipIssueId: 'issue-143570',
+          paperclipIssueIdentifier: 'BIT-6',
+          paperclipStatus: 'failed',
+          paperclipSyncStatus: 'failed',
+          paperclipError: 'Paperclip issue comment failed.',
+        },
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    let caught: unknown = null
+    try {
+      await apiClient.reworkComment('comment-1', {
+        text: 'Покажите предупреждение в таймлайне',
+      })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(ApiClientError)
+    expect(caught).toMatchObject({
+      message: 'PAPERCLIP_REWORK_FAILED',
+      status: 502,
+      payload: expect.objectContaining({
+        comment: expect.objectContaining({
+          id: 'comment-1',
+          paperclipStatus: 'failed',
+          paperclipSyncStatus: 'failed',
+        }),
+      }),
+    })
   })
 
   it('loads effective and quarterly sales plans', async () => {

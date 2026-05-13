@@ -34,6 +34,16 @@ Fresh verification must not rely only on a local ignored `.paperclip/tasks` fold
 
 If a required environment capability is unavailable, the task is `blocked`, not `ready`. Missing GitHub push/PR access, missing browser/Playwright runtime, missing Context7/current-doc access for dependency-sensitive work, or missing production/deploy access must be recorded in `problems.md` and `verdict.json.unrunChecks`. A manager may explicitly accept the residual risk, but an assignee must not claim "ready" while the user-visible verification path is unavailable.
 
+## Runtime Capability Gate
+
+Before assigning, reviewing, or marking ready any task that needs GitHub, browser/Playwright, or Context7/current documentation, run:
+
+```bash
+pnpm check:paperclip-runtime
+```
+
+Record the command and result in `evidence.md`/`evidence.json`. If the command fails, the issue is `blocked` until the missing capability is fixed or the manager explicitly accepts the reduced path in the issue. Agents must not replace a missing browser check with a generic code inspection when the user reported a visible UI defect.
+
 ## Full Mode Artifacts
 
 - `spec.md`: frozen task spec, acceptance criteria, module context, constraints, and non-goals.

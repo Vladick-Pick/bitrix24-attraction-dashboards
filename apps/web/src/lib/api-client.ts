@@ -63,11 +63,13 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, ''
 
 class ApiClientError extends Error {
   readonly status: number | undefined
+  readonly payload: unknown
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, payload?: unknown) {
     super(message)
     this.name = 'ApiClientError'
     this.status = status
+    this.payload = payload
   }
 }
 
@@ -400,18 +402,20 @@ function notifyUnauthorized() {
   }
 }
 
-async function readErrorMessage(response: Response) {
+async function readErrorResponse(response: Response) {
   let message = 'Local API request failed'
+  let payload: unknown = null
+
   try {
-    const errorBody = (await response.json()) as unknown
-    if (isRecord(errorBody)) {
-      message = asString(errorBody.code, asString(errorBody.error, message))
+    payload = (await response.json()) as unknown
+    if (isRecord(payload)) {
+      message = asString(payload.code, asString(payload.error, message))
     }
   } catch {
     // Keep the stable fallback when the server did not return JSON.
   }
 
-  return message
+  return { message, payload }
 }
 
 function buildRequestInit(init: RequestInit) {
@@ -1926,11 +1930,11 @@ async function requestJson<T>(
   const response = await fetch(pathname, buildRequestInit(init))
 
   if (!response.ok) {
-    const message = await readErrorMessage(response)
+    const { message, payload } = await readErrorResponse(response)
     if (response.status === 401 && !String(pathname).includes('/api/auth/login')) {
       notifyUnauthorized()
     }
-    throw new ApiClientError(message, response.status)
+    throw new ApiClientError(message, response.status, payload)
   }
 
   const data = (await response.json()) as unknown
@@ -1941,11 +1945,11 @@ async function requestVoid(pathname: string, init: RequestInit) {
   const response = await fetch(pathname, buildRequestInit(init))
 
   if (!response.ok) {
-    const message = await readErrorMessage(response)
+    const { message, payload } = await readErrorResponse(response)
     if (response.status === 401) {
       notifyUnauthorized()
     }
-    throw new ApiClientError(message, response.status)
+    throw new ApiClientError(message, response.status, payload)
   }
 }
 
@@ -1985,11 +1989,11 @@ async function requestSyncStream(
 
   if (!response.ok || !response.body) {
     if (!response.ok) {
-      const message = await readErrorMessage(response)
+      const { message, payload } = await readErrorResponse(response)
       if (response.status === 401) {
         notifyUnauthorized()
       }
-      throw new ApiClientError(message, response.status)
+      throw new ApiClientError(message, response.status, payload)
     }
 
     return requestJson(buildUrl('/api/sync'), { method: 'POST' }, normalizeSyncSummary)

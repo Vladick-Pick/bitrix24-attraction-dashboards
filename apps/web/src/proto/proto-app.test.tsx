@@ -16,6 +16,17 @@ import { createDefaultFilters } from '@/proto/scenes'
 import type { AuthUser } from '@/proto/types'
 
 vi.mock('@/lib/api-client', () => ({
+  ApiClientError: class ApiClientError extends Error {
+    readonly status: number | undefined
+    readonly payload: unknown
+
+    constructor(message: string, status?: number, payload?: unknown) {
+      super(message)
+      this.name = 'ApiClientError'
+      this.status = status
+      this.payload = payload
+    }
+  },
   apiClient: {
     getMeta: vi.fn(async () => ({
       stageCatalog: [],
@@ -401,6 +412,21 @@ vi.mock('@/lib/api-client', () => ({
         paperclipSyncStatus: 'sent',
       },
     })),
+    reworkComment: vi.fn(async (id: string) => ({
+      comment: {
+        id,
+        sceneId: 'sales',
+        x: 0.1,
+        y: 0.1,
+        text: 'На доработку',
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:05:00.000Z',
+        status: 'open',
+        archivedAt: null,
+        paperclipStatus: 'in_work',
+        paperclipSyncStatus: 'sent',
+      },
+    })),
     getCommentNotifications: vi.fn(async () => ({
       notifications: [],
     })),
@@ -608,6 +634,16 @@ describe('ProtoApp', () => {
           paperclipError: 'Paperclip unavailable',
           updatedAt: '2026-04-10T12:06:00.000Z',
         },
+        {
+          id: 'comment-3',
+          sceneId: 'sales',
+          text: 'Проверить готовую доработку',
+          status: 'done',
+          paperclipSyncStatus: 'sent',
+          paperclipIssueIdentifier: 'BIT-3',
+          paperclipError: null,
+          updatedAt: '2026-04-10T12:07:00.000Z',
+        },
       ],
     })
 
@@ -622,8 +658,10 @@ describe('ProtoApp', () => {
 
     expect(await screen.findByText(/в работе · 1/i)).toBeInTheDocument()
     expect(screen.getByText(/ошибка · 1/i)).toBeInTheDocument()
+    expect(screen.getByText(/на проверку · 1/i)).toBeInTheDocument()
     expect(screen.getByText('Проверить KPI')).toBeInTheDocument()
     expect(screen.getByText('Уточнить фильтр')).toBeInTheDocument()
+    expect(screen.getByText('Проверить готовую доработку')).toBeInTheDocument()
     expect(screen.getByText(/команда разработки unavailable/i)).toBeInTheDocument()
     expect(screen.queryByText(/paperclip/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /bit-1/i })).not.toBeInTheDocument()

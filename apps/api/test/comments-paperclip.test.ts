@@ -88,6 +88,11 @@ async function createCommentsApp(input: {
     identifier?: string | null;
     status?: string | null;
   }>;
+  paperclipGetIssue?: (payload: { issueId: string }) => Promise<{
+    id: string;
+    identifier?: string | null;
+    status?: string | null;
+  }>;
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "bitrix24-comments-"));
   tempDirs.push(directory);
@@ -135,11 +140,14 @@ async function createCommentsApp(input: {
           status: "todo"
         }))
     ),
-    getIssue: vi.fn(async ({ issueId }: { issueId: string }) => ({
-      id: issueId,
-      identifier: issueId === "paperclip-issue-1" ? "BIT-42" : "BIT-43",
-      status: "in_progress"
-    }))
+    getIssue: vi.fn(
+      input.paperclipGetIssue ??
+        (async ({ issueId }: { issueId: string }) => ({
+          id: issueId,
+          identifier: issueId === "paperclip-issue-1" ? "BIT-42" : "BIT-43",
+          status: "in_progress"
+        }))
+    )
   };
   const app = createApp(createMinimalService(), {
     auth,
@@ -340,6 +348,68 @@ describe("dashboard comments to Paperclip", () => {
       });
 
     expect(paperclip.createIssue).toHaveBeenCalledTimes(2);
+    store.close();
+  });
+
+  it("refreshes linked Paperclip statuses when dashboard comments are loaded", async () => {
+    const { agent, csrfToken, store } = await createCommentsApp({
+      paperclipGetIssue: async ({ issueId }) => ({
+        id: issueId,
+        identifier: "BIT-42",
+        status: "blocked"
+      })
+    });
+
+    await agent
+      .post("/api/comments")
+      .set("X-CSRF-Token", csrfToken)
+      .send(commentPayload({ text: "Проверь зависшую задачу" }))
+      .expect(201);
+
+    await agent
+      .get("/api/comments")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comments).toEqual([
+          expect.objectContaining({
+            paperclipIssueIdentifier: "BIT-42",
+            paperclipStatus: "needs_input",
+            paperclipSyncStatus: "sent"
+          })
+        ]);
+      });
+
+    store.close();
+  });
+
+  it("does not bump notification updatedAt when Paperclip status is unchanged", async () => {
+    const { agent, csrfToken, store } = await createCommentsApp({
+      paperclipGetIssue: async ({ issueId }) => ({
+        id: issueId,
+        identifier: "BIT-42",
+        status: "in_progress"
+      })
+    });
+
+    await agent
+      .post("/api/comments")
+      .set("X-CSRF-Token", csrfToken)
+      .send(commentPayload({ text: "Проверь уведомление" }))
+      .expect(201);
+
+    const firstResponse = await agent.get("/api/comment-notifications").expect(200);
+    const firstUpdatedAt = firstResponse.body.notifications[0]?.updatedAt;
+    expect(firstUpdatedAt).toEqual(expect.any(String));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await agent
+      .get("/api/comment-notifications")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.notifications[0]?.updatedAt).toBe(firstUpdatedAt);
+      });
+
     store.close();
   });
 

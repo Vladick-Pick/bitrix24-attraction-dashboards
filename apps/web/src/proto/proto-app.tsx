@@ -94,6 +94,59 @@ const notificationSyncLabels: Record<CommentNotification['paperclipSyncStatus'],
   failed: 'Ошибка отправки',
 }
 
+const commentNotificationReadStorageKey = 'bitrix24-dashboard.comment-notifications.read.v1'
+
+function getCommentNotificationReadKey(notification: CommentNotification) {
+  return [
+    notification.id,
+    notification.updatedAt,
+    notification.status,
+    notification.paperclipSyncStatus,
+    notification.paperclipError ?? '',
+  ].join('|')
+}
+
+function readStoredCommentNotificationKeys() {
+  if (typeof window === 'undefined') {
+    return new Set<string>()
+  }
+
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(commentNotificationReadStorageKey) ?? '[]',
+    ) as unknown
+    if (!Array.isArray(parsed)) {
+      return new Set<string>()
+    }
+
+    return new Set(parsed.filter((item): item is string => typeof item === 'string'))
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function writeStoredCommentNotificationKeys(keys: Set<string>) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(
+      commentNotificationReadStorageKey,
+      JSON.stringify(Array.from(keys)),
+    )
+  } catch {
+    // localStorage may be unavailable in restricted browser modes.
+  }
+}
+
+function formatUnreadNotificationCount(count: number) {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  const word = mod10 === 1 && mod100 !== 11 ? 'новое' : 'новых'
+  return `${count} ${word}`
+}
+
 function formatDevelopmentTeamError(value: string) {
   return value.replace(/paperclip/gi, 'команда разработки')
 }
@@ -594,18 +647,37 @@ function MultiSelectField({
 type PaperclipNotificationsProps = {
   notifications: CommentNotification[]
   summary: Array<[CommentNotification['status'], number]>
+  unreadCount: number
+  unreadKeys: ReadonlySet<string>
+  onRead: () => void
 }
 
-function PaperclipNotifications({ notifications, summary }: PaperclipNotificationsProps) {
+function PaperclipNotifications({
+  notifications,
+  summary,
+  unreadCount,
+  unreadKeys,
+  onRead,
+}: PaperclipNotificationsProps) {
+  const [open, setOpen] = useState(false)
   const totalCount = notifications.length
-  const countLabel = totalCount > 99 ? '99+' : String(totalCount)
+  const unreadLabel = unreadCount > 99 ? '99+' : String(unreadCount)
   const buttonLabel =
-    totalCount === 0
+    unreadCount > 0
+      ? `Уведомления команды разработки: ${formatUnreadNotificationCount(unreadCount)}, ${totalCount} активных задач`
+      : totalCount === 0
       ? 'Уведомления команды разработки: нет активных задач'
-      : `Уведомления команды разработки: ${totalCount}`
+      : `Уведомления команды разработки: нет новых, ${totalCount} активных задач`
+
+  function handleOpenChange(nextOpen: boolean) {
+    setOpen(nextOpen)
+    if (nextOpen && unreadCount > 0) {
+      onRead()
+    }
+  }
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -618,12 +690,12 @@ function PaperclipNotifications({ notifications, summary }: PaperclipNotificatio
             strokeWidth={2.2}
             aria-hidden="true"
           />
-          {totalCount > 0 ? (
+          {unreadCount > 0 ? (
             <span
               className="absolute -right-1 -top-1 grid min-h-6 min-w-6 place-items-center rounded-full bg-slate-900 px-1.5 text-[0.7rem] font-bold leading-none text-white ring-2 ring-white"
               aria-hidden="true"
             >
-              {countLabel}
+              {unreadLabel}
             </span>
           ) : null}
         </button>
@@ -638,7 +710,12 @@ function PaperclipNotifications({ notifications, summary }: PaperclipNotificatio
             <div className="subtle-label">Команда разработки</div>
             <h2 className="mt-1 text-base font-bold text-slate-900">Уведомления</h2>
           </div>
-          <span className="badge-chip badge-neutral">{totalCount}</span>
+          <div className="flex flex-wrap justify-end gap-2">
+            {unreadCount > 0 ? (
+              <span className="badge-chip badge-green">новые · {unreadCount}</span>
+            ) : null}
+            <span className="badge-chip badge-neutral">{totalCount}</span>
+          </div>
         </div>
 
         {summary.length > 0 ? (
@@ -660,35 +737,47 @@ function PaperclipNotifications({ notifications, summary }: PaperclipNotificatio
 
         {notifications.length > 0 ? (
           <div className="grid max-h-[24rem] gap-2 overflow-auto pr-1">
-            {notifications.map((notification) => (
-              <article
-                key={notification.id}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-3"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className={cn('badge-chip', notificationClasses[notification.status])}>
-                    {notificationLabels[notification.status]}
-                  </span>
-                  <time className="text-xs font-semibold text-slate-500">
-                    {formatDateTime(notification.updatedAt)}
-                  </time>
-                </div>
-                <p className="mt-2 text-sm font-semibold text-slate-900">
-                  {notification.text}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                  <span>{notificationSyncLabels[notification.paperclipSyncStatus]}</span>
-                  {notification.paperclipIssueIdentifier ? (
-                    <span>{notification.paperclipIssueIdentifier}</span>
-                  ) : null}
-                </div>
-                {notification.paperclipError ? (
-                  <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">
-                    {formatDevelopmentTeamError(notification.paperclipError)}
+            {notifications.map((notification) => {
+              const unread = unreadKeys.has(getCommentNotificationReadKey(notification))
+
+              return (
+                <article
+                  key={notification.id}
+                  className={cn(
+                    'rounded-xl border px-3 py-3',
+                    unread
+                      ? 'border-slate-300 bg-slate-50'
+                      : 'border-slate-200 bg-white',
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <span className={cn('badge-chip', notificationClasses[notification.status])}>
+                        {notificationLabels[notification.status]}
+                      </span>
+                      {unread ? <span className="badge-chip badge-green">Новое</span> : null}
+                    </div>
+                    <time className="text-xs font-semibold text-slate-500">
+                      {formatDateTime(notification.updatedAt)}
+                    </time>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">
+                    {notification.text}
                   </p>
-                ) : null}
-              </article>
-            ))}
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span>{notificationSyncLabels[notification.paperclipSyncStatus]}</span>
+                    {notification.paperclipIssueIdentifier ? (
+                      <span>{notification.paperclipIssueIdentifier}</span>
+                    ) : null}
+                  </div>
+                  {notification.paperclipError ? (
+                    <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">
+                      {formatDevelopmentTeamError(notification.paperclipError)}
+                    </p>
+                  ) : null}
+                </article>
+              )
+            })}
           </div>
         ) : null}
       </PopoverContent>
@@ -736,6 +825,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [pricingSettingsSaving, setPricingSettingsSaving] = useState(false)
   const [pricingSettingsSaveError, setPricingSettingsSaveError] = useState<string | null>(null)
   const [commentNotifications, setCommentNotifications] = useState<CommentNotification[]>([])
+  const [readCommentNotificationKeys, setReadCommentNotificationKeys] = useState<Set<string>>(
+    () => readStoredCommentNotificationKeys(),
+  )
   const [moduleUsers, setModuleUsers] = useState<ModuleUser[]>([])
   const [moduleUsersStatus, setModuleUsersStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [moduleUsersError, setModuleUsersError] = useState<string | null>(null)
@@ -849,6 +941,17 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
     return Array.from(counts.entries())
   }, [commentNotifications])
+  const unreadCommentNotificationKeys = useMemo(() => {
+    const keys = new Set<string>()
+    for (const notification of commentNotifications) {
+      const key = getCommentNotificationReadKey(notification)
+      if (!readCommentNotificationKeys.has(key)) {
+        keys.add(key)
+      }
+    }
+
+    return keys
+  }, [commentNotifications, readCommentNotificationKeys])
   const ActiveSceneComponent = activeScene.component
   const availableManagerOptions =
     runtimeData.managerOptions.length > 0 ? runtimeData.managerOptions : managerOptions
@@ -876,6 +979,29 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       setCommentNotifications([])
     }
   }, [])
+
+  const markCommentNotificationsRead = useCallback(() => {
+    if (commentNotifications.length === 0) {
+      return
+    }
+
+    setReadCommentNotificationKeys((current) => {
+      const next = new Set(current)
+      let changed = false
+      for (const notification of commentNotifications) {
+        const key = getCommentNotificationReadKey(notification)
+        if (!next.has(key)) {
+          next.add(key)
+          changed = true
+        }
+      }
+      if (changed) {
+        writeStoredCommentNotificationKeys(next)
+      }
+
+      return changed ? next : current
+    })
+  }, [commentNotifications])
 
   const refreshModuleUsers = useCallback(async () => {
     if (!canManageModuleUsers) {
@@ -2024,6 +2150,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               <PaperclipNotifications
                 notifications={commentNotifications}
                 summary={notificationSummary}
+                unreadCount={unreadCommentNotificationKeys.size}
+                unreadKeys={unreadCommentNotificationKeys}
+                onRead={markCommentNotificationsRead}
               />
               {accountUser ? (
                 <button
@@ -2442,16 +2571,21 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                         value={reworkText}
                         onChange={(event) => setReworkText(event.target.value)}
                         placeholder="Комментарий к доработке..."
-                        className="max-h-72 overflow-y-auto overscroll-contain"
+                        className="min-h-40 max-h-64 overflow-y-auto overscroll-contain"
                       />
                     </div>
-                    <button
-                      className="btn btn-dark mt-3"
-                      onClick={() => void handleReworkComment(draftComment.id!)}
-                      disabled={reworkText.trim().length === 0}
+                    <div
+                      className="sticky bottom-0 z-10 -mx-1 mt-3 flex bg-white/95 px-1 py-2 backdrop-blur"
+                      data-rework-actions="true"
                     >
-                      На доработку
-                    </button>
+                      <button
+                        className="btn btn-dark w-full sm:w-auto"
+                        onClick={() => void handleReworkComment(draftComment.id!)}
+                        disabled={reworkText.trim().length === 0}
+                      >
+                        На доработку
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>

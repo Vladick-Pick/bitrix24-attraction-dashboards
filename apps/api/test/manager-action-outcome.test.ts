@@ -711,6 +711,76 @@ describe("buildManagerActionOutcomeReport", () => {
       closed: 2
     });
   });
+
+  it("resolves category-specific manager action deal stage names from unprefixed catalog ids", () => {
+    const report = buildManagerActionOutcomeReport({
+      range: {
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      deals: [
+        {
+          id: "D-CATEGORY-STAGE",
+          title: null,
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:UC_Z8RAZJ",
+          stageSemanticId: "P",
+          opportunity: 300000,
+          assignedById: "78",
+          sourceId: null,
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          tariffValue: null,
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-05-07T09:00:00.000Z",
+          dateModify: "2026-05-07T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "UC_Z8RAZJ",
+          name: "Передана",
+          semanticId: "P",
+          sortOrder: 50
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H-CATEGORY-STAGE",
+          ownerId: "D-CATEGORY-STAGE",
+          categoryId: "10",
+          stageId: "C10:UC_Z8RAZJ",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-05-07T09:00:00.000Z"
+        }
+      ],
+      activities: [],
+      calls: [],
+      managerDirectory: [{ id: "78", name: "Егоров Андрей" }]
+    });
+
+    const detail = report.cohortStatusRows[0]?.dealDetails[0];
+
+    expect(detail?.stageId).toBe("C10:UC_Z8RAZJ");
+    expect(detail?.stageName).toBe("Передана");
+    expect(detail?.stageTimeline[0]?.stageName).toBe("Передана");
+  });
+
   it("includes no-touch deals in the SLA on-time denominator", () => {
     const report = buildManagerActionOutcomeReport({
       range: {

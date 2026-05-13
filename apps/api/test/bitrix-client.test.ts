@@ -18,6 +18,51 @@ afterEach(() => {
 });
 
 describe("BitrixClient pagination", () => {
+  it("prefixes unprefixed category deal stage ids from the status catalog", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createResponse({
+        result: [
+          {
+            STATUS_ID: "UC_Z8RAZJ",
+            NAME: "Передана",
+            SORT: 50,
+            EXTRA: {
+              SEMANTICS: "P"
+            }
+          }
+        ]
+      })
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(client.fetchDealStages(["10"])).resolves.toEqual([
+      {
+        entityType: "deal",
+        categoryId: "10",
+        statusId: "C10:UC_Z8RAZJ",
+        name: "Передана",
+        semanticId: "P",
+        sortOrder: 50
+      }
+    ]);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      filter: {
+        ENTITY_ID: "DEAL_STAGE_10"
+      }
+    });
+  });
+
   it("uses ID-based backfill pagination for a full deal sync", async () => {
     const fetchMock = vi
       .fn()

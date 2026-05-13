@@ -346,6 +346,7 @@ describe("password session auth", () => {
         identifier: "BIT-6",
         status: "done"
       }),
+      listIssueComments: async () => [],
       addIssueComment: async (input: {
         issueId: string;
         body: string;

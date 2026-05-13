@@ -51,6 +51,7 @@ import type {
   CommentNotification,
   ModuleRole,
   ModuleUser,
+  PaperclipReadyReport,
   PickerOption,
   ProtoComment,
   ProtoCommentAnchor,
@@ -103,6 +104,7 @@ function getCommentNotificationReadKey(notification: CommentNotification) {
     notification.status,
     notification.paperclipSyncStatus,
     notification.paperclipError ?? '',
+    notification.paperclipReadyReport?.createdAt ?? '',
   ].join('|')
 }
 
@@ -151,12 +153,46 @@ function formatDevelopmentTeamError(value: string) {
   return value.replace(/paperclip/gi, 'команда разработки')
 }
 
+function formatReadyReportBody(value: string) {
+  return value
+    .split('\n')
+    .map((line) => line.replace(/^#{1,6}\s+/, '').trimEnd())
+    .join('\n')
+    .trim()
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
     return value
   }
   return date.toLocaleString('ru-RU', { hour12: false })
+}
+
+function DevelopmentReadyReport({
+  report,
+}: {
+  report: PaperclipReadyReport | null | undefined
+}) {
+  if (!report?.body.trim()) {
+    return null
+  }
+
+  return (
+    <section className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-800">
+          Отчёт команды разработки
+        </div>
+        <time className="text-xs font-semibold text-emerald-900/70">
+          {formatDateTime(report.createdAt)}
+        </time>
+      </div>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">
+        {formatReadyReportBody(report.body)}
+      </p>
+    </section>
+  )
 }
 
 function getUserDisplayName(user: AuthUser | null | undefined) {
@@ -775,6 +811,7 @@ function PaperclipNotifications({
                       {formatDevelopmentTeamError(notification.paperclipError)}
                     </p>
                   ) : null}
+                  <DevelopmentReadyReport report={notification.paperclipReadyReport} />
                 </article>
               )
             })}
@@ -849,6 +886,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     y: number
     text: string
     anchor: ProtoCommentAnchor
+    paperclipReadyReport?: ProtoComment['paperclipReadyReport']
   } | null>(null)
   const [reworkText, setReworkText] = useState('')
 
@@ -1507,6 +1545,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           relativeX: comment.x,
           relativeY: comment.y,
         } satisfies ProtoCommentAnchor),
+      paperclipReadyReport: comment.paperclipReadyReport,
     })
     setReworkText('')
     setCommentsOpen(true)
@@ -2561,6 +2600,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                     </button>
                   ) : null}
                 </div>
+                <DevelopmentReadyReport report={draftComment?.paperclipReadyReport} />
                 {draftComment?.id &&
                 canArchiveComments &&
                 comments.find((comment) => comment.id === draftComment.id)?.paperclipIssueId ? (

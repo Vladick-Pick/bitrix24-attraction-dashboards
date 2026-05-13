@@ -550,6 +550,7 @@ describe('ProtoApp', () => {
   beforeEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
+    window.localStorage.clear()
     window.history.pushState({}, '', '/')
     vi.stubGlobal(
       'fetch',
@@ -569,6 +570,7 @@ describe('ProtoApp', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    window.localStorage.clear()
   })
 
   it('renders the prototype shell with comment mode controls', async () => {
@@ -625,6 +627,42 @@ describe('ProtoApp', () => {
     expect(screen.getByText(/команда разработки unavailable/i)).toBeInTheDocument()
     expect(screen.queryByText(/paperclip/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /bit-1/i })).not.toBeInTheDocument()
+  })
+
+  it('clears the unread development notification badge after opening notifications', async () => {
+    vi.mocked(apiClient.getCommentNotifications).mockResolvedValueOnce({
+      notifications: [
+        {
+          id: 'comment-1',
+          sceneId: 'sales',
+          text: 'Проверить KPI',
+          status: 'in_work',
+          paperclipSyncStatus: 'sent',
+          paperclipIssueIdentifier: 'BIT-1',
+          paperclipError: null,
+          updatedAt: '2026-04-10T12:05:00.000Z',
+        },
+      ],
+    })
+
+    render(<ProtoApp />)
+
+    const notificationsButton = await screen.findByRole('button', {
+      name: /1 новое/i,
+    })
+    expect(within(notificationsButton).getByText('1')).toBeInTheDocument()
+
+    await userEvent.click(notificationsButton)
+
+    expect(await screen.findByText('Проверить KPI')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', {
+          name: /нет новых/i,
+        }),
+      ).toBeInTheDocument()
+    })
+    expect(within(notificationsButton).queryByText('1')).not.toBeInTheDocument()
   })
 
   it('keeps the development rework form inside a scrollable comments panel body', async () => {
@@ -693,7 +731,13 @@ describe('ProtoApp', () => {
 
     expect(panelBody).not.toBeNull()
     expect(panelBody).toHaveClass('min-h-0', 'overflow-y-auto', 'overscroll-contain')
-    expect(reworkTextarea).toHaveClass('max-h-72', 'overflow-y-auto', 'overscroll-contain')
+    expect(reworkTextarea).toHaveClass('min-h-40', 'max-h-64', 'overflow-y-auto', 'overscroll-contain')
+    const reworkButton = screen.getByRole('button', { name: /на доработку/i })
+    expect(reworkButton).toHaveClass('btn', 'btn-dark', 'w-full')
+    expect(reworkButton.closest('[data-rework-actions="true"]')).toHaveClass(
+      'sticky',
+      'bottom-0',
+    )
   })
 
   it('opens the account page and shows module admin only to attraction leaders', async () => {

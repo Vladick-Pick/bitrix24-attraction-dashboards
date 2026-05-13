@@ -36,7 +36,6 @@ function asString(value: unknown) {
 export class PaperclipClient implements PaperclipIssueClient {
   readonly #apiUrl: string;
   readonly #apiToken: string;
-  readonly #reworkCommentMode: PaperclipReworkCommentMode;
 
   constructor(input: {
     apiUrl: string;
@@ -45,7 +44,6 @@ export class PaperclipClient implements PaperclipIssueClient {
   }) {
     this.#apiUrl = input.apiUrl.replace(/\/$/, "");
     this.#apiToken = input.apiToken;
-    this.#reworkCommentMode = input.reworkCommentMode ?? "board";
   }
 
   #headers(input: { includeAuthorization: boolean; contentType?: boolean }) {
@@ -119,20 +117,17 @@ export class PaperclipClient implements PaperclipIssueClient {
   }
 
   async addIssueComment(input: PaperclipIssueCommentInput): Promise<void> {
-    const boardOriginated =
-      input.origin === "dashboard_rework" && this.#reworkCommentMode === "board";
     const response = await fetch(
       `${this.#apiUrl}/api/issues/${encodeURIComponent(input.issueId)}/comments`,
       {
         method: "POST",
         headers: this.#headers({
-          includeAuthorization: !boardOriginated,
+          includeAuthorization: true,
           contentType: true
         }),
         body: JSON.stringify({
           body: input.body,
-          ...(input.reopen === undefined ? {} : { reopen: input.reopen }),
-          ...(boardOriginated ? { interrupt: true } : {})
+          ...(input.reopen === undefined ? {} : { reopen: input.reopen })
         })
       }
     );

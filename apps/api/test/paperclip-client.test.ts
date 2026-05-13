@@ -7,7 +7,7 @@ describe("PaperclipClient", () => {
     vi.unstubAllGlobals();
   });
 
-  it("posts dashboard rework comments as board-originated requests", async () => {
+  it("posts dashboard rework comments as authenticated dashboard system requests", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -31,11 +31,10 @@ describe("PaperclipClient", () => {
     ];
     expect(url).toBe("http://paperclip.local/api/issues/issue-1/comments");
     const headers = new Headers(init.headers);
-    expect(headers.get("Authorization")).toBeNull();
+    expect(headers.get("Authorization")).toBe("Bearer agent-token");
     expect(JSON.parse(String(init.body))).toEqual({
       body: "Вернуть в работу",
-      reopen: true,
-      interrupt: true
+      reopen: true
     });
   });
 

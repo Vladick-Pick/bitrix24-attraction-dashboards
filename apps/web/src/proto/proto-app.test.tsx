@@ -783,6 +783,61 @@ describe('ProtoApp', () => {
     expect(screen.getAllByText(/проверено: web vitest/i).length).toBeGreaterThan(0)
   })
 
+  it('shows a missing ready report state for ready comments without a team report', async () => {
+    const comment = {
+      id: 'comment-ready-no-report',
+      sceneId: 'sales',
+      x: 0.5,
+      y: 0.5,
+      text: 'Проверить готовую доработку без отчёта',
+      status: 'open',
+      archivedAt: null,
+      createdAt: '2026-05-13T11:00:00.000Z',
+      updatedAt: '2026-05-13T12:00:00.000Z',
+      paperclipIssueId: 'paperclip-issue-1',
+      paperclipIssueIdentifier: 'BIT-42',
+      paperclipStatus: 'done',
+      paperclipSyncStatus: 'sent',
+      paperclipError: null,
+      paperclipReadyReport: null,
+    }
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      createResponse({
+        comments: [comment],
+        updatedAt: '2026-05-13T12:00:00.000Z',
+      }),
+    )
+    vi.mocked(apiClient.getCommentNotifications).mockResolvedValueOnce({
+      notifications: [
+        {
+          id: comment.id,
+          sceneId: comment.sceneId,
+          text: comment.text,
+          status: 'done',
+          paperclipSyncStatus: 'sent',
+          paperclipIssueIdentifier: 'BIT-42',
+          paperclipError: null,
+          updatedAt: comment.updatedAt,
+          paperclipReadyReport: null,
+        },
+      ],
+    })
+
+    render(<ProtoApp />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /уведомления команды разработки/i }),
+    )
+
+    expect(await screen.findByText(/отчёт команды разработки не найден/i)).toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('button', { name: /^комментарии$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /без отчёта/i }))
+
+    expect(screen.getAllByText(/отчёт команды разработки не найден/i).length).toBeGreaterThan(0)
+  })
+
   it('keeps the development rework form inside a scrollable comments panel body', async () => {
     const leader: AuthUser = {
       id: 1,

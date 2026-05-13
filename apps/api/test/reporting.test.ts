@@ -710,6 +710,158 @@ describe("buildDashboard", () => {
     });
   });
 
+  it("uses a safe stage label when dashboard timeline history references a missing catalog stage", () => {
+    const result = buildDashboard({
+      range: {
+        from: "2026-01-01T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      leads: [],
+      deals: [
+        {
+          id: "142306",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 300000,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: "ClubFirst Russia",
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          tariffValue: null,
+          dateCreate: "2026-01-28T09:00:00.000Z",
+          dateModify: "2026-05-07T10:00:00.000Z",
+          dateClosed: "2026-05-07T10:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:WON",
+          name: "Передано в клуб",
+          semanticId: "S",
+          sortOrder: 20
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [
+        {
+          id: "H-142306-MISSING-CATALOG-STAGE",
+          ownerId: "142306",
+          categoryId: "10",
+          stageId: "C10:UC_Z8RAZJ",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-03-07T09:00:00.000Z"
+        },
+        {
+          id: "H-142306-WON",
+          ownerId: "142306",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-05-07T10:00:00.000Z"
+        }
+      ],
+      activities: [
+        {
+          id: "TASK-142306",
+          ownerTypeId: "2",
+          ownerId: "142306",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "78",
+          createdTime: "2026-03-10T10:00:00.000Z",
+          deadline: "2026-03-11T10:00:00.000Z",
+          lastUpdated: "2026-03-11T10:30:00.000Z",
+          completed: true,
+          completedTime: "2026-03-11T10:30:00.000Z"
+        },
+        {
+          id: "MEETING-142306",
+          ownerTypeId: "2",
+          ownerId: "142306",
+          typeId: "1",
+          providerId: "CRM_MEETING",
+          responsibleId: "78",
+          createdTime: "2026-03-12T11:00:00.000Z",
+          deadline: "2026-03-13T12:00:00.000Z",
+          lastUpdated: "2026-03-12T11:00:00.000Z",
+          completed: false,
+          completedTime: null
+        }
+      ],
+      calls: [
+        {
+          id: "CALL-142306",
+          crmActivityId: null,
+          portalUserId: "78",
+          callType: "1",
+          callStartDate: "2026-03-09T10:00:00.000Z",
+          callDurationSeconds: 75,
+          crmEntityType: "DEAL",
+          crmEntityId: "142306",
+          callFailedCode: "200"
+        }
+      ],
+      managerDirectory: [{ id: "78", name: "Manager 78" }]
+    });
+
+    const timeline = result.managerGroups[0]?.deals[0]?.stageTimeline ?? [];
+    const missingStage = timeline[0];
+
+    expect(result.managerGroups[0]?.deals[0]?.dealId).toBe("142306");
+    expect(missingStage).toEqual(
+      expect.objectContaining({
+        stageId: "C10:UC_Z8RAZJ",
+        stageName: "Этап недоступен",
+        callSummary: expect.objectContaining({
+          total: 1,
+          successful: 1
+        }),
+        taskSummary: {
+          created: 1,
+          closed: 1
+        },
+        meetingEvents: [
+          {
+            activityId: "MEETING-142306",
+            createdAt: "2026-03-12T11:00:00.000Z",
+            timelineAt: "2026-03-12T11:00:00.000Z",
+            scheduledAt: "2026-03-13T12:00:00.000Z",
+            completed: false
+          }
+        ]
+      })
+    );
+    expect(missingStage?.stageName).not.toBe("C10:UC_Z8RAZJ");
+    expect(timeline[1]).toEqual(
+      expect.objectContaining({
+        stageId: "C10:WON",
+        stageName: "Передано в клуб"
+      })
+    );
+  });
+
   it("places meeting events in the stage timeline by activity creation time, not scheduled deadline", () => {
     const result = buildDashboard({
       range: {

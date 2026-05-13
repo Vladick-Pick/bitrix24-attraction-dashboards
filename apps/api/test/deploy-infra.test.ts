@@ -42,4 +42,59 @@ describe("production deployment infrastructure", () => {
     expect(deployWorkflow).toContain("-o ServerAliveInterval=15");
     expect(deployWorkflow).toContain("-o ServerAliveCountMax=12");
   });
+
+  it("restores the Caddy reverse proxy before public health verification", () => {
+    const deployScript = readRepoFile("scripts/deploy-production.sh");
+
+    expect(deployScript).toContain("ensure_reverse_proxy");
+    expect(deployScript).toContain("ensure_caddy_reverse_proxy");
+    expect(deployScript).toContain("reverse_proxy 127.0.0.1:8787");
+    expect(deployScript).toContain("caddy validate --config");
+    expect(deployScript).toContain("systemctl reload caddy");
+    const verifyRuntime = deployScript.slice(
+      deployScript.indexOf("verify_runtime()"),
+      deployScript.indexOf("main()"),
+    );
+
+    expect(verifyRuntime.indexOf("ensure_reverse_proxy")).toBeGreaterThan(-1);
+    expect(verifyRuntime.indexOf("ensure_reverse_proxy")).toBeLessThan(
+      verifyRuntime.indexOf("wait_for_http_code \"$HEALTH_URL\" 200"),
+    );
+  });
+
+  it("fails runtime verification when reverse proxy restoration fails", () => {
+    const deployScript = readRepoFile("scripts/deploy-production.sh");
+    const verifyRuntime = deployScript.slice(
+      deployScript.indexOf("verify_runtime()"),
+      deployScript.indexOf("main()"),
+    );
+    const ensureReverseProxy = deployScript.slice(
+      deployScript.indexOf("ensure_reverse_proxy()"),
+      deployScript.indexOf("wait_for_http_code()"),
+    );
+
+    expect(verifyRuntime).toContain("if ! ensure_reverse_proxy; then");
+    expect(verifyRuntime).toContain("return 1");
+    expect(ensureReverseProxy).toContain("systemctl start nginx");
+    expect(ensureReverseProxy).not.toContain("systemctl start nginx\n    return 0");
+    expect(ensureReverseProxy).not.toContain(
+      "log \"Warning: no supported reverse proxy found; public health check may fail\"\n  return 1",
+    );
+  });
+
+  it("fails runtime verification when non-proxy critical checks fail", () => {
+    const deployScript = readRepoFile("scripts/deploy-production.sh");
+    const verifyRuntime = deployScript.slice(
+      deployScript.indexOf("verify_runtime()"),
+      deployScript.indexOf("main()"),
+    );
+
+    expect(verifyRuntime).toMatch(
+      /if ! verify_image_revision "\$expected_ref" "\$allow_missing_revision"; then\s+return 1\s+fi/,
+    );
+    expect(verifyRuntime).toMatch(/if ! wait_for_http_code "\$HEALTH_URL" 200; then\s+return 1\s+fi/);
+    expect(verifyRuntime).toMatch(
+      /if ! app_uid="\$\(docker compose -p "\$COMPOSE_PROJECT" exec -T app id -u\)"; then\s+return 1\s+fi/,
+    );
+  });
 });

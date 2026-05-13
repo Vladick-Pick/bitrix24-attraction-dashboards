@@ -81,4 +81,20 @@ describe("production deployment infrastructure", () => {
       "log \"Warning: no supported reverse proxy found; public health check may fail\"\n  return 1",
     );
   });
+
+  it("fails runtime verification when non-proxy critical checks fail", () => {
+    const deployScript = readRepoFile("scripts/deploy-production.sh");
+    const verifyRuntime = deployScript.slice(
+      deployScript.indexOf("verify_runtime()"),
+      deployScript.indexOf("main()"),
+    );
+
+    expect(verifyRuntime).toMatch(
+      /if ! verify_image_revision "\$expected_ref" "\$allow_missing_revision"; then\s+return 1\s+fi/,
+    );
+    expect(verifyRuntime).toMatch(/if ! wait_for_http_code "\$HEALTH_URL" 200; then\s+return 1\s+fi/);
+    expect(verifyRuntime).toMatch(
+      /if ! app_uid="\$\(docker compose -p "\$COMPOSE_PROJECT" exec -T app id -u\)"; then\s+return 1\s+fi/,
+    );
+  });
 });

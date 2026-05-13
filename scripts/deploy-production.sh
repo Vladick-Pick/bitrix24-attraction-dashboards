@@ -192,11 +192,15 @@ verify_runtime() {
   local expected_ref="$1"
   local allow_missing_revision="${2:-false}"
 
-  verify_image_revision "$expected_ref" "$allow_missing_revision"
+  if ! verify_image_revision "$expected_ref" "$allow_missing_revision"; then
+    return 1
+  fi
   if ! ensure_reverse_proxy; then
     return 1
   fi
-  wait_for_http_code "$HEALTH_URL" 200
+  if ! wait_for_http_code "$HEALTH_URL" 200; then
+    return 1
+  fi
 
   local dashboard_code
   dashboard_code="$(curl -fsS -o /dev/null -w '%{http_code}' "$DASHBOARD_URL" || true)"
@@ -206,7 +210,9 @@ verify_runtime() {
   fi
 
   local app_uid
-  app_uid="$(docker compose -p "$COMPOSE_PROJECT" exec -T app id -u)"
+  if ! app_uid="$(docker compose -p "$COMPOSE_PROJECT" exec -T app id -u)"; then
+    return 1
+  fi
   if [ "$app_uid" = "0" ]; then
     printf 'App container is running as root\n' >&2
     return 1

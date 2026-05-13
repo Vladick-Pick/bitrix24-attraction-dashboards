@@ -104,7 +104,6 @@ ensure_reverse_proxy() {
   fi
 
   log "Warning: no supported reverse proxy found; public health check may fail"
-  return 1
 }
 
 wait_for_http_code() {

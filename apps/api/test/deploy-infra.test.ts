@@ -77,5 +77,8 @@ describe("production deployment infrastructure", () => {
     expect(verifyRuntime).toContain("return 1");
     expect(ensureReverseProxy).toContain("systemctl start nginx");
     expect(ensureReverseProxy).not.toContain("systemctl start nginx\n    return 0");
+    expect(ensureReverseProxy).not.toContain(
+      "log \"Warning: no supported reverse proxy found; public health check may fail\"\n  return 1",
+    );
   });
 });

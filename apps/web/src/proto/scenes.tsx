@@ -1859,6 +1859,66 @@ function getStageMeetingBadges(
   return badges
 }
 
+function hasStageCallSummary(summary: DealStageTimelineEntry['callSummary']) {
+  return Boolean(
+    summary &&
+      (summary.total > 0 ||
+        summary.incoming > 0 ||
+        summary.outgoing > 0 ||
+        summary.successful > 0 ||
+        summary.failed > 0 ||
+        summary.connectedOverThirtySeconds > 0),
+  )
+}
+
+function hasStageTaskSummary(summary: DealStageTimelineEntry['taskSummary']) {
+  return Boolean(summary && (summary.created > 0 || summary.closed > 0))
+}
+
+function StageTimelineInteractionBadges({
+  stage,
+  meetingBadges,
+}: {
+  stage: DealStageTimelineEntry
+  meetingBadges: StageMeetingBadge[]
+}) {
+  const callSummary = stage.callSummary
+  const taskSummary = stage.taskSummary
+  const showCalls = hasStageCallSummary(callSummary)
+  const showTasks = hasStageTaskSummary(taskSummary)
+
+  return (
+    <div className="mt-1 flex flex-wrap gap-1.5">
+      {meetingBadges.map((meeting) => (
+        <span
+          key={meeting.key}
+          className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
+        >
+          Встреча {formatShortDate(meeting.dateValue)}
+        </span>
+      ))}
+      {showCalls && callSummary ? (
+        <span className="inline-flex items-center rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-800 ring-1 ring-sky-100">
+          Звонки {formatInteger(callSummary.total)} · {formatInteger(callSummary.incoming)} вход. ·{' '}
+          {formatInteger(callSummary.outgoing)} исход. ·{' '}
+          {formatInteger(callSummary.connectedOverThirtySeconds)} &gt;30с
+        </span>
+      ) : null}
+      {showTasks && taskSummary ? (
+        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-100">
+          Дела {formatInteger(taskSummary.created)} / {formatInteger(taskSummary.closed)}
+        </span>
+      ) : null}
+      <span className="inline-flex items-center rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-400">
+        Конверсии недоступны
+      </span>
+      <span className="inline-flex items-center rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-400">
+        Сообщения недоступны
+      </span>
+    </div>
+  )
+}
+
 function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
   const meetingDateResolution = resolveMeetingDateTimeline(
     deal.stageTimeline,
@@ -1971,22 +2031,15 @@ function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
               return (
                 <div
                   key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
+                  data-stage-timeline-row
                   className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
-                    {meetingBadges.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {meetingBadges.map((meeting) => (
-                          <span
-                            key={meeting.key}
-                            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
-                          >
-                            Встреча {formatShortDate(meeting.dateValue)}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
+                    <StageTimelineInteractionBadges
+                      stage={stage}
+                      meetingBadges={meetingBadges}
+                    />
                     <div className="truncate text-xs text-slate-500">
                       до {formatShortDate(stage.leftAt)}
                     </div>
@@ -3297,22 +3350,15 @@ function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDeta
               return (
                 <div
                   key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
+                  data-stage-timeline-row
                   className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 px-4 py-3 text-sm"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
-                    {meetingBadges.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {meetingBadges.map((meeting) => (
-                          <span
-                            key={meeting.key}
-                            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800"
-                          >
-                            Встреча {formatShortDate(meeting.dateValue)}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
+                    <StageTimelineInteractionBadges
+                      stage={stage}
+                      meetingBadges={meetingBadges}
+                    />
                     <div className="truncate text-xs text-slate-500">
                       до {formatShortDate(stage.leftAt)}
                     </div>

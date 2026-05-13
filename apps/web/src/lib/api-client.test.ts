@@ -8,6 +8,120 @@ describe('apiClient', () => {
     vi.restoreAllMocks()
   })
 
+  it('normalizes stage timeline interaction summaries while preserving legacy fallbacks', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        salesSummary: {
+          salesCount: 1,
+          salesAmount: 1000000,
+          averageSaleAmount: 1000000,
+          newDealsCount: 2,
+          conversionRate: 50,
+        },
+        managerGroups: [
+          {
+            managerId: '78',
+            managerName: 'Егоров Андрей',
+            totalWonDeals: 1,
+            totalSalesAmount: 1000000,
+            totalAttractionRevenueAmount: 300000,
+            averageAttractionRevenueAmount: 300000,
+            totalMembershipAmount: 700000,
+            averageMembershipAmount: 700000,
+            deals: [
+              {
+                dealId: 'D-1',
+                managerId: '78',
+                managerName: 'Егоров Андрей',
+                amount: 1000000,
+                attractionRevenueAmount: 300000,
+                membershipAmount: 700000,
+                pricingStatus: 'priced',
+                pricingWarnings: [],
+                dateCreate: '2026-03-01T10:00:00.000Z',
+                dateClosed: '2026-03-10T10:00:00.000Z',
+                cycleDays: 9,
+                cohortContext: {},
+                callSummary: {},
+                taskSummary: {},
+                stageTimeline: [
+                  {
+                    stageId: 'C10:CALL',
+                    stageName: 'Звонок-знакомство',
+                    enteredAt: '2026-03-01T10:00:00.000Z',
+                    leftAt: '2026-03-02T10:00:00.000Z',
+                    durationHours: 24,
+                    callSummary: {
+                      total: 3,
+                      incoming: 1,
+                      outgoing: 2,
+                      successful: 2,
+                      failed: 1,
+                      overThirtySeconds: 1,
+                      connectedOverThirtySeconds: 1,
+                    },
+                    taskSummary: {
+                      created: 2,
+                      closed: 1,
+                    },
+                  },
+                  {
+                    stageId: 'C10:LEGACY',
+                    stageName: 'Старый ответ',
+                    enteredAt: '2026-03-02T10:00:00.000Z',
+                    leftAt: '2026-03-03T10:00:00.000Z',
+                    durationHours: 24,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        comparisons: [],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const dashboard = await apiClient.getDashboard({
+      preset: 'custom',
+      from: '2026-03-01T00:00:00.000+03:00',
+      to: '2026-03-31T23:59:59.999+03:00',
+    })
+
+    expect(dashboard.managerGroups[0]?.deals[0]?.stageTimeline[0]).toMatchObject({
+      callSummary: {
+        total: 3,
+        incoming: 1,
+        outgoing: 2,
+        successful: 2,
+        failed: 1,
+        overThirtySeconds: 1,
+        connectedOverThirtySeconds: 1,
+      },
+      taskSummary: {
+        created: 2,
+        closed: 1,
+      },
+    })
+    expect(dashboard.managerGroups[0]?.deals[0]?.stageTimeline[1]).toMatchObject({
+      callSummary: {
+        total: 0,
+        incoming: 0,
+        outgoing: 0,
+        successful: 0,
+        failed: 0,
+        overThirtySeconds: 0,
+        connectedOverThirtySeconds: 0,
+      },
+      taskSummary: {
+        created: 0,
+        closed: 0,
+      },
+    })
+  })
+
   it('loads and saves sales plan rows by report range', async () => {
     const fetchMock = vi
       .fn()

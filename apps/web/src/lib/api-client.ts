@@ -124,6 +124,63 @@ function asArray<T>(value: unknown, mapper: (input: unknown) => T): T[] {
   return Array.isArray(value) ? value.map(mapper) : []
 }
 
+function normalizeDealCallSummary(value: unknown) {
+  const calls = isRecord(value) ? value : {}
+  return {
+    total: asNumber(calls.total),
+    incoming: asNumber(calls.incoming),
+    outgoing: asNumber(calls.outgoing),
+    successful: asNumber(calls.successful),
+    failed: asNumber(calls.failed),
+    overThirtySeconds: asNumber(calls.overThirtySeconds),
+    connectedOverThirtySeconds: asNumber(calls.connectedOverThirtySeconds),
+  }
+}
+
+function normalizeDealTaskSummary(value: unknown) {
+  const tasks = isRecord(value) ? value : {}
+  return {
+    created: asNumber(tasks.created),
+    closed: asNumber(tasks.closed),
+  }
+}
+
+function normalizeDealMeetingSummary(value: unknown) {
+  const meetings = isRecord(value) ? value : {}
+  return {
+    total: asNumber(meetings.total),
+  }
+}
+
+function normalizeDealMeetingEvents(value: unknown) {
+  return asArray(value, (event) => {
+    const eventRow = isRecord(event) ? event : {}
+    return {
+      activityId: asString(eventRow.activityId),
+      createdAt: asString(eventRow.createdAt),
+      timelineAt: asString(eventRow.timelineAt, asString(eventRow.createdAt)),
+      scheduledAt: asString(eventRow.scheduledAt),
+      completed: Boolean(eventRow.completed),
+    }
+  })
+}
+
+function normalizeDealStageTimeline(value: unknown) {
+  return asArray(value, (stage) => {
+    const stageRow = isRecord(stage) ? stage : {}
+    return {
+      stageId: asString(stageRow.stageId),
+      stageName: asString(stageRow.stageName, asString(stageRow.stageId)),
+      enteredAt: asString(stageRow.enteredAt),
+      leftAt: asString(stageRow.leftAt),
+      durationHours: asNumber(stageRow.durationHours),
+      callSummary: normalizeDealCallSummary(stageRow.callSummary),
+      taskSummary: normalizeDealTaskSummary(stageRow.taskSummary),
+      meetingEvents: normalizeDealMeetingEvents(stageRow.meetingEvents),
+    }
+  })
+}
+
 function isMutatingMethod(method: string | undefined) {
   return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(
     (method ?? 'GET').toUpperCase(),
@@ -474,10 +531,6 @@ function normalizeDashboardSnapshot(value: unknown): DashboardDataSnapshot {
         deals: asArray(item.deals, (deal) => {
           const row = isRecord(deal) ? deal : {}
           const cohort = isRecord(row.cohortContext) ? row.cohortContext : {}
-          const calls = isRecord(row.callSummary) ? row.callSummary : {}
-          const tasks = isRecord(row.taskSummary) ? row.taskSummary : {}
-          const meetings = isRecord(row.meetingSummary) ? row.meetingSummary : {}
-
           return {
             dealId: asString(row.dealId),
             dealTitle: asString(row.dealTitle, asString(row.dealId)),
@@ -515,47 +568,10 @@ function normalizeDashboardSnapshot(value: unknown): DashboardDataSnapshot {
               cohortWonDeals: asNumber(cohort.cohortWonDeals),
               cohortWonConversionRate: asNumber(cohort.cohortWonConversionRate),
             },
-            callSummary: {
-              total: asNumber(calls.total),
-              incoming: asNumber(calls.incoming),
-              outgoing: asNumber(calls.outgoing),
-              successful: asNumber(calls.successful),
-              failed: asNumber(calls.failed),
-              overThirtySeconds: asNumber(calls.overThirtySeconds),
-              connectedOverThirtySeconds: asNumber(
-                calls.connectedOverThirtySeconds,
-              ),
-            },
-            taskSummary: {
-              created: asNumber(tasks.created),
-              closed: asNumber(tasks.closed),
-            },
-            meetingSummary: {
-              total: asNumber(meetings.total),
-            },
-            stageTimeline: asArray(row.stageTimeline, (stage) => {
-              const stageRow = isRecord(stage) ? stage : {}
-              return {
-                stageId: asString(stageRow.stageId),
-                stageName: asString(stageRow.stageName, asString(stageRow.stageId)),
-                enteredAt: asString(stageRow.enteredAt),
-                leftAt: asString(stageRow.leftAt),
-                durationHours: asNumber(stageRow.durationHours),
-                meetingEvents: asArray(stageRow.meetingEvents, (event) => {
-                  const eventRow = isRecord(event) ? event : {}
-                  return {
-                    activityId: asString(eventRow.activityId),
-                    createdAt: asString(eventRow.createdAt),
-                    timelineAt: asString(
-                      eventRow.timelineAt,
-                      asString(eventRow.createdAt),
-                    ),
-                    scheduledAt: asString(eventRow.scheduledAt),
-                    completed: Boolean(eventRow.completed),
-                  }
-                }),
-              }
-            }),
+            callSummary: normalizeDealCallSummary(row.callSummary),
+            taskSummary: normalizeDealTaskSummary(row.taskSummary),
+            meetingSummary: normalizeDealMeetingSummary(row.meetingSummary),
+            stageTimeline: normalizeDealStageTimeline(row.stageTimeline),
           }
         }),
       }
@@ -1433,52 +1449,6 @@ function normalizeManagerActionOutcomeSnapshot(
     value === 'won' || value === 'lost' || value === 'wip' ? value : 'wip'
   const normalizeDealSlaStatus = (value: unknown): ManagerActionOutcomeDealSlaStatus =>
     value === 'onTime' || value === 'late' || value === 'noTouch' ? value : 'noTouch'
-  const normalizeCallSummary = (value: unknown) => {
-    const calls = isRecord(value) ? value : {}
-    return {
-      total: asNumber(calls.total),
-      incoming: asNumber(calls.incoming),
-      outgoing: asNumber(calls.outgoing),
-      successful: asNumber(calls.successful),
-      failed: asNumber(calls.failed),
-      overThirtySeconds: asNumber(calls.overThirtySeconds),
-      connectedOverThirtySeconds: asNumber(calls.connectedOverThirtySeconds),
-    }
-  }
-  const normalizeTaskSummary = (value: unknown) => {
-    const tasks = isRecord(value) ? value : {}
-    return {
-      created: asNumber(tasks.created),
-      closed: asNumber(tasks.closed),
-    }
-  }
-  const normalizeMeetingSummary = (value: unknown) => {
-    const meetings = isRecord(value) ? value : {}
-    return {
-      total: asNumber(meetings.total),
-    }
-  }
-  const normalizeStageTimeline = (value: unknown) =>
-    asArray(value, (stage) => {
-      const stageRow = isRecord(stage) ? stage : {}
-      return {
-        stageId: asString(stageRow.stageId),
-        stageName: asString(stageRow.stageName, asString(stageRow.stageId)),
-        enteredAt: asString(stageRow.enteredAt),
-        leftAt: asString(stageRow.leftAt),
-        durationHours: asNumber(stageRow.durationHours),
-        meetingEvents: asArray(stageRow.meetingEvents, (event) => {
-          const eventRow = isRecord(event) ? event : {}
-          return {
-            activityId: asString(eventRow.activityId),
-            createdAt: asString(eventRow.createdAt),
-            timelineAt: asString(eventRow.timelineAt, asString(eventRow.createdAt)),
-            scheduledAt: asString(eventRow.scheduledAt),
-            completed: Boolean(eventRow.completed),
-          }
-        }),
-      }
-    })
   const normalizeDealSla = (value: unknown) => {
     const sla = isRecord(value) ? value : {}
     const normalizeOne = (entry: unknown) => {
@@ -1579,11 +1549,11 @@ function normalizeManagerActionOutcomeSnapshot(
             meetingTypeValue: asNullableString(row.meetingTypeValue),
             meetingDateValue: asNullableString(row.meetingDateValue),
             tariffValue: asNullableString(row.tariffValue),
-            taskSummary: normalizeTaskSummary(row.taskSummary),
-            callSummary: normalizeCallSummary(row.callSummary),
-            meetingSummary: normalizeMeetingSummary(row.meetingSummary),
+            taskSummary: normalizeDealTaskSummary(row.taskSummary),
+            callSummary: normalizeDealCallSummary(row.callSummary),
+            meetingSummary: normalizeDealMeetingSummary(row.meetingSummary),
             sla: normalizeDealSla(row.sla),
-            stageTimeline: normalizeStageTimeline(row.stageTimeline),
+            stageTimeline: normalizeDealStageTimeline(row.stageTimeline),
           }
         }),
       }

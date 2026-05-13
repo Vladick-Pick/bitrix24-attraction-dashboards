@@ -1390,6 +1390,134 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).queryByText(/Встреча 13 февр/i)).not.toBeInTheDocument()
   })
 
+  it('renders stage timeline interaction badges for calls, tasks, and reserved channels', async () => {
+    vi.mocked(apiClient.getDashboard).mockResolvedValueOnce({
+      salesSummary: {
+        salesCount: 1,
+        salesAmount: 1_250_000,
+        averageSaleAmount: 1_250_000,
+        attractionRevenueAmount: 1_250_000,
+        averageAttractionRevenueAmount: 1_250_000,
+        membershipAmount: 1_250_000,
+        averageMembershipAmount: 1_250_000,
+        pricingWarnings: [],
+        newDealsCount: 12,
+        conversionRate: 8.33,
+        meetingsCount: 1,
+      },
+      managerGroups: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          totalWonDeals: 1,
+          totalSalesAmount: 1_250_000,
+          totalAttractionRevenueAmount: 1_250_000,
+          averageAttractionRevenueAmount: 1_250_000,
+          totalMembershipAmount: 1_250_000,
+          averageMembershipAmount: 1_250_000,
+          deals: [
+            {
+              dealId: 'D-102',
+              dealTitle: 'Deal D-102',
+              managerId: '78',
+              managerName: 'Егоров Андрей',
+              amount: 1_250_000,
+              attractionRevenueAmount: 1_250_000,
+              membershipAmount: 1_250_000,
+              pricingStatus: 'priced',
+              pricingWarnings: [],
+              dateCreate: '2026-03-12T09:00:00.000Z',
+              dateClosed: '2026-04-10T15:00:00.000Z',
+              cycleDays: 29,
+              sourceKey: 'STORE',
+              sourceLabel: 'Сайт',
+              qualityValue: '3.1 Готов ко встрече',
+              businessClubValue: 'ClubOne',
+              targetGroupValue: 'ClubFirst',
+              meetingTypeValue: 'Очная',
+              meetingDateValue: '2026-03-14T16:00:00.000Z',
+              tariffValue: 'Федеральный Москва',
+              cohortContext: {
+                createdMonth: '2026-03',
+                cohortCreatedDeals: 42,
+                cohortWonDeals: 7,
+                cohortWonConversionRate: 16.67,
+              },
+              callSummary: {
+                total: 3,
+                incoming: 1,
+                outgoing: 2,
+                successful: 2,
+                failed: 1,
+                overThirtySeconds: 1,
+                connectedOverThirtySeconds: 1,
+              },
+              taskSummary: {
+                created: 2,
+                closed: 1,
+              },
+              meetingSummary: {
+                total: 1,
+              },
+              stageTimeline: [
+                {
+                  stageId: 'C10:CALL',
+                  stageName: 'Звонок-знакомство',
+                  enteredAt: '2026-03-13T10:00:00.000Z',
+                  leftAt: '2026-03-14T10:00:00.000Z',
+                  durationHours: 24,
+                  callSummary: {
+                    total: 3,
+                    incoming: 1,
+                    outgoing: 2,
+                    successful: 2,
+                    failed: 1,
+                    overThirtySeconds: 1,
+                    connectedOverThirtySeconds: 1,
+                  },
+                  taskSummary: {
+                    created: 2,
+                    closed: 1,
+                  },
+                  meetingEvents: [
+                    {
+                      activityId: 'M-2',
+                      createdAt: '2026-03-13T11:00:00.000Z',
+                      timelineAt: '2026-03-13T11:00:00.000Z',
+                      scheduledAt: '2026-03-14T16:00:00.000Z',
+                      completed: false,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      comparisons: [],
+    })
+
+    render(<ProtoApp />)
+
+    const salesSection = (await screen.findByRole('heading', { name: /продажи по менеджерам/i }))
+      .closest('section')
+    expect(salesSection).not.toBeNull()
+
+    await userEvent.click(within(salesSection!).getByRole('button', { name: /подробнее/i }))
+
+    const callStageRow = within(salesSection!)
+      .getByText('Звонок-знакомство')
+      .closest('[data-stage-timeline-row]')
+
+    expect(callStageRow).not.toBeNull()
+    expect(within(callStageRow as HTMLElement).getByText(/Звонки 3/i)).toBeInTheDocument()
+    expect(within(callStageRow as HTMLElement).getByText(/1 вход. · 2 исход. · 1 >30с/i)).toBeInTheDocument()
+    expect(within(callStageRow as HTMLElement).getByText(/Дела 2 \/ 1/i)).toBeInTheDocument()
+    expect(within(callStageRow as HTMLElement).getByText(/Конверсии недоступны/i)).toBeInTheDocument()
+    expect(within(callStageRow as HTMLElement).getByText(/Сообщения недоступны/i)).toBeInTheDocument()
+    expect(within(callStageRow as HTMLElement).getAllByText(/Встреча 13 мар/i)).toHaveLength(1)
+  })
+
   it('shows monthly and quarterly plan completion in sales KPI cards', async () => {
     vi.mocked(apiClient.getDashboard)
       .mockResolvedValueOnce(createSalesDashboard(7))

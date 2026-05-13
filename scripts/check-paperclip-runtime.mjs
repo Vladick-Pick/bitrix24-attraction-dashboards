@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -64,6 +64,21 @@ function commandCheck(name, command, args, remediation) {
   fail(name, details)
 }
 
+function commandOutputCheck(name, command, args, validate, remediation) {
+  const result = run(command, args)
+  const output = result.output.trim()
+
+  if (result.status === 0 && validate(output)) {
+    pass(name, shortOutput(output))
+    return
+  }
+
+  const details = [result.error?.message, shortOutput(output), remediation]
+    .filter(Boolean)
+    .join('\n')
+  fail(name, details)
+}
+
 if (configText.includes('[mcp_servers.context7]')) {
   pass('Context7 MCP is configured')
 } else {
@@ -96,6 +111,14 @@ commandCheck(
   'Grant repo read/write access before claiming PR, merge, or deploy readiness.',
 )
 
+commandOutputCheck(
+  'GitHub repo push permission is available',
+  'gh',
+  ['repo', 'view', '--json', 'viewerPermission', '--jq', '.viewerPermission'],
+  (output) => ['ADMIN', 'MAINTAIN', 'WRITE'].includes(output.toUpperCase()),
+  'Grant GitHub write permission before claiming PR, merge, deploy, or branch publish readiness.',
+)
+
 commandCheck(
   'Git origin main is readable',
   'git',
@@ -116,6 +139,26 @@ commandCheck(
   ['--yes', '@playwright/mcp@latest', '--help'],
   'Fix npm/npx access and install browser system dependencies before visual checks.',
 )
+
+const playwrightTempDir = mkdtempSync(join(tmpdir(), 'paperclip-playwright-'))
+try {
+  commandCheck(
+    'Playwright Chromium can launch',
+    'npx',
+    [
+      '--yes',
+      'playwright@latest',
+      'screenshot',
+      '--browser',
+      'chromium',
+      'about:blank',
+      join(playwrightTempDir, 'blank.png'),
+    ],
+    'Install Playwright browsers and system dependencies before claiming browser or visual verification.',
+  )
+} finally {
+  rmSync(playwrightTempDir, { force: true, recursive: true })
+}
 
 for (const check of checks) {
   const prefix = check.status === 'pass' ? 'PASS' : 'FAIL'

@@ -64,4 +64,49 @@ describe("PaperclipClient", () => {
       body: "Обычный комментарий"
     });
   });
+
+  it("lists issue comments through the authenticated Paperclip API", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify([
+            {
+              id: "comment-1",
+              body: "## Готово к проверке",
+              authorAgentId: "agent-1",
+              authorUserId: null,
+              createdAt: "2026-05-13T12:00:00.000Z",
+              updatedAt: "2026-05-13T12:01:00.000Z"
+            }
+          ]),
+          { status: 200 }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PaperclipClient({
+      apiUrl: "http://paperclip.local",
+      apiToken: "agent-token"
+    });
+
+    const comments = await client.listIssueComments({ issueId: "issue-1" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit
+    ];
+    expect(url).toBe("http://paperclip.local/api/issues/issue-1/comments");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer agent-token");
+    expect(comments).toEqual([
+      {
+        id: "comment-1",
+        body: "## Готово к проверке",
+        authorAgentId: "agent-1",
+        authorUserId: null,
+        createdAt: "2026-05-13T12:00:00.000Z",
+        updatedAt: "2026-05-13T12:01:00.000Z"
+      }
+    ]);
+  });
 });

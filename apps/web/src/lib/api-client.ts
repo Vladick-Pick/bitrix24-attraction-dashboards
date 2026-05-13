@@ -284,6 +284,28 @@ function normalizeProtoCommentAnchor(value: unknown): ProtoCommentAnchor | undef
   }
 }
 
+function normalizePaperclipReadyReport(value: unknown) {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const id = asString(value.id)
+  const body = asString(value.body)
+  const createdAt = asString(value.createdAt)
+  if (!id || !body || !createdAt) {
+    return null
+  }
+
+  return {
+    id,
+    body,
+    authorAgentId: asNullableString(value.authorAgentId),
+    authorUserId: asNullableString(value.authorUserId),
+    createdAt,
+    updatedAt: asString(value.updatedAt) || createdAt,
+  }
+}
+
 function normalizeProtoComment(value: unknown): ProtoComment {
   const data = isRecord(value) ? value : {}
   const anchor = normalizeProtoCommentAnchor(data.anchor)
@@ -308,6 +330,7 @@ function normalizeProtoComment(value: unknown): ProtoComment {
     paperclipError: asNullableString(data.paperclipError),
     paperclipLastSyncedAt: asNullableString(data.paperclipLastSyncedAt),
     paperclipRetryCount: asNumber(data.paperclipRetryCount),
+    paperclipReadyReport: normalizePaperclipReadyReport(data.paperclipReadyReport),
   }
 
   const context = normalizeProtoCommentContext(data.context)
@@ -347,6 +370,7 @@ function normalizeCommentNotification(value: unknown): CommentNotification {
     paperclipSyncStatus: normalizePaperclipSyncStatus(data.paperclipSyncStatus),
     paperclipIssueIdentifier: asNullableString(data.paperclipIssueIdentifier),
     paperclipError: asNullableString(data.paperclipError),
+    paperclipReadyReport: normalizePaperclipReadyReport(data.paperclipReadyReport),
     updatedAt: asString(data.updatedAt),
   }
 }

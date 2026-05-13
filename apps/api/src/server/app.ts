@@ -47,7 +47,10 @@ import type {
   PaperclipCommentStatus,
   ProtoCommentStore
 } from "./sqlite-repository.js";
-import type { PaperclipIssueClient } from "./paperclip-client.js";
+import type {
+  PaperclipIssueClient,
+  PaperclipIssueComment
+} from "./paperclip-client.js";
 
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
@@ -174,6 +177,19 @@ interface DashboardCommentsStore {
     incrementRetryCount?: boolean;
   }): Promise<DashboardCommentRecord | null>;
 }
+
+interface DashboardPaperclipReadyReport {
+  id: string;
+  body: string;
+  authorAgentId: string | null;
+  authorUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type DashboardCommentView = DashboardCommentRecord & {
+  paperclipReadyReport?: DashboardPaperclipReadyReport | null;
+};
 
 interface AppConfig {
   webOrigin?: string;
@@ -823,6 +839,44 @@ function mapPaperclipIssueStatus(status: string | null | undefined): PaperclipCo
   return "sent";
 }
 
+function isDashboardOriginatedPaperclipComment(comment: PaperclipIssueComment) {
+  const body = comment.body.toLowerCase();
+  return (
+    body.includes("source: dashboard-system / board-originated rework") ||
+    body.includes("возврат на доработку из dashboard review")
+  );
+}
+
+function toPaperclipReadyReport(
+  comment: PaperclipIssueComment
+): DashboardPaperclipReadyReport {
+  return {
+    id: comment.id,
+    body: sanitizePaperclipText(comment.body).trim(),
+    authorAgentId: comment.authorAgentId,
+    authorUserId: comment.authorUserId,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt
+  };
+}
+
+function selectPaperclipReadyReport(
+  comments: PaperclipIssueComment[]
+): DashboardPaperclipReadyReport | null {
+  const candidates = comments
+    .filter((comment) => comment.body.trim().length > 0)
+    .filter((comment) => comment.authorAgentId)
+    .filter((comment) => !isDashboardOriginatedPaperclipComment(comment))
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.createdAt);
+      const rightTime = Date.parse(right.createdAt);
+      return rightTime - leftTime;
+    });
+
+  const latest = candidates[0];
+  return latest ? toPaperclipReadyReport(latest) : null;
+}
+
 function writeSessionCookie(
   response: express.Response,
   auth: PasswordAuthService,
@@ -1309,7 +1363,26 @@ export function createApp(
     }
   }
 
-  async function refreshCommentPaperclipStatus(comment: DashboardCommentRecord) {
+  async function loadPaperclipReadyReport(
+    comment: DashboardCommentRecord
+  ): Promise<DashboardPaperclipReadyReport | null> {
+    if (!config.paperclip || !comment.paperclipIssueId || comment.paperclipStatus !== "done") {
+      return null;
+    }
+
+    try {
+      const issueComments = await config.paperclip.listIssueComments({
+        issueId: comment.paperclipIssueId
+      });
+      return selectPaperclipReadyReport(issueComments);
+    } catch {
+      return null;
+    }
+  }
+
+  async function refreshCommentPaperclipStatus(
+    comment: DashboardCommentRecord
+  ): Promise<DashboardCommentView> {
     if (!config.comments || !config.paperclip || !comment.paperclipIssueId) {
       return comment;
     }
@@ -1330,10 +1403,11 @@ export function createApp(
         comment.paperclipError !== null;
 
       if (!hasPaperclipChange) {
-        return comment;
+        const paperclipReadyReport = await loadPaperclipReadyReport(comment);
+        return paperclipReadyReport ? { ...comment, paperclipReadyReport } : comment;
       }
 
-      return config.comments.updateDashboardCommentPaperclip({
+      const updated = await config.comments.updateDashboardCommentPaperclip({
         id: comment.id,
         paperclipIssueId,
         paperclipIssueIdentifier,
@@ -1342,12 +1416,17 @@ export function createApp(
         paperclipError: null,
         paperclipLastSyncedAt: new Date().toISOString()
       });
+      const nextComment = updated ?? comment;
+      const paperclipReadyReport = await loadPaperclipReadyReport(nextComment);
+      return paperclipReadyReport ? { ...nextComment, paperclipReadyReport } : nextComment;
     } catch {
       return comment;
     }
   }
 
-  async function refreshOpenDashboardComments(comments: DashboardCommentRecord[]) {
+  async function refreshOpenDashboardComments(
+    comments: DashboardCommentRecord[]
+  ): Promise<DashboardCommentView[]> {
     return Promise.all(
       comments.map((comment) =>
         (comment.status ?? "open") === "open"
@@ -1681,7 +1760,7 @@ export function createApp(
       const refreshedComments = await refreshOpenDashboardComments(store.comments);
       response.json({
         notifications: refreshedComments
-          .filter((comment): comment is DashboardCommentRecord => Boolean(comment))
+          .filter((comment): comment is DashboardCommentView => Boolean(comment))
           .filter((comment) => (comment.status ?? "open") === "open")
           .map((comment) => ({
             id: comment.id,
@@ -1691,6 +1770,7 @@ export function createApp(
             paperclipSyncStatus: comment.paperclipSyncStatus,
             paperclipIssueIdentifier: comment.paperclipIssueIdentifier,
             paperclipError: comment.paperclipError,
+            paperclipReadyReport: comment.paperclipReadyReport ?? null,
             updatedAt: comment.updatedAt
           }))
       });

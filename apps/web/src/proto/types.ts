@@ -37,6 +37,7 @@ export interface ProtoComment {
   paperclipError?: string | null
   paperclipLastSyncedAt?: string | null
   paperclipRetryCount?: number
+  paperclipReadyReport?: PaperclipReadyReport | null
 }
 
 export interface ProtoCommentAnchor {
@@ -59,6 +60,15 @@ export type PaperclipCommentStatus =
   | 'failed'
 
 export type PaperclipSyncStatus = 'queued' | 'syncing' | 'sent' | 'failed'
+
+export interface PaperclipReadyReport {
+  id: string
+  body: string
+  authorAgentId?: string | null
+  authorUserId?: string | null
+  createdAt: string
+  updatedAt: string
+}
 
 export interface ProtoCommentContext {
   filters?: unknown
@@ -102,6 +112,7 @@ export interface CommentNotification {
   paperclipSyncStatus: PaperclipSyncStatus
   paperclipIssueIdentifier: string | null
   paperclipError: string | null
+  paperclipReadyReport?: PaperclipReadyReport | null
   updatedAt: string
 }
 

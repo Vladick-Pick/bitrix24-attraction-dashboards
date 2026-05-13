@@ -703,6 +703,86 @@ describe('ProtoApp', () => {
     expect(within(notificationsButton).queryByText('1')).not.toBeInTheDocument()
   })
 
+  it('shows the development team ready report in notifications and the comment review panel', async () => {
+    const readyReport = {
+      id: 'paperclip-comment-ready',
+      body: [
+        '## Готово к проверке',
+        '',
+        '- Сделано: предупреждение добавлено в таймлайн.',
+        '- Root cause: дата встречи раньше создания сделки.',
+        '- Теперь: данные показываются без случайного бейджа.',
+        '- Проверено: web vitest и browser smoke.',
+      ].join('\n'),
+      createdAt: '2026-05-13T12:00:00.000Z',
+      updatedAt: '2026-05-13T12:00:00.000Z',
+    }
+    const comment = {
+      id: 'comment-ready-report',
+      sceneId: 'sales',
+      x: 0.5,
+      y: 0.5,
+      text: 'Проверить готовую доработку',
+      status: 'open',
+      archivedAt: null,
+      createdAt: '2026-05-13T11:00:00.000Z',
+      updatedAt: '2026-05-13T12:00:00.000Z',
+      anchor: {
+        blockId: 'deal-143570',
+        blockLabel: '143570',
+        blockSelector: '[data-comment-block-id="deal-143570"]',
+        blockRole: null,
+        elementSelector: '[data-comment-block-id="deal-143570"]',
+        elementLabel: '143570',
+        relativeX: 0.5,
+        relativeY: 0.5,
+      },
+      paperclipIssueId: 'paperclip-issue-1',
+      paperclipIssueIdentifier: 'BIT-42',
+      paperclipStatus: 'done',
+      paperclipSyncStatus: 'sent',
+      paperclipError: null,
+      paperclipReadyReport: readyReport,
+    }
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      createResponse({
+        comments: [comment],
+        updatedAt: '2026-05-13T12:00:00.000Z',
+      }),
+    )
+    vi.mocked(apiClient.getCommentNotifications).mockResolvedValueOnce({
+      notifications: [
+        {
+          id: comment.id,
+          sceneId: comment.sceneId,
+          text: comment.text,
+          status: 'done',
+          paperclipSyncStatus: 'sent',
+          paperclipIssueIdentifier: 'BIT-42',
+          paperclipError: null,
+          updatedAt: comment.updatedAt,
+          paperclipReadyReport: readyReport,
+        },
+      ],
+    })
+
+    render(<ProtoApp />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /уведомления команды разработки/i }),
+    )
+
+    expect(await screen.findByText(/отчёт команды разработки/i)).toBeInTheDocument()
+    expect(screen.getByText(/root cause: дата встречи раньше создания сделки/i)).toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('button', { name: /^комментарии$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /проверить готовую доработку/i }))
+
+    expect(screen.getAllByText(/отчёт команды разработки/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/проверено: web vitest/i).length).toBeGreaterThan(0)
+  })
+
   it('keeps the development rework form inside a scrollable comments panel body', async () => {
     const leader: AuthUser = {
       id: 1,

@@ -16,6 +16,15 @@ export interface PaperclipIssue {
 
 export type PaperclipReworkCommentMode = "board" | "service";
 
+export interface PaperclipIssueComment {
+  id: string;
+  body: string;
+  authorAgentId: string | null;
+  authorUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PaperclipIssueCommentInput {
   issueId: string;
   body: string;
@@ -26,11 +35,37 @@ export interface PaperclipIssueCommentInput {
 export interface PaperclipIssueClient {
   createIssue(input: PaperclipIssueInput): Promise<PaperclipIssue>;
   getIssue(input: { issueId: string }): Promise<PaperclipIssue>;
+  listIssueComments(input: { issueId: string }): Promise<PaperclipIssueComment[]>;
   addIssueComment(input: PaperclipIssueCommentInput): Promise<void>;
 }
 
 function asString(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+
+function asNullableString(value: unknown) {
+  const text = asString(value);
+  return text || null;
+}
+
+function normalizeIssueComment(value: unknown): PaperclipIssueComment | null {
+  const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const id = asString(data.id);
+  const body = asString(data.body);
+  const createdAt = asString(data.createdAt);
+
+  if (!id || !body || !createdAt) {
+    return null;
+  }
+
+  return {
+    id,
+    body,
+    authorAgentId: asNullableString(data.authorAgentId),
+    authorUserId: asNullableString(data.authorUserId),
+    createdAt,
+    updatedAt: asString(data.updatedAt) || createdAt
+  };
 }
 
 export class PaperclipClient implements PaperclipIssueClient {
@@ -114,6 +149,30 @@ export class PaperclipClient implements PaperclipIssueClient {
       identifier: asString(data.identifier) || null,
       status: asString(data.status) || null
     };
+  }
+
+  async listIssueComments(input: { issueId: string }): Promise<PaperclipIssueComment[]> {
+    const response = await fetch(
+      `${this.#apiUrl}/api/issues/${encodeURIComponent(input.issueId)}/comments`,
+      {
+        method: "GET",
+        headers: this.#headers({ includeAuthorization: true })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Paperclip issue comments fetch failed with ${response.status}`);
+    }
+
+    const body = (await response.json()) as unknown;
+    if (!Array.isArray(body)) {
+      return [];
+    }
+
+    return body.flatMap((item) => {
+      const comment = normalizeIssueComment(item);
+      return comment ? [comment] : [];
+    });
   }
 
   async addIssueComment(input: PaperclipIssueCommentInput): Promise<void> {

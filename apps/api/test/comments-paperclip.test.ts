@@ -93,6 +93,16 @@ async function createCommentsApp(input: {
     identifier?: string | null;
     status?: string | null;
   }>;
+  paperclipListIssueComments?: (payload: { issueId: string }) => Promise<
+    Array<{
+      id: string;
+      body: string;
+      authorAgentId?: string | null;
+      authorUserId?: string | null;
+      createdAt: string;
+      updatedAt?: string;
+    }>
+  >;
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "bitrix24-comments-"));
   tempDirs.push(directory);
@@ -147,6 +157,9 @@ async function createCommentsApp(input: {
           identifier: issueId === "paperclip-issue-1" ? "BIT-42" : "BIT-43",
           status: "in_progress"
         }))
+    ),
+    listIssueComments: vi.fn(
+      input.paperclipListIssueComments ?? (async () => [])
     )
   };
   const app = createApp(createMinimalService(), {
@@ -377,6 +390,82 @@ describe("dashboard comments to Paperclip", () => {
             paperclipSyncStatus: "sent"
           })
         ]);
+      });
+
+    store.close();
+  });
+
+  it("includes the latest agent ready report from linked Paperclip issue comments", async () => {
+    const { agent, csrfToken, store } = await createCommentsApp({
+      paperclipGetIssue: async ({ issueId }) => ({
+        id: issueId,
+        identifier: "BIT-42",
+        status: "done"
+      }),
+      paperclipListIssueComments: async () => [
+        {
+          id: "paperclip-comment-user-rework",
+          body: [
+            "@Dashboard Engineering Manager",
+            "",
+            "## Возврат на доработку из dashboard review",
+            "",
+            "Source: dashboard-system / board-originated rework",
+            "",
+            "### Пользовательский комментарий",
+            "",
+            "Проверь ещё раз"
+          ].join("\n"),
+          authorAgentId: "dashboard-service",
+          authorUserId: null,
+          createdAt: "2026-05-12T10:00:00.000Z"
+        },
+        {
+          id: "paperclip-comment-ready",
+          body: [
+            "## Готово к проверке",
+            "",
+            "- Сделано: показали предупреждение в таймлайне.",
+            "- Root cause: дата встречи была раньше создания сделки.",
+            "- Теперь: данные остаются видимыми, случайный бейдж не рисуется.",
+            "- Проверено: web vitest и браузерный smoke."
+          ].join("\n"),
+          authorAgentId: "agent-1",
+          authorUserId: null,
+          createdAt: "2026-05-12T11:00:00.000Z"
+        }
+      ]
+    });
+
+    await agent
+      .post("/api/comments")
+      .set("X-CSRF-Token", csrfToken)
+      .send(commentPayload({ text: "Проверь ready report" }))
+      .expect(201);
+
+    await agent
+      .get("/api/comments")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comments[0]?.paperclipReadyReport).toEqual(
+          expect.objectContaining({
+            id: "paperclip-comment-ready",
+            body: expect.stringContaining("Root cause: дата встречи"),
+            createdAt: "2026-05-12T11:00:00.000Z"
+          })
+        );
+        expect(body.comments[0]?.paperclipReadyReport.body).not.toContain(
+          "Возврат на доработку"
+        );
+      });
+
+    await agent
+      .get("/api/comment-notifications")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.notifications[0]?.paperclipReadyReport?.body).toContain(
+          "Проверено: web vitest"
+        );
       });
 
     store.close();

@@ -272,6 +272,73 @@ describe('apiClient', () => {
     expect(result.comment.paperclipSyncStatus).toBe('sent')
   })
 
+  it('normalizes Paperclip ready reports on comments and notifications', async () => {
+    const readyReport = {
+      id: 'paperclip-comment-ready',
+      body: '## Готово к проверке\n\n- Проверено: web vitest.',
+      authorAgentId: 'agent-1',
+      authorUserId: null,
+      createdAt: '2026-05-13T12:00:00.000Z',
+      updatedAt: '2026-05-13T12:01:00.000Z',
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          comments: [
+            {
+              id: 'comment-1',
+              moduleId: 'attraction',
+              sceneId: 'sales',
+              x: 0.25,
+              y: 0.4,
+              text: 'Проверить готовую доработку',
+              status: 'open',
+              archivedAt: null,
+              createdAt: '2026-05-12T15:00:00.000Z',
+              updatedAt: '2026-05-13T12:00:00.000Z',
+              paperclipIssueId: 'issue-143570',
+              paperclipIssueIdentifier: 'BIT-6',
+              paperclipStatus: 'done',
+              paperclipSyncStatus: 'sent',
+              paperclipError: null,
+              paperclipReadyReport: readyReport,
+            },
+          ],
+          updatedAt: '2026-05-13T12:00:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          notifications: [
+            {
+              id: 'comment-1',
+              sceneId: 'sales',
+              text: 'Проверить готовую доработку',
+              status: 'done',
+              paperclipSyncStatus: 'sent',
+              paperclipIssueIdentifier: 'BIT-6',
+              paperclipError: null,
+              updatedAt: '2026-05-13T12:00:00.000Z',
+              paperclipReadyReport: readyReport,
+            },
+          ],
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const comments = await apiClient.getComments()
+    const notifications = await apiClient.getCommentNotifications()
+
+    expect(comments.comments[0]?.paperclipReadyReport).toEqual(readyReport)
+    expect(notifications.notifications[0]?.paperclipReadyReport?.body).toContain(
+      'Проверено: web vitest',
+    )
+  })
+
   it('keeps failed rework response payload on ApiClientError', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: false,

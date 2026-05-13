@@ -1470,18 +1470,34 @@ export function buildAcquisitionOutcomesReport(
   };
 }
 
+function toCategoryDealStageId(categoryId: string | null, statusId: string) {
+  const normalizedCategoryId = normalizeCategoryId(categoryId);
+  const normalizedStatusId = statusId.trim();
+
+  if (normalizedCategoryId === "0" || /^C\d+:/i.test(normalizedStatusId)) {
+    return normalizedStatusId;
+  }
+
+  return `C${normalizedCategoryId}:${normalizedStatusId}`;
+}
+
 function buildStageLookup(stageCatalog: StageCatalogEntry[]) {
-  return new Map(
-    stageCatalog
-      .filter((entry) => entry.entityType === "deal")
-      .map((entry) => [
-        entry.statusId,
-        {
-          stageName: entry.name,
-          sortOrder: entry.sortOrder ?? 0
-        }
-      ])
-  );
+  const lookup = new Map<string, { stageName: string; sortOrder: number }>();
+
+  for (const entry of stageCatalog) {
+    if (entry.entityType !== "deal") {
+      continue;
+    }
+
+    const stage = {
+      stageName: entry.name,
+      sortOrder: entry.sortOrder ?? 0
+    };
+    lookup.set(entry.statusId, stage);
+    lookup.set(toCategoryDealStageId(entry.categoryId, entry.statusId), stage);
+  }
+
+  return lookup;
 }
 
 function sortStageMetrics<T extends { stageId: string }>(

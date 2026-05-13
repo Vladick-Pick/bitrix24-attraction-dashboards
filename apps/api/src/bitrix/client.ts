@@ -198,6 +198,17 @@ function buildDealStageEntityId(categoryId: string) {
   return categoryId === "0" ? "DEAL_STAGE" : `DEAL_STAGE_${categoryId}`;
 }
 
+function normalizeDealStageStatusId(categoryId: string, statusId: string) {
+  const normalizedCategoryId = categoryId.trim() || "0";
+  const normalizedStatusId = statusId.trim();
+
+  if (normalizedCategoryId === "0" || /^C\d+:/i.test(normalizedStatusId)) {
+    return normalizedStatusId;
+  }
+
+  return `C${normalizedCategoryId}:${normalizedStatusId}`;
+}
+
 function delay(milliseconds: number) {
   return new Promise((resolvePromise) => {
     setTimeout(resolvePromise, milliseconds);
@@ -891,7 +902,7 @@ export class BitrixClient {
         return this.extractItems(response).map((row) => ({
           entityType: "deal" as const,
           categoryId,
-          statusId: row.STATUS_ID,
+          statusId: normalizeDealStageStatusId(categoryId, row.STATUS_ID),
           name: row.NAME,
           semanticId: row.EXTRA?.SEMANTICS ?? null,
           sortOrder: toNumber(row.SORT)

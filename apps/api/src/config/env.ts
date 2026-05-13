@@ -99,6 +99,9 @@ const envSchema = z
     NODE_ENV: z.string().default("development"),
     PAPERCLIP_API_URL: optionalTrimmedString(),
     PAPERCLIP_API_TOKEN: optionalTrimmedString(),
+    PAPERCLIP_REWORK_COMMENT_MODE: z
+      .enum(["board", "service"])
+      .default("board"),
     PAPERCLIP_ATTRACTION_COMPANY_ID: optionalTrimmedString(),
     PAPERCLIP_ATTRACTION_PROJECT_ID: optionalTrimmedString(),
     PAPERCLIP_ATTRACTION_GOAL_ID: optionalTrimmedString(),

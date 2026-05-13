@@ -891,7 +891,9 @@ describe('ProtoApp', () => {
     expect(screen.queryByText('Точки конверсии')).not.toBeInTheDocument()
     expect(screen.queryByText('Давление воронки')).not.toBeInTheDocument()
 
-    await userEvent.click(within(salesSection!).getByRole('button', { name: /подробнее/i }))
+    await userEvent.click(
+      await within(salesSection!).findByRole('button', { name: /подробнее/i }),
+    )
 
     expect(within(salesSection!).getByText('Когорта 2026-03')).toBeInTheDocument()
     expect(within(salesSection!).getByText('Итоговое качество')).toBeInTheDocument()
@@ -1009,7 +1011,9 @@ describe('ProtoApp', () => {
       .closest('section')
     expect(salesSection).not.toBeNull()
 
-    await userEvent.click(within(salesSection!).getByRole('button', { name: /подробнее/i }))
+    await userEvent.click(
+      await within(salesSection!).findByRole('button', { name: /подробнее/i }),
+    )
 
     const callStageRow = within(salesSection!)
       .getByText('Звонок-знакомство')
@@ -1023,6 +1027,254 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).getAllByText(/Встреча 14 мар/i)).toHaveLength(1)
     expect(within(callStageRow as HTMLElement).queryByText(/Встреча 14 мар/i)).not.toBeInTheDocument()
     expect(within(meetingStageRow as HTMLElement).getByText(/Встреча 14 мар/i)).toBeInTheDocument()
+  })
+
+  it('warns instead of placing a meeting badge when deal 143570 has meeting date before creation', async () => {
+    vi.mocked(apiClient.getDashboard).mockResolvedValueOnce({
+      salesSummary: {
+        salesCount: 1,
+        salesAmount: 300_000,
+        averageSaleAmount: 300_000,
+        attractionRevenueAmount: 300_000,
+        averageAttractionRevenueAmount: 300_000,
+        membershipAmount: 1_100_000,
+        averageMembershipAmount: 1_100_000,
+        pricingWarnings: [],
+        newDealsCount: 1,
+        conversionRate: 100,
+        meetingsCount: 0,
+      },
+      managerGroups: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          totalWonDeals: 1,
+          totalSalesAmount: 300_000,
+          totalAttractionRevenueAmount: 300_000,
+          averageAttractionRevenueAmount: 300_000,
+          totalMembershipAmount: 1_100_000,
+          averageMembershipAmount: 1_100_000,
+          deals: [
+            {
+              dealId: '143570',
+              dealTitle: 'Deal 143570',
+              managerId: '78',
+              managerName: 'Егоров Андрей',
+              amount: 300_000,
+              attractionRevenueAmount: 300_000,
+              membershipAmount: 1_100_000,
+              pricingStatus: 'priced',
+              pricingWarnings: [],
+              dateCreate: '2026-02-13T14:26:19.000+03:00',
+              dateClosed: '2026-05-07T18:37:24.000+03:00',
+              cycleDays: 83,
+              sourceKey: 'RC_GENERATOR',
+              sourceLabel: 'Рекомендация от сотрудника',
+              qualityValue: '5 Готов к заключению Договора',
+              businessClubValue: 'ClubFirst One',
+              targetGroupValue: 'ClubFirst Russia',
+              meetingTypeValue: 'Zoom',
+              meetingDateValue: '2026-02-02T00:00:00.000+03:00',
+              tariffValue: 'Федеральный Москва',
+              cohortContext: {
+                createdMonth: '2026-02',
+                cohortCreatedDeals: 10,
+                cohortWonDeals: 1,
+                cohortWonConversionRate: 10,
+              },
+              callSummary: {
+                total: 0,
+                incoming: 0,
+                outgoing: 0,
+                successful: 0,
+                failed: 0,
+                overThirtySeconds: 0,
+                connectedOverThirtySeconds: 0,
+              },
+              taskSummary: {
+                created: 10,
+                closed: 10,
+              },
+              meetingSummary: {
+                total: 0,
+              },
+              stageTimeline: [
+                {
+                  stageId: 'C10:NEW',
+                  stageName: 'База входящая',
+                  enteredAt: '2026-02-13T14:26:19.000+03:00',
+                  leftAt: '2026-03-11T17:51:27.000+03:00',
+                  durationHours: 627,
+                  meetingEvents: [],
+                },
+                {
+                  stageId: 'C10:UC_9E0XYG',
+                  stageName: 'Встреча-знакомство',
+                  enteredAt: '2026-03-11T17:51:27.000+03:00',
+                  leftAt: '2026-03-11T17:55:15.000+03:00',
+                  durationHours: 0,
+                  meetingEvents: [],
+                },
+                {
+                  stageId: 'C10:UC_5KZT6Y',
+                  stageName: 'Адмиссия',
+                  enteredAt: '2026-03-11T17:55:15.000+03:00',
+                  leftAt: '2026-03-11T17:55:21.000+03:00',
+                  durationHours: 0,
+                  meetingEvents: [],
+                },
+                {
+                  stageId: 'C10:UC_M1M5WM',
+                  stageName: 'Контракт (договор+счёт)',
+                  enteredAt: '2026-03-11T17:55:21.000+03:00',
+                  leftAt: '2026-05-07T17:10:17.000+03:00',
+                  durationHours: 1367,
+                  meetingEvents: [],
+                },
+                {
+                  stageId: 'C10:UC_7CLBFT',
+                  stageName: 'На передаче',
+                  enteredAt: '2026-05-07T17:10:17.000+03:00',
+                  leftAt: '2026-05-07T18:37:24.000+03:00',
+                  durationHours: 1,
+                  meetingEvents: [],
+                },
+                {
+                  stageId: 'C10:WON',
+                  stageName: 'Передано в клуб',
+                  enteredAt: '2026-05-07T18:37:24.000+03:00',
+                  leftAt: '2026-05-07T18:37:24.000+03:00',
+                  durationHours: 0,
+                  meetingEvents: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      comparisons: [],
+    })
+
+    render(<ProtoApp />)
+
+    const salesSection = (await screen.findByRole('heading', { name: /продажи по менеджерам/i }))
+      .closest('section')
+    expect(salesSection).not.toBeNull()
+
+    await userEvent.click(
+      await within(salesSection!).findByRole('button', { name: /подробнее/i }),
+    )
+
+    expect(within(salesSection!).getByText('143570')).toBeInTheDocument()
+    expect(within(salesSection!).getByText(/^02 февр\.$/i)).toBeInTheDocument()
+    expect(
+      within(salesSection!).getByText(/дата встречи раньше создания сделки/i),
+    ).toBeInTheDocument()
+    expect(within(salesSection!).queryByText(/Встреча 02 февр/i)).not.toBeInTheDocument()
+    expect(within(salesSection!).getByText('Встреча-знакомство')).toBeInTheDocument()
+  })
+
+  it('does not warn when the meeting date is on the deal creation day', async () => {
+    vi.mocked(apiClient.getDashboard).mockResolvedValueOnce({
+      salesSummary: {
+        salesCount: 1,
+        salesAmount: 300_000,
+        averageSaleAmount: 300_000,
+        attractionRevenueAmount: 300_000,
+        averageAttractionRevenueAmount: 300_000,
+        membershipAmount: 1_100_000,
+        averageMembershipAmount: 1_100_000,
+        pricingWarnings: [],
+        newDealsCount: 1,
+        conversionRate: 100,
+        meetingsCount: 0,
+      },
+      managerGroups: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          totalWonDeals: 1,
+          totalSalesAmount: 300_000,
+          totalAttractionRevenueAmount: 300_000,
+          averageAttractionRevenueAmount: 300_000,
+          totalMembershipAmount: 1_100_000,
+          averageMembershipAmount: 1_100_000,
+          deals: [
+            {
+              dealId: '143570',
+              dealTitle: 'Deal 143570',
+              managerId: '78',
+              managerName: 'Егоров Андрей',
+              amount: 300_000,
+              attractionRevenueAmount: 300_000,
+              membershipAmount: 1_100_000,
+              pricingStatus: 'priced',
+              pricingWarnings: [],
+              dateCreate: '2026-02-13T14:26:19.000+03:00',
+              dateClosed: '2026-05-07T18:37:24.000+03:00',
+              cycleDays: 83,
+              sourceKey: 'RC_GENERATOR',
+              sourceLabel: 'Рекомендация от сотрудника',
+              qualityValue: '5 Готов к заключению Договора',
+              businessClubValue: 'ClubFirst One',
+              targetGroupValue: 'ClubFirst Russia',
+              meetingTypeValue: 'Zoom',
+              meetingDateValue: '2026-02-13T00:00:00.000+03:00',
+              tariffValue: 'Федеральный Москва',
+              cohortContext: {
+                createdMonth: '2026-02',
+                cohortCreatedDeals: 10,
+                cohortWonDeals: 1,
+                cohortWonConversionRate: 10,
+              },
+              callSummary: {
+                total: 0,
+                incoming: 0,
+                outgoing: 0,
+                successful: 0,
+                failed: 0,
+                overThirtySeconds: 0,
+                connectedOverThirtySeconds: 0,
+              },
+              taskSummary: {
+                created: 10,
+                closed: 10,
+              },
+              meetingSummary: {
+                total: 0,
+              },
+              stageTimeline: [
+                {
+                  stageId: 'C10:NEW',
+                  stageName: 'База входящая',
+                  enteredAt: '2026-02-13T14:26:19.000+03:00',
+                  leftAt: '2026-03-11T17:51:27.000+03:00',
+                  durationHours: 627,
+                  meetingEvents: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      comparisons: [],
+    })
+
+    render(<ProtoApp />)
+
+    const salesSection = (await screen.findByRole('heading', { name: /продажи по менеджерам/i }))
+      .closest('section')
+    expect(salesSection).not.toBeNull()
+
+    await userEvent.click(
+      await within(salesSection!).findByRole('button', { name: /подробнее/i }),
+    )
+
+    expect(within(salesSection!).getAllByText(/^13 февр\.$/i).length).toBeGreaterThan(0)
+    expect(
+      within(salesSection!).queryByText(/дата встречи раньше создания сделки/i),
+    ).not.toBeInTheDocument()
+    expect(within(salesSection!).queryByText(/Встреча 13 февр/i)).not.toBeInTheDocument()
   })
 
   it('shows monthly and quarterly plan completion in sales KPI cards', async () => {

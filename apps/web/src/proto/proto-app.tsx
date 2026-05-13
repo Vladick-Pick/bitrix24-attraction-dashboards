@@ -758,6 +758,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     text: string
     anchor: ProtoCommentAnchor
   } | null>(null)
+  const [reworkText, setReworkText] = useState('')
 
   const shellRef = useRef<HTMLDivElement>(null)
   const runtimeRequestRef = useRef(0)
@@ -769,6 +770,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     upsertComment,
     archiveComment,
     retryComment,
+    reworkComment,
   } = useProtoComments()
 
   useEffect(() => {
@@ -1357,6 +1359,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
   function openNewComment(x: number, y: number, anchor: ProtoCommentAnchor) {
     setDraftComment({ id: null, x, y, text: '', anchor })
+    setReworkText('')
     setCommentsOpen(true)
   }
 
@@ -1379,6 +1382,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           relativeY: comment.y,
         } satisfies ProtoCommentAnchor),
     })
+    setReworkText('')
     setCommentsOpen(true)
   }
 
@@ -1434,6 +1438,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
   function closeCommentDraft() {
     setDraftComment(null)
+    setReworkText('')
     setCommentsOpen(false)
   }
 
@@ -1447,6 +1452,23 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   async function handleRetryComment(commentId: string) {
     await retryComment(commentId)
     await refreshCommentNotifications()
+  }
+
+  async function handleReworkComment(commentId: string) {
+    const text = reworkText.trim()
+    if (!text) {
+      return
+    }
+
+    const reworked = await reworkComment(commentId, text)
+    if (!reworked) {
+      return
+    }
+
+    await refreshCommentNotifications()
+    setReworkText('')
+    setDraftComment(null)
+    setCommentsOpen(false)
   }
 
   async function handleSaveProfile() {
@@ -2404,6 +2426,27 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 </button>
               ) : null}
             </div>
+            {draftComment?.id &&
+            canArchiveComments &&
+            comments.find((comment) => comment.id === draftComment.id)?.paperclipIssueId ? (
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <div className="subtle-label">Вернуть команде разработки</div>
+                <div className="mt-2">
+                  <Textarea
+                    value={reworkText}
+                    onChange={(event) => setReworkText(event.target.value)}
+                    placeholder="Комментарий к доработке..."
+                  />
+                </div>
+                <button
+                  className="btn btn-dark mt-3"
+                  onClick={() => void handleReworkComment(draftComment.id!)}
+                  disabled={reworkText.trim().length === 0}
+                >
+                  На доработку
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-2 overflow-auto">

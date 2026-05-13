@@ -2188,6 +2188,16 @@ export const apiClient = {
       normalizeCommentResponse,
     )
   },
+  async reworkComment(id: string, input: { text: string }) {
+    return requestJson(
+      buildUrl(`/api/comments/${encodeURIComponent(id)}/rework`),
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      normalizeCommentResponse,
+    )
+  },
   async getCommentNotifications() {
     return requestJson(
       buildUrl('/api/comment-notifications'),

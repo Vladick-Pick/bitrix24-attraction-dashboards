@@ -340,6 +340,10 @@ const updateCommentBodySchema = z.object({
   context: commentContextSchema
 });
 
+const reworkCommentBodySchema = z.object({
+  text: z.string().trim().min(1).max(5000)
+});
+
 const createModuleUserBodySchema = z.object({
   login: z.string().trim().email().max(200),
   firstName: z.string().trim().max(100).nullable().optional(),
@@ -745,6 +749,64 @@ function buildPaperclipIssueDescription(input: {
     "- Do not request SSH/root access as part of normal implementation.",
     "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
     "- Create a focused branch/PR through the normal GitHub/CI workflow."
+  ].join("\n");
+}
+
+function buildPaperclipReworkComment(input: {
+  module: AuthenticatedModule;
+  authorLogin: string;
+  comment: DashboardCommentRecord;
+  text: string;
+}) {
+  const anchor = input.comment.anchor
+    ? {
+        blockId: input.comment.anchor.blockId,
+        blockLabel: input.comment.anchor.blockLabel,
+        blockSelector: input.comment.anchor.blockSelector,
+        blockRole: input.comment.anchor.blockRole,
+        elementSelector: input.comment.anchor.elementSelector,
+        elementLabel: input.comment.anchor.elementLabel,
+        relativeX: input.comment.anchor.relativeX,
+        relativeY: input.comment.anchor.relativeY
+      }
+    : null;
+
+  return [
+    "@Dashboard Engineering Manager",
+    "",
+    "## Возврат на доработку из dashboard review",
+    "",
+    `Module: ${input.module.slug}`,
+    "Source: dashboard-system / board-originated rework",
+    `Dashboard author login: ${sanitizePaperclipText(input.authorLogin)}`,
+    `Dashboard comment id: ${sanitizePaperclipText(input.comment.id)}`,
+    `Paperclip issue: ${sanitizePaperclipText(input.comment.paperclipIssueIdentifier ?? input.comment.paperclipIssueId ?? "")}`,
+    "",
+    "### Пользовательский комментарий",
+    "",
+    sanitizePaperclipText(input.text),
+    "",
+    "### Исходный dashboard comment",
+    "",
+    sanitizePaperclipText(input.comment.text),
+    "",
+    "### Anchor",
+    "",
+    "```json",
+    formatJsonForPaperclip(anchor),
+    "```",
+    "",
+    "### Filters And Range",
+    "",
+    "```json",
+    formatJsonForPaperclip(input.comment.context ?? null),
+    "```",
+    "",
+    "### Required Handoff",
+    "",
+    "- Ответить в этом же issue с мини-отчетом: что сделано, root cause, как теперь работает, что проверено.",
+    "- Если нужен продуктовый выбор, не угадывать поведение: предложить варианты и ждать board comment.",
+    "- Не включать имена/контакты, телефоны, email, raw Bitrix payloads, cookies, tokens или secrets."
   ].join("\n");
 }
 
@@ -1441,6 +1503,101 @@ export function createApp(
         updatedAt: now
       });
       response.json({ comment });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/comments/:id/rework", async (request, response, next) => {
+    if (!config.comments) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    const access = requireModuleAccess(response, "comments:update");
+    if (!access) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      const existing = await config.comments.getDashboardCommentById(request.params.id);
+      if (!existing || existing.moduleId !== access.module.id) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      if (
+        existing.authorUserId !== access.session.user.id &&
+        access.module.role !== "leader"
+      ) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+      if (!existing.paperclipIssueId) {
+        response.status(409).json(createErrorResponse("PAPERCLIP_ISSUE_NOT_LINKED"));
+        return;
+      }
+      if (!config.paperclip) {
+        const failed = await config.comments.updateDashboardCommentPaperclip({
+          id: existing.id,
+          paperclipStatus: "failed",
+          paperclipSyncStatus: "failed",
+          paperclipError: "Paperclip integration is not configured.",
+          paperclipLastSyncedAt: new Date().toISOString(),
+          incrementRetryCount: true
+        });
+        response.status(503).json({
+          ...createErrorResponse("PAPERCLIP_NOT_CONFIGURED"),
+          comment: failed ?? existing
+        });
+        return;
+      }
+
+      const payload = reworkCommentBodySchema.parse(request.body);
+      await config.comments.updateDashboardCommentPaperclip({
+        id: existing.id,
+        paperclipStatus: "in_work",
+        paperclipSyncStatus: "syncing",
+        paperclipError: null
+      });
+
+      try {
+        await config.paperclip.addIssueComment({
+          issueId: existing.paperclipIssueId,
+          origin: "dashboard_rework",
+          body: buildPaperclipReworkComment({
+            module: access.module,
+            authorLogin: access.session.user.login,
+            comment: existing,
+            text: payload.text
+          }),
+          reopen: true
+        });
+
+        const synced = await config.comments.updateDashboardCommentPaperclip({
+          id: existing.id,
+          paperclipStatus: "in_work",
+          paperclipSyncStatus: "sent",
+          paperclipError: null,
+          paperclipLastSyncedAt: new Date().toISOString()
+        });
+        response.json({ comment: synced ?? existing });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Paperclip issue comment failed.";
+        const failed = await config.comments.updateDashboardCommentPaperclip({
+          id: existing.id,
+          paperclipStatus: "failed",
+          paperclipSyncStatus: "failed",
+          paperclipError: message,
+          paperclipLastSyncedAt: new Date().toISOString(),
+          incrementRetryCount: true
+        });
+        response.status(502).json({
+          ...createErrorResponse("PAPERCLIP_REWORK_FAILED"),
+          comment: failed ?? existing
+        });
+      }
     } catch (error) {
       next(error);
     }

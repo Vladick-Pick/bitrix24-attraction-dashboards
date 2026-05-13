@@ -21,6 +21,7 @@ import { buildSourceLabelMap, resolveDealSource } from "./report-dimensions.js";
 
 const UNKNOWN_MANAGER_ID = "unassigned";
 const UNKNOWN_MANAGER_NAME = "Без ответственного";
+const MISSING_STAGE_LABEL = "Этап недоступен";
 
 function isWithinRange(value: string | null, fromMs: number, toMs: number) {
   if (!value) {
@@ -271,6 +272,11 @@ function emptyTaskSummary(): DealTaskSummary {
   };
 }
 
+function resolveStageName(stageId: string, stageNames: Map<string, string>) {
+  const stageName = stageNames.get(stageId);
+  return stageName && stageName.trim().length > 0 ? stageName : MISSING_STAGE_LABEL;
+}
+
 function isWithinStageInterval(
   value: string | null | undefined,
   stage: DealStageTimelineEntry,
@@ -304,7 +310,7 @@ function buildStageTimeline(input: {
     return [
       {
         stageId: deal.stageId,
-        stageName: stageNames.get(deal.stageId) ?? deal.stageId,
+        stageName: resolveStageName(deal.stageId, stageNames),
         enteredAt: deal.dateCreate,
         leftAt: terminalAt,
         durationHours: hoursBetween(deal.dateCreate, terminalAt),
@@ -320,7 +326,7 @@ function buildStageTimeline(input: {
 
     return {
       stageId: row.stageId,
-      stageName: stageNames.get(row.stageId) ?? row.stageId,
+      stageName: resolveStageName(row.stageId, stageNames),
       enteredAt: row.createdTime,
       leftAt,
       durationHours: hoursBetween(row.createdTime, leftAt),

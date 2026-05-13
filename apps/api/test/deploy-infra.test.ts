@@ -61,4 +61,21 @@ describe("production deployment infrastructure", () => {
       verifyRuntime.indexOf("wait_for_http_code \"$HEALTH_URL\" 200"),
     );
   });
+
+  it("fails runtime verification when reverse proxy restoration fails", () => {
+    const deployScript = readRepoFile("scripts/deploy-production.sh");
+    const verifyRuntime = deployScript.slice(
+      deployScript.indexOf("verify_runtime()"),
+      deployScript.indexOf("main()"),
+    );
+    const ensureReverseProxy = deployScript.slice(
+      deployScript.indexOf("ensure_reverse_proxy()"),
+      deployScript.indexOf("wait_for_http_code()"),
+    );
+
+    expect(verifyRuntime).toContain("if ! ensure_reverse_proxy; then");
+    expect(verifyRuntime).toContain("return 1");
+    expect(ensureReverseProxy).toContain("systemctl start nginx");
+    expect(ensureReverseProxy).not.toContain("systemctl start nginx\n    return 0");
+  });
 });

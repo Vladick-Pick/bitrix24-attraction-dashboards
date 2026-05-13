@@ -100,10 +100,11 @@ ensure_reverse_proxy() {
   if command -v nginx >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
     log "Caddy unavailable; starting existing nginx reverse proxy"
     systemctl start nginx
-    return 0
+    return $?
   fi
 
   log "Warning: no supported reverse proxy found; public health check may fail"
+  return 1
 }
 
 wait_for_http_code() {
@@ -193,7 +194,9 @@ verify_runtime() {
   local allow_missing_revision="${2:-false}"
 
   verify_image_revision "$expected_ref" "$allow_missing_revision"
-  ensure_reverse_proxy
+  if ! ensure_reverse_proxy; then
+    return 1
+  fi
   wait_for_http_code "$HEALTH_URL" 200
 
   local dashboard_code

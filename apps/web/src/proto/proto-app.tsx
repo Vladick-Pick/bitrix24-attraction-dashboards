@@ -2351,12 +2351,12 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
         <aside
           className={cn(
-            'panel fixed top-4 right-4 bottom-4 z-40 flex w-full max-w-xl flex-col gap-4 p-5 transition-transform duration-200',
+            'panel fixed top-4 right-4 bottom-4 z-40 flex w-full max-w-xl flex-col gap-4 overflow-hidden p-5 transition-transform duration-200',
             commentsOpen ? 'translate-x-0' : 'translate-x-[calc(100%+1rem)]',
           )}
           data-no-comment="true"
         >
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex shrink-0 items-start justify-between gap-3">
             <div>
               <div className="subtle-label">Комментарии модуля</div>
               <h2 className="mt-1 text-xl font-bold text-slate-900">{sceneComments.length} заметок</h2>
@@ -2369,135 +2369,144 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             <span className="badge-chip badge-neutral">{status}</span>
           </div>
 
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error ? <p className="shrink-0 text-sm text-red-600">{error}</p> : null}
 
-          <div className="panel w-full p-4">
-            <div className="subtle-label">
-              {draftComment?.id ? 'Редактирование' : 'Новая заметка'}
-            </div>
-            {draftComment?.anchor ? (
-              <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Блок: <span className="font-semibold text-slate-800">{draftComment.anchor.blockLabel}</span>
-              </div>
-            ) : null}
-            <div className="mt-3">
-              <Textarea
-                value={draftComment?.text ?? ''}
-                onChange={(event) =>
-                  setDraftComment((current) =>
-                    current ? { ...current, text: event.target.value } : current,
-                  )
-                }
-                placeholder="Комментарий к точке интерфейса..."
-                disabled={!draftComment}
-              />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                className="btn btn-primary"
-                onClick={() => void handleSaveComment()}
-                disabled={!draftComment || draftComment.text.trim().length === 0}
-              >
-                Сохранить
-              </button>
-              <button
-                className="btn btn-ghost"
-                onClick={closeCommentDraft}
-                disabled={!draftComment}
-              >
-                Отмена
-              </button>
-              {draftComment?.id && canArchiveComments ? (
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => void handleArchiveComment(draftComment.id!)}
-                >
-                  В архив
-                </button>
-              ) : null}
-              {draftComment?.id &&
-              comments.find((comment) => comment.id === draftComment.id)
-                ?.paperclipSyncStatus === 'failed' ? (
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => void handleRetryComment(draftComment.id!)}
-                >
-                  Повторить
-                </button>
-              ) : null}
-            </div>
-            {draftComment?.id &&
-            canArchiveComments &&
-            comments.find((comment) => comment.id === draftComment.id)?.paperclipIssueId ? (
-              <div className="mt-4 border-t border-slate-200 pt-4">
-                <div className="subtle-label">Вернуть команде разработки</div>
-                <div className="mt-2">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1"
+            data-comment-panel-body="true"
+          >
+            <div className="flex flex-col gap-4">
+              <div className="panel w-full p-4">
+                <div className="subtle-label">
+                  {draftComment?.id ? 'Редактирование' : 'Новая заметка'}
+                </div>
+                {draftComment?.anchor ? (
+                  <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    Блок: <span className="font-semibold text-slate-800">{draftComment.anchor.blockLabel}</span>
+                  </div>
+                ) : null}
+                <div className="mt-3">
                   <Textarea
-                    value={reworkText}
-                    onChange={(event) => setReworkText(event.target.value)}
-                    placeholder="Комментарий к доработке..."
+                    value={draftComment?.text ?? ''}
+                    onChange={(event) =>
+                      setDraftComment((current) =>
+                        current ? { ...current, text: event.target.value } : current,
+                      )
+                    }
+                    placeholder="Комментарий к точке интерфейса..."
+                    disabled={!draftComment}
+                    className="max-h-48 overflow-y-auto overscroll-contain"
                   />
                 </div>
-                <button
-                  className="btn btn-dark mt-3"
-                  onClick={() => void handleReworkComment(draftComment.id!)}
-                  disabled={reworkText.trim().length === 0}
-                >
-                  На доработку
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex flex-col gap-2 overflow-auto">
-            {sceneComments.length === 0 ? (
-              <div className="panel p-4 text-sm text-slate-500">
-                Включи `Comment mode` и кликни в любом месте страницы.
-              </div>
-            ) : (
-              sceneComments.map((comment, index) => (
-                <button
-                  key={comment.id}
-                  type="button"
-                  className={cn('panel grid grid-cols-[2rem_minmax(0,1fr)] gap-3 p-3 text-left', {
-                    'border-blue-300': draftComment?.id === comment.id,
-                  })}
-                  onClick={() => openExistingComment(comment)}
-                >
-                  <div className="grid aspect-square place-items-center rounded-full bg-slate-100 text-sm font-semibold text-slate-700">
-                    {index + 1}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => void handleSaveComment()}
+                    disabled={!draftComment || draftComment.text.trim().length === 0}
+                  >
+                    Сохранить
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={closeCommentDraft}
+                    disabled={!draftComment}
+                  >
+                    Отмена
+                  </button>
+                  {draftComment?.id && canArchiveComments ? (
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => void handleArchiveComment(draftComment.id!)}
+                    >
+                      В архив
+                    </button>
+                  ) : null}
+                  {draftComment?.id &&
+                  comments.find((comment) => comment.id === draftComment.id)
+                    ?.paperclipSyncStatus === 'failed' ? (
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => void handleRetryComment(draftComment.id!)}
+                    >
+                      Повторить
+                    </button>
+                  ) : null}
+                </div>
+                {draftComment?.id &&
+                canArchiveComments &&
+                comments.find((comment) => comment.id === draftComment.id)?.paperclipIssueId ? (
+                  <div className="mt-4 border-t border-slate-200 pt-4">
+                    <div className="subtle-label">Вернуть команде разработки</div>
+                    <div className="mt-2">
+                      <Textarea
+                        value={reworkText}
+                        onChange={(event) => setReworkText(event.target.value)}
+                        placeholder="Комментарий к доработке..."
+                        className="max-h-72 overflow-y-auto overscroll-contain"
+                      />
+                    </div>
+                    <button
+                      className="btn btn-dark mt-3"
+                      onClick={() => void handleReworkComment(draftComment.id!)}
+                      disabled={reworkText.trim().length === 0}
+                    >
+                      На доработку
+                    </button>
                   </div>
-                  <div className="min-w-0">
-                    <div className="truncate font-medium text-slate-900">{comment.text}</div>
-                    {comment.anchor ? (
-                      <div className="mt-1 truncate text-xs text-slate-500">
-                        Блок: {comment.anchor.blockLabel}
+                ) : null}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {sceneComments.length === 0 ? (
+                  <div className="panel p-4 text-sm text-slate-500">
+                    Включи `Comment mode` и кликни в любом месте страницы.
+                  </div>
+                ) : (
+                  sceneComments.map((comment, index) => (
+                    <button
+                      key={comment.id}
+                      type="button"
+                      className={cn('panel grid grid-cols-[2rem_minmax(0,1fr)] gap-3 p-3 text-left', {
+                        'border-blue-300': draftComment?.id === comment.id,
+                      })}
+                      onClick={() => openExistingComment(comment)}
+                    >
+                      <div className="grid aspect-square place-items-center rounded-full bg-slate-100 text-sm font-semibold text-slate-700">
+                        {index + 1}
                       </div>
-                    ) : null}
-                    <div className="mt-1 text-xs text-slate-500">{formatDateTime(comment.updatedAt)}</div>
-                    {comment.paperclipStatus ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <span
-                          className={cn(
-                            'badge-chip',
-                            notificationClasses[comment.paperclipStatus],
-                          )}
-                        >
-                          {notificationLabels[comment.paperclipStatus]}
-                        </span>
-                        {comment.paperclipSyncStatus === 'failed' ? (
-                          <span className="text-xs text-red-600">
-                            {comment.paperclipError
-                              ? formatDevelopmentTeamError(comment.paperclipError)
-                              : 'Команда разработки недоступна'}
-                          </span>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-slate-900">{comment.text}</div>
+                        {comment.anchor ? (
+                          <div className="mt-1 truncate text-xs text-slate-500">
+                            Блок: {comment.anchor.blockLabel}
+                          </div>
+                        ) : null}
+                        <div className="mt-1 text-xs text-slate-500">{formatDateTime(comment.updatedAt)}</div>
+                        {comment.paperclipStatus ? (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={cn(
+                                'badge-chip',
+                                notificationClasses[comment.paperclipStatus],
+                              )}
+                            >
+                              {notificationLabels[comment.paperclipStatus]}
+                            </span>
+                            {comment.paperclipSyncStatus === 'failed' ? (
+                              <span className="text-xs text-red-600">
+                                {comment.paperclipError
+                                  ? formatDevelopmentTeamError(comment.paperclipError)
+                                  : 'Команда разработки недоступна'}
+                              </span>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                </button>
-              ))
-            )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
 
         </aside>

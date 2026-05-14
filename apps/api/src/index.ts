@@ -110,6 +110,9 @@ const paperclip =
     ? new PaperclipClient({
         apiUrl: env.PAPERCLIP_API_URL,
         apiToken: env.PAPERCLIP_API_TOKEN,
+        ...(env.PAPERCLIP_BOARD_API_TOKEN
+          ? { boardApiToken: env.PAPERCLIP_BOARD_API_TOKEN }
+          : {}),
         reworkCommentMode: env.PAPERCLIP_REWORK_COMMENT_MODE
       })
     : undefined;

@@ -14,6 +14,7 @@ describe("PaperclipClient", () => {
     const client = new PaperclipClient({
       apiUrl: "http://paperclip.local/",
       apiToken: "agent-token",
+      boardApiToken: "board-token",
       reworkCommentMode: "board"
     });
 
@@ -31,11 +32,32 @@ describe("PaperclipClient", () => {
     ];
     expect(url).toBe("http://paperclip.local/api/issues/issue-1/comments");
     const headers = new Headers(init.headers);
-    expect(headers.get("Authorization")).toBe("Bearer agent-token");
+    expect(headers.get("Authorization")).toBe("Bearer board-token");
     expect(JSON.parse(String(init.body))).toEqual({
       body: "Вернуть в работу",
       resume: true
     });
+  });
+
+  it("fails fast when board-mode rework has no board token", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PaperclipClient({
+      apiUrl: "http://paperclip.local/",
+      apiToken: "agent-token",
+      reworkCommentMode: "board"
+    });
+
+    await expect(
+      client.addIssueComment({
+        issueId: "issue-1",
+        origin: "dashboard_rework",
+        body: "Вернуть в работу",
+        reopen: true
+      })
+    ).rejects.toThrow("Paperclip board API token is required");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps service-mode rework comments on the legacy reopen contract", async () => {

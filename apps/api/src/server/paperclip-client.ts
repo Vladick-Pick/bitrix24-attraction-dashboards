@@ -71,23 +71,26 @@ function normalizeIssueComment(value: unknown): PaperclipIssueComment | null {
 export class PaperclipClient implements PaperclipIssueClient {
   readonly #apiUrl: string;
   readonly #apiToken: string;
+  readonly #boardApiToken: string | null;
   readonly #reworkCommentMode: PaperclipReworkCommentMode;
 
   constructor(input: {
     apiUrl: string;
     apiToken: string;
+    boardApiToken?: string | null;
     reworkCommentMode?: PaperclipReworkCommentMode;
   }) {
     this.#apiUrl = input.apiUrl.replace(/\/$/, "");
     this.#apiToken = input.apiToken;
+    this.#boardApiToken = input.boardApiToken?.trim() || null;
     this.#reworkCommentMode = input.reworkCommentMode ?? "board";
   }
 
-  #headers(input: { includeAuthorization: boolean; contentType?: boolean }) {
+  #headers(input: { includeAuthorization: boolean; contentType?: boolean; apiToken?: string }) {
     return {
       Accept: "application/json",
       ...(input.includeAuthorization
-        ? { Authorization: `Bearer ${this.#apiToken}` }
+        ? { Authorization: `Bearer ${input.apiToken ?? this.#apiToken}` }
         : {}),
       ...(input.contentType ? { "Content-Type": "application/json" } : {})
     };
@@ -177,11 +180,17 @@ export class PaperclipClient implements PaperclipIssueClient {
     });
   }
 
-  #issueCommentBody(input: PaperclipIssueCommentInput) {
-    if (
+  #dashboardReworkUsesBoardToken(input: PaperclipIssueCommentInput) {
+    return (
       input.origin === "dashboard_rework" &&
       input.reopen === true &&
       this.#reworkCommentMode === "board"
+    );
+  }
+
+  #issueCommentBody(input: PaperclipIssueCommentInput) {
+    if (
+      this.#dashboardReworkUsesBoardToken(input)
     ) {
       return {
         body: input.body,
@@ -196,13 +205,19 @@ export class PaperclipClient implements PaperclipIssueClient {
   }
 
   async addIssueComment(input: PaperclipIssueCommentInput): Promise<void> {
+    const useBoardToken = this.#dashboardReworkUsesBoardToken(input);
+    if (useBoardToken && !this.#boardApiToken) {
+      throw new Error("Paperclip board API token is required for dashboard rework comments");
+    }
+
     const response = await fetch(
       `${this.#apiUrl}/api/issues/${encodeURIComponent(input.issueId)}/comments`,
       {
         method: "POST",
         headers: this.#headers({
           includeAuthorization: true,
-          contentType: true
+          contentType: true,
+          ...(useBoardToken && this.#boardApiToken ? { apiToken: this.#boardApiToken } : {})
         }),
         body: JSON.stringify(this.#issueCommentBody(input))
       }

@@ -19,6 +19,54 @@ export interface ReportFilters {
   sourceKeys?: string[]
 }
 
+export interface LeadgenFunnelStageRow {
+  stageId: string
+  stageName: string
+  sortOrder: number
+  activeDeals: number
+  createdDeals: number
+  closedDeals: number
+}
+
+export interface LeadgenFunnelSourceRow {
+  sourceKey: string
+  sourceLabel: string
+  dealCount: number
+}
+
+export interface LeadgenFunnelUtmRow {
+  utmSource: string | null
+  utmMedium: string | null
+  utmCampaign: string | null
+  dealCount: number
+}
+
+export interface LeadgenFunnelManagerRow {
+  managerId: string
+  managerName: string
+  dealCount: number
+}
+
+export interface LeadgenFunnelReasonRow {
+  reasonKey: string
+  reasonLabel: string
+  dealCount: number
+}
+
+export interface LeadgenFunnelReport {
+  range: ReportRange
+  totalDeals: number
+  createdDeals: number
+  activeDeals: number
+  closedDeals: number
+  stageRows: LeadgenFunnelStageRow[]
+  sourceRows: LeadgenFunnelSourceRow[]
+  utmRows: LeadgenFunnelUtmRow[]
+  managerRows: LeadgenFunnelManagerRow[]
+  reasonRows: LeadgenFunnelReasonRow[]
+  warnings: string[]
+}
+
 export type DashboardQuery = (
   | {
       preset: PeriodDays

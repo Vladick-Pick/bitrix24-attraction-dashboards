@@ -50,7 +50,7 @@ function formatCommentError(error: unknown, fallback: string) {
   return message.replace(/paperclip/gi, 'команда разработки')
 }
 
-export function useProtoComments() {
+export function useProtoComments(moduleId = 'attraction') {
   const [comments, setComments] = useState<ProtoComment[]>([])
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>('loading')
@@ -61,7 +61,7 @@ export function useProtoComments() {
 
     async function load() {
       try {
-        const store = await fetchCommentStore()
+        const store = await fetchCommentStore(moduleId)
 
         if (cancelled) {
           return
@@ -89,7 +89,7 @@ export function useProtoComments() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [moduleId])
 
   const persist = useCallback(async (nextComments: ProtoComment[]) => {
     setComments(nextComments)
@@ -120,18 +120,25 @@ export function useProtoComments() {
         try {
           const existing = comments.find((item) => item.id === comment.id)
           const response = existing
-            ? await updateServerComment(comment.id, {
-                text: comment.text,
-                ...(comment.context ? { context: comment.context } : {}),
-              })
-            : await createServerComment({
+            ? await updateServerComment(
+                comment.id,
+                {
+                  text: comment.text,
+                  ...(comment.context ? { context: comment.context } : {}),
+                },
+                moduleId,
+              )
+            : await createServerComment(
+                {
                 sceneId: comment.sceneId,
                 x: comment.x,
                 y: comment.y,
                 text: comment.text,
                 ...(comment.anchor ? { anchor: comment.anchor } : {}),
                 ...(comment.context ? { context: comment.context } : {}),
-              })
+                },
+                moduleId,
+              )
           const saved = normalizeComment(response.comment)
           setComments((current) =>
             current.some((item) => item.id === saved.id)
@@ -160,7 +167,7 @@ export function useProtoComments() {
 
       await persist(nextComments)
     },
-    [comments, persist],
+    [comments, moduleId, persist],
   )
 
   const archiveComment = useCallback(
@@ -170,7 +177,7 @@ export function useProtoComments() {
         setError(null)
 
         try {
-          const response = await archiveServerComment(commentId)
+          const response = await archiveServerComment(commentId, moduleId)
           const archived = normalizeComment(response.comment)
           setComments((current) =>
             current.map((item) => (item.id === commentId ? archived : item)),
@@ -197,7 +204,7 @@ export function useProtoComments() {
         ),
       )
     },
-    [comments, persist],
+    [comments, moduleId, persist],
   )
 
   const removeComment = useCallback(
@@ -221,7 +228,7 @@ export function useProtoComments() {
     setError(null)
 
     try {
-      const response = await retryServerComment(commentId)
+      const response = await retryServerComment(commentId, moduleId)
       const retried = normalizeComment(response.comment)
       setComments((current) =>
         current.map((item) => (item.id === commentId ? retried : item)),
@@ -236,7 +243,7 @@ export function useProtoComments() {
           : 'Не удалось повторить отправку в команду разработки',
       )
     }
-  }, [])
+  }, [moduleId])
 
   const reworkComment = useCallback(async (commentId: string, text: string) => {
     if (!usesDashboardCommentApi()) {
@@ -247,7 +254,7 @@ export function useProtoComments() {
     setError(null)
 
     try {
-      const response = await reworkServerComment(commentId, { text })
+      const response = await reworkServerComment(commentId, { text }, moduleId)
       const reworked = normalizeComment(response.comment)
       setComments((current) =>
         current.map((item) => (item.id === commentId ? reworked : item)),
@@ -269,7 +276,7 @@ export function useProtoComments() {
       setError(formatCommentError(reworkError, 'Не удалось вернуть комментарий в работу'))
       return false
     }
-  }, [])
+  }, [moduleId])
 
   return {
     comments,

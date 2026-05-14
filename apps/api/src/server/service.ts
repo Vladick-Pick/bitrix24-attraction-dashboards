@@ -13,6 +13,7 @@ import type {
   DashboardSnapshot,
   DealPricingSettings,
   DealPricingSettingsInput,
+  LeadgenFunnelReport,
   ManagerActionOutcomeReport,
   ManagerActionOutcomeReportSnapshot,
   ManagerDirectoryEntry,
@@ -86,6 +87,7 @@ import {
   DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
   DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION,
   FULL_COVERAGE_FROM,
+  LEADGEN_US_CATEGORY_ID,
   performManualSync
 } from "../domain/sync.js";
 import type { SyncClient } from "../domain/sync.js";
@@ -93,6 +95,8 @@ import type { SqliteRepository } from "./sqlite-repository.js";
 
 interface CreateReportingServiceInput {
   dealCategoryIds: string[];
+  leadgenCategoryId?: string;
+  leadgenManagerIds?: string[];
   qualityFieldName: string;
   tariffFieldName?: string;
   businessClubFieldName?: string;
@@ -109,6 +113,11 @@ interface CreateReportingServiceInput {
 }
 
 export interface ReportingService {
+  getLeadgenFunnelReport(input: {
+    periodDays?: number;
+    range?: ReportRange;
+    filters?: ReportFilters;
+  }): Promise<LeadgenFunnelReport>;
   getDashboard(input: {
     periodDays?: number;
     range?: ReportRange;
@@ -590,6 +599,29 @@ function sortSources(rows: SourceCatalogEntry[]) {
   });
 }
 
+function isTimestampWithinRange(value: string | null | undefined, range: ReportRange) {
+  const timestamp = Date.parse(value ?? "");
+  const from = Date.parse(range.from);
+  const to = Date.parse(range.to);
+
+  return (
+    Number.isFinite(timestamp) &&
+    Number.isFinite(from) &&
+    Number.isFinite(to) &&
+    timestamp >= from &&
+    timestamp <= to
+  );
+}
+
+function isClosedDeal(deal: {
+  stageSemanticId: string | null;
+  dateClosed: string | null;
+}) {
+  return Boolean(
+    deal.dateClosed || deal.stageSemanticId === "S" || deal.stageSemanticId === "F"
+  );
+}
+
 function isManagerInScope(
   managerIds: Set<string>,
   managerId: string | null | undefined
@@ -711,6 +743,10 @@ export function createReportingService(
 ): ReportingService {
   const nowFactory = input.now ?? (() => new Date());
   const allowedCategoryIds = new Set(input.dealCategoryIds);
+  const leadgenCategoryId = normalizeCategoryId(
+    input.leadgenCategoryId ?? LEADGEN_US_CATEGORY_ID
+  );
+  const leadgenManagerIds = uniqueStrings(input.leadgenManagerIds ?? []);
   const getScopedStageCatalog = async (includeSources = false) =>
     filterStageCatalog(
       await input.repository.getStageCatalog(),
@@ -765,7 +801,10 @@ export function createReportingService(
   const isDealCallEntity = (crmEntityType: string | null) =>
     crmEntityType === "2" || crmEntityType?.toUpperCase() === "DEAL";
 
-  const ensureManagerDirectory = async (managerIds: string[]) => {
+  const ensureManagerDirectory = async (
+    managerIds: string[],
+    options?: { attractionOrder?: boolean }
+  ) => {
     const requestedIds = uniqueStrings(managerIds);
     const needsUnassigned = requestedIds.includes(UNASSIGNED_MANAGER_ID);
     const lookupIds = requestedIds.filter((id) => id !== UNASSIGNED_MANAGER_ID);
@@ -808,7 +847,10 @@ export function createReportingService(
       });
     }
 
-    return sortAttractionManagers(sortManagers(rows));
+    const sortedRows = sortManagers(rows);
+    return options?.attractionOrder === false
+      ? sortedRows
+      : sortAttractionManagers(sortedRows);
   };
 
   const buildSourceCatalog = (
@@ -830,6 +872,219 @@ export function createReportingService(
   };
 
   return {
+    async getLeadgenFunnelReport({ periodDays, range, filters }) {
+      const resolvedRange = resolveRange(
+        periodDays,
+        range,
+        input.defaultPeriodDays,
+        nowFactory()
+      );
+      const [deals, stageCatalog] = await Promise.all([
+        input.repository.getAllDeals(),
+        input.repository.getStageCatalog()
+      ]);
+      const sourceLabels = buildSourceLabelMap(stageCatalog);
+      const stageById = new Map(
+        stageCatalog
+          .filter(
+            (entry) =>
+              entry.entityType === "deal" &&
+              normalizeCategoryId(entry.categoryId) === leadgenCategoryId
+          )
+          .map((entry) => [entry.statusId, entry])
+      );
+      const allowedManagers = new Set(leadgenManagerIds);
+      const filteredManagers =
+        filters?.managerIds && filters.managerIds.length > 0
+          ? new Set(
+              filters.managerIds.filter((managerId) =>
+                allowedManagers.has(managerId)
+              )
+            )
+          : allowedManagers;
+      const sourceKeys = new Set(filters?.sourceKeys ?? []);
+      const scopedDeals =
+        allowedManagers.size === 0
+          ? []
+          : deals.filter((deal) => {
+              if (normalizeCategoryId(deal.categoryId) !== leadgenCategoryId) {
+                return false;
+              }
+
+              const managerId = deal.assignedById ?? UNASSIGNED_MANAGER_ID;
+              if (!allowedManagers.has(managerId) || !filteredManagers.has(managerId)) {
+                return false;
+              }
+
+              if (!isTimestampWithinRange(deal.dateCreate, resolvedRange)) {
+                return false;
+              }
+
+              if (sourceKeys.size > 0) {
+                const source = resolveDealSource(deal, sourceLabels);
+                if (!sourceKeys.has(source.key)) {
+                  return false;
+                }
+              }
+
+              return true;
+            });
+      const managerDirectory = await ensureManagerDirectory(
+        uniqueStrings(scopedDeals.map((deal) => deal.assignedById)),
+        { attractionOrder: false }
+      );
+      const managerById = new Map(
+        managerDirectory.map((manager) => [manager.id, manager.name])
+      );
+      const stageRows = new Map<
+        string,
+        {
+          stageId: string;
+          stageName: string;
+          sortOrder: number;
+          activeDeals: number;
+          createdDeals: number;
+          closedDeals: number;
+        }
+      >();
+      const sourceRows = new Map<
+        string,
+        { sourceKey: string; sourceLabel: string; dealCount: number }
+      >();
+      const utmRows = new Map<
+        string,
+        {
+          utmSource: string | null;
+          utmMedium: string | null;
+          utmCampaign: string | null;
+          dealCount: number;
+        }
+      >();
+      const managerRows = new Map<
+        string,
+        { managerId: string; managerName: string; dealCount: number }
+      >();
+      const reasonRows = new Map<
+        string,
+        { reasonKey: string; reasonLabel: string; dealCount: number }
+      >();
+
+      for (const deal of scopedDeals) {
+        const closed = isClosedDeal(deal);
+        const stage = stageById.get(deal.stageId);
+        const stageRow =
+          stageRows.get(deal.stageId) ??
+          {
+            stageId: deal.stageId,
+            stageName: stage?.name ?? deal.stageId,
+            sortOrder: stage?.sortOrder ?? 999_999,
+            activeDeals: 0,
+            createdDeals: 0,
+            closedDeals: 0
+          };
+        stageRow.createdDeals += 1;
+        if (closed) {
+          stageRow.closedDeals += 1;
+        } else {
+          stageRow.activeDeals += 1;
+        }
+        stageRows.set(stageRow.stageId, stageRow);
+
+        const source = resolveDealSource(deal, sourceLabels);
+        const sourceRow =
+          sourceRows.get(source.key) ??
+          {
+            sourceKey: source.key,
+            sourceLabel: source.label,
+            dealCount: 0
+          };
+        sourceRow.dealCount += 1;
+        sourceRows.set(sourceRow.sourceKey, sourceRow);
+
+        const utmKey = [
+          deal.utmSource ?? "",
+          deal.utmMedium ?? "",
+          deal.utmCampaign ?? ""
+        ].join("::");
+        const utmRow =
+          utmRows.get(utmKey) ??
+          {
+            utmSource: deal.utmSource,
+            utmMedium: deal.utmMedium,
+            utmCampaign: deal.utmCampaign,
+            dealCount: 0
+          };
+        utmRow.dealCount += 1;
+        utmRows.set(utmKey, utmRow);
+
+        const managerId = deal.assignedById ?? UNASSIGNED_MANAGER_ID;
+        const managerRow =
+          managerRows.get(managerId) ??
+          {
+            managerId,
+            managerName:
+              managerById.get(managerId) ??
+              (managerId === UNASSIGNED_MANAGER_ID
+                ? UNASSIGNED_MANAGER_NAME
+                : managerId),
+            dealCount: 0
+          };
+        managerRow.dealCount += 1;
+        managerRows.set(managerId, managerRow);
+
+        const reason = deal.refusalReasonValue?.trim();
+        if (reason) {
+          const reasonRow =
+            reasonRows.get(reason) ??
+            {
+              reasonKey: reason,
+              reasonLabel: reason,
+              dealCount: 0
+            };
+          reasonRow.dealCount += 1;
+          reasonRows.set(reason, reasonRow);
+        }
+      }
+
+      return {
+        range: resolvedRange,
+        totalDeals: scopedDeals.length,
+        createdDeals: scopedDeals.length,
+        activeDeals: scopedDeals.filter((deal) => !isClosedDeal(deal)).length,
+        closedDeals: scopedDeals.filter(isClosedDeal).length,
+        stageRows: Array.from(stageRows.values()).sort(
+          (left, right) =>
+            left.sortOrder - right.sortOrder ||
+            left.stageName.localeCompare(right.stageName, "ru") ||
+            left.stageId.localeCompare(right.stageId)
+        ),
+        sourceRows: Array.from(sourceRows.values()).sort(
+          (left, right) =>
+            right.dealCount - left.dealCount ||
+            left.sourceLabel.localeCompare(right.sourceLabel, "ru")
+        ),
+        utmRows: Array.from(utmRows.values()).sort(
+          (left, right) =>
+            right.dealCount - left.dealCount ||
+            (left.utmSource ?? "").localeCompare(right.utmSource ?? "", "ru")
+        ),
+        managerRows: Array.from(managerRows.values()).sort(
+          (left, right) =>
+            right.dealCount - left.dealCount ||
+            left.managerName.localeCompare(right.managerName, "ru")
+        ),
+        reasonRows: Array.from(reasonRows.values()).sort(
+          (left, right) =>
+            right.dealCount - left.dealCount ||
+            left.reasonLabel.localeCompare(right.reasonLabel, "ru")
+        ),
+        warnings:
+          allowedManagers.size === 0
+            ? ["Leadgen manager whitelist is empty."]
+            : []
+      };
+    },
+
     async getSalesPlan({ periodStart, periodEnd }) {
       const rows = await input.repository.getSalesPlanRows(periodStart, periodEnd);
       const updatedAt = rows.reduce<string | null>(
@@ -1937,6 +2192,8 @@ export function createReportingService(
     async performSync(syncInput) {
       return performManualSync({
         categoryIds: input.dealCategoryIds,
+        leadgenCategoryId,
+        leadgenManagerIds,
         qualityFieldName: input.qualityFieldName,
         client: input.client,
         repository: input.repository,

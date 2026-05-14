@@ -10,7 +10,7 @@ The product goal is not "many agents". The goal is a small, auditable software f
 module ontology -> dashboard comment -> Paperclip issue -> plan -> implementation -> proof -> fresh verification -> PR/deploy -> self-correction
 ```
 
-V1 is scoped to the `attraction` module. The same structure should scale to future modules such as lead generation, sales, and operations without leaking data or access across modules.
+The operating layer now covers `attraction` and `leadgen`. The same structure should scale to future modules such as sales and operations without leaking data, comments, report assumptions, or access across modules.
 
 ## Source Of Truth
 
@@ -29,6 +29,7 @@ Runtime changes should be:
 ## Operating Principles
 
 - Keep module context explicit on every issue.
+- Keep module-owned UI/report changes isolated. A `leadgen` comment changes only `leadgen` code/docs unless the issue is explicitly shared/platform.
 - Keep implementation, review, and release gates separate.
 - Do not send personal Bitrix data to Paperclip.
 - Prefer small PRs with proof artifacts over large unverified patches.

@@ -740,6 +740,7 @@ describe("createApp", () => {
   it("returns dashboard data, settings and sync status from the local API", async () => {
     let receivedActivitiesInput: unknown = null;
     let receivedRevenueVelocityInput: unknown = null;
+    let receivedLeadgenFunnelInput: unknown = null;
     const dashboard: DashboardData = {
       salesSummary: {
         salesCount: 3,
@@ -908,6 +909,22 @@ describe("createApp", () => {
       cohortMonths: [],
       cohortStatusRows: []
     };
+    const leadgenFunnelReport = {
+      range: {
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      totalDeals: 4,
+      createdDeals: 3,
+      activeDeals: 2,
+      closedDeals: 1,
+      stageRows: [],
+      sourceRows: [],
+      utmRows: [],
+      managerRows: [],
+      reasonRows: [],
+      warnings: []
+    };
     const revenueVelocityReport: RevenueVelocityReport = {
       ...createEmptyRevenueVelocityReport(),
       dimension: "source",
@@ -977,6 +994,10 @@ describe("createApp", () => {
       getRevenueVelocityReport: async (input: unknown) => {
         receivedRevenueVelocityInput = input;
         return revenueVelocityReport;
+      },
+      getLeadgenFunnelReport: async (input: unknown) => {
+        receivedLeadgenFunnelInput = input;
+        return leadgenFunnelReport;
       },
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
@@ -1200,6 +1221,30 @@ describe("createApp", () => {
           stageHistory: 18
         });
       });
+
+    await request(app)
+      .get("/api/modules/leadgen/reports/funnel")
+      .query({
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z",
+        managerIds: "501",
+        sourceKeys: "WEB"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalDeals).toBe(4);
+      });
+
+    expect(receivedLeadgenFunnelInput).toEqual({
+      range: {
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      filters: {
+        managerIds: ["501"],
+        sourceKeys: ["WEB"]
+      }
+    });
 
     await request(app)
       .post("/api/sync")

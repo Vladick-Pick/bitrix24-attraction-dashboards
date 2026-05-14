@@ -10,6 +10,7 @@ The live company is the runtime source of truth. This repo is the reviewable rec
 - Issue prefix: `BIT`
 - Goal: `Operate Bitrix24 dashboard modules`
 - Project: `Attraction Dashboard`
+- Leadgen project: configured by `PAPERCLIP_LEADGEN_PROJECT_ID` when available
 - Workflow lane: `Dashboard Comment Intake`
 - Primary workspace: `https://github.com/Vladick-Pick/bitrix24-attraction-dashboards.git`, default ref `main`
 
@@ -38,6 +39,8 @@ V1 intentionally starts with a compact team. Do not add agents just because a ro
 - `Frontend Dashboard Engineer` owns dashboard UI, comment UX, notification surfaces, module admin UI, and visual verification.
 - `Backend Reporting Engineer` owns API, SQLite, auth/RBAC, reporting contracts, Paperclip integration, retries, and status sync.
 - `Pre-Merge Reviewer` owns fresh verification, code review, security/privacy review, and release-readiness review.
+
+Every issue must name its module. `leadgen` work is isolated to leadgen-owned UI, reports, docs, tests, and category `28` data scope unless a reviewed issue is explicitly shared/platform.
 
 Future split-out roles:
 

@@ -190,6 +190,61 @@ describe("password session auth", () => {
     store.close();
   });
 
+  it("promotes the first active user to super admin and returns every module", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    await store.ensureModule({
+      id: "leadgen",
+      slug: "leadgen",
+      name: "Лидогенерация",
+      bitrixCategoryId: "28"
+    });
+    await store.createUser({
+      login: "owner@example.com",
+      passwordHash: await hashPassword("correct-password"),
+      now: new Date("2026-05-14T10:00:00.000Z")
+    });
+    await store.ensureDefaultSuperAdmin();
+    const auth = createPasswordAuthService({
+      store,
+      sessionSecret: "test-session-secret-with-at-least-32-bytes",
+      cookieName: "b24dash_session",
+      ttlHours: 12,
+      secureCookie: false
+    });
+    const app = createApp(createMinimalService(), {
+      auth
+    });
+
+    await request(app)
+      .post("/api/auth/login")
+      .send({ login: "owner@example.com", password: "correct-password" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.user.isSuperAdmin).toBe(true);
+        expect(body.user.modules.map((module: { id: string }) => module.id)).toEqual([
+          "attraction",
+          "leadgen"
+        ]);
+        expect(
+          body.user.modules.every((module: { permissions: string[] }) =>
+            module.permissions.includes("module-users:manage")
+          )
+        ).toBe(true);
+      });
+
+    store.close();
+  });
+
   it("uses a generic invalid credentials response and does not set a cookie", async () => {
     const { app, store } = await createAuthTestApp();
 

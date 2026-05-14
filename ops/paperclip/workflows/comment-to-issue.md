@@ -29,6 +29,16 @@ flowchart TD
 - current dashboard URL/path when safe;
 - implementation instructions and privacy constraints.
 
+## Module Isolation
+
+Dashboard comments are module-scoped by default:
+
+- `attraction` comments may change attraction-owned UI, reports, docs, and tests only.
+- `leadgen` comments may change leadgen-owned UI, reports, docs, and tests only.
+- shared platform code can be changed only when the issue is explicitly marked shared/platform and lists every affected module.
+- a leadgen-only issue must not alter attraction scenes, report semantics, manager whitelist, or visual behavior.
+- an attraction-only issue must not alter leadgen scenes, category `28` scoping, manager whitelist, or visual behavior.
+
 ## Banned Payload Data
 
 - deal/contact names;

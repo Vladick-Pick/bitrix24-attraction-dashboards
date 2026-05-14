@@ -19,4 +19,9 @@ Every module gets:
 docs/modules/<module-key>/MODULE_ONTOLOGY.md
 ```
 
-Use `docs/modules/attraction/MODULE_ONTOLOGY.md` as the V1 example.
+Current modules:
+
+- `attraction`: `docs/modules/attraction/MODULE_ONTOLOGY.md`
+- `leadgen`: `docs/modules/leadgen/MODULE_ONTOLOGY.md`
+
+Use `docs/modules/attraction/MODULE_ONTOLOGY.md` as the V1 platform example, but do not force new modules into the attraction UI or report semantics. `leadgen` has its own funnel, manager whitelist, report registry, and Paperclip context.

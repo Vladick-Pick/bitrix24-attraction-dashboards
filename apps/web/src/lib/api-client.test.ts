@@ -1201,4 +1201,73 @@ describe('apiClient', () => {
       'X-CSRF-Token': 'csrf-from-me',
     })
   })
+
+  it('uses module-aware API paths for leadgen comments, users, and funnel report', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          comments: [],
+          updatedAt: null,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          users: [],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          range: {
+            from: '2026-05-01T00:00:00.000Z',
+            to: '2026-05-31T23:59:59.999Z',
+          },
+          totalDeals: 4,
+          createdDeals: 3,
+          activeDeals: 2,
+          closedDeals: 1,
+          stageRows: [
+            {
+              stageId: 'C28:NEW',
+              stageName: 'Новый лид',
+              sortOrder: 10,
+              activeDeals: 2,
+              createdDeals: 3,
+              closedDeals: 0,
+            },
+          ],
+          sourceRows: [],
+          managerRows: [],
+          reasonRows: [],
+          warnings: [],
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiClient.getComments('leadgen')
+    await apiClient.getModuleUsers('leadgen')
+    const report = await apiClient.getLeadgenFunnelReport('leadgen', {
+      preset: 'custom',
+      from: '2026-05-01T00:00:00.000Z',
+      to: '2026-05-31T23:59:59.999Z',
+      managerIds: ['501'],
+    })
+
+    expect(report.totalDeals).toBe(4)
+    expect(report.stageRows[0]).toMatchObject({
+      stageId: 'C28:NEW',
+      stageName: 'Новый лид',
+    })
+    expect(
+      fetchMock.mock.calls.map(([url]) => new URL(String(url), window.location.origin).pathname),
+    ).toEqual([
+      '/api/modules/leadgen/comments',
+      '/api/modules/leadgen/admin/module-users',
+      '/api/modules/leadgen/reports/funnel',
+    ])
+  })
 })

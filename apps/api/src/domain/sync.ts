@@ -260,6 +260,8 @@ export interface SyncRepository {
 
 interface PerformManualSyncInput {
   categoryIds: string[];
+  leadgenCategoryId?: string;
+  leadgenManagerIds?: string[];
   qualityFieldName: string;
   tariffFieldName?: string;
   businessClubFieldName?: string;
@@ -638,6 +640,55 @@ function mapDealRow(
     refusalReasonDetail: sanitizeRefusalReasonDetail(
       resolvedLossFields.refusalReasonDetail
     ),
+    dateCreate: row.DATE_CREATE,
+    dateModify: row.DATE_MODIFY,
+    dateClosed: row.DATE_CLOSED ?? null,
+    utmSource: row.UTM_SOURCE,
+    utmMedium: row.UTM_MEDIUM,
+    utmCampaign: row.UTM_CAMPAIGN,
+    utmContent: row.UTM_CONTENT,
+    utmTerm: row.UTM_TERM
+  };
+}
+
+function mapLeadgenDealRow(
+  row: DealRow,
+  returnReasonMap: Record<string, string>,
+  basketReasonMap: Record<string, string>
+): DealSnapshot {
+  const returnReasonValue = normalizeMappedFieldValue(
+    row[LEADGEN_US_RETURN_REASON_FIELD_NAME],
+    returnReasonMap
+  );
+  const basketReasonValue = normalizeMappedFieldValue(
+    row[LEADGEN_US_BASKET_REASON_FIELD_NAME],
+    basketReasonMap
+  );
+  const genericReasonDetail = normalizeMappedFieldValue(
+    row[ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME],
+    {}
+  );
+
+  return {
+    id: row.ID,
+    title: null,
+    contactId: null,
+    leadId: null,
+    categoryId: row.CATEGORY_ID,
+    stageId: row.STAGE_ID,
+    stageSemanticId: row.STAGE_SEMANTIC_ID,
+    opportunity: row.OPPORTUNITY,
+    assignedById: row.ASSIGNED_BY_ID,
+    sourceId: row.SOURCE_ID,
+    qualityValue: null,
+    businessClubValue: null,
+    targetGroupValue: null,
+    meetingTypeValue: null,
+    meetingDateValue: null,
+    tariffValue: null,
+    conversionEventValue: null,
+    refusalReasonValue: returnReasonValue ?? basketReasonValue,
+    refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail),
     dateCreate: row.DATE_CREATE,
     dateModify: row.DATE_MODIFY,
     dateClosed: row.DATE_CLOSED ?? null,
@@ -1395,8 +1446,15 @@ export async function performManualSync(
         startedAt
       })
     );
-    const shouldFetchLeadgenReasons = input.categoryIds.includes(
-      LEADGEN_US_CATEGORY_ID
+    const leadgenCategoryId = input.leadgenCategoryId ?? LEADGEN_US_CATEGORY_ID;
+    const leadgenManagerIds = input.leadgenManagerIds ?? [];
+    const shouldSyncLeadgen =
+      leadgenCategoryId.length > 0 && leadgenManagerIds.length > 0;
+    const dealStageCategoryIds = Array.from(
+      new Set([
+        ...input.categoryIds,
+        ...(shouldSyncLeadgen ? [leadgenCategoryId] : [])
+      ])
     );
     const getCachedCatalog = async (entityType: StageCatalogEntry["entityType"]) =>
       input.repository.getStageCatalog
@@ -1404,13 +1462,14 @@ export async function performManualSync(
             entityType === "deal"
               ? entry.entityType === "deal" &&
                 Boolean(
-                  entry.categoryId && input.categoryIds.includes(entry.categoryId)
+                  entry.categoryId &&
+                    dealStageCategoryIds.includes(entry.categoryId)
                 )
               : entry.entityType === entityType
           )
         : [];
     const fetchDealStages = input.client
-      .fetchDealStages(input.categoryIds)
+      .fetchDealStages(dealStageCategoryIds)
       .catch(async (error: unknown) => {
         const cachedStages = await getCachedCatalog("deal");
         if (cachedStages.length === 0) {
@@ -1471,7 +1530,7 @@ export async function performManualSync(
       sourceCatalog,
       deltaDealRows,
       scopeExpansionDealRows,
-      leadgenReasonRows,
+      leadgenDealRows,
       conversionEventVisits
     ] = await Promise.all([
       fetchDealStages,
@@ -1492,11 +1551,11 @@ export async function performManualSync(
             customFieldNames: dealCustomFieldNames
           })
         : Promise.resolve([]),
-      shouldFetchLeadgenReasons
+      shouldSyncLeadgen
         ? input.client.listDeals({
             modifiedAfter: dealModifiedAfter,
-            categoryIds: [LEADGEN_US_CATEGORY_ID],
-            assignedByIds,
+            categoryIds: [leadgenCategoryId],
+            assignedByIds: leadgenManagerIds,
             customFieldNames: [
               LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME,
               ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
@@ -1530,8 +1589,13 @@ export async function performManualSync(
       const assignedById = normalizeString(row.ASSIGNED_BY_ID);
       return Boolean(assignedById && assignedByIdSet.has(assignedById));
     });
+    const leadgenAssignedByIdSet = new Set(leadgenManagerIds);
+    const scopedLeadgenDealRows = leadgenDealRows.filter((row) => {
+      const assignedById = normalizeString(row.ASSIGNED_BY_ID);
+      return Boolean(assignedById && leadgenAssignedByIdSet.has(assignedById));
+    });
     const shouldMapDealRows = dealRows.length > 0;
-    const shouldMapLeadgenRows = leadgenReasonRows.length > 0;
+    const shouldMapLeadgenRows = scopedLeadgenDealRows.length > 0;
     const [
       qualityMap,
       tariffMap,
@@ -1626,7 +1690,7 @@ export async function performManualSync(
     );
     const stageNameById = buildStageNameById(dealStages);
     const linkedLeadgenLossLookup = buildLinkedLeadgenLossLookup(
-      leadgenReasonRows,
+      scopedLeadgenDealRows,
       leadgenReturnReasonMap,
       leadgenBasketReasonMap
     );
@@ -1652,6 +1716,12 @@ export async function performManualSync(
         linkedLeadgenLossLookup
       )
     );
+    const leadgenDeals = scopedLeadgenDealRows.map((row) =>
+      mapLeadgenDealRow(row, leadgenReturnReasonMap, leadgenBasketReasonMap)
+    );
+    const dealsToPersist = Array.from(
+      new Map([...deals, ...leadgenDeals].map((deal) => [deal.id, deal])).values()
+    );
     const scopeExpansionAssignedByIdSet = new Set(scopeExpansionAssignedByIds);
     const scopeExpansionDealIds = deals
       .filter(
@@ -1660,14 +1730,17 @@ export async function performManualSync(
           scopeExpansionAssignedByIdSet.has(deal.assignedById)
       )
       .map((deal) => deal.id);
-    const dealsSynced = deals.length;
+    const dealsSynced = dealsToPersist.length;
     const previousDeals =
-      deals.length > 0 && input.repository.getDealsByIds
-        ? await input.repository.getDealsByIds(deals.map((deal) => deal.id))
+      dealsToPersist.length > 0 && input.repository.getDealsByIds
+        ? await input.repository.getDealsByIds(dealsToPersist.map((deal) => deal.id))
         : [];
-    const dealBreakdown = buildDealChangeBreakdown({ deals, previousDeals });
+    const dealBreakdown = buildDealChangeBreakdown({
+      deals: dealsToPersist,
+      previousDeals
+    });
     const dealMeetingDateChanges = input.meetingDateFieldName
-      ? buildDealMeetingDateChanges({ deals, previousDeals })
+      ? buildDealMeetingDateChanges({ deals: dealsToPersist, previousDeals })
       : [];
     emitSyncProgress(
       input,
@@ -2034,6 +2107,7 @@ export async function performManualSync(
       new Set(
         [
           ...dealRows.map((row) => row.ASSIGNED_BY_ID),
+          ...scopedLeadgenDealRows.map((row) => row.ASSIGNED_BY_ID),
           ...activities.map((row) => row.responsibleId),
           ...callRows.map((row) => row.PORTAL_USER_ID)
         ]
@@ -2056,7 +2130,7 @@ export async function performManualSync(
     const stageHistory = stageHistoryRows.map(mapStageHistoryRow);
     const calls = callRows.map(mapCallRow);
     const changes: SyncChangeSummary = {
-      deals: deals.length,
+      deals: dealsToPersist.length,
       dealBreakdown,
       activities: activities.length,
       calls: calls.length,
@@ -2065,7 +2139,7 @@ export async function performManualSync(
     };
     const nextDealCursor = advanceCursorThroughWindow(
       dealCursor,
-      dealRows.map((row) => row.DATE_MODIFY),
+      [...dealRows, ...scopedLeadgenDealRows].map((row) => row.DATE_MODIFY),
       startedAt
     );
     const nextActivityCursor = advanceCursorThroughWindow(
@@ -2085,6 +2159,8 @@ export async function performManualSync(
       `callStatsOwners=${callStatsOwnerIds.length}`,
       `scopeExpansionManagers=${scopeExpansionAssignedByIds.length}`,
       `scopeExpansionDeals=${scopeExpansionDealIds.length}`,
+      `leadgenDeals=${leadgenDeals.length}`,
+      `leadgenManagers=${leadgenManagerIds.length}`,
       `conversionEventVisits=${conversionEventVisits.length}`,
       `conversionEventVisitsCoverage=${
         shouldBootstrapConversionEventVisits ? "backfill" : "delta"
@@ -2129,7 +2205,7 @@ export async function performManualSync(
 
     runSnapshotTransaction(input.repository, () => {
       void input.repository.replaceStageCatalog([...dealStages, ...sourceCatalog]);
-      void input.repository.upsertDeals(deals);
+      void input.repository.upsertDeals(dealsToPersist);
 
       if (!callHistoryBootstrappedAt) {
         void input.repository.markCallHistoryBootstrapped(persistedAt);

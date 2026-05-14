@@ -38,6 +38,7 @@ export interface ProtoComment {
   paperclipLastSyncedAt?: string | null
   paperclipRetryCount?: number
   paperclipReadyReport?: PaperclipReadyReport | null
+  paperclipThread?: PaperclipThreadEntry[]
 }
 
 export interface ProtoCommentAnchor {
@@ -68,6 +69,16 @@ export interface PaperclipReadyReport {
   authorUserId?: string | null
   createdAt: string
   updatedAt: string
+}
+
+export type PaperclipThreadEntryKind =
+  | 'development_report'
+  | 'dashboard_rework'
+  | 'board_note'
+  | 'system_note'
+
+export interface PaperclipThreadEntry extends PaperclipReadyReport {
+  kind: PaperclipThreadEntryKind
 }
 
 export interface ProtoCommentContext {
@@ -113,6 +124,7 @@ export interface CommentNotification {
   paperclipIssueIdentifier: string | null
   paperclipError: string | null
   paperclipReadyReport?: PaperclipReadyReport | null
+  paperclipThread?: PaperclipThreadEntry[]
   updatedAt: string
 }
 

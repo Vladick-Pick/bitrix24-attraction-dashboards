@@ -53,6 +53,7 @@ import type {
   ModuleUser,
   PaperclipCommentStatus,
   PaperclipReadyReport,
+  PaperclipThreadEntry,
   PickerOption,
   ProtoComment,
   ProtoCommentAnchor,
@@ -106,6 +107,7 @@ function getCommentNotificationReadKey(notification: CommentNotification) {
     notification.paperclipSyncStatus,
     notification.paperclipError ?? '',
     notification.paperclipReadyReport?.createdAt ?? '',
+    notification.paperclipThread?.at(-1)?.updatedAt ?? '',
   ].join('|')
 }
 
@@ -162,6 +164,48 @@ function formatReadyReportBody(value: string) {
     .trim()
 }
 
+function extractMarkdownSection(value: string, heading: string) {
+  const lines = value.split('\n')
+  const startIndex = lines.findIndex(
+    (line) => line.replace(/^#{1,6}\s+/, '').trim() === heading,
+  )
+  if (startIndex < 0) {
+    return ''
+  }
+
+  const sectionLines: string[] = []
+  for (const line of lines.slice(startIndex + 1)) {
+    if (/^#{1,6}\s+/.test(line) && sectionLines.some((item) => item.trim().length > 0)) {
+      break
+    }
+    sectionLines.push(line)
+  }
+
+  return sectionLines.join('\n').trim()
+}
+
+function formatThreadEntryBody(entry: PaperclipThreadEntry) {
+  const body =
+    entry.kind === 'dashboard_rework'
+      ? extractMarkdownSection(entry.body, 'Пользовательский комментарий') || entry.body
+      : entry.body
+
+  return formatReadyReportBody(body)
+}
+
+function getThreadEntryLabel(kind: PaperclipThreadEntry['kind']) {
+  switch (kind) {
+    case 'dashboard_rework':
+      return 'Возврат на доработку'
+    case 'development_report':
+      return 'Команда разработки'
+    case 'board_note':
+      return 'Решение пользователя'
+    default:
+      return 'Системная запись'
+  }
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
@@ -213,6 +257,54 @@ function DevelopmentReadyReport({
       <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">
         {formatReadyReportBody(reportBody)}
       </p>
+    </section>
+  )
+}
+
+function DevelopmentThreadHistory({
+  thread,
+}: {
+  thread: PaperclipThreadEntry[] | null | undefined
+}) {
+  const entries = thread?.filter((entry) => entry.body.trim().length > 0) ?? []
+
+  if (entries.length === 0) {
+    return null
+  }
+
+  return (
+    <section className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
+          История команды разработки
+        </div>
+        <span className="badge-chip badge-neutral">{entries.length}</span>
+      </div>
+      <div className="mt-3 grid max-h-96 gap-3 overflow-y-auto overscroll-contain pr-1">
+        {entries.map((entry) => (
+          <article
+            key={entry.id}
+            className={cn(
+              'rounded-xl border px-3 py-3',
+              entry.kind === 'dashboard_rework'
+                ? 'border-blue-200 bg-blue-50/60'
+                : 'border-slate-200 bg-slate-50/70',
+            )}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
+                {getThreadEntryLabel(entry.kind)}
+              </span>
+              <time className="text-xs font-semibold text-slate-500">
+                {formatDateTime(entry.createdAt)}
+              </time>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">
+              {formatThreadEntryBody(entry)}
+            </p>
+          </article>
+        ))}
+      </div>
     </section>
   )
 }
@@ -913,6 +1005,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     anchor: ProtoCommentAnchor
     paperclipStatus?: ProtoComment['paperclipStatus']
     paperclipReadyReport?: ProtoComment['paperclipReadyReport']
+    paperclipThread?: ProtoComment['paperclipThread']
   } | null>(null)
   const [reworkText, setReworkText] = useState('')
 
@@ -1573,6 +1666,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         } satisfies ProtoCommentAnchor),
       paperclipStatus: comment.paperclipStatus,
       paperclipReadyReport: comment.paperclipReadyReport,
+      paperclipThread: comment.paperclipThread,
     })
     setReworkText('')
     setCommentsOpen(true)
@@ -2631,6 +2725,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                   report={draftComment?.paperclipReadyReport}
                   status={draftComment?.paperclipStatus}
                 />
+                <DevelopmentThreadHistory thread={draftComment?.paperclipThread} />
                 {draftComment?.id &&
                 canArchiveComments &&
                 comments.find((comment) => comment.id === draftComment.id)?.paperclipIssueId ? (

@@ -13,7 +13,7 @@ import type {
 } from '@/lib/dashboard-types'
 import { createCompareRange, ProtoApp } from '@/proto/proto-app'
 import { createDefaultFilters } from '@/proto/scenes'
-import type { AuthUser } from '@/proto/types'
+import type { AuthUser, PaperclipThreadEntry } from '@/proto/types'
 
 vi.mock('@/lib/api-client', () => ({
   ApiClientError: class ApiClientError extends Error {
@@ -836,6 +836,89 @@ describe('ProtoApp', () => {
     await userEvent.click(await screen.findByRole('button', { name: /без отчёта/i }))
 
     expect(screen.getAllByText(/отчёт команды разработки не найден/i).length).toBeGreaterThan(0)
+  })
+
+  it('shows development team thread history in the comment review panel', async () => {
+    const paperclipThread: PaperclipThreadEntry[] = [
+      {
+        id: 'thread-first-report',
+        kind: 'development_report',
+        body: 'Первый отчет команды: добавлены бейджи задач и звонков.',
+        authorAgentId: 'agent-1',
+        authorUserId: null,
+        createdAt: '2026-05-14T09:00:00.000Z',
+        updatedAt: '2026-05-14T09:00:00.000Z',
+      },
+      {
+        id: 'thread-rework',
+        kind: 'dashboard_rework',
+        body: 'Возврат на доработку: бейдж должен называться Мероприятия.',
+        authorAgentId: null,
+        authorUserId: 'local-board',
+        createdAt: '2026-05-14T10:00:00.000Z',
+        updatedAt: '2026-05-14T10:00:00.000Z',
+      },
+      {
+        id: 'thread-new-report',
+        kind: 'development_report',
+        body: 'Новый мини-отчет команды: бейдж переименован.',
+        authorAgentId: 'agent-1',
+        authorUserId: null,
+        createdAt: '2026-05-14T11:00:00.000Z',
+        updatedAt: '2026-05-14T11:00:00.000Z',
+      },
+    ]
+    const comment = {
+      id: 'comment-thread-history',
+      sceneId: 'sales',
+      x: 0.5,
+      y: 0.5,
+      text: 'Проверить историю команды',
+      status: 'open',
+      archivedAt: null,
+      createdAt: '2026-05-14T09:00:00.000Z',
+      updatedAt: '2026-05-14T11:00:00.000Z',
+      paperclipIssueId: 'paperclip-issue-1',
+      paperclipIssueIdentifier: 'BIT-42',
+      paperclipStatus: 'in_work',
+      paperclipSyncStatus: 'sent',
+      paperclipError: null,
+      paperclipReadyReport: null,
+      paperclipThread,
+    }
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      createResponse({
+        comments: [comment],
+        updatedAt: '2026-05-14T11:00:00.000Z',
+      }),
+    )
+    vi.mocked(apiClient.getCommentNotifications).mockResolvedValueOnce({
+      notifications: [
+        {
+          id: comment.id,
+          sceneId: comment.sceneId,
+          text: comment.text,
+          status: 'in_work',
+          paperclipSyncStatus: 'sent',
+          paperclipIssueIdentifier: 'BIT-42',
+          paperclipError: null,
+          updatedAt: comment.updatedAt,
+          paperclipReadyReport: null,
+          paperclipThread: comment.paperclipThread,
+        },
+      ],
+    })
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^комментарии$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /проверить историю команды/i }))
+
+    expect(await screen.findByText(/история команды разработки/i)).toBeInTheDocument()
+    expect(screen.getByText(/первый отчет команды/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/возврат на доработку/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/новый мини-отчет команды/i)).toBeInTheDocument()
   })
 
   it('keeps the development rework form inside a scrollable comments panel body', async () => {

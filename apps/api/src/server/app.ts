@@ -187,8 +187,19 @@ interface DashboardPaperclipReadyReport {
   updatedAt: string;
 }
 
+type DashboardPaperclipThreadEntryKind =
+  | "development_report"
+  | "dashboard_rework"
+  | "board_note"
+  | "system_note";
+
+interface DashboardPaperclipThreadEntry extends DashboardPaperclipReadyReport {
+  kind: DashboardPaperclipThreadEntryKind;
+}
+
 type DashboardCommentView = DashboardCommentRecord & {
   paperclipReadyReport?: DashboardPaperclipReadyReport | null;
+  paperclipThread?: DashboardPaperclipThreadEntry[];
 };
 
 interface AppConfig {
@@ -860,13 +871,54 @@ function toPaperclipReadyReport(
   };
 }
 
-function selectPaperclipReadyReport(
+function getPaperclipThreadEntryKind(
+  comment: PaperclipIssueComment
+): DashboardPaperclipThreadEntryKind {
+  if (isDashboardOriginatedPaperclipComment(comment)) {
+    return "dashboard_rework";
+  }
+  if (comment.authorAgentId) {
+    return "development_report";
+  }
+  if (comment.authorUserId) {
+    return "board_note";
+  }
+  return "system_note";
+}
+
+function toPaperclipThreadEntry(
+  comment: PaperclipIssueComment
+): DashboardPaperclipThreadEntry {
+  return {
+    ...toPaperclipReadyReport(comment),
+    kind: getPaperclipThreadEntryKind(comment)
+  };
+}
+
+function selectPaperclipThread(
   comments: PaperclipIssueComment[]
+): DashboardPaperclipThreadEntry[] {
+  return comments
+    .filter((comment) => comment.body.trim().length > 0)
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.createdAt);
+      const rightTime = Date.parse(right.createdAt);
+      return (Number.isNaN(leftTime) ? 0 : leftTime) - (Number.isNaN(rightTime) ? 0 : rightTime);
+    })
+    .map(toPaperclipThreadEntry);
+}
+
+function selectPaperclipReadyReport(
+  comments: PaperclipIssueComment[] | DashboardPaperclipThreadEntry[]
 ): DashboardPaperclipReadyReport | null {
   const candidates = comments
     .filter((comment) => comment.body.trim().length > 0)
     .filter((comment) => comment.authorAgentId)
-    .filter((comment) => !isDashboardOriginatedPaperclipComment(comment))
+    .filter((comment) =>
+      "kind" in comment
+        ? comment.kind === "development_report"
+        : !isDashboardOriginatedPaperclipComment(comment)
+    )
     .sort((left, right) => {
       const leftTime = Date.parse(left.createdAt);
       const rightTime = Date.parse(right.createdAt);
@@ -1363,21 +1415,38 @@ export function createApp(
     }
   }
 
-  async function loadPaperclipReadyReport(
+  async function loadPaperclipThread(
     comment: DashboardCommentRecord
-  ): Promise<DashboardPaperclipReadyReport | null> {
-    if (!config.paperclip || !comment.paperclipIssueId || comment.paperclipStatus !== "done") {
-      return null;
+  ): Promise<DashboardPaperclipThreadEntry[]> {
+    if (!config.paperclip || !comment.paperclipIssueId) {
+      return [];
     }
 
     try {
       const issueComments = await config.paperclip.listIssueComments({
         issueId: comment.paperclipIssueId
       });
-      return selectPaperclipReadyReport(issueComments);
+      return selectPaperclipThread(issueComments);
     } catch {
-      return null;
+      return [];
     }
+  }
+
+  async function loadPaperclipContext(
+    comment: DashboardCommentRecord
+  ): Promise<{
+    paperclipReadyReport: DashboardPaperclipReadyReport | null;
+    paperclipThread: DashboardPaperclipThreadEntry[];
+  }> {
+    const paperclipThread = await loadPaperclipThread(comment);
+
+    return {
+      paperclipReadyReport:
+        comment.paperclipStatus === "done"
+          ? selectPaperclipReadyReport(paperclipThread)
+          : null,
+      paperclipThread
+    };
   }
 
   async function refreshCommentPaperclipStatus(
@@ -1403,8 +1472,8 @@ export function createApp(
         comment.paperclipError !== null;
 
       if (!hasPaperclipChange) {
-        const paperclipReadyReport = await loadPaperclipReadyReport(comment);
-        return paperclipReadyReport ? { ...comment, paperclipReadyReport } : comment;
+        const paperclipContext = await loadPaperclipContext(comment);
+        return { ...comment, ...paperclipContext };
       }
 
       const updated = await config.comments.updateDashboardCommentPaperclip({
@@ -1417,8 +1486,8 @@ export function createApp(
         paperclipLastSyncedAt: new Date().toISOString()
       });
       const nextComment = updated ?? comment;
-      const paperclipReadyReport = await loadPaperclipReadyReport(nextComment);
-      return paperclipReadyReport ? { ...nextComment, paperclipReadyReport } : nextComment;
+      const paperclipContext = await loadPaperclipContext(nextComment);
+      return { ...nextComment, ...paperclipContext };
     } catch {
       return comment;
     }
@@ -1771,6 +1840,7 @@ export function createApp(
             paperclipIssueIdentifier: comment.paperclipIssueIdentifier,
             paperclipError: comment.paperclipError,
             paperclipReadyReport: comment.paperclipReadyReport ?? null,
+            paperclipThread: comment.paperclipThread ?? [],
             updatedAt: comment.updatedAt
           }))
       });

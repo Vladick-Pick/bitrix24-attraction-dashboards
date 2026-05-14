@@ -1638,11 +1638,16 @@ export function createReportingService(
       filters
     }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
-      const [deals, stageCatalog] = await Promise.all([
+      const [deals, stageCatalog, stageHistory] = await Promise.all([
         input.repository.getAllDeals(),
-        getScopedStageCatalog(true)
+        getScopedStageCatalog(true),
+        input.repository.getAllStageHistory()
       ]);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
+      const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+      const scopedStageHistory = stageHistory.filter((row) =>
+        scopedDealIds.has(row.ownerId)
+      );
       const managerDirectory = await ensureManagerDirectory(
         uniqueStrings(scopedDeals.map((deal) => deal.assignedById))
       );
@@ -1653,6 +1658,7 @@ export function createReportingService(
           range: targetRange,
           deals: scopedDeals,
           stageCatalog,
+          stageHistory: scopedStageHistory,
           managerDirectory
         });
       const resolvedRange = resolveRange(

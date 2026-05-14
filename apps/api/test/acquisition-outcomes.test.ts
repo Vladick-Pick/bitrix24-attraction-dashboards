@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import type {
   DealSnapshot,
   ManagerDirectoryEntry,
-  StageCatalogEntry
+  StageCatalogEntry,
+  StageHistorySnapshot
 } from "@bitrix24-reporting/contracts";
 import { buildAcquisitionOutcomesReport } from "../src/domain/operational-reports";
 
@@ -83,6 +84,19 @@ function deal(input: Partial<DealSnapshot> & Pick<DealSnapshot, "id">): DealSnap
     utmCampaign: null,
     utmContent: null,
     utmTerm: null,
+    ...input
+  };
+}
+
+function stageHistory(
+  input: Partial<StageHistorySnapshot> & Pick<StageHistorySnapshot, "id" | "ownerId">
+): StageHistorySnapshot {
+  return {
+    categoryId: "10",
+    stageId: "C10:LOSE",
+    stageSemanticId: "F",
+    typeId: null,
+    createdTime: "2026-05-05T10:00:00.000Z",
     ...input
   };
 }
@@ -373,5 +387,79 @@ describe("buildAcquisitionOutcomesReport", () => {
         reasonDetail: null
       }
     ]);
+  });
+
+  it("dates lost basket counts by the terminal stage transition instead of later deal modification", () => {
+    const historicalBasketDeal = deal({
+      id: "D10",
+      assignedById: "78",
+      sourceId: "WEB",
+      stageId: "C10:LOSE",
+      stageSemanticId: "F",
+      dateCreate: "2026-04-15T10:00:00.000Z",
+      dateModify: "2026-05-05T10:00:00.000Z",
+      dateClosed: null
+    });
+    const currentBasketDeal = deal({
+      id: "D11",
+      assignedById: "78",
+      sourceId: "WEB",
+      stageId: "C10:LOSE",
+      stageSemanticId: "F",
+      dateCreate: "2026-05-02T10:00:00.000Z",
+      dateModify: "2026-05-06T10:00:00.000Z",
+      dateClosed: null
+    });
+    const deals = [historicalBasketDeal, currentBasketDeal];
+    const history = [
+      stageHistory({
+        id: "SH10",
+        ownerId: "D10",
+        createdTime: "2026-04-20T10:00:00.000Z"
+      }),
+      stageHistory({
+        id: "SH11",
+        ownerId: "D11",
+        createdTime: "2026-05-06T10:00:00.000Z"
+      })
+    ];
+
+    const mayWeekReport = buildAcquisitionOutcomesReport({
+      range: {
+        from: "2026-05-04T00:00:00.000Z",
+        to: "2026-05-10T23:59:59.999Z"
+      },
+      deals,
+      stageCatalog,
+      managerDirectory,
+      stageHistory: history
+    });
+    const aprilWeekReport = buildAcquisitionOutcomesReport({
+      range: {
+        from: "2026-04-20T00:00:00.000Z",
+        to: "2026-04-26T23:59:59.999Z"
+      },
+      deals,
+      stageCatalog,
+      managerDirectory,
+      stageHistory: history
+    });
+
+    expect(mayWeekReport.lostStages).toEqual([
+      {
+        stageId: "C10:LOSE",
+        stageName: "Корзина",
+        count: 1
+      }
+    ]);
+    expect(mayWeekReport.lostDealDetails.map((row) => row.dealId)).toEqual(["D11"]);
+    expect(aprilWeekReport.lostStages).toEqual([
+      {
+        stageId: "C10:LOSE",
+        stageName: "Корзина",
+        count: 1
+      }
+    ]);
+    expect(aprilWeekReport.lostDealDetails.map((row) => row.dealId)).toEqual(["D10"]);
   });
 });

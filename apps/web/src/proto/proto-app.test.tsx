@@ -2676,6 +2676,66 @@ describe('ProtoApp', () => {
     })
   })
 
+  it('blocks repeated comment saves while the first save is still pending', async () => {
+    const saveGate: { resolve?: () => void } = {}
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init || init.method === 'GET') {
+        return createResponse({ comments: [], updatedAt: null })
+      }
+
+      const payload = JSON.parse(String(init.body)) as { comments: unknown[] }
+      await new Promise<void>((resolve) => {
+        saveGate.resolve = resolve
+      })
+      return createResponse({
+        comments: payload.comments,
+        updatedAt: '2026-04-10T12:00:00.000Z',
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ProtoApp />)
+
+    await userEvent.click(screen.getByRole('button', { name: /^comment mode$/i }))
+
+    const shell = screen.getByRole('presentation')
+    vi.spyOn(shell, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 1000,
+      height: 1000,
+      top: 0,
+      left: 0,
+      right: 1000,
+      bottom: 1000,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(screen.getByText(/фильтры периода и среза/i), {
+      clientX: 100,
+      clientY: 200,
+    })
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/комментарий к точке интерфейса/i),
+      'Проверка без дублей',
+    )
+
+    const saveButton = screen.getByRole('button', { name: /^сохранить$/i })
+    fireEvent.click(saveButton)
+    fireEvent.click(saveButton)
+    fireEvent.click(saveButton)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /сохраняем/i })).toBeDisabled()
+    })
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+
+    expect(saveGate.resolve).toBeDefined()
+    saveGate.resolve?.()
+    await screen.findByRole('button', { name: /^Комментарий 1$/ })
+  })
+
   it('allows comment pins on the filter panel chrome without blocking form controls', async () => {
     render(<ProtoApp />)
 

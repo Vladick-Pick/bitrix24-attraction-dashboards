@@ -71,6 +71,7 @@ function normalizeIssueComment(value: unknown): PaperclipIssueComment | null {
 export class PaperclipClient implements PaperclipIssueClient {
   readonly #apiUrl: string;
   readonly #apiToken: string;
+  readonly #reworkCommentMode: PaperclipReworkCommentMode;
 
   constructor(input: {
     apiUrl: string;
@@ -79,6 +80,7 @@ export class PaperclipClient implements PaperclipIssueClient {
   }) {
     this.#apiUrl = input.apiUrl.replace(/\/$/, "");
     this.#apiToken = input.apiToken;
+    this.#reworkCommentMode = input.reworkCommentMode ?? "board";
   }
 
   #headers(input: { includeAuthorization: boolean; contentType?: boolean }) {
@@ -175,6 +177,24 @@ export class PaperclipClient implements PaperclipIssueClient {
     });
   }
 
+  #issueCommentBody(input: PaperclipIssueCommentInput) {
+    if (
+      input.origin === "dashboard_rework" &&
+      input.reopen === true &&
+      this.#reworkCommentMode === "board"
+    ) {
+      return {
+        body: input.body,
+        resume: true
+      };
+    }
+
+    return {
+      body: input.body,
+      ...(input.reopen === undefined ? {} : { reopen: input.reopen })
+    };
+  }
+
   async addIssueComment(input: PaperclipIssueCommentInput): Promise<void> {
     const response = await fetch(
       `${this.#apiUrl}/api/issues/${encodeURIComponent(input.issueId)}/comments`,
@@ -184,10 +204,7 @@ export class PaperclipClient implements PaperclipIssueClient {
           includeAuthorization: true,
           contentType: true
         }),
-        body: JSON.stringify({
-          body: input.body,
-          ...(input.reopen === undefined ? {} : { reopen: input.reopen })
-        })
+        body: JSON.stringify(this.#issueCommentBody(input))
       }
     );
 

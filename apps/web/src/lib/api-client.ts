@@ -14,6 +14,7 @@ import type {
   DashboardDataSnapshot,
   DealPricingSettings,
   DealPricingSettingsInput,
+  LeadgenFunnelReport,
   ManagerActionOutcomeDealSlaStatus,
   ManagerActionOutcomeReport,
   ManagerActionOutcomeReportSnapshot,
@@ -96,6 +97,18 @@ function buildUrl(
   }
 
   return API_BASE_URL ? url.toString() : `${url.pathname}${url.search}`
+}
+
+function buildModulePath(moduleId: string | undefined, legacyPath: string) {
+  const normalizedModuleId = moduleId?.trim() || 'attraction'
+  if (normalizedModuleId === 'attraction') {
+    return legacyPath
+  }
+
+  return `/api/modules/${encodeURIComponent(normalizedModuleId)}${legacyPath.replace(
+    /^\/api/,
+    '',
+  )}`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -200,6 +213,7 @@ function normalizeAuthResponse(value: unknown): AuthResponse {
       firstName: asNullableString(user.firstName),
       lastName: asNullableString(user.lastName),
       role: 'admin',
+      isSuperAdmin: asBoolean(user.isSuperAdmin),
       modules: asArray(user.modules, normalizeAuthModule).filter(
         (module) => module.id && module.slug,
       ),
@@ -231,6 +245,7 @@ function normalizeAuthModule(value: unknown): AuthModule {
     permissions: asArray(data.permissions, normalizeModulePermission).filter(
       (permission): permission is ModulePermission => Boolean(permission),
     ),
+    bitrixCategoryId: asNullableString(data.bitrixCategoryId),
     paperclipCompanyId: asNullableString(data.paperclipCompanyId),
     paperclipProjectId: asNullableString(data.paperclipProjectId),
     paperclipGoalId: asNullableString(data.paperclipGoalId),
@@ -852,6 +867,63 @@ function normalizeSyncSummary(value: unknown): SyncSummary {
     snapshotAfter: normalizeSnapshotStats(data.snapshotAfter),
     changes: normalizeSyncChanges(data.changes),
     diagnostics: asArray(data.diagnostics, (entry) => asString(entry)).filter(Boolean),
+  }
+}
+
+function normalizeLeadgenFunnelReport(value: unknown): LeadgenFunnelReport {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    range: normalizeRange(data.range),
+    totalDeals: asNumber(data.totalDeals),
+    createdDeals: asNumber(data.createdDeals),
+    activeDeals: asNumber(data.activeDeals),
+    closedDeals: asNumber(data.closedDeals),
+    stageRows: asArray(data.stageRows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        stageId: asString(item.stageId),
+        stageName: asString(item.stageName, asString(item.stageId)),
+        sortOrder: asNumber(item.sortOrder),
+        activeDeals: asNumber(item.activeDeals),
+        createdDeals: asNumber(item.createdDeals),
+        closedDeals: asNumber(item.closedDeals),
+      }
+    }),
+    sourceRows: asArray(data.sourceRows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        sourceKey: asString(item.sourceKey),
+        sourceLabel: asString(item.sourceLabel, asString(item.sourceKey)),
+        dealCount: asNumber(item.dealCount),
+      }
+    }),
+    utmRows: asArray(data.utmRows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        utmSource: asNullableString(item.utmSource),
+        utmMedium: asNullableString(item.utmMedium),
+        utmCampaign: asNullableString(item.utmCampaign),
+        dealCount: asNumber(item.dealCount),
+      }
+    }),
+    managerRows: asArray(data.managerRows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        managerId: asString(item.managerId),
+        managerName: asString(item.managerName, asString(item.managerId)),
+        dealCount: asNumber(item.dealCount),
+      }
+    }),
+    reasonRows: asArray(data.reasonRows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        reasonKey: asString(item.reasonKey),
+        reasonLabel: asString(item.reasonLabel, asString(item.reasonKey)),
+        dealCount: asNumber(item.dealCount),
+      }
+    }),
+    warnings: asArray(data.warnings, (entry) => asString(entry)).filter(Boolean),
   }
 }
 
@@ -2136,19 +2208,26 @@ export const apiClient = {
       normalizeCommentStore,
     )
   },
-  async getComments() {
-    return requestJson(buildUrl('/api/comments'), { method: 'GET' }, normalizeCommentStore)
-  },
-  async createComment(input: {
-    sceneId: string
-    x: number
-    y: number
-    text: string
-    anchor?: ProtoCommentAnchor
-    context?: ProtoCommentContext
-  }) {
+  async getComments(moduleId = 'attraction') {
     return requestJson(
-      buildUrl('/api/comments'),
+      buildUrl(buildModulePath(moduleId, '/api/comments')),
+      { method: 'GET' },
+      normalizeCommentStore,
+    )
+  },
+  async createComment(
+    input: {
+      sceneId: string
+      x: number
+      y: number
+      text: string
+      anchor?: ProtoCommentAnchor
+      context?: ProtoCommentContext
+    },
+    moduleId = 'attraction',
+  ) {
+    return requestJson(
+      buildUrl(buildModulePath(moduleId, '/api/comments')),
       {
         method: 'POST',
         body: JSON.stringify(input),
@@ -2162,9 +2241,10 @@ export const apiClient = {
       text?: string
       context?: ProtoCommentContext
     },
+    moduleId = 'attraction',
   ) {
     return requestJson(
-      buildUrl(`/api/comments/${encodeURIComponent(id)}`),
+      buildUrl(buildModulePath(moduleId, `/api/comments/${encodeURIComponent(id)}`)),
       {
         method: 'PATCH',
         body: JSON.stringify(input),
@@ -2172,23 +2252,29 @@ export const apiClient = {
       normalizeCommentResponse,
     )
   },
-  async archiveComment(id: string) {
+  async archiveComment(id: string, moduleId = 'attraction') {
     return requestJson(
-      buildUrl(`/api/comments/${encodeURIComponent(id)}/archive`),
+      buildUrl(
+        buildModulePath(moduleId, `/api/comments/${encodeURIComponent(id)}/archive`),
+      ),
       { method: 'POST' },
       normalizeCommentResponse,
     )
   },
-  async retryComment(id: string) {
+  async retryComment(id: string, moduleId = 'attraction') {
     return requestJson(
-      buildUrl(`/api/comments/${encodeURIComponent(id)}/retry`),
+      buildUrl(
+        buildModulePath(moduleId, `/api/comments/${encodeURIComponent(id)}/retry`),
+      ),
       { method: 'POST' },
       normalizeCommentResponse,
     )
   },
-  async reworkComment(id: string, input: { text: string }) {
+  async reworkComment(id: string, input: { text: string }, moduleId = 'attraction') {
     return requestJson(
-      buildUrl(`/api/comments/${encodeURIComponent(id)}/rework`),
+      buildUrl(
+        buildModulePath(moduleId, `/api/comments/${encodeURIComponent(id)}/rework`),
+      ),
       {
         method: 'POST',
         body: JSON.stringify(input),
@@ -2196,29 +2282,32 @@ export const apiClient = {
       normalizeCommentResponse,
     )
   },
-  async getCommentNotifications() {
+  async getCommentNotifications(moduleId = 'attraction') {
     return requestJson(
-      buildUrl('/api/comment-notifications'),
+      buildUrl(buildModulePath(moduleId, '/api/comment-notifications')),
       { method: 'GET' },
       normalizeCommentNotificationsResponse,
     )
   },
-  async getModuleUsers() {
+  async getModuleUsers(moduleId = 'attraction') {
     return requestJson(
-      buildUrl('/api/admin/module-users'),
+      buildUrl(buildModulePath(moduleId, '/api/admin/module-users')),
       { method: 'GET' },
       normalizeModuleUsersResponse,
     )
   },
-  async createModuleUser(input: {
-    login: string
-    firstName?: string | null
-    lastName?: string | null
-    password: string
-    role: ModuleRole
-  }) {
+  async createModuleUser(
+    input: {
+      login: string
+      firstName?: string | null
+      lastName?: string | null
+      password: string
+      role: ModuleRole
+    },
+    moduleId = 'attraction',
+  ) {
     return requestJson(
-      buildUrl('/api/admin/module-users'),
+      buildUrl(buildModulePath(moduleId, '/api/admin/module-users')),
       {
         method: 'POST',
         body: JSON.stringify(input),
@@ -2236,9 +2325,10 @@ export const apiClient = {
       disabled?: boolean
       membershipStatus?: 'active' | 'disabled'
     },
+    moduleId = 'attraction',
   ) {
     return requestJson(
-      buildUrl(`/api/admin/module-users/${id}`),
+      buildUrl(buildModulePath(moduleId, `/api/admin/module-users/${id}`)),
       {
         method: 'PATCH',
         body: JSON.stringify(input),
@@ -2246,9 +2336,9 @@ export const apiClient = {
       normalizeModuleUserResponse,
     )
   },
-  async deleteModuleUser(id: number) {
+  async deleteModuleUser(id: number, moduleId = 'attraction') {
     return requestJson(
-      buildUrl(`/api/admin/module-users/${id}`),
+      buildUrl(buildModulePath(moduleId, `/api/admin/module-users/${id}`)),
       { method: 'DELETE' },
       normalizeModuleUserResponse,
     )
@@ -2258,6 +2348,16 @@ export const apiClient = {
       buildUrl('/api/dashboard', buildQueryParams(query)),
       { method: 'GET' },
       normalizeDashboard,
+    )
+  },
+  async getLeadgenFunnelReport(moduleId: string, query: DashboardQuery) {
+    return requestJson(
+      buildUrl(
+        `/api/modules/${encodeURIComponent(moduleId)}/reports/funnel`,
+        buildQueryParams(query),
+      ),
+      { method: 'GET' },
+      normalizeLeadgenFunnelReport,
     )
   },
   async getSalesPlan(range: ReportRange) {

@@ -40,6 +40,8 @@ Dashboard-created issues should include only sanitized context:
 - implementation instructions;
 - privacy constraints.
 
+For `leadgen`, the issue must also state that the work is limited to leadgen-owned code/docs, category `28`, and the leadgen manager whitelist. It must not ask agents to change attraction UI or reports unless the dashboard comment was converted into an explicit shared/platform issue.
+
 ## Done
 
 An intake issue is done when it has been safely created, linked to the dashboard comment, assigned to `Dashboard Engineering Manager`, and the dashboard can show the correct queued/sent/failed state.

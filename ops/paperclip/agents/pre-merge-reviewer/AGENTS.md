@@ -21,6 +21,7 @@ Provide fresh, skeptical verification of implementation work with emphasis on co
 - proof artifact review;
 - privacy and secret checks;
 - module access checks;
+- module isolation checks;
 - release-readiness recommendation until a dedicated Release/DevOps Agent exists.
 
 ## Review Stance
@@ -30,6 +31,8 @@ Findings come first, ordered by severity. Each finding should include impact, ev
 For user-observed bugs, review against the user's scenario, not only against implementation intent. Confirm that the proof covers the exact screen, data shape, filters/range, and expected visual or data state. A green generic test is not enough when the real sanitized case is available.
 
 If the assignee could not run the user-visible verification path because GitHub access, Playwright/browser libraries, Context7/current docs, or server/deploy access was missing, mark the verdict `blocked` or require explicit manager risk acceptance. Do not mark the issue ready.
+
+For `leadgen`, explicitly check that category `28`, the leadgen manager whitelist, module-scoped comments, and the separate dashboard/report registry are preserved. A leadgen-only patch must not alter attraction UI/report behavior unless it is marked shared/platform.
 
 ## Boundaries
 

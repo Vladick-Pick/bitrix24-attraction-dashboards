@@ -59,7 +59,7 @@ function LoginScreen({
     <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
       <section className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-md flex-col justify-center">
         <div className="border border-slate-700 bg-slate-900 p-6 shadow-2xl shadow-black/30">
-          <p className="subtle-label text-slate-400">Модуль «Привлечение»</p>
+          <p className="subtle-label text-slate-400">Модули Bitrix24</p>
           <h1 className="mt-2 text-3xl font-bold">Вход в дашборд</h1>
           <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
             <label className="block space-y-1.5">

@@ -61,6 +61,56 @@ vi.mock('@/lib/api-client', () => ({
       managerGroups: [],
       comparisons: [],
     })),
+    getLeadgenFunnelReport: vi.fn(async () => ({
+      range: {
+        from: '2026-04-01T00:00:00.000+03:00',
+        to: '2026-04-30T23:59:59.999+03:00',
+      },
+      totalDeals: 4,
+      createdDeals: 4,
+      activeDeals: 3,
+      closedDeals: 1,
+      stageRows: [
+        {
+          stageId: 'C28:NEW',
+          stageName: 'Новый лид',
+          sortOrder: 10,
+          activeDeals: 3,
+          createdDeals: 4,
+          closedDeals: 1,
+        },
+      ],
+      sourceRows: [
+        {
+          sourceKey: 'WEB',
+          sourceLabel: 'Сайт',
+          dealCount: 4,
+        },
+      ],
+      utmRows: [
+        {
+          utmSource: 'google',
+          utmMedium: 'cpc',
+          utmCampaign: 'leadgen-us',
+          dealCount: 4,
+        },
+      ],
+      managerRows: [
+        {
+          managerId: '501',
+          managerName: 'Лидген менеджер',
+          dealCount: 4,
+        },
+      ],
+      reasonRows: [
+        {
+          reasonKey: 'Корзина',
+          reasonLabel: 'Корзина',
+          dealCount: 1,
+        },
+      ],
+      warnings: [],
+    })),
     getPricingSettings: vi.fn(async () => ({
       rules: [
         {
@@ -1006,6 +1056,73 @@ describe('ProtoApp', () => {
 
     expect(window.location.pathname).toBe('/account')
     expect(screen.queryByText(/пользователи модуля/i)).not.toBeInTheDocument()
+  })
+
+  it('lets a super admin switch to the leadgen module and loads its isolated funnel report', async () => {
+    const owner: AuthUser = {
+      id: 1,
+      login: 'owner@example.com',
+      firstName: 'Владислав',
+      lastName: 'Богдан',
+      role: 'admin' as const,
+      isSuperAdmin: true,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+        {
+          id: 'leadgen',
+          slug: 'leadgen',
+          name: 'Лидогенерация',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          bitrixCategoryId: '28',
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+
+    render(<ProtoApp currentUser={owner} />)
+
+    expect(
+      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^лидогенерация$/i }))
+
+    expect(
+      await screen.findByRole('heading', { name: /^лидогенерация$/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/воронка лидген ус/i)).toBeInTheDocument()
+    expect(screen.getByText('Новый лид')).toBeInTheDocument()
+    expect(screen.getByText('Лидген менеджер')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(apiClient.getLeadgenFunnelReport).toHaveBeenCalledWith(
+        'leadgen',
+        expect.objectContaining({ preset: 'custom' }),
+      )
+    })
   })
 
   it('loads cohort breakdowns for every source catalog entry', async () => {

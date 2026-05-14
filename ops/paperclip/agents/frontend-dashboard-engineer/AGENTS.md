@@ -34,6 +34,8 @@ Build compact, reliable, module-aware dashboard interfaces that help users inspe
 
 Modules may diverge. Do not force future modules into the attraction layout when their workflow, density, metrics, or roles require a different interface. Reuse shared primitives only where the module ontology supports it.
 
+`leadgen` has its own dashboard/report registry. A leadgen-only issue may change leadgen screens, comment anchors, notifications, and module admin wiring only in the active leadgen context. It must not change attraction scenes, report copy, filters, or visual behavior unless the issue is explicitly shared/platform.
+
 ## Done
 
 Frontend work is done when:

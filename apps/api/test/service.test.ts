@@ -1682,4 +1682,143 @@ describe("createReportingService", () => {
       })
     ]);
   });
+
+  it("builds the leadgen funnel only from category 28 and the leadgen manager whitelist", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "LEADGEN_ALLOWED",
+          leadId: null,
+          categoryId: "28",
+          stageId: "C28:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "501",
+          sourceId: "WEB",
+          qualityValue: null,
+          refusalReasonValue: null,
+          dateCreate: "2026-05-02T10:00:00.000Z",
+          dateModify: "2026-05-02T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: "google",
+          utmMedium: "cpc",
+          utmCampaign: "leadgen-us",
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "LEADGEN_OUTSIDE_MANAGER",
+          leadId: null,
+          categoryId: "28",
+          stageId: "C28:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "999",
+          sourceId: "WEB",
+          qualityValue: null,
+          refusalReasonValue: null,
+          dateCreate: "2026-05-03T10:00:00.000Z",
+          dateModify: "2026-05-03T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: "google",
+          utmMedium: "cpc",
+          utmCampaign: "leadgen-us",
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "ATTRACTION_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "501",
+          sourceId: "WEB",
+          qualityValue: null,
+          refusalReasonValue: null,
+          dateCreate: "2026-05-04T10:00:00.000Z",
+          dateModify: "2026-05-04T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: "google",
+          utmMedium: "cpc",
+          utmCampaign: "leadgen-us",
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "28",
+          statusId: "C28:NEW",
+          name: "Новый лид",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Сайт",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getManagerDirectory: async () => [
+        {
+          id: "501",
+          name: "Лидген менеджер"
+        }
+      ],
+      upsertManagerDirectory: async () => 0
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      leadgenCategoryId: "28",
+      leadgenManagerIds: ["501"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-05-14T12:00:00.000Z")
+    });
+
+    const report = await service.getLeadgenFunnelReport({
+      range: {
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      }
+    });
+
+    expect(report.totalDeals).toBe(1);
+    expect(report.createdDeals).toBe(1);
+    expect(report.stageRows).toEqual([
+      {
+        stageId: "C28:NEW",
+        stageName: "Новый лид",
+        sortOrder: 10,
+        activeDeals: 1,
+        createdDeals: 1,
+        closedDeals: 0
+      }
+    ]);
+    expect(report.managerRows).toEqual([
+      {
+        managerId: "501",
+        managerName: "Лидген менеджер",
+        dealCount: 1
+      }
+    ]);
+    expect(report.sourceRows).toEqual([
+      {
+        sourceKey: "WEB",
+        sourceLabel: "Сайт",
+        dealCount: 1
+      }
+    ]);
+  });
 });

@@ -9,6 +9,19 @@ assignees: ""
 ## Problem
 
 
+## Module
+- [ ] `attraction`
+- [ ] `leadgen`
+- [ ] shared/platform
+
+## Affected Areas
+- [ ] API / auth / RBAC
+- [ ] reporting / sync / data contract
+- [ ] web UI / report registry
+- [ ] comments / Paperclip
+- [ ] docs / agent instructions
+- [ ] deploy / infra
+
 ## Expected Behavior
 
 
@@ -17,6 +30,11 @@ assignees: ""
 
 ## Data Dependencies
 - 
+
+## Module Isolation Notes
+- Attraction behavior must remain unchanged unless this is an attraction or shared/platform task.
+- Leadgen behavior must remain unchanged unless this is a leadgen or shared/platform task.
+- Do not use or expose deal names, contact names, phones, emails, raw Bitrix payloads, cookies, tokens, or secrets.
 
 ## Verification
 - [ ] API tests updated or not needed

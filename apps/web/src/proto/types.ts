@@ -89,6 +89,7 @@ export interface AuthModule {
   name: string
   role: ModuleRole
   permissions: ModulePermission[]
+  bitrixCategoryId?: string | null
   paperclipCompanyId?: string | null
   paperclipProjectId?: string | null
   paperclipGoalId?: string | null
@@ -101,6 +102,7 @@ export interface AuthUser {
   firstName: string | null
   lastName: string | null
   role: 'admin'
+  isSuperAdmin?: boolean
   modules: AuthModule[]
 }
 

@@ -47,6 +47,8 @@ const client = new BitrixClient({
 });
 const service = createReportingService({
   dealCategoryIds: env.bitrixDealCategoryIds,
+  leadgenCategoryId: env.leadgenCategoryId,
+  leadgenManagerIds: env.leadgenManagerIds,
   qualityFieldName: env.BITRIX24_DEAL_QUALITY_FIELD,
   tariffFieldName: env.BITRIX24_DEAL_TARIFF_FIELD,
   businessClubFieldName: env.BITRIX24_DEAL_BUSINESS_CLUB_FIELD,
@@ -90,6 +92,17 @@ if (authStore) {
     paperclipGoalId: env.PAPERCLIP_ATTRACTION_GOAL_ID ?? null,
     paperclipTriageAgentId: env.PAPERCLIP_ATTRACTION_TRIAGE_AGENT_ID ?? null
   });
+  await authStore.ensureModule({
+    id: "leadgen",
+    slug: "leadgen",
+    name: "Лидогенерация",
+    bitrixCategoryId: env.leadgenCategoryId,
+    paperclipCompanyId: env.PAPERCLIP_LEADGEN_COMPANY_ID ?? null,
+    paperclipProjectId: env.PAPERCLIP_LEADGEN_PROJECT_ID ?? null,
+    paperclipGoalId: env.PAPERCLIP_LEADGEN_GOAL_ID ?? null,
+    paperclipTriageAgentId: env.PAPERCLIP_LEADGEN_TRIAGE_AGENT_ID ?? null
+  });
+  await authStore.ensureDefaultSuperAdmin();
   await authStore.ensureDefaultModuleLeader("attraction");
 }
 const auth =

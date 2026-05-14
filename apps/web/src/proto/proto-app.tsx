@@ -24,6 +24,7 @@ import type {
   DashboardQuery,
   DealPricingRuleInput,
   LastSyncSummary,
+  LeadgenFunnelReport,
   MetaResponse,
   SalesPlanQuarterDraftRow,
   SnapshotStats,
@@ -847,12 +848,222 @@ function PaperclipNotifications({
   )
 }
 
+function LeadgenDashboard({
+  report,
+  status,
+  error,
+}: {
+  report: LeadgenFunnelReport | null
+  status: 'idle' | 'loading' | 'error'
+  error: string | null
+}) {
+  const topStages = report?.stageRows ?? []
+  const topSources = report?.sourceRows ?? []
+  const topUtm = report?.utmRows ?? []
+  const topManagers = report?.managerRows ?? []
+  const topReasons = report?.reasonRows ?? []
+
+  return (
+    <div className="grid gap-6">
+      <section
+        className="panel p-5"
+        data-comment-block-id="leadgen-funnel-summary"
+        data-comment-block-label="Лидогенерация: воронка Лидген УС"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="subtle-label">Лидогенерация</div>
+            <h2 className="mt-1 text-2xl font-bold text-slate-900">
+              Воронка Лидген УС
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Сводка по отдельной воронке и команде лидогенерации.
+            </p>
+          </div>
+          <span className="badge-chip badge-green">
+            {status === 'loading' ? 'Загрузка' : 'Лидген'}
+          </span>
+        </div>
+
+        {error ? (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="mt-5 grid gap-4 md:grid-cols-4">
+          {[
+            ['Всего сделок', report ? formatCount(report.totalDeals) : '...'],
+            ['Создано', report ? formatCount(report.createdDeals) : '...'],
+            ['Активные', report ? formatCount(report.activeDeals) : '...'],
+            ['Закрытые', report ? formatCount(report.closedDeals) : '...'],
+          ].map(([label, value]) => (
+            <div key={label} className="metric p-4">
+              <p className="subtle-label">{label}</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {report?.warnings.length ? (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+            {report.warnings.join(' ')}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
+        <div
+          className="panel p-5"
+          data-comment-block-id="leadgen-stage-distribution"
+          data-comment-block-label="Лидогенерация: стадии"
+        >
+          <div className="subtle-label">Распределение по стадиям</div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="py-2 pr-4">Стадия</th>
+                  <th className="py-2 pr-4">Создано</th>
+                  <th className="py-2 pr-4">Активные</th>
+                  <th className="py-2 pr-4">Закрытые</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {topStages.map((row) => (
+                  <tr key={row.stageId}>
+                    <td className="py-2 pr-4 font-semibold text-slate-900">
+                      {row.stageName}
+                    </td>
+                    <td className="py-2 pr-4">{formatCount(row.createdDeals)}</td>
+                    <td className="py-2 pr-4">{formatCount(row.activeDeals)}</td>
+                    <td className="py-2 pr-4">{formatCount(row.closedDeals)}</td>
+                  </tr>
+                ))}
+                {topStages.length === 0 ? (
+                  <tr>
+                    <td className="py-4 text-slate-500" colSpan={4}>
+                      Нет сделок в выбранном периоде.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div
+          className="panel p-5"
+          data-comment-block-id="leadgen-manager-distribution"
+          data-comment-block-label="Лидогенерация: менеджеры"
+        >
+          <div className="subtle-label">Менеджеры</div>
+          <div className="mt-3 grid gap-2">
+            {topManagers.map((row) => (
+              <div
+                key={row.managerId}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+              >
+                <span className="min-w-0 truncate font-semibold text-slate-900">
+                  {row.managerName}
+                </span>
+                <span className="badge-chip badge-neutral">{formatCount(row.dealCount)}</span>
+              </div>
+            ))}
+            {topManagers.length === 0 ? (
+              <p className="text-sm text-slate-500">Нет данных за период.</p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-2">
+        <div
+          className="panel p-5"
+          data-comment-block-id="leadgen-source-distribution"
+          data-comment-block-label="Лидогенерация: источники"
+        >
+          <div className="subtle-label">Источники и UTM</div>
+          <div className="mt-3 grid gap-2">
+            {topSources.map((row) => (
+              <div
+                key={row.sourceKey}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+              >
+                <span className="font-semibold text-slate-900">{row.sourceLabel}</span>
+                <span className="badge-chip badge-neutral">{formatCount(row.dealCount)}</span>
+              </div>
+            ))}
+            {topSources.length === 0 ? (
+              <p className="text-sm text-slate-500">Нет данных за период.</p>
+            ) : null}
+            {topUtm.length > 0 ? (
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  UTM
+                </div>
+                <div className="grid gap-2">
+                  {topUtm.map((row, index) => {
+                    const label =
+                      [row.utmSource, row.utmMedium, row.utmCampaign]
+                        .filter(Boolean)
+                        .join(' / ') || 'Без UTM'
+
+                    return (
+                      <div
+                        key={`${label}-${index}`}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                      >
+                        <span className="min-w-0 truncate font-semibold text-slate-900">
+                          {label}
+                        </span>
+                        <span className="badge-chip badge-neutral">
+                          {formatCount(row.dealCount)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          className="panel p-5"
+          data-comment-block-id="leadgen-reasons"
+          data-comment-block-label="Лидогенерация: причины возврата и корзины"
+        >
+          <div className="subtle-label">Причины возврата / корзины</div>
+          <div className="mt-3 grid gap-2">
+            {topReasons.map((row) => (
+              <div
+                key={row.reasonKey}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+              >
+                <span className="font-semibold text-slate-900">{row.reasonLabel}</span>
+                <span className="badge-chip badge-neutral">{formatCount(row.dealCount)}</span>
+              </div>
+            ))}
+            {topReasons.length === 0 ? (
+              <p className="text-sm text-slate-500">Нет данных за период.</p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [route, setRoute] = useState<ProtoRoute>(() => readProtoRoute())
   const [activeSceneId, setActiveSceneId] = useState(scenes[0]?.id ?? 'sales')
   const [commentMode, setCommentMode] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [accountUser, setAccountUser] = useState<AuthUser | null>(currentUser ?? null)
+  const [activeModuleId, setActiveModuleId] = useState(
+    currentUser?.modules[0]?.id ?? 'attraction',
+  )
   const [accountStatus, setAccountStatus] = useState<'idle' | 'saving' | 'error'>('idle')
   const [accountMessage, setAccountMessage] = useState<string | null>(null)
   const [profileDraft, setProfileDraft] = useState({
@@ -877,6 +1088,11 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     operationalStatus: 'idle',
     operationalError: null,
   })
+  const [leadgenReport, setLeadgenReport] = useState<LeadgenFunnelReport | null>(null)
+  const [leadgenReportStatus, setLeadgenReportStatus] = useState<'idle' | 'loading' | 'error'>(
+    'idle',
+  )
+  const [leadgenReportError, setLeadgenReportError] = useState<string | null>(null)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing'>('idle')
   const [syncProgress, setSyncProgress] = useState<SyncProgressEvent | null>(null)
   const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null)
@@ -927,7 +1143,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     archiveComment,
     retryComment,
     reworkComment,
-  } = useProtoComments()
+  } = useProtoComments(activeModuleId)
 
   useEffect(() => {
     function handlePopState() {
@@ -946,14 +1162,67 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     })
   }, [currentUser])
 
-  const attractionModule = useMemo(
-    () => accountUser?.modules.find((module) => module.id === 'attraction') ?? null,
-    [accountUser],
+  const availableModules = useMemo(() => accountUser?.modules ?? [], [accountUser])
+  const activeModule = useMemo(
+    () =>
+      availableModules.find((module) => module.id === activeModuleId) ??
+      availableModules.find((module) => module.id === 'attraction') ??
+      availableModules[0] ??
+      null,
+    [activeModuleId, availableModules],
   )
+  const activeModuleSlug = activeModule?.slug ?? activeModule?.id ?? activeModuleId
+  const isLeadgenModule = activeModuleSlug === 'leadgen'
+  const activeCommentSceneId = isLeadgenModule ? 'leadgen-funnel' : activeSceneId
+
+  useEffect(() => {
+    if (availableModules.length === 0) {
+      return
+    }
+
+    if (!availableModules.some((module) => module.id === activeModuleId)) {
+      setActiveModuleId(
+        availableModules.find((module) => module.id === 'attraction')?.id ??
+          availableModules[0]!.id,
+      )
+    }
+  }, [activeModuleId, availableModules])
+
   const canArchiveComments =
-    attractionModule?.permissions.includes('comments:archive') === true
+    activeModule?.permissions.includes('comments:archive') === true
   const canManageModuleUsers =
-    attractionModule?.permissions.includes('module-users:manage') === true
+    activeModule?.permissions.includes('module-users:manage') === true
+
+  const switchModule = useCallback((moduleId: string) => {
+    setActiveModuleId(moduleId)
+    setCommentsOpen(false)
+    setCommentMode(false)
+    setDraftComment(null)
+  }, [])
+
+  const ModuleSwitcher = useMemo(
+    () =>
+      availableModules.length > 1 ? (
+        <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+          {availableModules.map((module) => (
+            <button
+              key={module.id}
+              type="button"
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm font-semibold transition',
+                module.id === activeModule?.id
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100',
+              )}
+              onClick={() => switchModule(module.id)}
+            >
+              {module.name}
+            </button>
+          ))}
+        </div>
+      ) : null,
+    [activeModule?.id, availableModules, switchModule],
+  )
 
   const activeScene = useMemo(
     () => scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0]!,
@@ -992,10 +1261,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     () =>
       comments.filter(
         (comment) =>
-          comment.sceneId === activeScene.id &&
+          comment.sceneId === activeCommentSceneId &&
           (comment.status ?? 'open') === 'open',
       ),
-    [activeScene.id, comments],
+    [activeCommentSceneId, comments],
   )
   const notificationSummary = useMemo(() => {
     const counts = new Map<CommentNotification['status'], number>()
@@ -1037,12 +1306,12 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
   const refreshCommentNotifications = useCallback(async () => {
     try {
-      const response = await apiClient.getCommentNotifications()
+      const response = await apiClient.getCommentNotifications(activeModuleId)
       setCommentNotifications(response.notifications)
     } catch {
       setCommentNotifications([])
     }
-  }, [])
+  }, [activeModuleId])
 
   const markCommentNotificationsRead = useCallback(() => {
     if (commentNotifications.length === 0) {
@@ -1077,7 +1346,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     setModuleUsersError(null)
 
     try {
-      const response = await apiClient.getModuleUsers()
+      const response = await apiClient.getModuleUsers(activeModuleId)
       setModuleUsers(response.users)
       setModuleUsersStatus('idle')
     } catch (loadError) {
@@ -1088,7 +1357,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           : 'Не удалось загрузить пользователей модуля',
       )
     }
-  }, [canManageModuleUsers])
+  }, [activeModuleId, canManageModuleUsers])
 
   useEffect(() => {
     let cancelled = false
@@ -1104,6 +1373,43 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       }))
 
       try {
+        const query = buildDashboardQueryFromProtoFilters(appliedFilters)
+        if (isLeadgenModule) {
+          setLeadgenReportStatus('loading')
+          setLeadgenReportError(null)
+          setPricingSettingsLoading(false)
+
+          const report = await apiClient.getLeadgenFunnelReport(activeModuleId, query)
+          if (cancelled || runtimeRequestRef.current !== requestId) {
+            return
+          }
+
+          setLeadgenReport(report)
+          setLeadgenReportStatus('idle')
+          setRuntimeData((current) => ({
+            ...current,
+            managerOptions: report.managerRows.map((row) => ({
+              id: row.managerId,
+              label: row.managerName,
+              meta: 'Менеджер',
+            })),
+            sourceOptions: report.sourceRows.map((row) => ({
+              id: row.sourceKey,
+              label: row.sourceLabel,
+              meta: 'Источник',
+            })),
+            operationalStatus: 'ready',
+            operationalError: null,
+          }))
+          setSnapshotStats(null)
+          setLastSync(null)
+          setSyncWarning(null)
+          return
+        }
+
+        setLeadgenReport(null)
+        setLeadgenReportStatus('idle')
+        setLeadgenReportError(null)
         setPricingSettingsLoading(true)
         const [meta, pricingSettings] = await Promise.all([
           apiClient.getMeta(),
@@ -1124,7 +1430,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setLastSync(meta.lastSync)
         setSyncWarning(resolveSyncHealthWarning(meta))
 
-        const query = buildDashboardQueryFromProtoFilters(appliedFilters)
         const monthQuery = buildDashboardQueryForDateRange(
           appliedFilters,
           resolveMonthDateRange(appliedFilters),
@@ -1280,6 +1585,12 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           operationalError:
             error instanceof Error ? error.message : 'Не удалось загрузить live-данные',
         }))
+        if (isLeadgenModule) {
+          setLeadgenReportStatus('error')
+          setLeadgenReportError(
+            error instanceof Error ? error.message : 'Не удалось загрузить отчет leadgen',
+          )
+        }
         setPricingSettingsLoading(false)
       }
     }
@@ -1289,7 +1600,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters, salesPlanQuarter])
+  }, [activeModuleId, appliedFilters, isLeadgenModule, salesPlanQuarter])
 
   useEffect(() => {
     void refreshCommentNotifications()
@@ -1303,6 +1614,11 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     let cancelled = false
 
     async function loadEffectiveSalesPlan() {
+      if (isLeadgenModule) {
+        setRuntimeData((current) => omitSalesPlan(current))
+        return
+      }
+
       const query = buildDashboardQueryFromProtoFilters(appliedFilters)
       if (query.preset !== 'custom') {
         return
@@ -1348,12 +1664,18 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [appliedFilters])
+  }, [appliedFilters, isLeadgenModule])
 
   useEffect(() => {
     let cancelled = false
 
     async function loadSalesPlanQuarter() {
+      if (isLeadgenModule) {
+        setSalesPlanLoading(false)
+        setRuntimeData((current) => omitSalesPlanQuarter(current))
+        return
+      }
+
       setSalesPlanLoading(true)
       setRuntimeData((current) => omitSalesPlanQuarter(current))
 
@@ -1385,7 +1707,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [salesPlanQuarter])
+  }, [isLeadgenModule, salesPlanQuarter])
 
   async function refreshSyncMeta() {
     const meta = await apiClient.getMeta()
@@ -1611,7 +1933,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     }
     await upsertComment({
       id: draftComment.id ?? crypto.randomUUID(),
-      sceneId: activeScene.id,
+      sceneId: activeCommentSceneId,
       x: draftComment.x,
       y: draftComment.y,
       text,
@@ -1741,13 +2063,16 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     setModuleUsersError(null)
 
     try {
-      await apiClient.createModuleUser({
-        login,
-        firstName: newModuleUser.firstName.trim() || null,
-        lastName: newModuleUser.lastName.trim() || null,
-        password,
-        role: newModuleUser.role,
-      })
+      await apiClient.createModuleUser(
+        {
+          login,
+          firstName: newModuleUser.firstName.trim() || null,
+          lastName: newModuleUser.lastName.trim() || null,
+          password,
+          role: newModuleUser.role,
+        },
+        activeModuleId,
+      )
       setCreatedCredentials(`Логин: ${login}\nПароль: ${password}`)
       setNewModuleUser({
         firstName: '',
@@ -1782,7 +2107,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     setModuleUsersError(null)
 
     try {
-      const response = await apiClient.updateModuleUser(user.id, patch)
+      const response = await apiClient.updateModuleUser(user.id, patch, activeModuleId)
       setModuleUsers((current) =>
         current.map((item) => (item.id === user.id ? response.user : item)),
       )
@@ -1802,7 +2127,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     setModuleUsersError(null)
 
     try {
-      const response = await apiClient.deleteModuleUser(user.id)
+      const response = await apiClient.deleteModuleUser(user.id, activeModuleId)
       setModuleUsers((current) =>
         current.map((item) => (item.id === user.id ? response.user : item)),
       )
@@ -1824,7 +2149,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           <header className="panel p-4 md:p-5" data-no-comment="true">
             <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto] lg:items-center">
               <div>
-                <p className="subtle-label">Модуль «Привлечение»</p>
+                <p className="subtle-label">
+                  Модуль «{activeModule?.name ?? 'Привлечение'}»
+                </p>
                 <h1 className="mt-1 text-3xl font-bold text-slate-900">
                   Личный кабинет
                 </h1>
@@ -1833,6 +2160,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 </p>
               </div>
               <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                {ModuleSwitcher}
                 <button type="button" className="btn btn-ghost" onClick={navigateToDashboard}>
                   К дашборду
                 </button>
@@ -1948,26 +2276,26 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             <div>
               <div className="subtle-label">Модуль</div>
               <h2 className="mt-1 text-xl font-bold text-slate-900">
-                {attractionModule?.name ?? 'Привлечение'}
+                {activeModule?.name ?? 'Привлечение'}
               </h2>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                 <div className="subtle-label">Роль</div>
                 <div className="mt-1 font-semibold text-slate-900">
-                  {attractionModule?.role === 'leader' ? 'Лидер модуля' : 'Сотрудник'}
+                  {activeModule?.role === 'leader' ? 'Лидер модуля' : 'Сотрудник'}
                 </div>
               </div>
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                 <div className="subtle-label">Slug</div>
                 <div className="mt-1 font-semibold text-slate-900">
-                  {attractionModule?.slug ?? 'attraction'}
+                  {activeModule?.slug ?? activeModuleId}
                 </div>
               </div>
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                 <div className="subtle-label">Права</div>
                 <div className="mt-1 font-semibold text-slate-900">
-                  {attractionModule?.permissions.length ?? 0}
+                  {activeModule?.permissions.length ?? 0}
                 </div>
               </div>
             </div>
@@ -2206,13 +2534,20 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         <header className="panel p-4 md:p-5" data-no-comment="true">
           <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto] lg:items-center">
             <div>
-              <p className="subtle-label">Модуль «Привлечение»</p>
-              <h1 className="mt-1 text-3xl font-bold text-slate-900">PDCA-дашборд метрик</h1>
+              <p className="subtle-label">
+                Модуль «{activeModule?.name ?? 'Привлечение'}»
+              </p>
+              <h1 className="mt-1 text-3xl font-bold text-slate-900">
+                {isLeadgenModule ? 'Лидогенерация' : 'PDCA-дашборд метрик'}
+              </h1>
               <p className="mt-1 text-sm text-slate-600">
-                Контур по продажам, делам, звонкам и когортам на базе дизайна из лидогенерации.
+                {isLeadgenModule
+                  ? 'Лидген УС: стадии, источники, UTM и менеджеры.'
+                  : 'Контур по продажам, делам, звонкам и когортам на базе дизайна из лидогенерации.'}
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+              {ModuleSwitcher}
               <PaperclipNotifications
                 notifications={commentNotifications}
                 summary={notificationSummary}
@@ -2472,77 +2807,87 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           </div>
         </section>
 
-        <section className="panel sticky top-3 z-20 flex flex-wrap gap-2 p-3" data-no-comment="true">
-          {scenes.map((scene) => (
-            <button
-              key={scene.id}
-              onClick={() => setActiveSceneId(scene.id)}
-              className={cn('tab-chip', {
-                'tab-chip-active': activeScene.id === scene.id,
-              })}
-            >
-              {scene.label}
-            </button>
-          ))}
-        </section>
+        {isLeadgenModule ? (
+          <LeadgenDashboard
+            report={leadgenReport}
+            status={leadgenReportStatus}
+            error={leadgenReportError}
+          />
+        ) : (
+          <>
+            <section className="panel sticky top-3 z-20 flex flex-wrap gap-2 p-3" data-no-comment="true">
+              {scenes.map((scene) => (
+                <button
+                  key={scene.id}
+                  onClick={() => setActiveSceneId(scene.id)}
+                  className={cn('tab-chip', {
+                    'tab-chip-active': activeScene.id === scene.id,
+                  })}
+                >
+                  {scene.label}
+                </button>
+              ))}
+            </section>
 
-        {activeScene.id !== 'sales' && visibleSceneKpis.length > 0 ? (
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            {visibleSceneKpis.map((metric) => (
-              <div key={metric.label} className="metric p-4">
-                <p className="subtle-label">{metric.label}</p>
-                <div className="mt-1 flex items-start justify-between gap-3">
-                  <p className="text-xl font-bold text-slate-800">{metric.value}</p>
-                  {metric.delta ? (
-                    <span
-                      className={cn(
-                        'rounded-full px-2 py-1 text-[0.68rem] font-bold',
-                        metric.deltaTone === 'negative' && 'bg-rose-50 text-rose-700',
-                        metric.deltaTone === 'positive' && 'bg-emerald-50 text-emerald-700',
-                        (!metric.deltaTone || metric.deltaTone === 'neutral') &&
-                          'bg-slate-100 text-slate-600',
-                      )}
-                    >
-                      {metric.delta}
-                    </span>
-                  ) : null}
-                </div>
-                {metric.note ? <p className="text-xs text-slate-500">{metric.note}</p> : null}
-                {metric.compare ? (
-                  <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
-                    {metric.compare}
-                  </p>
-                ) : null}
+            {activeScene.id !== 'sales' && visibleSceneKpis.length > 0 ? (
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                {visibleSceneKpis.map((metric) => (
+                  <div key={metric.label} className="metric p-4">
+                    <p className="subtle-label">{metric.label}</p>
+                    <div className="mt-1 flex items-start justify-between gap-3">
+                      <p className="text-xl font-bold text-slate-800">{metric.value}</p>
+                      {metric.delta ? (
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-1 text-[0.68rem] font-bold',
+                            metric.deltaTone === 'negative' && 'bg-rose-50 text-rose-700',
+                            metric.deltaTone === 'positive' && 'bg-emerald-50 text-emerald-700',
+                            (!metric.deltaTone || metric.deltaTone === 'neutral') &&
+                              'bg-slate-100 text-slate-600',
+                          )}
+                        >
+                          {metric.delta}
+                        </span>
+                      ) : null}
+                    </div>
+                    {metric.note ? <p className="text-xs text-slate-500">{metric.note}</p> : null}
+                    {metric.compare ? (
+                      <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
+                        {metric.compare}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </section>
+            ) : null}
+
+            {runtimeData.operationalError ? (
+              <div
+                role="alert"
+                className="panel border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+              >
+                {runtimeData.operationalError}
               </div>
-            ))}
-          </section>
-        ) : null}
+            ) : null}
 
-        {runtimeData.operationalError ? (
-          <div
-            role="alert"
-            className="panel border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
-          >
-            {runtimeData.operationalError}
-          </div>
-        ) : null}
-
-        <ActiveSceneComponent
-          commentMode={commentMode}
-          filters={appliedFilters}
-          runtimeData={runtimeData}
-          salesPlanQuarter={salesPlanQuarter}
-          salesPlanLoading={salesPlanLoading}
-          salesPlanSaving={salesPlanSaving}
-          salesPlanSaveError={salesPlanSaveError}
-          onSalesPlanQuarterChange={setSalesPlanQuarter}
-          onSalesPlanSave={handleSaveSalesPlan}
-          pricingSettings={runtimeData.pricingSettings}
-          pricingSettingsLoading={pricingSettingsLoading}
-          pricingSettingsSaving={pricingSettingsSaving}
-          pricingSettingsSaveError={pricingSettingsSaveError}
-          onPricingSettingsSave={handleSavePricingSettings}
-        />
+            <ActiveSceneComponent
+              commentMode={commentMode}
+              filters={appliedFilters}
+              runtimeData={runtimeData}
+              salesPlanQuarter={salesPlanQuarter}
+              salesPlanLoading={salesPlanLoading}
+              salesPlanSaving={salesPlanSaving}
+              salesPlanSaveError={salesPlanSaveError}
+              onSalesPlanQuarterChange={setSalesPlanQuarter}
+              onSalesPlanSave={handleSaveSalesPlan}
+              pricingSettings={runtimeData.pricingSettings}
+              pricingSettingsLoading={pricingSettingsLoading}
+              pricingSettingsSaving={pricingSettingsSaving}
+              pricingSettingsSaveError={pricingSettingsSaveError}
+              onPricingSettingsSave={handleSavePricingSettings}
+            />
+          </>
+        )}
 
         <aside
           className={cn(
@@ -2558,7 +2903,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               <p className="mt-1 text-sm text-slate-500">
                 {updatedAt
                   ? `Последнее сохранение: ${formatDateTime(updatedAt)}`
-                  : '.codex/proto-comments/comments.json'}
+                  : 'Заметок пока нет'}
               </p>
             </div>
             <span className="badge-chip badge-neutral">{status}</span>

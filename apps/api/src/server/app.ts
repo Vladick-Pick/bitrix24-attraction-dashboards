@@ -7,6 +7,7 @@ import type {
   DashboardData,
   DealPricingSettings,
   DealPricingSettingsInput,
+  LeadgenFunnelReport,
   ManagerActionOutcomeReport,
   ManagerDirectoryEntry,
   ManualSyncSummary,
@@ -97,6 +98,7 @@ interface RevenueVelocityRequest extends RangeRequest {
 }
 
 interface AppService {
+  getLeadgenFunnelReport?(input: RangeRequest): Promise<LeadgenFunnelReport>;
   getDashboard(input: RangeRequest): Promise<DashboardData>;
   getSourceQualityConversionReport(
     input: RangeRequest
@@ -683,10 +685,11 @@ function hasModulePermission(
 
 function requireModuleAccess(
   response: express.Response,
-  permission?: ModulePermission
+  permission?: ModulePermission,
+  moduleId = "attraction"
 ) {
   const session = readAuthSession(response);
-  const module = getModuleAccess(session);
+  const module = getModuleAccess(session, moduleId);
 
   if (!session || !module) {
     return null;
@@ -700,6 +703,18 @@ function requireModuleAccess(
     session,
     module
   };
+}
+
+function requestRouteParam(request: express.Request, name: string) {
+  const value = request.params[name];
+  if (Array.isArray(value)) {
+    return value[0] ?? "";
+  }
+  return value ?? "";
+}
+
+function requestModuleId(request: express.Request) {
+  return requestRouteParam(request, "moduleId").trim() || "attraction";
 }
 
 function sanitizePaperclipText(value: string) {
@@ -734,6 +749,23 @@ function buildPaperclipIssueDescription(input: {
         relativeY: input.comment.anchor.relativeY
       }
     : null;
+  const implementationInstructions =
+    input.module.slug === "leadgen"
+      ? [
+          "- Work only in leadgen module-owned code and docs unless a shared/platform issue explicitly expands scope.",
+          "- Do not change attraction UI, reports, manager whitelist, or Paperclip behavior from a leadgen comment.",
+          "- Keep leadgen scoped to Bitrix category 28 and the leadgen manager whitelist.",
+          "- Do not request SSH/root access as part of normal implementation.",
+          "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
+          "- Create a focused branch/PR through the normal GitHub/CI workflow."
+        ]
+      : [
+          "- Work in the Bitrix24 attraction dashboard repository.",
+          "- Keep attraction manager scoping intact.",
+          "- Do not request SSH/root access as part of normal implementation.",
+          "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
+          "- Create a focused branch/PR through the normal GitHub/CI workflow."
+        ];
 
   return [
     "## Dashboard Comment",
@@ -760,11 +792,7 @@ function buildPaperclipIssueDescription(input: {
     "",
     "### Implementation Instructions",
     "",
-    "- Work in the Bitrix24 attraction dashboard repository.",
-    "- Keep attraction manager scoping intact.",
-    "- Do not request SSH/root access as part of normal implementation.",
-    "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
-    "- Create a focused branch/PR through the normal GitHub/CI workflow."
+    ...implementationInstructions
   ].join("\n");
 }
 
@@ -1241,6 +1269,7 @@ export function createApp(
           firstName: user.firstName,
           lastName: user.lastName,
           role: "admin",
+          isSuperAdmin: user.isSuperAdmin,
           modules: await config.authStore.listUserModules(user.id)
         },
         csrfToken: await auth.issueCsrfToken(session)
@@ -1479,13 +1508,13 @@ export function createApp(
     }
   });
 
-  app.get("/api/comments", async (_request, response, next) => {
+  app.get(["/api/comments", "/api/modules/:moduleId/comments"], async (request, response, next) => {
     if (!config.comments) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    const access = requireModuleAccess(response);
+    const access = requireModuleAccess(response, undefined, requestModuleId(request));
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
@@ -1502,13 +1531,17 @@ export function createApp(
     }
   });
 
-  app.post("/api/comments", async (request, response, next) => {
+  app.post(["/api/comments", "/api/modules/:moduleId/comments"], async (request, response, next) => {
     if (!config.comments) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    const access = requireModuleAccess(response, "comments:create");
+    const access = requireModuleAccess(
+      response,
+      "comments:create",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
@@ -1547,20 +1580,24 @@ export function createApp(
     }
   });
 
-  app.patch("/api/comments/:id", async (request, response, next) => {
+  app.patch(["/api/comments/:id", "/api/modules/:moduleId/comments/:id"], async (request, response, next) => {
     if (!config.comments) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    const access = requireModuleAccess(response, "comments:update");
+    const access = requireModuleAccess(
+      response,
+      "comments:update",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
     }
 
     try {
-      const existing = await config.comments.getDashboardCommentById(request.params.id);
+      const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
       if (!existing || existing.moduleId !== access.module.id) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
@@ -1586,20 +1623,24 @@ export function createApp(
     }
   });
 
-  app.post("/api/comments/:id/archive", async (request, response, next) => {
+  app.post(["/api/comments/:id/archive", "/api/modules/:moduleId/comments/:id/archive"], async (request, response, next) => {
     if (!config.comments) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    const access = requireModuleAccess(response, "comments:archive");
+    const access = requireModuleAccess(
+      response,
+      "comments:archive",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
     }
 
     try {
-      const existing = await config.comments.getDashboardCommentById(request.params.id);
+      const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
       if (!existing || existing.moduleId !== access.module.id) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
@@ -1616,20 +1657,24 @@ export function createApp(
     }
   });
 
-  app.post("/api/comments/:id/rework", async (request, response, next) => {
+  app.post(["/api/comments/:id/rework", "/api/modules/:moduleId/comments/:id/rework"], async (request, response, next) => {
     if (!config.comments) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    const access = requireModuleAccess(response, "comments:update");
+    const access = requireModuleAccess(
+      response,
+      "comments:update",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
     }
 
     try {
-      const existing = await config.comments.getDashboardCommentById(request.params.id);
+      const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
       if (!existing || existing.moduleId !== access.module.id) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
@@ -1711,20 +1756,24 @@ export function createApp(
     }
   });
 
-  app.post("/api/comments/:id/retry", async (request, response, next) => {
+  app.post(["/api/comments/:id/retry", "/api/modules/:moduleId/comments/:id/retry"], async (request, response, next) => {
     if (!config.comments) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    const access = requireModuleAccess(response, "comments:create");
+    const access = requireModuleAccess(
+      response,
+      "comments:create",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
     }
 
     try {
-      const existing = await config.comments.getDashboardCommentById(request.params.id);
+      const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
       if (!existing || existing.moduleId !== access.module.id) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
@@ -1743,13 +1792,13 @@ export function createApp(
     }
   });
 
-  app.get("/api/comment-notifications", async (_request, response, next) => {
+  app.get(["/api/comment-notifications", "/api/modules/:moduleId/comment-notifications"], async (request, response, next) => {
     if (!config.comments) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    const access = requireModuleAccess(response);
+    const access = requireModuleAccess(response, undefined, requestModuleId(request));
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
@@ -1779,12 +1828,16 @@ export function createApp(
     }
   });
 
-  app.get("/api/admin/module-users", async (_request, response, next) => {
+  app.get(["/api/admin/module-users", "/api/modules/:moduleId/admin/module-users"], async (request, response, next) => {
     if (!config.authStore) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
-    const access = requireModuleAccess(response, "module-users:manage");
+    const access = requireModuleAccess(
+      response,
+      "module-users:manage",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
@@ -1797,12 +1850,16 @@ export function createApp(
     }
   });
 
-  app.post("/api/admin/module-users", async (request, response, next) => {
+  app.post(["/api/admin/module-users", "/api/modules/:moduleId/admin/module-users"], async (request, response, next) => {
     if (!config.authStore) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
-    const access = requireModuleAccess(response, "module-users:manage");
+    const access = requireModuleAccess(
+      response,
+      "module-users:manage",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
@@ -1833,12 +1890,16 @@ export function createApp(
     }
   });
 
-  app.patch("/api/admin/module-users/:id", async (request, response, next) => {
+  app.patch(["/api/admin/module-users/:id", "/api/modules/:moduleId/admin/module-users/:id"], async (request, response, next) => {
     if (!config.authStore) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
-    const access = requireModuleAccess(response, "module-users:manage");
+    const access = requireModuleAccess(
+      response,
+      "module-users:manage",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
@@ -1877,12 +1938,16 @@ export function createApp(
     }
   });
 
-  app.delete("/api/admin/module-users/:id", async (request, response, next) => {
+  app.delete(["/api/admin/module-users/:id", "/api/modules/:moduleId/admin/module-users/:id"], async (request, response, next) => {
     if (!config.authStore) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
-    const access = requireModuleAccess(response, "module-users:manage");
+    const access = requireModuleAccess(
+      response,
+      "module-users:manage",
+      requestModuleId(request)
+    );
     if (!access) {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
       return;
@@ -1918,6 +1983,30 @@ export function createApp(
   app.get("/api/dashboard", async (request, response, next) => {
     try {
       response.json(await service.getDashboard(parseRangeRequest(request.query)));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/modules/:moduleId/reports/funnel", async (request, response, next) => {
+    const moduleId = requestModuleId(request);
+    if (moduleId !== "leadgen") {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    if (!service.getLeadgenFunnelReport) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      response.json(await service.getLeadgenFunnelReport(parseRangeRequest(request.query)));
     } catch (error) {
       next(error);
     }

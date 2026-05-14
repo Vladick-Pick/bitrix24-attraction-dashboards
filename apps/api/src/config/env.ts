@@ -74,6 +74,8 @@ const envSchema = z
     APP_PUBLIC_URL: optionalTrimmedString(),
     AUTH_MODE: z.enum(["none", "password"]).default("none"),
     BITRIX24_DEAL_CATEGORY_IDS: z.string().default("10"),
+    BITRIX24_LEADGEN_US_CATEGORY_ID: z.string().trim().min(1).default("28"),
+    BITRIX24_LEADGEN_MANAGER_IDS: z.string().default(""),
     BITRIX24_DEAL_QUALITY_FIELD: requiredCustomField("UF_CRM_1730380390"),
     BITRIX24_DEAL_TARIFF_FIELD: requiredCustomField("UF_CRM_1643901145"),
     BITRIX24_DEAL_BUSINESS_CLUB_FIELD: requiredCustomField("UF_CRM_1747682957"),
@@ -107,6 +109,10 @@ const envSchema = z
     PAPERCLIP_ATTRACTION_PROJECT_ID: optionalTrimmedString(),
     PAPERCLIP_ATTRACTION_GOAL_ID: optionalTrimmedString(),
     PAPERCLIP_ATTRACTION_TRIAGE_AGENT_ID: optionalTrimmedString(),
+    PAPERCLIP_LEADGEN_COMPANY_ID: optionalTrimmedString(),
+    PAPERCLIP_LEADGEN_PROJECT_ID: optionalTrimmedString(),
+    PAPERCLIP_LEADGEN_GOAL_ID: optionalTrimmedString(),
+    PAPERCLIP_LEADGEN_TRIAGE_AGENT_ID: optionalTrimmedString(),
     REPORT_DEFAULT_PERIOD_DAYS: z.coerce.number().int().positive().default(30),
     REPORT_WON_STAGE_IDS: z.string().default("C10:WON"),
     SESSION_COOKIE_NAME: z.string().trim().min(1).default("b24dash_session"),
@@ -174,6 +180,8 @@ const envSchema = z
 
 export type AppEnv = z.infer<typeof envSchema> & {
   bitrixDealCategoryIds: string[];
+  leadgenCategoryId: string;
+  leadgenManagerIds: string[];
   reportWonStageIds: string[];
   bitrixEnabled: boolean;
 };
@@ -184,6 +192,10 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   return {
     ...parsed,
     bitrixDealCategoryIds: parsed.BITRIX24_DEAL_CATEGORY_IDS.split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+    leadgenCategoryId: parsed.BITRIX24_LEADGEN_US_CATEGORY_ID.trim(),
+    leadgenManagerIds: parsed.BITRIX24_LEADGEN_MANAGER_IDS.split(",")
       .map((value) => value.trim())
       .filter(Boolean),
     reportWonStageIds: parsed.REPORT_WON_STAGE_IDS.split(",")

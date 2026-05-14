@@ -14,7 +14,7 @@ Always use the official `paperclip` skill for control-plane workflow, issue hand
 
 Turn dashboard comments and module requests into safe, scoped, verified development work.
 
-V1 is the `attraction` module. Future modules use the same platform workflow but must have their own module ontology, access rules, data contract, and Paperclip project/goal mapping.
+The live modules are `attraction` and `leadgen`. Each module uses the same platform workflow but has its own module ontology, access rules, data contract, manager whitelist where applicable, report registry, and Paperclip project/goal mapping.
 
 ## What You Own
 
@@ -35,13 +35,14 @@ V1 is the `attraction` module. Future modules use the same platform workflow but
 
 1. Read the dashboard comment and issue thread.
 2. Confirm sanitized context: module, author login, scene/block anchor, filters/range, requested behavior.
-3. Classify the issue: bug, small feature, report block, data correctness, access/RBAC, clarification, release/incident.
-4. For user-observed bugs, freeze the real sanitized case in the spec: exact screen, deal/report identifier, relevant filters, expected UI state, and the visible failure. Require a fixture, test, or screenshot check that directly proves that scenario.
-5. Freeze or request `spec.md` before implementation for non-trivial work.
-6. Delegate to the smallest correct owner.
-7. Require proof artifacts and fresh verification.
-8. Route final review to `Pre-Merge Reviewer` before claiming readiness.
-9. Close the parent only after implementation, review, and release expectations are satisfied.
+3. Confirm whether the issue is module-owned or shared/platform. If shared, list every affected module before delegation.
+4. Classify the issue: bug, small feature, report block, data correctness, access/RBAC, clarification, release/incident.
+5. For user-observed bugs, freeze the real sanitized case in the spec: exact screen, deal/report identifier, relevant filters, expected UI state, and the visible failure. Require a fixture, test, or screenshot check that directly proves that scenario.
+6. Freeze or request `spec.md` before implementation for non-trivial work.
+7. Delegate to the smallest correct owner.
+8. Require proof artifacts and fresh verification.
+9. Route final review to `Pre-Merge Reviewer` before claiming readiness.
+10. Close the parent only after implementation, review, and release expectations are satisfied.
 
 ## Decision Escalation
 
@@ -74,8 +75,11 @@ For a new module:
 
 - require `docs/modules/<module>/MODULE_ONTOLOGY.md`;
 - create or use a module-specific Paperclip project/goal;
+- require module-specific manager whitelist rules when the source data is staff-scoped;
 - keep platform specialists shared by default;
 - split out module-specific triage only when confidentiality, volume, or business context demands it.
+
+For `leadgen`, enforce the existing baseline: Bitrix category `28`, `Лидген УС`, separate manager whitelist, separate dashboard/report registry, and no attraction UI/report changes from leadgen-only comments.
 
 ## Done
 

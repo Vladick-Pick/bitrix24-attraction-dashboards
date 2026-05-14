@@ -20,6 +20,7 @@ const SCRYPT_OPTIONS = {
 const PASSWORD_HASH_ALGORITHM = "scrypt";
 const DUMMY_PASSWORD_HASH =
   "scrypt$16384$8$1$W48lUpp31EKHIYSsaWCA-w$jTEEGOL70zJ5n2dI4iJf_UNW3-h6Vf84L7vSSxB3w1bSgS39RnvIJrGHt_GtGOr1rYQGij_tVz0a2wgKUsf_0Q";
+const FAILED_LOGIN_MIN_DURATION_MS = 200;
 
 export interface AuthUser {
   id: number;
@@ -28,6 +29,7 @@ export interface AuthUser {
   lastName: string | null;
   passwordHash: string;
   disabled: boolean;
+  isSuperAdmin: boolean;
 }
 
 export type ModuleRole = "leader" | "employee";
@@ -86,6 +88,7 @@ export interface AuthSession {
   expiresAt: string;
   lastSeenAt: string;
   disabled: boolean;
+  isSuperAdmin: boolean;
   sessionToken: string;
 }
 
@@ -137,6 +140,7 @@ export interface SqliteAuthStore {
   deleteExpiredSessions(now: Date): Promise<void>;
   ensureModule(input: ModuleSeedInput): Promise<void>;
   ensureDefaultModuleLeader(moduleId: string): Promise<void>;
+  ensureDefaultSuperAdmin(): Promise<void>;
   listUserModules(userId: number): Promise<AuthenticatedModule[]>;
   setModuleMembership(input: {
     userId: number;
@@ -166,6 +170,7 @@ export interface AuthenticatedUser {
   firstName: string | null;
   lastName: string | null;
   role: "admin";
+  isSuperAdmin: boolean;
   modules: AuthenticatedModule[];
 }
 
@@ -305,6 +310,17 @@ function timingSafeStringEqual(expectedValue: string, actualValue: string) {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
+function sleep(ms: number) {
+  return new Promise<void>((resolvePromise) => setTimeout(resolvePromise, ms));
+}
+
+async function waitForFailedLoginFloor(startedAtMs: number) {
+  const remainingMs = FAILED_LOGIN_MIN_DURATION_MS - (Date.now() - startedAtMs);
+  if (remainingMs > 0) {
+    await sleep(remainingMs);
+  }
+}
+
 function resolveDatabasePath(databaseUrl: string) {
   if (!databaseUrl.startsWith("file:")) {
     throw new Error(`Unsupported DATABASE_URL: ${databaseUrl}`);
@@ -326,6 +342,7 @@ function readAuthUser(row: unknown): AuthUser | null {
     last_name: string | null;
     password_hash: string;
     disabled: number;
+    is_super_admin?: number;
   };
 
   return {
@@ -334,7 +351,8 @@ function readAuthUser(row: unknown): AuthUser | null {
     firstName: data.first_name ?? null,
     lastName: data.last_name ?? null,
     passwordHash: data.password_hash,
-    disabled: data.disabled === 1
+    disabled: data.disabled === 1,
+    isSuperAdmin: data.is_super_admin === 1
   };
 }
 
@@ -353,6 +371,7 @@ function readAuthSession(row: unknown, sessionToken: string): AuthSession | null
     expires_at: string;
     last_seen_at: string;
     disabled: number;
+    is_super_admin?: number;
   };
 
   return {
@@ -365,6 +384,7 @@ function readAuthSession(row: unknown, sessionToken: string): AuthSession | null
     expiresAt: data.expires_at,
     lastSeenAt: data.last_seen_at,
     disabled: data.disabled === 1,
+    isSuperAdmin: data.is_super_admin === 1,
     sessionToken
   };
 }
@@ -493,6 +513,7 @@ export function createSqliteAuthStore(input: {
       last_name TEXT,
       password_hash TEXT NOT NULL,
       disabled INTEGER NOT NULL DEFAULT 0,
+      is_super_admin INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       disabled_at TEXT,
@@ -544,6 +565,7 @@ export function createSqliteAuthStore(input: {
 
   ensureAuthColumn(database, "auth_users", "first_name", "TEXT");
   ensureAuthColumn(database, "auth_users", "last_name", "TEXT");
+  ensureAuthColumn(database, "auth_users", "is_super_admin", "INTEGER NOT NULL DEFAULT 0");
 
   const createUserStatement = database.prepare(`
     INSERT INTO auth_users (
@@ -567,12 +589,12 @@ export function createSqliteAuthStore(input: {
     )
   `);
   const findUserByLoginStatement = database.prepare(`
-    SELECT id, login, first_name, last_name, password_hash, disabled
+    SELECT id, login, first_name, last_name, password_hash, disabled, is_super_admin
     FROM auth_users
     WHERE login = ?
   `);
   const findUserByIdStatement = database.prepare(`
-    SELECT id, login, first_name, last_name, password_hash, disabled
+    SELECT id, login, first_name, last_name, password_hash, disabled, is_super_admin
     FROM auth_users
     WHERE id = ?
   `);
@@ -631,7 +653,8 @@ export function createSqliteAuthStore(input: {
       auth_sessions.csrf_token_hash,
       auth_sessions.expires_at,
       auth_sessions.last_seen_at,
-      auth_users.disabled
+      auth_users.disabled,
+      auth_users.is_super_admin
     FROM auth_sessions
     INNER JOIN auth_users ON auth_users.id = auth_sessions.user_id
     WHERE auth_sessions.token_hash = ?
@@ -702,6 +725,20 @@ export function createSqliteAuthStore(input: {
     INNER JOIN modules ON modules.id = module_memberships.module_id
     WHERE module_memberships.user_id = ?
       AND module_memberships.status = 'active'
+    ORDER BY modules.slug ASC
+  `);
+  const listAllModulesForSuperAdminStatement = database.prepare(`
+    SELECT
+      modules.id,
+      modules.slug,
+      modules.name,
+      'leader' AS role,
+      modules.bitrix_category_id AS bitrixCategoryId,
+      modules.paperclip_company_id AS paperclipCompanyId,
+      modules.paperclip_project_id AS paperclipProjectId,
+      modules.paperclip_goal_id AS paperclipGoalId,
+      modules.paperclip_triage_agent_id AS paperclipTriageAgentId
+    FROM modules
     ORDER BY modules.slug ASC
   `);
   const setModuleMembershipStatement = database.prepare(`
@@ -798,11 +835,23 @@ export function createSqliteAuthStore(input: {
       AND status = 'active'
   `);
   const firstActiveUserStatement = database.prepare(`
-    SELECT id, login, first_name, last_name, password_hash, disabled
+    SELECT id, login, first_name, last_name, password_hash, disabled, is_super_admin
     FROM auth_users
     WHERE disabled = 0
     ORDER BY id ASC
     LIMIT 1
+  `);
+  const activeSuperAdminCountStatement = database.prepare(`
+    SELECT COUNT(*) AS count
+    FROM auth_users
+    WHERE disabled = 0
+      AND is_super_admin = 1
+  `);
+  const promoteUserToSuperAdminStatement = database.prepare(`
+    UPDATE auth_users
+    SET is_super_admin = 1,
+      updated_at = @updatedAt
+    WHERE id = @userId
   `);
 
   return {
@@ -951,7 +1000,33 @@ export function createSqliteAuthStore(input: {
         updatedAt: nowIso
       });
     },
+    async ensureDefaultSuperAdmin() {
+      const count = (
+        activeSuperAdminCountStatement.get() as { count: number }
+      ).count;
+      if (count > 0) {
+        return;
+      }
+
+      const user = readAuthUser(firstActiveUserStatement.get());
+      if (!user) {
+        return;
+      }
+
+      promoteUserToSuperAdminStatement.run({
+        userId: user.id,
+        updatedAt: toIso(new Date())
+      });
+    },
     async listUserModules(userId) {
+      const user = readAuthUser(findUserByIdStatement.get(userId));
+      if (user?.isSuperAdmin) {
+        return listAllModulesForSuperAdminStatement
+          .all()
+          .map(readAuthenticatedModule)
+          .filter((module): module is AuthenticatedModule => Boolean(module));
+      }
+
       return listUserModulesStatement
         .all(userId)
         .map(readAuthenticatedModule)
@@ -1086,6 +1161,7 @@ export function createPasswordAuthService(input: {
     secureCookie,
     ttlMs,
     async login(credentials) {
+      const startedAtMs = Date.now();
       const current = now();
       const currentMs = current.getTime();
       const login = normalizeLogin(credentials.login);
@@ -1100,6 +1176,7 @@ export function createPasswordAuthService(input: {
 
       if (!user || user.disabled || !validPassword) {
         recordFailure(rateLimitKey, currentMs);
+        await waitForFailedLoginFloor(startedAtMs);
         throw new AuthError("INVALID_CREDENTIALS", 401);
       }
 
@@ -1128,6 +1205,7 @@ export function createPasswordAuthService(input: {
           firstName: user.firstName,
           lastName: user.lastName,
           role: "admin",
+          isSuperAdmin: user.isSuperAdmin,
           modules: await input.store.listUserModules(user.id)
         },
         sessionToken,
@@ -1166,6 +1244,7 @@ export function createPasswordAuthService(input: {
           firstName: session.firstName,
           lastName: session.lastName,
           role: "admin",
+          isSuperAdmin: session.isSuperAdmin,
           modules: await input.store.listUserModules(session.userId)
         },
         sessionToken,

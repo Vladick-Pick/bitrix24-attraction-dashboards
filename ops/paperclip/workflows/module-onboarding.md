@@ -18,7 +18,9 @@ flowchart TD
 - `docs/modules/<module>/MODULE_ONTOLOGY.md`
 - data contract and source system notes;
 - module role/access matrix;
+- module-specific manager whitelist rules when applicable;
 - dashboard UX/design context;
+- report registry ownership and shared/platform boundaries;
 - Paperclip project and goal ids;
 - triage owner id;
 - test plan.
@@ -26,3 +28,7 @@ flowchart TD
 ## Rule
 
 Do not copy the attraction UI blindly. Modules can diverge when their business workflow requires different screens, density, metrics, controls, or roles.
+
+## Leadgen Baseline
+
+The `leadgen` module is scoped to Bitrix category `28`, funnel `Лидген УС`, and the configured leadgen manager whitelist. It has a separate report registry and dashboard surface from `attraction`.

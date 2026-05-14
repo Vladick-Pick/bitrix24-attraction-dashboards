@@ -25,9 +25,9 @@ async function readJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function fetchCommentStore() {
+export async function fetchCommentStore(moduleId = 'attraction') {
   if (shouldUseDashboardComments()) {
-    return apiClient.getComments()
+    return apiClient.getComments(moduleId)
   }
 
   if (shouldUseServerComments()) {
@@ -54,23 +54,29 @@ export async function saveCommentStore(comments: ProtoComment[]) {
   return readJson<CommentStore>(response)
 }
 
-export async function createComment(input: {
-  sceneId: string
-  x: number
-  y: number
-  text: string
-  anchor?: ProtoComment['anchor']
-  context?: ProtoCommentContext
-}) {
+export async function createComment(
+  input: {
+    sceneId: string
+    x: number
+    y: number
+    text: string
+    anchor?: ProtoComment['anchor']
+    context?: ProtoCommentContext
+  },
+  moduleId = 'attraction',
+) {
   if (shouldUseDashboardComments()) {
-    return apiClient.createComment({
-      sceneId: input.sceneId,
-      x: input.x,
-      y: input.y,
-      text: input.text,
-      ...(input.anchor ? { anchor: input.anchor } : {}),
-      ...(input.context ? { context: input.context } : {}),
-    })
+    return apiClient.createComment(
+      {
+        sceneId: input.sceneId,
+        x: input.x,
+        y: input.y,
+        text: input.text,
+        ...(input.anchor ? { anchor: input.anchor } : {}),
+        ...(input.context ? { context: input.context } : {}),
+      },
+      moduleId,
+    )
   }
 
   return { comment: input as ProtoComment }
@@ -82,17 +88,18 @@ export async function updateComment(
     text?: string
     context?: ProtoCommentContext
   },
+  moduleId = 'attraction',
 ) {
   if (shouldUseDashboardComments()) {
-    return apiClient.updateComment(id, input)
+    return apiClient.updateComment(id, input, moduleId)
   }
 
   return { comment: { id, ...input } as ProtoComment }
 }
 
-export async function archiveComment(id: string) {
+export async function archiveComment(id: string, moduleId = 'attraction') {
   if (shouldUseDashboardComments()) {
-    return apiClient.archiveComment(id)
+    return apiClient.archiveComment(id, moduleId)
   }
 
   return {
@@ -104,17 +111,21 @@ export async function archiveComment(id: string) {
   }
 }
 
-export async function retryComment(id: string) {
+export async function retryComment(id: string, moduleId = 'attraction') {
   if (shouldUseDashboardComments()) {
-    return apiClient.retryComment(id)
+    return apiClient.retryComment(id, moduleId)
   }
 
   return { comment: { id } as ProtoComment }
 }
 
-export async function reworkComment(id: string, input: { text: string }) {
+export async function reworkComment(
+  id: string,
+  input: { text: string },
+  moduleId = 'attraction',
+) {
   if (shouldUseDashboardComments()) {
-    return apiClient.reworkComment(id, input)
+    return apiClient.reworkComment(id, input, moduleId)
   }
 
   return { comment: { id } as ProtoComment }

@@ -489,6 +489,194 @@ describe("performManualSync", () => {
     });
   });
 
+  it("syncs leadgen category 28 with the leadgen manager whitelist and no contact PII", async () => {
+    const listDealRequests: Array<{
+      categoryIds: string[];
+      assignedByIds?: string[];
+    }> = [];
+    const storedDeals: unknown[][] = [];
+    let requestedStageCategories: string[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-05-01T00:00:00.000Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-05-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-05-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 0,
+        calls: 0,
+        stageHistory: 1
+      }),
+      getDealIdsByCategoryIds: async () => ["D_ATTRACTION"],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async (rows: unknown[]) => {
+        storedDeals.push(rows);
+        return rows.length;
+      },
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 28,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async (categoryIds: string[]) => {
+        requestedStageCategories = categoryIds;
+        return [
+          {
+            entityType: "deal" as const,
+            categoryId: "10",
+            statusId: "C10:NEW",
+            name: "Новая сделка",
+            semanticId: "P",
+            sortOrder: 10
+          },
+          {
+            entityType: "deal" as const,
+            categoryId: "28",
+            statusId: "C28:NEW",
+            name: "Новый лид",
+            semanticId: "P",
+            sortOrder: 10
+          }
+        ];
+      },
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async (fieldName: string) => {
+        if (fieldName === "UF_CRM_1758715585") {
+          return { R1: "Возврат" };
+        }
+
+        if (fieldName === "UF_CRM_1772109151192") {
+          return { B1: "Корзина" };
+        }
+
+        return {};
+      },
+      listDeals: async (cursor: {
+        categoryIds: string[];
+        assignedByIds?: string[];
+      }) => {
+        listDealRequests.push({
+          categoryIds: cursor.categoryIds,
+          ...(cursor.assignedByIds ? { assignedByIds: cursor.assignedByIds } : {})
+        });
+
+        if (cursor.categoryIds[0] === "28") {
+          expect(cursor.assignedByIds).toEqual(["501", "502"]);
+          return [
+            {
+              ID: "LG_ALLOWED",
+              CONTACT_ID: "PII_CONTACT",
+              LEAD_ID: "PII_LEAD",
+              DATE_CREATE: "2026-05-03T10:00:00.000Z",
+              DATE_MODIFY: "2026-05-03T10:00:00.000Z",
+              DATE_CLOSED: null,
+              CATEGORY_ID: "28",
+              STAGE_ID: "C28:NEW",
+              STAGE_SEMANTIC_ID: "P",
+              OPPORTUNITY: 0,
+              ASSIGNED_BY_ID: "501",
+              SOURCE_ID: "WEB",
+              UF_CRM_1758715585: "R1",
+              UF_CRM_1772109151192: "B1",
+              UTM_SOURCE: "google",
+              UTM_MEDIUM: "cpc",
+              UTM_CAMPAIGN: "leadgen-us",
+              UTM_CONTENT: null,
+              UTM_TERM: null
+            }
+          ];
+        }
+
+        return [
+          {
+            ID: "D_ATTRACTION",
+            CONTACT_ID: "9001",
+            LEAD_ID: null,
+            DATE_CREATE: "2026-05-02T10:00:00.000Z",
+            DATE_MODIFY: "2026-05-02T10:00:00.000Z",
+            DATE_CLOSED: null,
+            CATEGORY_ID: "10",
+            STAGE_ID: "C10:NEW",
+            STAGE_SEMANTIC_ID: "P",
+            OPPORTUNITY: 1000,
+            ASSIGNED_BY_ID: "78",
+            SOURCE_ID: "WEB",
+            UTM_SOURCE: null,
+            UTM_MEDIUM: null,
+            UTM_CAMPAIGN: null,
+            UTM_CONTENT: null,
+            UTM_TERM: null
+          }
+        ];
+      },
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const result = await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      leadgenCategoryId: "28",
+      leadgenManagerIds: ["501", "502"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-05-14T00:00:00.000Z"
+    });
+
+    expect(requestedStageCategories).toEqual(["10", "28"]);
+    expect(listDealRequests).toEqual([
+      expect.objectContaining({
+        categoryIds: ["10"],
+        assignedByIds: [
+          "78",
+          "11234",
+          "7824",
+          "6994",
+          "7814",
+          "72",
+          "2236",
+          "2764"
+        ]
+      }),
+      expect.objectContaining({
+        categoryIds: ["28"],
+        assignedByIds: ["501", "502"]
+      })
+    ]);
+    expect(storedDeals).toEqual([
+      [
+        expect.objectContaining({
+          id: "D_ATTRACTION",
+          categoryId: "10",
+          contactId: "9001"
+        }),
+        expect.objectContaining({
+          id: "LG_ALLOWED",
+          categoryId: "28",
+          assignedById: "501",
+          contactId: null,
+          leadId: null,
+          refusalReasonValue: "Возврат",
+          utmCampaign: "leadgen-us"
+        })
+      ]
+    ]);
+    expect(result.dealsSynced).toBe(2);
+  });
+
   it("fetches stage history for closed deals during an initial full sync", async () => {
     let stageHistoryOwnerIds: string[] | undefined;
     const storedStageHistory: unknown[][] = [];

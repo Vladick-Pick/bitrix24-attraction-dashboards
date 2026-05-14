@@ -83,6 +83,21 @@ function createMinimalService(): Parameters<typeof createApp>[0] {
 
 async function createCommentsApp(input: {
   userRole?: "leader" | "employee";
+  modules?: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    bitrixCategoryId: string;
+    paperclipCompanyId?: string | null;
+    paperclipProjectId?: string | null;
+    paperclipGoalId?: string | null;
+    paperclipTriageAgentId?: string | null;
+  }>;
+  memberships?: Array<{
+    moduleId: string;
+    role: "leader" | "employee";
+    status?: "active" | "disabled";
+  }>;
   paperclipCreateIssue?: (payload: unknown) => Promise<{
     id: string;
     identifier?: string | null;
@@ -112,28 +127,43 @@ async function createCommentsApp(input: {
     defaultWonStageIds: ["C10:WON"]
   });
   const store = createSqliteAuthStore({ databaseUrl });
-  await store.ensureModule({
-    id: "attraction",
-    slug: "attraction",
-    name: "Привлечение",
-    bitrixCategoryId: "10",
-    paperclipCompanyId: "company-1",
-    paperclipProjectId: "project-1",
-    paperclipGoalId: "goal-1",
-    paperclipTriageAgentId: "agent-1"
-  });
+  const modules = input.modules ?? [
+    {
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10",
+      paperclipCompanyId: "company-1",
+      paperclipProjectId: "project-1",
+      paperclipGoalId: "goal-1",
+      paperclipTriageAgentId: "agent-1"
+    }
+  ];
+  for (const module of modules) {
+    await store.ensureModule(module);
+  }
   const user = await store.createUser({
     login: "user@example.com",
     passwordHash: await hashPassword("correct-password"),
     now: new Date("2026-05-10T08:00:00.000Z")
   });
-  await store.setModuleMembership({
-    userId: user.id,
-    moduleId: "attraction",
-    role: input.userRole ?? "leader",
-    status: "active",
-    now: new Date("2026-05-10T08:00:00.000Z")
-  });
+  const memberships =
+    input.memberships ?? [
+      {
+        moduleId: "attraction",
+        role: input.userRole ?? "leader",
+        status: "active" as const
+      }
+    ];
+  for (const membership of memberships) {
+    await store.setModuleMembership({
+      userId: user.id,
+      moduleId: membership.moduleId,
+      role: membership.role,
+      status: membership.status ?? "active",
+      now: new Date("2026-05-10T08:00:00.000Z")
+    });
+  }
   const auth = createPasswordAuthService({
     store,
     sessionSecret: "test-session-secret-with-at-least-32-bytes",
@@ -391,6 +421,85 @@ describe("dashboard comments to Paperclip", () => {
           })
         ]);
       });
+
+    store.close();
+  });
+
+  it("keeps leadgen comments isolated and creates module-specific Paperclip issues", async () => {
+    const { agent, csrfToken, store, paperclip } = await createCommentsApp({
+      modules: [
+        {
+          id: "attraction",
+          slug: "attraction",
+          name: "Привлечение",
+          bitrixCategoryId: "10",
+          paperclipCompanyId: "company-attraction",
+          paperclipProjectId: "project-attraction",
+          paperclipGoalId: "goal-attraction",
+          paperclipTriageAgentId: "agent-attraction"
+        },
+        {
+          id: "leadgen",
+          slug: "leadgen",
+          name: "Лидогенерация",
+          bitrixCategoryId: "28",
+          paperclipCompanyId: "company-leadgen",
+          paperclipProjectId: "project-leadgen",
+          paperclipGoalId: "goal-leadgen",
+          paperclipTriageAgentId: "agent-leadgen"
+        }
+      ],
+      memberships: [
+        {
+          moduleId: "attraction",
+          role: "employee"
+        },
+        {
+          moduleId: "leadgen",
+          role: "leader"
+        }
+      ]
+    });
+
+    await agent
+      .post("/api/modules/leadgen/comments")
+      .set("X-CSRF-Token", csrfToken)
+      .send(commentPayload({ sceneId: "leadgen-funnel", text: "Проверь Лидген УС" }))
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.comment.moduleId).toBe("leadgen");
+      });
+
+    await agent
+      .get("/api/modules/leadgen/comments")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comments.map((comment: { moduleId: string }) => comment.moduleId)).toEqual([
+          "leadgen"
+        ]);
+      });
+
+    await agent
+      .get("/api/comments")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comments).toEqual([]);
+      });
+
+    expect(paperclip.createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-leadgen",
+        projectId: "project-leadgen",
+        goalId: "goal-leadgen",
+        assigneeAgentId: "agent-leadgen",
+        description: expect.stringContaining("Module: leadgen")
+      })
+    );
+    const issuePayload = paperclip.createIssue.mock.calls[0]?.[0] as {
+      description: string;
+    };
+    expect(issuePayload.description).toContain("Work only in leadgen module-owned code");
+    expect(issuePayload.description).not.toContain("Keep attraction manager scoping intact");
 
     store.close();
   });

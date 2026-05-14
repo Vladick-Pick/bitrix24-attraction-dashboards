@@ -7,7 +7,7 @@ describe("PaperclipClient", () => {
     vi.unstubAllGlobals();
   });
 
-  it("posts dashboard rework comments as authenticated dashboard system requests", async () => {
+  it("posts dashboard rework comments with explicit Paperclip follow-up intent", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -32,6 +32,34 @@ describe("PaperclipClient", () => {
     expect(url).toBe("http://paperclip.local/api/issues/issue-1/comments");
     const headers = new Headers(init.headers);
     expect(headers.get("Authorization")).toBe("Bearer agent-token");
+    expect(JSON.parse(String(init.body))).toEqual({
+      body: "Вернуть в работу",
+      resume: true
+    });
+  });
+
+  it("keeps service-mode rework comments on the legacy reopen contract", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PaperclipClient({
+      apiUrl: "http://paperclip.local",
+      apiToken: "agent-token",
+      reworkCommentMode: "service"
+    });
+
+    await client.addIssueComment({
+      issueId: "issue-1",
+      origin: "dashboard_rework",
+      body: "Вернуть в работу",
+      reopen: true
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit
+    ];
     expect(JSON.parse(String(init.body))).toEqual({
       body: "Вернуть в работу",
       reopen: true

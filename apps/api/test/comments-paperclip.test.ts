@@ -580,6 +580,88 @@ describe("dashboard comments to Paperclip", () => {
     store.close();
   });
 
+  it("includes Paperclip thread history for linked comments even before done", async () => {
+    const { agent, csrfToken, store } = await createCommentsApp({
+      paperclipGetIssue: async ({ issueId }) => ({
+        id: issueId,
+        identifier: "BIT-42",
+        status: "in_progress"
+      }),
+      paperclipListIssueComments: async () => [
+        {
+          id: "paperclip-comment-new-report",
+          body: "Новый мини-отчет команды: бейдж переименован в Мероприятия недоступны.",
+          authorAgentId: "agent-1",
+          authorUserId: null,
+          createdAt: "2026-05-14T11:00:00.000Z"
+        },
+        {
+          id: "paperclip-comment-rework",
+          body: [
+            "@Dashboard Engineering Manager",
+            "",
+            "## Возврат на доработку из dashboard review",
+            "",
+            "Source: dashboard-system / board-originated rework",
+            "",
+            "### Пользовательский комментарий",
+            "",
+            "Первый отчет не подходит, верните бейдж Мероприятия. user@example.com +7 999 111 22 33"
+          ].join("\n"),
+          authorAgentId: null,
+          authorUserId: "local-board",
+          createdAt: "2026-05-14T10:00:00.000Z"
+        },
+        {
+          id: "paperclip-comment-first-report",
+          body: "Первый отчет команды: добавлены бейджи задач и звонков.",
+          authorAgentId: "agent-1",
+          authorUserId: null,
+          createdAt: "2026-05-14T09:00:00.000Z"
+        }
+      ]
+    });
+
+    await agent
+      .post("/api/comments")
+      .set("X-CSRF-Token", csrfToken)
+      .send(commentPayload({ text: "Проверь историю команды" }))
+      .expect(201);
+
+    await agent
+      .get("/api/comments")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comments[0]?.paperclipStatus).toBe("in_work");
+        expect(body.comments[0]?.paperclipReadyReport).toBeNull();
+        expect(body.comments[0]?.paperclipThread).toEqual([
+          expect.objectContaining({
+            id: "paperclip-comment-first-report",
+            kind: "development_report",
+            body: expect.stringContaining("Первый отчет команды")
+          }),
+          expect.objectContaining({
+            id: "paperclip-comment-rework",
+            kind: "dashboard_rework",
+            body: expect.stringContaining("Возврат на доработку")
+          }),
+          expect.objectContaining({
+            id: "paperclip-comment-new-report",
+            kind: "development_report",
+            body: expect.stringContaining("Новый мини-отчет")
+          })
+        ]);
+        expect(JSON.stringify(body.comments[0]?.paperclipThread)).not.toContain(
+          "user@example.com"
+        );
+        expect(JSON.stringify(body.comments[0]?.paperclipThread)).not.toContain(
+          "+7 999"
+        );
+      });
+
+    store.close();
+  });
+
   it("does not bump notification updatedAt when Paperclip status is unchanged", async () => {
     const { agent, csrfToken, store } = await createCommentsApp({
       paperclipGetIssue: async ({ issueId }) => ({

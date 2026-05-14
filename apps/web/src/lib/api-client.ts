@@ -55,6 +55,7 @@ import type {
   ModuleUser,
   PaperclipCommentStatus,
   PaperclipSyncStatus,
+  PaperclipThreadEntryKind,
   ProtoComment,
   ProtoCommentAnchor,
   ProtoCommentContext,
@@ -321,6 +322,42 @@ function normalizePaperclipReadyReport(value: unknown) {
   }
 }
 
+function normalizePaperclipThreadEntryKind(value: unknown): PaperclipThreadEntryKind {
+  return value === 'dashboard_rework' ||
+    value === 'board_note' ||
+    value === 'system_note' ||
+    value === 'development_report'
+    ? value
+    : 'system_note'
+}
+
+function normalizePaperclipThreadEntry(value: unknown) {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const id = asString(value.id)
+  const body = asString(value.body)
+  const createdAt = asString(value.createdAt)
+  if (!id || !body || !createdAt) {
+    return null
+  }
+
+  return {
+    id,
+    kind: normalizePaperclipThreadEntryKind(value.kind),
+    body,
+    authorAgentId: asNullableString(value.authorAgentId),
+    authorUserId: asNullableString(value.authorUserId),
+    createdAt,
+    updatedAt: asString(value.updatedAt) || createdAt,
+  }
+}
+
+function normalizePaperclipThread(value: unknown) {
+  return asArray(value, normalizePaperclipThreadEntry).filter((entry) => entry !== null)
+}
+
 function normalizeProtoComment(value: unknown): ProtoComment {
   const data = isRecord(value) ? value : {}
   const anchor = normalizeProtoCommentAnchor(data.anchor)
@@ -346,6 +383,7 @@ function normalizeProtoComment(value: unknown): ProtoComment {
     paperclipLastSyncedAt: asNullableString(data.paperclipLastSyncedAt),
     paperclipRetryCount: asNumber(data.paperclipRetryCount),
     paperclipReadyReport: normalizePaperclipReadyReport(data.paperclipReadyReport),
+    paperclipThread: normalizePaperclipThread(data.paperclipThread),
   }
 
   const context = normalizeProtoCommentContext(data.context)
@@ -386,6 +424,7 @@ function normalizeCommentNotification(value: unknown): CommentNotification {
     paperclipIssueIdentifier: asNullableString(data.paperclipIssueIdentifier),
     paperclipError: asNullableString(data.paperclipError),
     paperclipReadyReport: normalizePaperclipReadyReport(data.paperclipReadyReport),
+    paperclipThread: normalizePaperclipThread(data.paperclipThread),
     updatedAt: asString(data.updatedAt),
   }
 }

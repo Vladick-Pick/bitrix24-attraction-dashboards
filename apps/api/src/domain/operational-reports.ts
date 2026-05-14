@@ -60,6 +60,7 @@ interface AcquisitionOutcomesInput {
   range: ReportRange;
   deals: DealSnapshot[];
   stageCatalog: StageCatalogEntry[];
+  stageHistory?: StageHistorySnapshot[];
   managerDirectory?: ManagerDirectoryEntry[];
 }
 
@@ -315,6 +316,23 @@ function resolveTerminalClosedAt(
   }
 
   return null;
+}
+
+function resolveLostAt(
+  deal: DealSnapshot,
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>
+) {
+  const stageHistoryRows = stageHistoryMap.get(deal.id) ?? [];
+  const currentLostStageAt = getLatestStageHistoryTime(
+    stageHistoryRows,
+    (row) => row.stageId === deal.stageId
+  );
+  const terminalLostAt = getLatestStageHistoryTime(
+    stageHistoryRows,
+    (row) => row.stageSemanticId === "F"
+  );
+
+  return currentLostStageAt ?? terminalLostAt ?? deal.dateClosed ?? deal.dateModify;
 }
 
 function resolveStageAtTime(
@@ -1171,6 +1189,7 @@ export function buildAcquisitionOutcomesReport(
   const allowedCategoryIds = getAllowedCategoryIds(input.stageCatalog);
   const sourceLabels = buildSourceLabelMap(input.stageCatalog);
   const stageLookup = buildStageLookup(input.stageCatalog);
+  const stageHistoryMap = buildStageHistoryMap(input.stageHistory ?? []);
   const managerDirectory = buildManagerDirectoryMap(input.managerDirectory ?? []);
   const scopedDeals = input.deals.filter((deal) =>
     allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
@@ -1181,7 +1200,7 @@ export function buildAcquisitionOutcomesReport(
   const lostDeals = scopedDeals.filter(
     (deal) =>
       deal.stageSemanticId === "F" &&
-      isWithinRange(deal.dateClosed ?? deal.dateModify, fromMs, toMs)
+      isWithinRange(resolveLostAt(deal, stageHistoryMap), fromMs, toMs)
   );
   const activeDeals = scopedDeals.filter((deal) => deal.stageSemanticId === "P");
 

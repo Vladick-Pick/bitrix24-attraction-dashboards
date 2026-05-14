@@ -1224,9 +1224,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     paperclipThread?: ProtoComment['paperclipThread']
   } | null>(null)
   const [reworkText, setReworkText] = useState('')
+  const [commentSavePending, setCommentSavePending] = useState(false)
+  const [commentReworkPending, setCommentReworkPending] = useState(false)
 
   const shellRef = useRef<HTMLDivElement>(null)
   const runtimeRequestRef = useRef(0)
+  const commentSaveInFlightRef = useRef(false)
+  const commentReworkInFlightRef = useRef(false)
   const {
     comments,
     updatedAt,
@@ -2012,7 +2016,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   }
 
   async function handleSaveComment() {
-    if (!draftComment) {
+    if (!draftComment || commentSaveInFlightRef.current) {
       return
     }
 
@@ -2021,27 +2025,35 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       return
     }
 
-    const now = new Date().toISOString()
-    const context: ProtoCommentContext = {
-      filters: appliedFilters,
+    commentSaveInFlightRef.current = true
+    setCommentSavePending(true)
+
+    try {
+      const now = new Date().toISOString()
+      const context: ProtoCommentContext = {
+        filters: appliedFilters,
+      }
+      await upsertComment({
+        id: draftComment.id ?? crypto.randomUUID(),
+        sceneId: activeCommentSceneId,
+        x: draftComment.x,
+        y: draftComment.y,
+        text,
+        anchor: draftComment.anchor,
+        createdAt:
+          comments.find((item) => item.id === draftComment.id)?.createdAt ?? now,
+        updatedAt: now,
+        status: 'open',
+        archivedAt: null,
+        context,
+      })
+      await refreshCommentNotifications()
+      setDraftComment(null)
+      setCommentsOpen(false)
+    } finally {
+      commentSaveInFlightRef.current = false
+      setCommentSavePending(false)
     }
-    await upsertComment({
-      id: draftComment.id ?? crypto.randomUUID(),
-      sceneId: activeCommentSceneId,
-      x: draftComment.x,
-      y: draftComment.y,
-      text,
-      anchor: draftComment.anchor,
-      createdAt:
-        comments.find((item) => item.id === draftComment.id)?.createdAt ?? now,
-      updatedAt: now,
-      status: 'open',
-      archivedAt: null,
-      context,
-    })
-    await refreshCommentNotifications()
-    setDraftComment(null)
-    setCommentsOpen(false)
   }
 
   function closeCommentDraft() {
@@ -2063,20 +2075,32 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   }
 
   async function handleReworkComment(commentId: string) {
+    if (commentReworkInFlightRef.current) {
+      return
+    }
+
     const text = reworkText.trim()
     if (!text) {
       return
     }
 
-    const reworked = await reworkComment(commentId, text)
-    if (!reworked) {
-      return
-    }
+    commentReworkInFlightRef.current = true
+    setCommentReworkPending(true)
 
-    await refreshCommentNotifications()
-    setReworkText('')
-    setDraftComment(null)
-    setCommentsOpen(false)
+    try {
+      const reworked = await reworkComment(commentId, text)
+      if (!reworked) {
+        return
+      }
+
+      await refreshCommentNotifications()
+      setReworkText('')
+      setDraftComment(null)
+      setCommentsOpen(false)
+    } finally {
+      commentReworkInFlightRef.current = false
+      setCommentReworkPending(false)
+    }
   }
 
   async function handleSaveProfile() {
@@ -3028,7 +3052,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                       )
                     }
                     placeholder="Комментарий к точке интерфейса..."
-                    disabled={!draftComment}
+                    disabled={!draftComment || commentSavePending}
                     className="max-h-48 overflow-y-auto overscroll-contain"
                   />
                 </div>
@@ -3036,14 +3060,19 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                   <button
                     className="btn btn-primary"
                     onClick={() => void handleSaveComment()}
-                    disabled={!draftComment || draftComment.text.trim().length === 0}
+                    disabled={
+                      !draftComment ||
+                      draftComment.text.trim().length === 0 ||
+                      commentSavePending
+                    }
+                    aria-busy={commentSavePending}
                   >
-                    Сохранить
+                    {commentSavePending ? 'Сохраняем...' : 'Сохранить'}
                   </button>
                   <button
                     className="btn btn-ghost"
                     onClick={closeCommentDraft}
-                    disabled={!draftComment}
+                    disabled={!draftComment || commentSavePending || commentReworkPending}
                   >
                     Отмена
                   </button>
@@ -3051,6 +3080,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                     <button
                       className="btn btn-ghost"
                       onClick={() => void handleArchiveComment(draftComment.id!)}
+                      disabled={commentSavePending || commentReworkPending}
                     >
                       В архив
                     </button>
@@ -3061,6 +3091,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                     <button
                       className="btn btn-ghost"
                       onClick={() => void handleRetryComment(draftComment.id!)}
+                      disabled={commentSavePending || commentReworkPending}
                     >
                       Повторить
                     </button>
@@ -3081,6 +3112,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                         value={reworkText}
                         onChange={(event) => setReworkText(event.target.value)}
                         placeholder="Комментарий к доработке..."
+                        disabled={commentReworkPending}
                         className="min-h-40 max-h-64 overflow-y-auto overscroll-contain"
                       />
                     </div>
@@ -3091,9 +3123,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                       <button
                         className="btn btn-dark w-full sm:w-auto"
                         onClick={() => void handleReworkComment(draftComment.id!)}
-                        disabled={reworkText.trim().length === 0}
+                        disabled={reworkText.trim().length === 0 || commentReworkPending}
+                        aria-busy={commentReworkPending}
                       >
-                        На доработку
+                        {commentReworkPending ? 'Отправляем...' : 'На доработку'}
                       </button>
                     </div>
                   </div>

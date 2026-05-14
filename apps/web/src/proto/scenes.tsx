@@ -1910,7 +1910,7 @@ function StageTimelineInteractionBadges({
         </span>
       ) : null}
       <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-400">
-        Конверсии недоступны
+        Мероприятия недоступны
       </span>
       <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-400">
         Сообщения недоступны

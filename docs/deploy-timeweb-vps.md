@@ -7,7 +7,9 @@ This runbook deploys the dashboard as one closed web application: Express serves
 - Public URL: `https://<new-subdomain>`
 - App process: Docker container running as non-root user `10001:10001`
 - Internal app port: `127.0.0.1:8787`
-- SQLite data: `/opt/bitrix24-reporting/data/bitrix24-reporting.db`
+- Platform/auth/comments SQLite data: `/opt/bitrix24-reporting/data/bitrix24-reporting.db`
+- Attraction sync SQLite data: `/opt/bitrix24-reporting/data/bitrix24-attraction.db`
+- Leadgen sync SQLite data: `/opt/bitrix24-reporting/data/bitrix24-leadgen.db`
 - Secrets: repo-local `.env.production`, mode `0600`, owned by deploy/app user
 - No web root points at the repository, `apps/api/data`, backups, `.env`, or `.codex`
 
@@ -56,12 +58,17 @@ API_HOST=0.0.0.0
 API_PORT=8787
 WEB_STATIC_DIR=/app/apps/web/dist
 DATABASE_URL=file:/app/data/bitrix24-reporting.db
+PLATFORM_DATABASE_URL=file:/app/data/bitrix24-reporting.db
+ATTRACTION_DATABASE_URL=file:/app/data/bitrix24-attraction.db
+LEADGEN_DATABASE_URL=file:/app/data/bitrix24-leadgen.db
 JSON_BODY_LIMIT=256kb
 
 BITRIX24_PORTAL_HOST=<portal>.bitrix24.ru
 BITRIX24_WEBHOOK_USER_ID=<user-id>
 BITRIX24_WEBHOOK_TOKEN=<token>
 BITRIX24_DEAL_CATEGORY_IDS=10
+BITRIX24_LEADGEN_US_CATEGORY_ID=28
+BITRIX24_LEADGEN_MANAGER_IDS=8244,84,11620,11486,12028,11610
 REPORT_WON_STAGE_IDS=C10:WON
 REPORT_DEFAULT_PERIOD_DAYS=30
 ENV
@@ -77,6 +84,18 @@ Generate `SESSION_SECRET` with `openssl rand -base64 48`.
 docker compose up -d --build
 docker compose ps
 docker compose logs --tail=100 app
+```
+
+Verify the non-secret database configuration before running sync:
+
+```bash
+docker compose exec app node -e "console.log({
+  platform: process.env.PLATFORM_DATABASE_URL ?? process.env.DATABASE_URL,
+  attraction: process.env.ATTRACTION_DATABASE_URL ?? 'file:./data/bitrix24-attraction.db',
+  leadgen: process.env.LEADGEN_DATABASE_URL,
+  leadgenManagers: (process.env.BITRIX24_LEADGEN_MANAGER_IDS ?? '').split(',').filter(Boolean).length
+})"
+docker compose exec app ls -lh /app/data
 ```
 
 Create the first admin user through the compiled production CLI:
@@ -183,6 +202,8 @@ curl -i https://<new-subdomain>/api/dashboard
 curl -i https://<new-subdomain>/.env.production
 curl -i https://<new-subdomain>/.codex/
 curl -i https://<new-subdomain>/apps/api/data/bitrix24-reporting.db
+curl -i https://<new-subdomain>/apps/api/data/bitrix24-attraction.db
+curl -i https://<new-subdomain>/apps/api/data/bitrix24-leadgen.db
 curl -i http://127.0.0.1:8787/api/health
 sudo ss -tulpn | grep 8787
 docker compose exec -T app id

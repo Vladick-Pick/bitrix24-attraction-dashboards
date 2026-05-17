@@ -1,10 +1,263 @@
 import { describe, expect, it } from "vitest";
 
+import { performLeadgenSync } from "../src/domain/leadgen-sync";
 import { performManualSync } from "../src/domain/sync";
 
 describe("performManualSync", () => {
   const attractionScopeKey =
     "category:10:assigned:11234,2236,2764,6994,72,78,7814,7824";
+
+  it("runs a leadgen-only sync for category 28 without touching attraction category 10", async () => {
+    const requestedDealCategories: string[][] = [];
+    const storedDeals: unknown[][] = [];
+    const storedManagers: unknown[][] = [];
+    let syncRunScopeKey: string | null = null;
+    let storedCursor: unknown = null;
+
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-05-01T00:00:00.000Z",
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async (rows: unknown[]) => {
+        storedDeals.push(rows);
+        return rows.length;
+      },
+      upsertManagerDirectory: async (rows: unknown[]) => {
+        storedManagers.push(rows);
+        return rows.length;
+      },
+      createSyncRun: async (input: { scopeKey: string }) => {
+        syncRunScopeKey = input.scopeKey;
+        return 128;
+      },
+      setSyncCursor: async (input: unknown) => {
+        storedCursor = input;
+      },
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async (categoryIds: string[]) => {
+        expect(categoryIds).toEqual(["28"]);
+        return [
+          {
+            entityType: "deal" as const,
+            categoryId: "28",
+            statusId: "C28:NEW",
+            name: "Новый лид",
+            semanticId: "P",
+            sortOrder: 10
+          }
+        ];
+      },
+      fetchSourceCatalog: async () => [
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Сайт",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      fetchDealFieldValueMap: async (fieldName: string) => {
+        if (fieldName === "UF_CRM_1758715585") {
+          return { R1: "Возврат" };
+        }
+        if (fieldName === "UF_CRM_1772109151192") {
+          return { B1: "Корзина" };
+        }
+        return {};
+      },
+      listDeals: async (input: {
+        categoryIds: string[];
+        assignedByIds?: string[];
+      }) => {
+        requestedDealCategories.push(input.categoryIds);
+        expect(input).toMatchObject({
+          categoryIds: ["28"],
+          assignedByIds: ["501", "502"]
+        });
+        return [
+          {
+            ID: "LG_ALLOWED",
+            CONTACT_ID: "MUST_NOT_PERSIST",
+            LEAD_ID: "MUST_NOT_PERSIST",
+            DATE_CREATE: "2026-05-03T10:00:00.000Z",
+            DATE_MODIFY: "2026-05-03T10:00:00.000Z",
+            DATE_CLOSED: null,
+            CATEGORY_ID: "28",
+            STAGE_ID: "C28:NEW",
+            STAGE_SEMANTIC_ID: "P",
+            OPPORTUNITY: 0,
+            ASSIGNED_BY_ID: "501",
+            SOURCE_ID: "WEB",
+            UF_CRM_1758715585: "R1",
+            UF_CRM_1772109151192: "B1",
+            UTM_SOURCE: "google",
+            UTM_MEDIUM: "cpc",
+            UTM_CAMPAIGN: "leadgen-us",
+            UTM_CONTENT: null,
+            UTM_TERM: null
+          },
+          {
+            ID: "LG_OLD_CREATED",
+            CONTACT_ID: null,
+            LEAD_ID: null,
+            DATE_CREATE: "2025-12-31T20:59:59.000Z",
+            DATE_MODIFY: "2026-05-03T11:00:00.000Z",
+            DATE_CLOSED: null,
+            CATEGORY_ID: "28",
+            STAGE_ID: "C28:NEW",
+            STAGE_SEMANTIC_ID: "P",
+            OPPORTUNITY: 0,
+            ASSIGNED_BY_ID: "501",
+            SOURCE_ID: "WEB",
+            UF_CRM_1758715585: "R1",
+            UF_CRM_1772109151192: "B1",
+            UTM_SOURCE: null,
+            UTM_MEDIUM: null,
+            UTM_CAMPAIGN: "old-created",
+            UTM_CONTENT: null,
+            UTM_TERM: null
+          }
+        ];
+      },
+      fetchUsers: async (input: { ids: string[] }) => {
+        expect(input.ids).toEqual(["501"]);
+        return [
+          {
+            ID: "501",
+            NAME: "Лидген",
+            LAST_NAME: "Менеджер"
+          }
+        ];
+      }
+    };
+
+    const result = await performLeadgenSync({
+      client,
+      repository: repo as never,
+      categoryId: "28",
+      managerIds: ["501", "502"],
+      now: () => "2026-05-14T00:00:00.000Z"
+    });
+
+    expect(requestedDealCategories).toEqual([["28"]]);
+    expect(syncRunScopeKey).toBe("module:leadgen:category:28:assigned:501,502");
+    expect(storedDeals).toEqual([
+      [
+        expect.objectContaining({
+          id: "LG_ALLOWED",
+          categoryId: "28",
+          assignedById: "501",
+          contactId: null,
+          leadId: null,
+          refusalReasonValue: "Возврат",
+          utmCampaign: "leadgen-us"
+        })
+      ]
+    ]);
+    expect(storedManagers).toEqual([
+      [
+        {
+          id: "501",
+          name: "Лидген Менеджер"
+        }
+      ]
+    ]);
+    expect(result).toMatchObject({
+      syncRunId: 128,
+      dealsSynced: 1,
+      mode: "delta"
+    });
+    expect(storedCursor).toEqual(
+      expect.objectContaining({
+        cursorValue: "2026-05-03T11:00:00.000Z"
+      })
+    );
+  });
+
+  it("keeps an empty leadgen manager whitelist as an empty sync scope", async () => {
+    let snapshotReads = 0;
+    let cursorReads = 0;
+    let listDealCalls = 0;
+    let finishedSummary: unknown = null;
+    const repo = {
+      getSnapshotStats: async () => {
+        snapshotReads += 1;
+        return {
+          deals: 99,
+          activities: 0,
+          calls: 0,
+          stageHistory: 0
+        };
+      },
+      getLatestSuccessCursor: async () => {
+        cursorReads += 1;
+        return "2026-05-01T00:00:00.000Z";
+      },
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async (rows: unknown[]) => rows.length,
+      upsertManagerDirectory: async (rows: unknown[]) => rows.length,
+      createSyncRun: async () => 129,
+      finishSyncRun: async (input: unknown) => {
+        finishedSummary = input;
+      },
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      listDeals: async () => {
+        listDealCalls += 1;
+        return [];
+      },
+      fetchUsers: async () => []
+    };
+
+    const result = await performLeadgenSync({
+      client,
+      repository: repo as never,
+      categoryId: "28",
+      managerIds: [],
+      now: () => "2026-05-14T00:00:00.000Z"
+    });
+
+    expect(snapshotReads).toBe(0);
+    expect(cursorReads).toBe(0);
+    expect(listDealCalls).toBe(0);
+    expect(result).toMatchObject({
+      syncRunId: 129,
+      dealsSynced: 0,
+      modifiedAfter: null,
+      snapshotBefore: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      },
+      snapshotAfter: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      },
+      diagnostics: ["leadgenSkipped=empty-scope", "leadgenManagers=0"]
+    });
+    expect(finishedSummary).toEqual(
+      expect.objectContaining({
+        status: "success",
+        dealsSynced: 0,
+        modifiedAfter: null
+      })
+    );
+  });
 
   it("runs a category-scoped delta sync for deals and operational snapshots", async () => {
     const calls: Array<{ modifiedAfter: string | null }> = [];
@@ -489,7 +742,7 @@ describe("performManualSync", () => {
     });
   });
 
-  it("syncs leadgen category 28 with the leadgen manager whitelist and no contact PII", async () => {
+  it("keeps attraction sync scoped to attraction even when leadgen settings exist", async () => {
     const listDealRequests: Array<{
       categoryIds: string[];
       assignedByIds?: string[];
@@ -571,33 +824,7 @@ describe("performManualSync", () => {
           ...(cursor.assignedByIds ? { assignedByIds: cursor.assignedByIds } : {})
         });
 
-        if (cursor.categoryIds[0] === "28") {
-          expect(cursor.assignedByIds).toEqual(["501", "502"]);
-          return [
-            {
-              ID: "LG_ALLOWED",
-              CONTACT_ID: "PII_CONTACT",
-              LEAD_ID: "PII_LEAD",
-              DATE_CREATE: "2026-05-03T10:00:00.000Z",
-              DATE_MODIFY: "2026-05-03T10:00:00.000Z",
-              DATE_CLOSED: null,
-              CATEGORY_ID: "28",
-              STAGE_ID: "C28:NEW",
-              STAGE_SEMANTIC_ID: "P",
-              OPPORTUNITY: 0,
-              ASSIGNED_BY_ID: "501",
-              SOURCE_ID: "WEB",
-              UF_CRM_1758715585: "R1",
-              UF_CRM_1772109151192: "B1",
-              UTM_SOURCE: "google",
-              UTM_MEDIUM: "cpc",
-              UTM_CAMPAIGN: "leadgen-us",
-              UTM_CONTENT: null,
-              UTM_TERM: null
-            }
-          ];
-        }
-
+        expect(cursor.categoryIds).toEqual(["10"]);
         return [
           {
             ID: "D_ATTRACTION",
@@ -636,7 +863,7 @@ describe("performManualSync", () => {
       now: () => "2026-05-14T00:00:00.000Z"
     });
 
-    expect(requestedStageCategories).toEqual(["10", "28"]);
+    expect(requestedStageCategories).toEqual(["10"]);
     expect(listDealRequests).toEqual([
       expect.objectContaining({
         categoryIds: ["10"],
@@ -650,10 +877,6 @@ describe("performManualSync", () => {
           "2236",
           "2764"
         ]
-      }),
-      expect.objectContaining({
-        categoryIds: ["28"],
-        assignedByIds: ["501", "502"]
       })
     ]);
     expect(storedDeals).toEqual([
@@ -662,19 +885,10 @@ describe("performManualSync", () => {
           id: "D_ATTRACTION",
           categoryId: "10",
           contactId: "9001"
-        }),
-        expect.objectContaining({
-          id: "LG_ALLOWED",
-          categoryId: "28",
-          assignedById: "501",
-          contactId: null,
-          leadId: null,
-          refusalReasonValue: "Возврат",
-          utmCampaign: "leadgen-us"
         })
       ]
     ]);
-    expect(result.dealsSynced).toBe(2);
+    expect(result.dealsSynced).toBe(1);
   });
 
   it("fetches stage history for closed deals during an initial full sync", async () => {

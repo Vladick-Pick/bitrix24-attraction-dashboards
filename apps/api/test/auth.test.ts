@@ -430,6 +430,161 @@ describe("password session auth", () => {
     store.close();
   });
 
+  it(
+    "requires an active module leader session and csrf token for module sync",
+    async () => {
+      const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+      directories.push(directory);
+      const store = createSqliteAuthStore({
+        databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+      });
+      await store.ensureModule({
+        id: "attraction",
+        slug: "attraction",
+        name: "Привлечение",
+        bitrixCategoryId: "10"
+      });
+      await store.ensureModule({
+        id: "leadgen",
+        slug: "leadgen",
+        name: "Лидогенерация",
+        bitrixCategoryId: "28"
+      });
+      const leadgenLeader = await store.createUser({
+        login: "leadgen-leader@example.com",
+        passwordHash: await hashPassword("correct-password"),
+        now: new Date("2026-05-14T10:00:00.000Z")
+      });
+      const attractionLeader = await store.createUser({
+        login: "attraction-leader@example.com",
+        passwordHash: await hashPassword("correct-password"),
+        now: new Date("2026-05-14T10:00:00.000Z")
+      });
+      const leadgenEmployee = await store.createUser({
+        login: "leadgen-employee@example.com",
+        passwordHash: await hashPassword("correct-password"),
+        now: new Date("2026-05-14T10:00:00.000Z")
+      });
+      await store.setModuleMembership({
+        userId: leadgenLeader.id,
+        moduleId: "leadgen",
+        role: "leader",
+        status: "active"
+      });
+      await store.setModuleMembership({
+        userId: attractionLeader.id,
+        moduleId: "attraction",
+        role: "leader",
+        status: "active"
+      });
+      await store.setModuleMembership({
+        userId: leadgenEmployee.id,
+        moduleId: "leadgen",
+        role: "employee",
+        status: "active"
+      });
+      const auth = createPasswordAuthService({
+        store,
+        sessionSecret: "test-session-secret-with-at-least-32-bytes",
+        cookieName: "b24dash_session",
+        ttlHours: 12,
+        secureCookie: false
+      });
+      const syncCalls: string[] = [];
+      const app = createApp(createMinimalService(), {
+        auth,
+        modules: {
+          leadgen: {
+            performSync: async () => {
+              syncCalls.push("leadgen");
+              return {
+                syncRunId: 28,
+                leadsSynced: 0,
+                dealsSynced: 1,
+                mode: "delta",
+                modifiedAfter: null,
+                finishedAt: "2026-05-14T00:00:00.000Z",
+                snapshotBefore: {
+                  deals: 0,
+                  activities: 0,
+                  calls: 0,
+                  stageHistory: 0
+                },
+                snapshotAfter: {
+                  deals: 1,
+                  activities: 0,
+                  calls: 0,
+                  stageHistory: 0
+                },
+                changes: {
+                  deals: 1,
+                  dealBreakdown: {
+                    total: 1,
+                    created: 1,
+                    updated: 0,
+                    closed: 0,
+                    reopened: 0,
+                    unchanged: 0
+                  },
+                  activities: 0,
+                  calls: 0,
+                  stageHistory: 0,
+                  managers: 1
+                },
+                diagnostics: []
+              };
+            }
+          }
+        }
+      });
+
+      const leadgenLeaderAgent = request.agent(app);
+      const leadgenLeaderLogin = await leadgenLeaderAgent
+        .post("/api/auth/login")
+        .send({ login: "leadgen-leader@example.com", password: "correct-password" })
+        .expect(200);
+      await leadgenLeaderAgent.post("/api/modules/leadgen/sync").expect(403);
+      await leadgenLeaderAgent
+        .post("/api/modules/leadgen/sync")
+        .set("X-CSRF-Token", leadgenLeaderLogin.body.csrfToken as string)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.syncRunId).toBe(28);
+        });
+
+      const attractionLeaderAgent = request.agent(app);
+      const attractionLeaderLogin = await attractionLeaderAgent
+        .post("/api/auth/login")
+        .send({
+          login: "attraction-leader@example.com",
+          password: "correct-password"
+        })
+        .expect(200);
+      await attractionLeaderAgent
+        .post("/api/modules/leadgen/sync")
+        .set("X-CSRF-Token", attractionLeaderLogin.body.csrfToken as string)
+        .expect(403);
+
+      const leadgenEmployeeAgent = request.agent(app);
+      const leadgenEmployeeLogin = await leadgenEmployeeAgent
+        .post("/api/auth/login")
+        .send({
+          login: "leadgen-employee@example.com",
+          password: "correct-password"
+        })
+        .expect(200);
+      await leadgenEmployeeAgent
+        .post("/api/modules/leadgen/sync")
+        .set("X-CSRF-Token", leadgenEmployeeLogin.body.csrfToken as string)
+        .expect(403);
+
+      expect(syncCalls).toEqual(["leadgen"]);
+
+      store.close();
+    },
+    10_000
+  );
+
   it("uses a generic invalid credentials response and does not set a cookie", async () => {
     const { app, store } = await createAuthTestApp();
 

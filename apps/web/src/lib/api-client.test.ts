@@ -1416,4 +1416,49 @@ describe('apiClient', () => {
       '/api/modules/leadgen/reports/funnel',
     ])
   })
+
+  it('uses module-aware sync paths for non-attraction modules', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        syncRunId: 28,
+        leadsSynced: 0,
+        dealsSynced: 3,
+        mode: 'delta',
+        modifiedAfter: null,
+        finishedAt: '2026-05-14T12:00:00.000Z',
+        snapshotBefore: {
+          deals: 0,
+          activities: 0,
+          calls: 0,
+          stageHistory: 0,
+        },
+        snapshotAfter: {
+          deals: 3,
+          activities: 0,
+          calls: 0,
+          stageHistory: 0,
+        },
+        changes: {
+          deals: 3,
+          activities: 0,
+          calls: 0,
+          stageHistory: 0,
+          managers: 1,
+        },
+        diagnostics: [],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(apiClient.triggerSync('leadgen')).resolves.toMatchObject({
+      syncRunId: 28,
+      dealsSynced: 3,
+    })
+
+    expect(
+      fetchMock.mock.calls.map(([url]) => new URL(String(url), window.location.origin).pathname),
+    ).toEqual(['/api/modules/leadgen/sync'])
+  })
 })

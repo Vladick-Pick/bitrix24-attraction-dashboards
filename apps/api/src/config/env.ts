@@ -1,4 +1,4 @@
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { config as loadDotenv } from "dotenv";
@@ -38,6 +38,15 @@ function optionalTrimmedString() {
     emptyStringToUndefined,
     z.string().trim().min(1).optional()
   );
+}
+
+function canonicalDatabaseUrl(databaseUrl: string) {
+  if (!databaseUrl.startsWith("file:")) {
+    return databaseUrl;
+  }
+
+  const rawPath = databaseUrl.slice("file:".length);
+  return `file:${isAbsolute(rawPath) ? rawPath : resolve(process.cwd(), rawPath)}`;
 }
 
 function requiredCustomField(defaultValue: string) {
@@ -97,6 +106,9 @@ const envSchema = z
     BITRIX24_REQUEST_INTERVAL_MS: z.coerce.number().int().nonnegative().default(250),
     BITRIX24_BOOTSTRAP_LOOKBACK_DAYS: z.coerce.number().int().positive().default(365),
     DATABASE_URL: z.string().default("file:./data/bitrix24-reporting.db"),
+    PLATFORM_DATABASE_URL: optionalTrimmedString(),
+    ATTRACTION_DATABASE_URL: optionalTrimmedString(),
+    LEADGEN_DATABASE_URL: optionalTrimmedString(),
     JSON_BODY_LIMIT: z.string().trim().min(1).default("256kb"),
     NODE_ENV: z.string().default("development"),
     PAPERCLIP_API_URL: optionalTrimmedString(),
@@ -182,12 +194,31 @@ export type AppEnv = z.infer<typeof envSchema> & {
   bitrixDealCategoryIds: string[];
   leadgenCategoryId: string;
   leadgenManagerIds: string[];
+  platformDatabaseUrl: string;
+  attractionDatabaseUrl: string;
+  leadgenDatabaseUrl: string;
   reportWonStageIds: string[];
   bitrixEnabled: boolean;
 };
 
 export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   const parsed = envSchema.parse(source);
+  const platformDatabaseUrl = parsed.PLATFORM_DATABASE_URL ?? parsed.DATABASE_URL;
+  const attractionDatabaseUrl =
+    parsed.ATTRACTION_DATABASE_URL ?? "file:./data/bitrix24-attraction.db";
+  const leadgenDatabaseUrl =
+    parsed.LEADGEN_DATABASE_URL ?? "file:./data/bitrix24-leadgen.db";
+  const databaseUrls = [
+    platformDatabaseUrl,
+    attractionDatabaseUrl,
+    leadgenDatabaseUrl
+  ].map(canonicalDatabaseUrl);
+
+  if (new Set(databaseUrls).size !== databaseUrls.length) {
+    throw new Error(
+      "Platform, attraction, and leadgen database URLs must be distinct"
+    );
+  }
 
   return {
     ...parsed,
@@ -198,6 +229,9 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     leadgenManagerIds: parsed.BITRIX24_LEADGEN_MANAGER_IDS.split(",")
       .map((value) => value.trim())
       .filter(Boolean),
+    platformDatabaseUrl,
+    attractionDatabaseUrl,
+    leadgenDatabaseUrl,
     reportWonStageIds: parsed.REPORT_WON_STAGE_IDS.split(",")
       .map((value) => value.trim())
       .filter(Boolean),

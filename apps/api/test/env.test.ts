@@ -54,6 +54,55 @@ describe("readEnv", () => {
     expect(readEnv({}).bitrixEnabled).toBe(false);
   });
 
+  it("derives separate platform, attraction, and leadgen database URLs", () => {
+    expect(readEnv({}).platformDatabaseUrl).toBe(
+      "file:./data/bitrix24-reporting.db"
+    );
+    expect(readEnv({}).attractionDatabaseUrl).toBe(
+      "file:./data/bitrix24-attraction.db"
+    );
+    expect(readEnv({}).leadgenDatabaseUrl).toBe(
+      "file:./data/bitrix24-leadgen.db"
+    );
+
+    expect(
+      readEnv({
+        DATABASE_URL: "file:/app/data/platform.db",
+        PLATFORM_DATABASE_URL: "file:/app/data/auth-comments.db",
+        ATTRACTION_DATABASE_URL: "file:/app/data/attraction.db",
+        LEADGEN_DATABASE_URL: "file:/app/data/leadgen.db"
+      })
+    ).toMatchObject({
+      platformDatabaseUrl: "file:/app/data/auth-comments.db",
+      attractionDatabaseUrl: "file:/app/data/attraction.db",
+      leadgenDatabaseUrl: "file:/app/data/leadgen.db"
+    });
+  });
+
+  it("rejects overlapping module database URLs", () => {
+    expect(() =>
+      readEnv({
+        DATABASE_URL: "file:/app/data/platform.db",
+        PLATFORM_DATABASE_URL: "file:/app/data/platform.db",
+        ATTRACTION_DATABASE_URL: "file:/app/data/platform.db",
+        LEADGEN_DATABASE_URL: "file:/app/data/leadgen.db"
+      })
+    ).toThrow(/database URLs must be distinct/i);
+  });
+
+  it("rejects overlapping module database URLs after resolving file paths", () => {
+    const sharedPath = resolve(process.cwd(), "data/shared.db");
+
+    expect(() =>
+      readEnv({
+        DATABASE_URL: "file:/tmp/platform.db",
+        PLATFORM_DATABASE_URL: `file:${sharedPath}`,
+        ATTRACTION_DATABASE_URL: "file:./data/shared.db",
+        LEADGEN_DATABASE_URL: "file:/tmp/leadgen.db"
+      })
+    ).toThrow(/database URLs must be distinct/i);
+  });
+
   it("requires password auth configuration in production", () => {
     expect(() =>
       readEnv({

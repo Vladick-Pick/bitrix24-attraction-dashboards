@@ -3051,6 +3051,56 @@ describe('ProtoApp', () => {
     expect('from' in query ? query.from : '').not.toContain('2026-01-01')
   })
 
+  it('uses the active leadgen module when refreshing data', async () => {
+    const owner: AuthUser = {
+      id: 1,
+      login: 'owner@example.com',
+      firstName: 'Владислав',
+      lastName: 'Богдан',
+      role: 'admin' as const,
+      isSuperAdmin: true,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: ['comments:create', 'comments:update', 'comments:archive'],
+        },
+        {
+          id: 'leadgen',
+          slug: 'leadgen',
+          name: 'Лидогенерация',
+          role: 'leader' as const,
+          permissions: ['comments:create', 'comments:update', 'comments:archive'],
+          bitrixCategoryId: '28',
+        },
+      ],
+    }
+
+    render(<ProtoApp currentUser={owner} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^лидогенерация$/i }))
+    expect(await screen.findByRole('heading', { name: /^лидогенерация$/i })).toBeInTheDocument()
+
+    vi.mocked(apiClient.triggerSync).mockClear()
+    vi.mocked(apiClient.getDashboard).mockClear()
+    vi.mocked(apiClient.getLeadgenFunnelReport).mockClear()
+
+    await userEvent.click(screen.getByRole('button', { name: /^обновить данные$/i }))
+
+    await waitFor(() => {
+      expect(apiClient.triggerSync).toHaveBeenCalledWith('leadgen', expect.any(Function))
+    })
+    await waitFor(() => {
+      expect(apiClient.getLeadgenFunnelReport).toHaveBeenCalledWith(
+        'leadgen',
+        expect.objectContaining({ preset: 'custom' }),
+      )
+    })
+    expect(apiClient.getDashboard).not.toHaveBeenCalled()
+  })
+
   it('loads cached operational reports while warning that sync health is stale', async () => {
     vi.mocked(apiClient.getMeta).mockResolvedValueOnce({
       stageCatalog: [],

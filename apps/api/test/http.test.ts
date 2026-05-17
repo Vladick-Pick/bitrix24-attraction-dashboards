@@ -209,6 +209,7 @@ function createTestApp(
     webOrigin?: string;
     apiAuthToken?: string;
     syncStreamHeartbeatMs?: number;
+    modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
     protoComments?: {
       getProtoComments(): Promise<{
         comments: unknown[];
@@ -518,6 +519,7 @@ function createTestApp(
         webOrigin?: string;
         apiAuthToken?: string;
         syncStreamHeartbeatMs?: number;
+        modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
         protoComments?: {
           getProtoComments(): Promise<{
             comments: unknown[];
@@ -1852,6 +1854,38 @@ describe("createApp", () => {
     await expect(firstRequest).resolves.toMatchObject({
       status: 200
     });
+  });
+
+  it("routes module sync requests to the requested module service", async () => {
+    const calls: string[] = [];
+    const app = createTestApp(
+      {
+        performSync: async () => {
+          calls.push("attraction");
+          return createSyncSummary({ syncRunId: 10, dealsSynced: 10 });
+        }
+      },
+      {
+        modules: {
+          leadgen: {
+            performSync: async () => {
+              calls.push("leadgen");
+              return createSyncSummary({ syncRunId: 28, dealsSynced: 3 });
+            }
+          }
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/modules/leadgen/sync")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.syncRunId).toBe(28);
+        expect(body.dealsSynced).toBe(3);
+      });
+
+    expect(calls).toEqual(["leadgen"]);
   });
 
   it("streams sync progress events when requested by the web client", async () => {

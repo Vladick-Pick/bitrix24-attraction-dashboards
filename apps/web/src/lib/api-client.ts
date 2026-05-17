@@ -2161,9 +2161,11 @@ function parseSyncStreamBlock(block: string) {
 }
 
 async function requestSyncStream(
+  moduleId: string,
   onProgress: (event: SyncProgressEvent) => void,
 ) {
-  const response = await fetch(buildUrl('/api/sync'), {
+  const syncPath = buildModulePath(moduleId, '/api/sync')
+  const response = await fetch(buildUrl(syncPath), {
     method: 'POST',
     headers: {
       Accept: 'text/event-stream',
@@ -2181,7 +2183,7 @@ async function requestSyncStream(
       throw new ApiClientError(message, response.status, payload)
     }
 
-    return requestJson(buildUrl('/api/sync'), { method: 'POST' }, normalizeSyncSummary)
+    return requestJson(buildUrl(syncPath), { method: 'POST' }, normalizeSyncSummary)
   }
 
   const decoder = new TextDecoder()
@@ -2612,12 +2614,21 @@ export const apiClient = {
       normalizeRevenueVelocityReport,
     )
   },
-  async triggerSync(onProgress?: (event: SyncProgressEvent) => void) {
+  async triggerSync(
+    moduleIdOrProgress: string | ((event: SyncProgressEvent) => void) = 'attraction',
+    maybeProgress?: (event: SyncProgressEvent) => void,
+  ) {
+    const moduleId =
+      typeof moduleIdOrProgress === 'string' ? moduleIdOrProgress : 'attraction'
+    const onProgress =
+      typeof moduleIdOrProgress === 'function' ? moduleIdOrProgress : maybeProgress
+    const syncPath = buildModulePath(moduleId, '/api/sync')
+
     if (onProgress) {
-      return requestSyncStream(onProgress)
+      return requestSyncStream(moduleId, onProgress)
     }
 
-    return requestJson(buildUrl('/api/sync'), { method: 'POST' }, normalizeSyncSummary)
+    return requestJson(buildUrl(syncPath), { method: 'POST' }, normalizeSyncSummary)
   },
 }
 

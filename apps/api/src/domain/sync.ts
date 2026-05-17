@@ -1447,9 +1447,8 @@ export async function performManualSync(
       })
     );
     const leadgenCategoryId = input.leadgenCategoryId ?? LEADGEN_US_CATEGORY_ID;
-    const leadgenManagerIds = input.leadgenManagerIds ?? [];
-    const shouldSyncLeadgen =
-      leadgenCategoryId.length > 0 && leadgenManagerIds.length > 0;
+    const leadgenManagerIds: string[] = [];
+    const shouldSyncLeadgen = false;
     const dealStageCategoryIds = Array.from(
       new Set([
         ...input.categoryIds,

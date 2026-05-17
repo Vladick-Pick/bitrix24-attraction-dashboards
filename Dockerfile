@@ -42,6 +42,9 @@ ENV NODE_ENV=production \
   API_HOST=0.0.0.0 \
   API_PORT=8787 \
   DATABASE_URL=file:/app/data/bitrix24-reporting.db \
+  PLATFORM_DATABASE_URL=file:/app/data/bitrix24-reporting.db \
+  ATTRACTION_DATABASE_URL=file:/app/data/bitrix24-attraction.db \
+  LEADGEN_DATABASE_URL=file:/app/data/bitrix24-leadgen.db \
   WEB_STATIC_DIR=/app/apps/web/dist \
   TRUST_PROXY=loopback
 

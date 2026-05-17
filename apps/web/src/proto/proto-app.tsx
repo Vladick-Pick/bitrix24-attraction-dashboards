@@ -1939,7 +1939,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     }))
 
     try {
-      const summary = await apiClient.triggerSync((event) => {
+      const summary = await apiClient.triggerSync(activeModuleId, (event) => {
         setSyncProgress(event)
         if (event.snapshotBefore) {
           setSnapshotStats(event.snapshotBefore)
@@ -1975,7 +1975,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         operationalError: null,
       }))
     } finally {
-      await refreshSyncMeta().catch(() => undefined)
+      if (!isLeadgenModule) {
+        await refreshSyncMeta().catch(() => undefined)
+      }
       setSyncStatus('idle')
     }
   }

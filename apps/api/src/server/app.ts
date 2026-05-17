@@ -146,6 +146,14 @@ interface AppService {
   updateWonStages(stageIds: string[]): Promise<{ wonStageIds: string[] }>;
 }
 
+interface ModuleService {
+  getLeadgenFunnelReport?(input: RangeRequest): Promise<LeadgenFunnelReport>;
+  getMeta?(): Promise<MetaResponse>;
+  performSync(input?: {
+    onProgress?: (event: SyncProgressEvent) => void;
+  }): Promise<ManualSyncSummary>;
+}
+
 interface ProtoCommentsStore {
   getProtoComments(): Promise<ProtoCommentStore>;
   replaceProtoComments(input: ProtoCommentStore): Promise<ProtoCommentStore>;
@@ -217,6 +225,7 @@ interface AppConfig {
   trustProxy?: string | boolean | number;
   webStaticDir?: string;
   syncStreamHeartbeatMs?: number;
+  modules?: Record<string, ModuleService>;
 }
 
 function parseCsvArray(value: unknown) {
@@ -1141,10 +1150,14 @@ export function createApp(
   config: AppConfig = {}
 ): express.Express {
   const app = express();
-  let activeSync: Promise<ManualSyncSummary> | null = null;
+  const activeSyncByModule = new Map<string, Promise<ManualSyncSummary>>();
   const webOrigin = config.webOrigin?.trim() || "http://localhost:5173";
   const apiAuthToken = config.apiAuthToken?.trim() || undefined;
   const auth = config.auth;
+  const moduleServices = new Map<string, ModuleService>([
+    ["attraction", service],
+    ...Object.entries(config.modules ?? {})
+  ]);
 
   function denyIfMissingAttractionAccess(
     response: express.Response,
@@ -1161,6 +1174,78 @@ export function createApp(
     }
 
     return false;
+  }
+
+  function denyIfMissingModuleSyncAccess(
+    response: express.Response,
+    moduleId: string
+  ) {
+    if (!auth) {
+      return false;
+    }
+
+    const access = requireModuleAccess(response, undefined, moduleId);
+    if (!access || access.module.role !== "leader") {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return true;
+    }
+
+    return false;
+  }
+
+  async function runSyncRequest(input: {
+    request: express.Request;
+    response: express.Response;
+    next: express.NextFunction;
+    moduleId: string;
+    moduleService: ModuleService;
+  }) {
+    if (activeSyncByModule.has(input.moduleId)) {
+      input.response.status(409).json(createErrorResponse("SYNC_ALREADY_RUNNING"));
+      return;
+    }
+
+    if (wantsSyncStream(input.request)) {
+      input.response.status(200);
+      input.response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      input.response.setHeader("Cache-Control", "no-cache, no-transform");
+      input.response.setHeader("Connection", "keep-alive");
+      input.response.flushHeaders?.();
+
+      const heartbeat = setInterval(
+        () => writeSyncKeepalive(input.response),
+        config.syncStreamHeartbeatMs ?? 15_000
+      );
+
+      try {
+        const sync = input.moduleService.performSync({
+          onProgress: (event) => {
+            writeSyncEvent(input.response, "progress", event);
+          }
+        });
+        activeSyncByModule.set(input.moduleId, sync);
+        const summary = await sync;
+        writeSyncEvent(input.response, "complete", summary);
+        input.response.end();
+      } catch (error) {
+        writeSyncEvent(input.response, "error", createSyncErrorResponse(error));
+        input.response.end();
+      } finally {
+        clearInterval(heartbeat);
+        activeSyncByModule.delete(input.moduleId);
+      }
+      return;
+    }
+
+    try {
+      const sync = input.moduleService.performSync();
+      activeSyncByModule.set(input.moduleId, sync);
+      input.response.json(await sync);
+    } catch (error) {
+      input.next(error);
+    } finally {
+      activeSyncByModule.delete(input.moduleId);
+    }
   }
 
   app.disable("x-powered-by");
@@ -2183,13 +2268,20 @@ export function createApp(
       return;
     }
 
-    if (!service.getLeadgenFunnelReport) {
+    const moduleService =
+      moduleServices.get(moduleId) ??
+      (moduleId === "leadgen" && service.getLeadgenFunnelReport
+        ? service
+        : undefined);
+    if (!moduleService?.getLeadgenFunnelReport) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
     try {
-      response.json(await service.getLeadgenFunnelReport(parseRangeRequest(request.query)));
+      response.json(
+        await moduleService.getLeadgenFunnelReport(parseRangeRequest(request.query))
+      );
     } catch (error) {
       next(error);
     }
@@ -2483,50 +2575,34 @@ export function createApp(
       return;
     }
 
-    if (activeSync) {
-      response.status(409).json(createErrorResponse("SYNC_ALREADY_RUNNING"));
+    await runSyncRequest({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      moduleService: service
+    });
+  });
+
+  app.post("/api/modules/:moduleId/sync", async (request, response, next) => {
+    const moduleId = requestModuleId(request);
+    const moduleService = moduleServices.get(moduleId);
+    if (!moduleService) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    if (wantsSyncStream(request)) {
-      response.status(200);
-      response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-      response.setHeader("Cache-Control", "no-cache, no-transform");
-      response.setHeader("Connection", "keep-alive");
-      response.flushHeaders?.();
-
-      const heartbeat = setInterval(
-        () => writeSyncKeepalive(response),
-        config.syncStreamHeartbeatMs ?? 15_000
-      );
-
-      try {
-        activeSync = service.performSync({
-          onProgress: (event) => {
-            writeSyncEvent(response, "progress", event);
-          }
-        });
-        const summary = await activeSync;
-        writeSyncEvent(response, "complete", summary);
-        response.end();
-      } catch (error) {
-        writeSyncEvent(response, "error", createSyncErrorResponse(error));
-        response.end();
-      } finally {
-        clearInterval(heartbeat);
-        activeSync = null;
-      }
+    if (denyIfMissingModuleSyncAccess(response, moduleId)) {
       return;
     }
 
-    try {
-      activeSync = service.performSync();
-      response.json(await activeSync);
-    } catch (error) {
-      next(error);
-    } finally {
-      activeSync = null;
-    }
+    await runSyncRequest({
+      request,
+      response,
+      next,
+      moduleId,
+      moduleService
+    });
   });
 
   app.put("/api/settings/won-stages", async (request, response, next) => {

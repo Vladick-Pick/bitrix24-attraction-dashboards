@@ -53,6 +53,19 @@ All leadgen reports must use only deals where:
 
 An empty leadgen whitelist means the module returns an empty report with a warning; it must not fall back to the attraction manager whitelist.
 
+Current leadgen manager whitelist:
+
+| Bitrix user ID | Name |
+| --- | --- |
+| `8244` | Алексей Волков |
+| `84` | Фарход Исмаилов |
+| `11620` | Ольга Голубь |
+| `11486` | Елена Талпэу |
+| `12028` | Леся Метальникова |
+| `11610` | Ольга Калякина |
+
+The whitelist is configured locally and in runtime through `BITRIX24_LEADGEN_MANAGER_IDS=8244,84,11620,11486,12028,11610`.
+
 V1 report ownership:
 
 - funnel by stage;

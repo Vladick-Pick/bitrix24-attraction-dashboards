@@ -93,6 +93,15 @@ tbody tr:hover {
   background: rgba(77, 124, 255, 0.06);
 }
 
+.subtle-label {
+  color: var(--ink-500);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line-soft);
@@ -157,6 +166,24 @@ tbody tr:hover {
 
 .badge-neutral::before {
   background: #74859f;
+}
+
+.badge-amber {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.badge-amber::before {
+  background: #d97706;
+}
+
+.badge-red {
+  background: var(--bad-bg);
+  color: var(--bad-fg);
+}
+
+.badge-red::before {
+  background: #dc2626;
 }
 
 .tab-chip {

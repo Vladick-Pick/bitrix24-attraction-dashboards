@@ -56,6 +56,10 @@ import type {
   PaperclipCommentStatus,
   PaperclipSyncStatus,
   PaperclipThreadEntryKind,
+  PlatformAccess,
+  PlatformMembershipInput,
+  PlatformModule,
+  PlatformUser,
   ProtoComment,
   ProtoCommentAnchor,
   ProtoCommentContext,
@@ -465,6 +469,52 @@ function normalizeModuleUserResponse(value: unknown) {
   const data = isRecord(value) ? value : {}
   return {
     user: normalizeModuleUser(data.user),
+  }
+}
+
+function normalizePlatformModule(value: unknown): PlatformModule {
+  const data = isRecord(value) ? value : {}
+  return {
+    id: asString(data.id),
+    slug: asString(data.slug),
+    name: asString(data.name),
+    bitrixCategoryId: asNullableString(data.bitrixCategoryId),
+    paperclipCompanyId: asNullableString(data.paperclipCompanyId),
+    paperclipProjectId: asNullableString(data.paperclipProjectId),
+    paperclipGoalId: asNullableString(data.paperclipGoalId),
+    paperclipTriageAgentId: asNullableString(data.paperclipTriageAgentId),
+  }
+}
+
+function normalizePlatformUser(value: unknown): PlatformUser {
+  const data = isRecord(value) ? value : {}
+  return {
+    id: asNumber(data.id),
+    login: asString(data.login),
+    firstName: asNullableString(data.firstName),
+    lastName: asNullableString(data.lastName),
+    disabled: asBoolean(data.disabled),
+    isSuperAdmin: asBoolean(data.isSuperAdmin),
+    memberships: asArray(data.memberships, normalizeModuleUser).filter(
+      (membership) => membership.id > 0 && membership.moduleId,
+    ),
+  }
+}
+
+function normalizePlatformAccessResponse(value: unknown): PlatformAccess {
+  const data = isRecord(value) ? value : {}
+  return {
+    modules: asArray(data.modules, normalizePlatformModule).filter(
+      (module) => module.id && module.slug,
+    ),
+    users: asArray(data.users, normalizePlatformUser).filter((user) => user.id > 0),
+  }
+}
+
+function normalizePlatformUserResponse(value: unknown) {
+  const data = isRecord(value) ? value : {}
+  return {
+    user: normalizePlatformUser(data.user),
   }
 }
 
@@ -2380,6 +2430,26 @@ export const apiClient = {
       buildUrl(buildModulePath(moduleId, `/api/admin/module-users/${id}`)),
       { method: 'DELETE' },
       normalizeModuleUserResponse,
+    )
+  },
+  async getPlatformAccess() {
+    return requestJson(
+      buildUrl('/api/admin/platform/access'),
+      { method: 'GET' },
+      normalizePlatformAccessResponse,
+    )
+  },
+  async updatePlatformUserMemberships(
+    id: number,
+    memberships: PlatformMembershipInput[],
+  ) {
+    return requestJson(
+      buildUrl(`/api/admin/platform/users/${id}/module-memberships`),
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ memberships }),
+      },
+      normalizePlatformUserResponse,
     )
   },
   async getDashboard(query: DashboardQuery) {

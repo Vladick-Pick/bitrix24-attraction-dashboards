@@ -56,6 +56,9 @@ import type {
   PaperclipReadyReport,
   PaperclipThreadEntry,
   PickerOption,
+  PlatformAccess,
+  PlatformMembershipInput,
+  PlatformUser,
   ProtoComment,
   ProtoCommentAnchor,
   ProtoCommentContext,
@@ -1265,6 +1268,11 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [moduleUsers, setModuleUsers] = useState<ModuleUser[]>([])
   const [moduleUsersStatus, setModuleUsersStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [moduleUsersError, setModuleUsersError] = useState<string | null>(null)
+  const [platformAccess, setPlatformAccess] = useState<PlatformAccess | null>(null)
+  const [platformAccessStatus, setPlatformAccessStatus] = useState<
+    'idle' | 'loading' | 'saving' | 'error'
+  >('idle')
+  const [platformAccessError, setPlatformAccessError] = useState<string | null>(null)
   const [newModuleUser, setNewModuleUser] = useState({
     firstName: '',
     lastName: '',
@@ -1358,6 +1366,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     activeModule?.permissions.includes('comments:archive') === true
   const canManageModuleUsers =
     activeModule?.permissions.includes('module-users:manage') === true
+  const platformModules = platformAccess?.modules ?? []
+  const platformUsers = platformAccess?.users ?? []
 
   const switchModule = useCallback((moduleId: string) => {
     setActiveModuleId(moduleId)
@@ -1523,6 +1533,31 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       )
     }
   }, [activeModuleId, canManageModuleUsers])
+
+  const refreshPlatformAccess = useCallback(async () => {
+    if (!accountUser?.isSuperAdmin) {
+      setPlatformAccess(null)
+      setPlatformAccessStatus('idle')
+      setPlatformAccessError(null)
+      return
+    }
+
+    setPlatformAccessStatus('loading')
+    setPlatformAccessError(null)
+
+    try {
+      const response = await apiClient.getPlatformAccess()
+      setPlatformAccess(response)
+      setPlatformAccessStatus('idle')
+    } catch (loadError) {
+      setPlatformAccessStatus('error')
+      setPlatformAccessError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Не удалось загрузить доступы платформы',
+      )
+    }
+  }, [accountUser?.isSuperAdmin])
 
   useEffect(() => {
     let cancelled = false
@@ -1774,6 +1809,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   useEffect(() => {
     void refreshModuleUsers()
   }, [refreshModuleUsers])
+
+  useEffect(() => {
+    void refreshPlatformAccess()
+  }, [refreshPlatformAccess])
 
   useEffect(() => {
     let cancelled = false
@@ -2328,6 +2367,94 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     }
   }
 
+  function getActivePlatformMembership(user: PlatformUser, moduleId: string) {
+    return user.memberships.find(
+      (membership) =>
+        membership.moduleId === moduleId && membership.membershipStatus === 'active',
+    )
+  }
+
+  function buildPlatformMemberships(
+    user: PlatformUser,
+    moduleId: string,
+    role: ModuleRole | null,
+  ): PlatformMembershipInput[] {
+    const byModule = new Map<string, PlatformMembershipInput>()
+    for (const membership of user.memberships) {
+      if (membership.membershipStatus !== 'active') {
+        continue
+      }
+      byModule.set(membership.moduleId, {
+        moduleId: membership.moduleId,
+        role: membership.moduleRole,
+        status: 'active',
+      })
+    }
+
+    if (role) {
+      byModule.set(moduleId, {
+        moduleId,
+        role,
+        status: 'active',
+      })
+    } else {
+      byModule.delete(moduleId)
+    }
+
+    const modules = platformAccess?.modules ?? []
+    return modules
+      .map((module) => byModule.get(module.id))
+      .filter((membership): membership is PlatformMembershipInput => Boolean(membership))
+  }
+
+  async function savePlatformUserMemberships(
+    userId: number,
+    memberships: PlatformMembershipInput[],
+  ) {
+    setPlatformAccessStatus('saving')
+    setPlatformAccessError(null)
+
+    try {
+      const response = await apiClient.updatePlatformUserMemberships(userId, memberships)
+      setPlatformAccess((current) =>
+        current
+          ? {
+              ...current,
+              users: current.users.map((item) =>
+                item.id === userId ? response.user : item,
+              ),
+            }
+          : current,
+      )
+      setPlatformAccessStatus('idle')
+    } catch (saveError) {
+      setPlatformAccessStatus('error')
+      setPlatformAccessError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Не удалось обновить доступы платформы',
+      )
+    }
+  }
+
+  async function handleTogglePlatformMembership(
+    user: PlatformUser,
+    moduleId: string,
+    enabled: boolean,
+  ) {
+    const currentMembership = getActivePlatformMembership(user, moduleId)
+    const role = enabled ? currentMembership?.moduleRole ?? 'employee' : null
+    await savePlatformUserMemberships(user.id, buildPlatformMemberships(user, moduleId, role))
+  }
+
+  async function handleChangePlatformRole(
+    user: PlatformUser,
+    moduleId: string,
+    role: ModuleRole,
+  ) {
+    await savePlatformUserMemberships(user.id, buildPlatformMemberships(user, moduleId, role))
+  }
+
   if (route === 'account') {
     return (
       <main className="px-4 py-6 md:px-8 md:py-8">
@@ -2509,6 +2636,106 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               ))}
             </div>
           </section>
+
+          {accountUser?.isSuperAdmin ? (
+            <section className="panel grid gap-4 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="subtle-label">Супер-админ</div>
+                  <h2 className="mt-1 text-xl font-bold text-slate-900">
+                    Доступы платформы
+                  </h2>
+                </div>
+                <span className="badge-chip badge-neutral">{platformAccessStatus}</span>
+              </div>
+              {platformAccessError ? (
+                <p className="text-sm font-semibold text-red-600">
+                  {platformAccessError}
+                </p>
+              ) : null}
+              {platformModules.length === 0 || platformUsers.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  {platformAccessStatus === 'loading'
+                    ? 'Загрузка доступов.'
+                    : 'Нет пользователей или модулей для настройки.'}
+                </p>
+              ) : (
+                <div className="grid gap-2">
+                  {platformUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 xl:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.8fr)]"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold text-slate-900">
+                          {user.login}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {user.isSuperAdmin
+                            ? 'Суперадмин'
+                            : user.disabled
+                              ? 'Отключен'
+                              : 'Пользователь'}
+                        </div>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {platformModules.map((module) => {
+                          const membership = getActivePlatformMembership(user, module.id)
+                          const locked = user.isSuperAdmin
+                          const checked = locked || Boolean(membership)
+                          const disabled =
+                            locked ||
+                            user.disabled ||
+                            platformAccessStatus === 'loading' ||
+                            platformAccessStatus === 'saving'
+
+                          return (
+                            <div
+                              key={module.id}
+                              className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3"
+                            >
+                              <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={disabled}
+                                  aria-label={`${user.login}: доступ к модулю ${module.name}`}
+                                  onChange={(event) =>
+                                    void handleTogglePlatformMembership(
+                                      user,
+                                      module.id,
+                                      event.target.checked,
+                                    )
+                                  }
+                                />
+                                <span className="min-w-0 truncate">{module.name}</span>
+                              </label>
+                              <select
+                                className="field"
+                                value={locked ? 'leader' : membership?.moduleRole ?? 'employee'}
+                                disabled={disabled || !membership}
+                                aria-label={`${user.login}: роль в модуле ${module.name}`}
+                                onChange={(event) =>
+                                  void handleChangePlatformRole(
+                                    user,
+                                    module.id,
+                                    event.target.value as ModuleRole,
+                                  )
+                                }
+                              >
+                                <option value="employee">Сотрудник</option>
+                                <option value="leader">Лидер</option>
+                              </select>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
 
           {canManageModuleUsers ? (
             <section className="panel grid gap-4 p-5">

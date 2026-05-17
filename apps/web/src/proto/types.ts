@@ -117,6 +117,38 @@ export interface AuthUser {
   modules: AuthModule[]
 }
 
+export interface PlatformModule {
+  id: string
+  slug: string
+  name: string
+  bitrixCategoryId?: string | null
+  paperclipCompanyId?: string | null
+  paperclipProjectId?: string | null
+  paperclipGoalId?: string | null
+  paperclipTriageAgentId?: string | null
+}
+
+export interface PlatformUser {
+  id: number
+  login: string
+  firstName: string | null
+  lastName: string | null
+  disabled: boolean
+  isSuperAdmin: boolean
+  memberships: ModuleUser[]
+}
+
+export interface PlatformAccess {
+  modules: PlatformModule[]
+  users: PlatformUser[]
+}
+
+export interface PlatformMembershipInput {
+  moduleId: string
+  role: ModuleRole
+  status: 'active' | 'disabled'
+}
+
 export interface CommentNotification {
   id: string
   sceneId: string

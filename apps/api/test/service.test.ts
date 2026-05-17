@@ -1821,4 +1821,149 @@ describe("createReportingService", () => {
       }
     ]);
   });
+
+  it("keeps attraction service sync scoped to attraction even when leadgen report config exists", async () => {
+    const dealStageCategoryRequests: string[][] = [];
+    const dealRequests: Array<{
+      categoryIds: string[];
+      assignedByIds?: string[];
+      customFieldNames?: string[];
+    }> = [];
+    const storedDeals: Array<Array<{ categoryId: string }>> = [];
+    const repository = {
+      getLatestSuccessCursor: async () => null,
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-01-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-01-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async (rows: Array<{ categoryId: string }>) => {
+        storedDeals.push(rows);
+        return rows.length;
+      },
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      createSyncRun: async () => 68,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async (categoryIds: string[]) => {
+        dealStageCategoryRequests.push(categoryIds);
+        return [
+          {
+            entityType: "deal" as const,
+            categoryId: "10",
+            statusId: "C10:RETURN",
+            name: "Возврат в Лидген(неквал)",
+            semanticId: "F",
+            sortOrder: 100
+          }
+        ];
+      },
+      fetchSourceCatalog: async () => [
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Сайт",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async (cursor: {
+        modifiedAfter: string | null;
+        categoryIds: string[];
+        assignedByIds?: string[];
+        customFieldNames?: string[];
+      }) => {
+        dealRequests.push({
+          categoryIds: cursor.categoryIds,
+          ...(cursor.assignedByIds ? { assignedByIds: cursor.assignedByIds } : {}),
+          ...(cursor.customFieldNames
+            ? { customFieldNames: cursor.customFieldNames }
+            : {})
+        });
+
+        if (cursor.categoryIds[0] === "28") {
+          throw new Error("Attraction service sync must not request leadgen category 28");
+        }
+
+        return [
+          {
+            ID: "A_RETURN",
+            LEAD_ID: null,
+            DATE_CREATE: "2026-04-09T10:00:00.000Z",
+            DATE_MODIFY: "2026-04-09T10:00:00.000Z",
+            DATE_CLOSED: "2026-04-09T10:00:00.000Z",
+            CATEGORY_ID: "10",
+            STAGE_ID: "C10:RETURN",
+            STAGE_SEMANTIC_ID: "F",
+            OPPORTUNITY: null,
+            ASSIGNED_BY_ID: "78",
+            SOURCE_ID: "WEB",
+            UTM_SOURCE: null,
+            UTM_MEDIUM: null,
+            UTM_CAMPAIGN: null,
+            UTM_CONTENT: null,
+            UTM_TERM: null
+          }
+        ];
+      },
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      leadgenCategoryId: "28",
+      leadgenManagerIds: ["501", "502"],
+      qualityFieldName: "UF_CRM_1730380390",
+      repository: repository as never,
+      client: client as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T00:00:00.000Z")
+    });
+
+    await service.performSync();
+
+    expect(dealStageCategoryRequests).toEqual([["10"]]);
+    expect(dealRequests).toEqual([
+      expect.objectContaining({
+        categoryIds: ["10"],
+        customFieldNames: [
+          "UF_CRM_1730380390",
+          "UF_CRM_1647422744",
+          "UF_CRM_1647422890",
+          "UF_CRM_1776949411825",
+          "UF_CRM_1772109151192"
+        ]
+      })
+    ]);
+    expect(storedDeals).toEqual([
+      [
+        expect.objectContaining({
+          categoryId: "10"
+        })
+      ]
+    ]);
+  });
 });

@@ -260,8 +260,6 @@ export interface SyncRepository {
 
 interface PerformManualSyncInput {
   categoryIds: string[];
-  leadgenCategoryId?: string;
-  leadgenManagerIds?: string[];
   qualityFieldName: string;
   tariffFieldName?: string;
   businessClubFieldName?: string;
@@ -284,10 +282,13 @@ export interface SnapshotStatsScope {
 
 export const ATTRACTION_REFUSAL_REASON_FIELD_NAME = "UF_CRM_1647422744";
 export const ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME = "UF_CRM_1647422890";
+export const ATTRACTION_RETURN_REASON_FIELD_NAME = "UF_CRM_1776949411825";
+export const ATTRACTION_BASKET_REASON_FIELD_NAME = "UF_CRM_1772109151192";
 export const LEADGEN_US_CATEGORY_ID = "28";
 export const LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME = "UF_CRM_1730360968";
 export const LEADGEN_US_RETURN_REASON_FIELD_NAME = "UF_CRM_1758715585";
-export const LEADGEN_US_BASKET_REASON_FIELD_NAME = "UF_CRM_1772109151192";
+export const LEADGEN_US_BASKET_REASON_FIELD_NAME =
+  ATTRACTION_BASKET_REASON_FIELD_NAME;
 const TASK_ACTIVITY_PROVIDER_IDS = ["CRM_TODO", "CRM_TASKS_TASK"] as const;
 const MISSING_CALL_ACTIVITY_BACKFILL_LIMIT = 20_000;
 const MISSING_CALL_STATS_BACKFILL_LIMIT = 20_000;
@@ -322,13 +323,6 @@ const CONTACT_TARGET_GROUP_VALUE_MAP = {
   "140496": "ClubFirst Ladies"
 } satisfies Record<string, string>;
 
-type LinkedLeadgenLossContext = {
-  basketReasonValue: string | null;
-  returnReasonValue: string | null;
-  refusalReasonDetail: string | null;
-  updatedAt: string;
-};
-
 function normalizeMappedFieldValue(
   value: unknown,
   valueMap: Record<string, string>
@@ -362,52 +356,6 @@ function sanitizeDealTargetGroupValue(value: string | null) {
   }
 
   return isOpaqueBitrixEnumId(value) ? null : value;
-}
-
-function extractLinkedDealId(value: unknown): string | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed.length === 0) {
-      return null;
-    }
-
-    const directMatch = trimmed.match(/^\d+$/);
-    if (directMatch) {
-      return directMatch[0];
-    }
-
-    const crmMatch = trimmed.match(/(?:^|[_:])(\d+)$/);
-    if (crmMatch?.[1]) {
-      return crmMatch[1];
-    }
-
-    return trimmed;
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const linkedId = extractLinkedDealId(item);
-      if (linkedId) {
-        return linkedId;
-      }
-    }
-  }
-
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return (
-      extractLinkedDealId(record.ID) ??
-      extractLinkedDealId(record.id) ??
-      extractLinkedDealId(record.VALUE) ??
-      extractLinkedDealId(record.value)
-    );
-  }
-
-  return null;
 }
 
 function resolveContactTargetGroupValue(input: {
@@ -463,87 +411,27 @@ function isBasketLossStage(stageId: string, stageName: string | undefined) {
   );
 }
 
-function buildLinkedLeadgenLossLookup(
-  rows: DealRow[],
-  returnReasonMap: Record<string, string>,
-  basketReasonMap: Record<string, string>
-) {
-  const lookup = new Map<string, LinkedLeadgenLossContext>();
-
-  for (const row of rows) {
-    const attractionDealId = extractLinkedDealId(
-      row[LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME]
-    );
-    if (!attractionDealId) {
-      continue;
-    }
-
-    const candidate: LinkedLeadgenLossContext = {
-      basketReasonValue: normalizeMappedFieldValue(
-        row[LEADGEN_US_BASKET_REASON_FIELD_NAME],
-        basketReasonMap
-      ),
-      returnReasonValue: normalizeMappedFieldValue(
-        row[LEADGEN_US_RETURN_REASON_FIELD_NAME],
-        returnReasonMap
-      ),
-      refusalReasonDetail: normalizeMappedFieldValue(
-        row[ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME],
-        {}
-      ),
-      updatedAt: row.DATE_MODIFY ?? row.DATE_CREATE
-    };
-
-    const current = lookup.get(attractionDealId);
-    const currentTime = current ? Date.parse(current.updatedAt) : Number.NEGATIVE_INFINITY;
-    const candidateTime = Date.parse(candidate.updatedAt);
-
-    if (!current || candidateTime >= currentTime || !Number.isFinite(currentTime)) {
-      lookup.set(attractionDealId, candidate);
-    }
-  }
-
-  return lookup;
-}
-
 function resolveLossFields(
   row: DealRow,
   genericReasonValue: string | null,
   genericReasonDetail: string | null,
-  stageNameById: Map<string, string>,
-  linkedLeadgenLossLookup: Map<string, LinkedLeadgenLossContext>
+  returnReasonValue: string | null,
+  basketReasonValue: string | null,
+  stageNameById: Map<string, string>
 ) {
-  if (genericReasonValue || genericReasonDetail) {
-    return {
-      refusalReasonValue: genericReasonValue,
-      refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail)
-    };
-  }
-
-  const linked = linkedLeadgenLossLookup.get(row.ID);
-  if (!linked) {
-    return {
-      refusalReasonValue: genericReasonValue,
-      refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail)
-    };
-  }
-
   const stageName = stageNameById.get(row.STAGE_ID);
+
   if (isReturnLossStage(row.STAGE_ID, stageName)) {
     return {
-      refusalReasonValue: linked.returnReasonValue ?? genericReasonValue,
-      refusalReasonDetail: sanitizeRefusalReasonDetail(
-        linked.refusalReasonDetail ?? genericReasonDetail
-      )
+      refusalReasonValue: returnReasonValue ?? genericReasonValue,
+      refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail)
     };
   }
 
   if (isBasketLossStage(row.STAGE_ID, stageName)) {
     return {
-      refusalReasonValue: linked.basketReasonValue ?? genericReasonValue,
-      refusalReasonDetail: sanitizeRefusalReasonDetail(
-        linked.refusalReasonDetail ?? genericReasonDetail
-      )
+      refusalReasonValue: basketReasonValue ?? genericReasonValue,
+      refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail)
     };
   }
 
@@ -570,8 +458,9 @@ function mapDealRow(
   meetingTypeMap: Record<string, string>,
   conversionEventMap: Record<string, string>,
   refusalReasonMap: Record<string, string>,
+  attractionReturnReasonMap: Record<string, string>,
+  attractionBasketReasonMap: Record<string, string>,
   stageNameById: Map<string, string>,
-  linkedLeadgenLossLookup: Map<string, LinkedLeadgenLossContext>
 ): DealSnapshot {
   const normalizedQualityValue = normalizeMappedFieldValue(
     row[qualityFieldName],
@@ -610,12 +499,21 @@ function mapDealRow(
     row[ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME],
     {}
   );
+  const returnReasonValue = normalizeMappedFieldValue(
+    row[ATTRACTION_RETURN_REASON_FIELD_NAME],
+    attractionReturnReasonMap
+  );
+  const basketReasonValue = normalizeMappedFieldValue(
+    row[ATTRACTION_BASKET_REASON_FIELD_NAME],
+    attractionBasketReasonMap
+  );
   const resolvedLossFields = resolveLossFields(
     row,
     genericReasonValue,
     genericReasonDetail,
-    stageNameById,
-    linkedLeadgenLossLookup
+    returnReasonValue,
+    basketReasonValue,
+    stageNameById
   );
 
   return {
@@ -640,55 +538,6 @@ function mapDealRow(
     refusalReasonDetail: sanitizeRefusalReasonDetail(
       resolvedLossFields.refusalReasonDetail
     ),
-    dateCreate: row.DATE_CREATE,
-    dateModify: row.DATE_MODIFY,
-    dateClosed: row.DATE_CLOSED ?? null,
-    utmSource: row.UTM_SOURCE,
-    utmMedium: row.UTM_MEDIUM,
-    utmCampaign: row.UTM_CAMPAIGN,
-    utmContent: row.UTM_CONTENT,
-    utmTerm: row.UTM_TERM
-  };
-}
-
-function mapLeadgenDealRow(
-  row: DealRow,
-  returnReasonMap: Record<string, string>,
-  basketReasonMap: Record<string, string>
-): DealSnapshot {
-  const returnReasonValue = normalizeMappedFieldValue(
-    row[LEADGEN_US_RETURN_REASON_FIELD_NAME],
-    returnReasonMap
-  );
-  const basketReasonValue = normalizeMappedFieldValue(
-    row[LEADGEN_US_BASKET_REASON_FIELD_NAME],
-    basketReasonMap
-  );
-  const genericReasonDetail = normalizeMappedFieldValue(
-    row[ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME],
-    {}
-  );
-
-  return {
-    id: row.ID,
-    title: null,
-    contactId: null,
-    leadId: null,
-    categoryId: row.CATEGORY_ID,
-    stageId: row.STAGE_ID,
-    stageSemanticId: row.STAGE_SEMANTIC_ID,
-    opportunity: row.OPPORTUNITY,
-    assignedById: row.ASSIGNED_BY_ID,
-    sourceId: row.SOURCE_ID,
-    qualityValue: null,
-    businessClubValue: null,
-    targetGroupValue: null,
-    meetingTypeValue: null,
-    meetingDateValue: null,
-    tariffValue: null,
-    conversionEventValue: null,
-    refusalReasonValue: returnReasonValue ?? basketReasonValue,
-    refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail),
     dateCreate: row.DATE_CREATE,
     dateModify: row.DATE_MODIFY,
     dateClosed: row.DATE_CLOSED ?? null,
@@ -1446,15 +1295,7 @@ export async function performManualSync(
         startedAt
       })
     );
-    const leadgenCategoryId = input.leadgenCategoryId ?? LEADGEN_US_CATEGORY_ID;
-    const leadgenManagerIds: string[] = [];
-    const shouldSyncLeadgen = false;
-    const dealStageCategoryIds = Array.from(
-      new Set([
-        ...input.categoryIds,
-        ...(shouldSyncLeadgen ? [leadgenCategoryId] : [])
-      ])
-    );
+    const dealStageCategoryIds = input.categoryIds;
     const getCachedCatalog = async (entityType: StageCatalogEntry["entityType"]) =>
       input.repository.getStageCatalog
         ? (await input.repository.getStageCatalog()).filter((entry) =>
@@ -1522,14 +1363,15 @@ export async function performManualSync(
       ...(input.meetingDateFieldName ? [input.meetingDateFieldName] : []),
       ...(conversionEventDealFieldName ? [conversionEventDealFieldName] : []),
       ATTRACTION_REFUSAL_REASON_FIELD_NAME,
-      ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME
+      ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
+      ATTRACTION_RETURN_REASON_FIELD_NAME,
+      ATTRACTION_BASKET_REASON_FIELD_NAME
     ];
     const [
       dealStages,
       sourceCatalog,
       deltaDealRows,
       scopeExpansionDealRows,
-      leadgenDealRows,
       conversionEventVisits
     ] = await Promise.all([
       fetchDealStages,
@@ -1548,19 +1390,6 @@ export async function performManualSync(
             assignedByIds: scopeExpansionAssignedByIds,
             qualityFieldName: input.qualityFieldName,
             customFieldNames: dealCustomFieldNames
-          })
-        : Promise.resolve([]),
-      shouldSyncLeadgen
-        ? input.client.listDeals({
-            modifiedAfter: dealModifiedAfter,
-            categoryIds: [leadgenCategoryId],
-            assignedByIds: leadgenManagerIds,
-            customFieldNames: [
-              LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME,
-              ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
-              LEADGEN_US_RETURN_REASON_FIELD_NAME,
-              LEADGEN_US_BASKET_REASON_FIELD_NAME
-            ]
           })
         : Promise.resolve([]),
       input.client.listConversionEventVisits
@@ -1588,13 +1417,7 @@ export async function performManualSync(
       const assignedById = normalizeString(row.ASSIGNED_BY_ID);
       return Boolean(assignedById && assignedByIdSet.has(assignedById));
     });
-    const leadgenAssignedByIdSet = new Set(leadgenManagerIds);
-    const scopedLeadgenDealRows = leadgenDealRows.filter((row) => {
-      const assignedById = normalizeString(row.ASSIGNED_BY_ID);
-      return Boolean(assignedById && leadgenAssignedByIdSet.has(assignedById));
-    });
     const shouldMapDealRows = dealRows.length > 0;
-    const shouldMapLeadgenRows = scopedLeadgenDealRows.length > 0;
     const [
       qualityMap,
       tariffMap,
@@ -1604,8 +1427,8 @@ export async function performManualSync(
       conversionEventMap,
       legacyContactTargetGroupMap,
       refusalReasonMap,
-      leadgenReturnReasonMap,
-      leadgenBasketReasonMap
+      attractionReturnReasonMap,
+      attractionBasketReasonMap
     ] = await Promise.all([
       shouldMapDealRows
         ? input.client.fetchDealQualityMap(input.qualityFieldName)
@@ -1645,11 +1468,11 @@ export async function performManualSync(
       shouldMapDealRows && input.client.fetchDealFieldValueMap
         ? input.client.fetchDealFieldValueMap(ATTRACTION_REFUSAL_REASON_FIELD_NAME)
         : Promise.resolve({}),
-      shouldMapLeadgenRows && input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(LEADGEN_US_RETURN_REASON_FIELD_NAME)
+      shouldMapDealRows && input.client.fetchDealFieldValueMap
+        ? input.client.fetchDealFieldValueMap(ATTRACTION_RETURN_REASON_FIELD_NAME)
         : Promise.resolve({}),
-      shouldMapLeadgenRows && input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(LEADGEN_US_BASKET_REASON_FIELD_NAME)
+      shouldMapDealRows && input.client.fetchDealFieldValueMap
+        ? input.client.fetchDealFieldValueMap(ATTRACTION_BASKET_REASON_FIELD_NAME)
         : Promise.resolve({})
     ]);
 
@@ -1688,11 +1511,6 @@ export async function performManualSync(
       })
     );
     const stageNameById = buildStageNameById(dealStages);
-    const linkedLeadgenLossLookup = buildLinkedLeadgenLossLookup(
-      scopedLeadgenDealRows,
-      leadgenReturnReasonMap,
-      leadgenBasketReasonMap
-    );
     const deals = dealRows.map((row) =>
       mapDealRow(
         row,
@@ -1711,16 +1529,12 @@ export async function performManualSync(
         meetingTypeMap,
         conversionEventMap,
         refusalReasonMap,
+        attractionReturnReasonMap,
+        attractionBasketReasonMap,
         stageNameById,
-        linkedLeadgenLossLookup
       )
     );
-    const leadgenDeals = scopedLeadgenDealRows.map((row) =>
-      mapLeadgenDealRow(row, leadgenReturnReasonMap, leadgenBasketReasonMap)
-    );
-    const dealsToPersist = Array.from(
-      new Map([...deals, ...leadgenDeals].map((deal) => [deal.id, deal])).values()
-    );
+    const dealsToPersist = deals;
     const scopeExpansionAssignedByIdSet = new Set(scopeExpansionAssignedByIds);
     const scopeExpansionDealIds = deals
       .filter(
@@ -2106,7 +1920,6 @@ export async function performManualSync(
       new Set(
         [
           ...dealRows.map((row) => row.ASSIGNED_BY_ID),
-          ...scopedLeadgenDealRows.map((row) => row.ASSIGNED_BY_ID),
           ...activities.map((row) => row.responsibleId),
           ...callRows.map((row) => row.PORTAL_USER_ID)
         ]
@@ -2138,7 +1951,7 @@ export async function performManualSync(
     };
     const nextDealCursor = advanceCursorThroughWindow(
       dealCursor,
-      [...dealRows, ...scopedLeadgenDealRows].map((row) => row.DATE_MODIFY),
+      dealRows.map((row) => row.DATE_MODIFY),
       startedAt
     );
     const nextActivityCursor = advanceCursorThroughWindow(
@@ -2158,8 +1971,6 @@ export async function performManualSync(
       `callStatsOwners=${callStatsOwnerIds.length}`,
       `scopeExpansionManagers=${scopeExpansionAssignedByIds.length}`,
       `scopeExpansionDeals=${scopeExpansionDealIds.length}`,
-      `leadgenDeals=${leadgenDeals.length}`,
-      `leadgenManagers=${leadgenManagerIds.length}`,
       `conversionEventVisits=${conversionEventVisits.length}`,
       `conversionEventVisitsCoverage=${
         shouldBootstrapConversionEventVisits ? "backfill" : "delta"

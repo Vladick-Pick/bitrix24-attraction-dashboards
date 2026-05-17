@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { performLeadgenSync } from "../src/domain/leadgen-sync";
+import { buildAcquisitionOutcomesReport } from "../src/domain/operational-reports";
 import { performManualSync } from "../src/domain/sync";
 
 describe("performManualSync", () => {
@@ -434,7 +435,7 @@ describe("performManualSync", () => {
         }
 
         if (
-          fieldName === "UF_CRM_1758715585" ||
+          fieldName === "UF_CRM_1776949411825" ||
           fieldName === "UF_CRM_1772109151192"
         ) {
           return {};
@@ -484,7 +485,9 @@ describe("performManualSync", () => {
           "UF_CRM_MEETING_DATE",
           "UF_CRM_EVENT_OF",
           "UF_CRM_1647422744",
-          "UF_CRM_1647422890"
+          "UF_CRM_1647422890",
+          "UF_CRM_1776949411825",
+          "UF_CRM_1772109151192"
         ]);
         return [
           {
@@ -742,10 +745,11 @@ describe("performManualSync", () => {
     });
   });
 
-  it("keeps attraction sync scoped to attraction even when leadgen settings exist", async () => {
+  it("keeps attraction sync scoped to attraction without requesting leadgen lookup data", async () => {
     const listDealRequests: Array<{
       categoryIds: string[];
       assignedByIds?: string[];
+      customFieldNames?: string[];
     }> = [];
     const storedDeals: unknown[][] = [];
     let requestedStageCategories: string[] = [];
@@ -791,21 +795,13 @@ describe("performManualSync", () => {
             name: "Новая сделка",
             semanticId: "P",
             sortOrder: 10
-          },
-          {
-            entityType: "deal" as const,
-            categoryId: "28",
-            statusId: "C28:NEW",
-            name: "Новый лид",
-            semanticId: "P",
-            sortOrder: 10
           }
         ];
       },
       fetchSourceCatalog: async () => [],
       fetchDealQualityMap: async () => ({}),
       fetchDealFieldValueMap: async (fieldName: string) => {
-        if (fieldName === "UF_CRM_1758715585") {
+        if (fieldName === "UF_CRM_1776949411825") {
           return { R1: "Возврат" };
         }
 
@@ -818,11 +814,19 @@ describe("performManualSync", () => {
       listDeals: async (cursor: {
         categoryIds: string[];
         assignedByIds?: string[];
+        customFieldNames?: string[];
       }) => {
         listDealRequests.push({
           categoryIds: cursor.categoryIds,
-          ...(cursor.assignedByIds ? { assignedByIds: cursor.assignedByIds } : {})
+          ...(cursor.assignedByIds ? { assignedByIds: cursor.assignedByIds } : {}),
+          ...(cursor.customFieldNames
+            ? { customFieldNames: cursor.customFieldNames }
+            : {})
         });
+
+        if (cursor.categoryIds[0] === "28") {
+          throw new Error("Attraction sync must not request leadgen category 28");
+        }
 
         expect(cursor.categoryIds).toEqual(["10"]);
         return [
@@ -857,8 +861,6 @@ describe("performManualSync", () => {
       client,
       repository: repo,
       categoryIds: ["10"],
-      leadgenCategoryId: "28",
-      leadgenManagerIds: ["501", "502"],
       qualityFieldName: "UF_CRM_1730380390",
       now: () => "2026-05-14T00:00:00.000Z"
     });
@@ -876,6 +878,13 @@ describe("performManualSync", () => {
           "72",
           "2236",
           "2764"
+        ],
+        customFieldNames: [
+          "UF_CRM_1730380390",
+          "UF_CRM_1647422744",
+          "UF_CRM_1647422890",
+          "UF_CRM_1776949411825",
+          "UF_CRM_1772109151192"
         ]
       })
     ]);
@@ -1222,7 +1231,11 @@ describe("performManualSync", () => {
       fetchSourceCatalog: async () => [],
       fetchDealQualityMap: async () => ({}),
       fetchDealFieldValueMap: async (fieldName: string) => {
-        if (fieldName === "UF_CRM_1647422744") {
+        if (
+          fieldName === "UF_CRM_1647422744" ||
+          fieldName === "UF_CRM_1776949411825" ||
+          fieldName === "UF_CRM_1772109151192"
+        ) {
           return {};
         }
 
@@ -1335,7 +1348,11 @@ describe("performManualSync", () => {
       fetchSourceCatalog: async () => [],
       fetchDealQualityMap: async () => ({}),
       fetchDealFieldValueMap: async (fieldName: string) => {
-        if (fieldName === "UF_CRM_1647422744") {
+        if (
+          fieldName === "UF_CRM_1647422744" ||
+          fieldName === "UF_CRM_1776949411825" ||
+          fieldName === "UF_CRM_1772109151192"
+        ) {
           return {};
         }
 
@@ -1518,7 +1535,7 @@ describe("performManualSync", () => {
           return { "182": "Общая причина" };
         }
 
-        if (fieldName === "UF_CRM_1758715585") {
+        if (fieldName === "UF_CRM_1776949411825") {
           return { "301": "Не соответствует критериям" };
         }
 
@@ -1593,7 +1610,7 @@ describe("performManualSync", () => {
         expect(cursor.customFieldNames).toEqual([
           "UF_CRM_1730360968",
           "UF_CRM_1647422890",
-          "UF_CRM_1758715585",
+          "UF_CRM_1776949411825",
           "UF_CRM_1772109151192"
         ]);
 
@@ -1662,7 +1679,9 @@ describe("performManualSync", () => {
         customFieldNames: [
           "UF_CRM_1730380390",
           "UF_CRM_1647422744",
-          "UF_CRM_1647422890"
+          "UF_CRM_1647422890",
+          "UF_CRM_1776949411825",
+          "UF_CRM_1772109151192"
         ]
       }
     ]);
@@ -1680,6 +1699,304 @@ describe("performManualSync", () => {
         })
       ]
     ]);
+  });
+
+  it("resolves attraction basket and confirmed return loss reasons from attraction dictionaries without leadgen lookup", async () => {
+    const storedDeals: unknown[][] = [];
+    const dealRequests: Array<{ categoryIds: string[]; customFieldNames?: string[] }> = [];
+    const fieldMapRequests: string[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => null,
+      getOperationalHistoryBootstrappedAt: async () => null,
+      getCallHistoryBootstrappedAt: async () => null,
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      getActivitySnapshotCount: async () => 0,
+      getDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async (rows: unknown[]) => {
+        storedDeals.push(rows);
+        return rows.length;
+      },
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 66,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      setSyncCursor: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:LOSE",
+          name: "Корзина",
+          semanticId: "F",
+          sortOrder: 90
+        },
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:UC_EA3R76",
+          name: "Возврат в Лидген(неквал)",
+          semanticId: "F",
+          sortOrder: 100
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Сайт",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async (fieldName: string) => {
+        fieldMapRequests.push(fieldName);
+        if (fieldName === "UF_CRM_1647422744") {
+          return {};
+        }
+
+        if (fieldName === "UF_CRM_1776949411825") {
+          return { "901": "Возврат: санитарная причина" };
+        }
+
+        if (fieldName === "UF_CRM_1772109151192") {
+          return { "401": "Перестал выходить на связь" };
+        }
+
+        throw new Error(`Unexpected field map request: ${fieldName}`);
+      },
+      listDeals: async (cursor: {
+        modifiedAfter: string | null;
+        categoryIds: string[];
+        customFieldNames?: string[];
+      }) => {
+        dealRequests.push({
+          categoryIds: cursor.categoryIds,
+          ...(cursor.customFieldNames
+            ? { customFieldNames: cursor.customFieldNames }
+            : {})
+        });
+
+        if (cursor.categoryIds[0] === "10") {
+          return [
+            {
+              ID: "A_LOSE",
+              LEAD_ID: null,
+              DATE_CREATE: "2026-05-08T10:00:00.000Z",
+              DATE_MODIFY: "2026-05-08T10:00:00.000Z",
+              DATE_CLOSED: "2026-05-08T10:00:00.000Z",
+              CATEGORY_ID: "10",
+              STAGE_ID: "C10:LOSE",
+              STAGE_SEMANTIC_ID: "F",
+              OPPORTUNITY: null,
+              ASSIGNED_BY_ID: "78",
+              SOURCE_ID: "WEB",
+              UF_CRM_1772109151192: "401",
+              UTM_SOURCE: null,
+              UTM_MEDIUM: null,
+              UTM_CAMPAIGN: null,
+              UTM_CONTENT: null,
+              UTM_TERM: null
+            },
+            {
+              ID: "156080",
+              LEAD_ID: null,
+              DATE_CREATE: "2026-05-09T10:00:00.000Z",
+              DATE_MODIFY: "2026-05-09T10:00:00.000Z",
+              DATE_CLOSED: "2026-05-09T10:00:00.000Z",
+              CATEGORY_ID: "10",
+              STAGE_ID: "C10:UC_EA3R76",
+              STAGE_SEMANTIC_ID: "F",
+              OPPORTUNITY: null,
+              ASSIGNED_BY_ID: "78",
+              SOURCE_ID: "WEB",
+              UF_CRM_1776949411825: "901",
+              UTM_SOURCE: null,
+              UTM_MEDIUM: null,
+              UTM_CAMPAIGN: null,
+              UTM_CONTENT: null,
+              UTM_TERM: null
+            },
+            {
+              ID: "156184",
+              LEAD_ID: null,
+              DATE_CREATE: "2026-05-10T10:00:00.000Z",
+              DATE_MODIFY: "2026-05-10T10:00:00.000Z",
+              DATE_CLOSED: "2026-05-10T10:00:00.000Z",
+              CATEGORY_ID: "10",
+              STAGE_ID: "C10:UC_EA3R76",
+              STAGE_SEMANTIC_ID: "F",
+              OPPORTUNITY: null,
+              ASSIGNED_BY_ID: "78",
+              SOURCE_ID: "WEB",
+              UF_CRM_1776949411825: "901",
+              UTM_SOURCE: null,
+              UTM_MEDIUM: null,
+              UTM_CAMPAIGN: null,
+              UTM_CONTENT: null,
+              UTM_TERM: null
+            },
+            {
+              ID: "156194",
+              LEAD_ID: null,
+              DATE_CREATE: "2026-05-11T10:00:00.000Z",
+              DATE_MODIFY: "2026-05-11T10:00:00.000Z",
+              DATE_CLOSED: "2026-05-11T10:00:00.000Z",
+              CATEGORY_ID: "10",
+              STAGE_ID: "C10:UC_EA3R76",
+              STAGE_SEMANTIC_ID: "F",
+              OPPORTUNITY: null,
+              ASSIGNED_BY_ID: "78",
+              SOURCE_ID: "WEB",
+              UF_CRM_1776949411825: "901",
+              UTM_SOURCE: null,
+              UTM_MEDIUM: null,
+              UTM_CAMPAIGN: null,
+              UTM_CONTENT: null,
+              UTM_TERM: null
+            },
+            {
+              ID: "156306",
+              LEAD_ID: null,
+              DATE_CREATE: "2026-05-12T10:00:00.000Z",
+              DATE_MODIFY: "2026-05-12T10:00:00.000Z",
+              DATE_CLOSED: "2026-05-12T10:00:00.000Z",
+              CATEGORY_ID: "10",
+              STAGE_ID: "C10:UC_EA3R76",
+              STAGE_SEMANTIC_ID: "F",
+              OPPORTUNITY: null,
+              ASSIGNED_BY_ID: "78",
+              SOURCE_ID: "WEB",
+              UF_CRM_1776949411825: "901",
+              UTM_SOURCE: null,
+              UTM_MEDIUM: null,
+              UTM_CAMPAIGN: null,
+              UTM_CONTENT: null,
+              UTM_TERM: null
+            }
+          ];
+        }
+
+        throw new Error(`Unexpected deal category request: ${cursor.categoryIds.join(",")}`);
+      },
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-10T00:00:00.000Z"
+    });
+
+    expect(dealRequests.map((request) => request.categoryIds)).toEqual([
+      ["10"]
+    ]);
+    expect(dealRequests[0]?.customFieldNames).toEqual([
+      "UF_CRM_1730380390",
+      "UF_CRM_1647422744",
+      "UF_CRM_1647422890",
+      "UF_CRM_1776949411825",
+      "UF_CRM_1772109151192"
+    ]);
+    expect(fieldMapRequests).toEqual([
+      "UF_CRM_1647422744",
+      "UF_CRM_1776949411825",
+      "UF_CRM_1772109151192"
+    ]);
+    expect(storedDeals).toEqual([
+      [
+        expect.objectContaining({
+          id: "A_LOSE",
+          categoryId: "10",
+          refusalReasonValue: "Перестал выходить на связь"
+        }),
+        expect.objectContaining({
+          id: "156080",
+          categoryId: "10",
+          refusalReasonValue: "Возврат: санитарная причина"
+        }),
+        expect.objectContaining({
+          id: "156184",
+          categoryId: "10",
+          refusalReasonValue: "Возврат: санитарная причина"
+        }),
+        expect.objectContaining({
+          id: "156194",
+          categoryId: "10",
+          refusalReasonValue: "Возврат: санитарная причина"
+        }),
+        expect.objectContaining({
+          id: "156306",
+          categoryId: "10",
+          refusalReasonValue: "Возврат: санитарная причина"
+        })
+      ]
+    ]);
+
+    const report = buildAcquisitionOutcomesReport({
+      range: {
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-17T23:59:59.999Z"
+      },
+      deals: storedDeals[0] as Parameters<typeof buildAcquisitionOutcomesReport>[0]["deals"],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:LOSE",
+          name: "Корзина",
+          semanticId: "F",
+          sortOrder: 90
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:UC_EA3R76",
+          name: "Возврат в Лидген(неквал)",
+          semanticId: "F",
+          sortOrder: 100
+        }
+      ],
+      stageHistory: [],
+      managerDirectory: [{ id: "78", name: "Егоров Андрей" }]
+    });
+
+    expect(report.topLossReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stageId: "C10:UC_EA3R76",
+          stageName: "Возврат в Лидген(неквал)",
+          reasonLabel: "Возврат: санитарная причина",
+          count: 4
+        }),
+        expect.objectContaining({
+          stageId: "C10:LOSE",
+          stageName: "Корзина",
+          reasonLabel: "Перестал выходить на связь",
+          count: 1
+        })
+      ])
+    );
   });
 
   it("bootstraps the full operational history once even during a delta deal sync", async () => {
@@ -2426,6 +2743,13 @@ describe("performManualSync", () => {
           return {};
         }
 
+        if (
+          fieldName === "UF_CRM_1776949411825" ||
+          fieldName === "UF_CRM_1772109151192"
+        ) {
+          return {};
+        }
+
         throw new Error(`Unexpected field map request: ${fieldName}`);
       },
       listDeals: async (cursor: {
@@ -2440,7 +2764,9 @@ describe("performManualSync", () => {
           "UF_CRM_1747682957",
           "UF_CRM_1669784114991",
           "UF_CRM_1647422744",
-          "UF_CRM_1647422890"
+          "UF_CRM_1647422890",
+          "UF_CRM_1776949411825",
+          "UF_CRM_1772109151192"
         ]);
 
         return [
@@ -2564,7 +2890,11 @@ describe("performManualSync", () => {
       fetchSourceCatalog: async () => [],
       fetchDealQualityMap: async () => ({}),
       fetchDealFieldValueMap: async (fieldName: string) => {
-        if (fieldName === "UF_CRM_1647422744") {
+        if (
+          fieldName === "UF_CRM_1647422744" ||
+          fieldName === "UF_CRM_1776949411825" ||
+          fieldName === "UF_CRM_1772109151192"
+        ) {
           return {};
         }
 
@@ -2581,7 +2911,9 @@ describe("performManualSync", () => {
           "UF_CRM_1730380390",
           "UF_CRM_MEETING_DATE",
           "UF_CRM_1647422744",
-          "UF_CRM_1647422890"
+          "UF_CRM_1647422890",
+          "UF_CRM_1776949411825",
+          "UF_CRM_1772109151192"
         ]);
 
         return [

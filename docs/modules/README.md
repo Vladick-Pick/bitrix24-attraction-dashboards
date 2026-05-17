@@ -25,3 +25,12 @@ Current modules:
 - `leadgen`: `docs/modules/leadgen/MODULE_ONTOLOGY.md`
 
 Use `docs/modules/attraction/MODULE_ONTOLOGY.md` as the V1 platform example, but do not force new modules into the attraction UI or report semantics. `leadgen` has its own funnel, manager whitelist, report registry, and Paperclip context.
+
+Paperclip uses one company and one shared GitHub repository, but module-specific
+projects for dashboard-comment routing:
+
+- `attraction` -> `Attraction Dashboard`
+- `leadgen` -> `Leadgen Dashboard`
+
+Weekly manager routines are company-level and should not be attached to either
+module project.

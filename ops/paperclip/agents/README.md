@@ -9,8 +9,9 @@ The live company is the runtime source of truth. This repo is the reviewable rec
 - Company: `d3d17397-0250-40f8-a9d6-507b14f38538`
 - Issue prefix: `BIT`
 - Goal: `Operate Bitrix24 dashboard modules`
-- Project: `Attraction Dashboard`
-- Leadgen project: configured by `PAPERCLIP_LEADGEN_PROJECT_ID` when available
+- GitHub source: one repository, `Vladick-Pick/bitrix24-attraction-dashboards`
+- Module project: `attraction` -> `Attraction Dashboard` (`c72f6e08-5483-4e15-8f7d-d33a2c8df4cf`)
+- Module project: `leadgen` -> `Leadgen Dashboard` (`84f6b163-c73a-4e19-8837-a545e9d11ee6`)
 - Workflow lane: `Dashboard Comment Intake`
 - Primary workspace: `https://github.com/Vladick-Pick/bitrix24-attraction-dashboards.git`, default ref `main`
 
@@ -34,6 +35,18 @@ Current model policy:
 - intake service: `gpt-5.5`, `low`, heartbeat disabled
 
 All worker heartbeats are configured to run hourly with on-demand wake enabled, one concurrent run per agent. Live status must still be checked in Paperclip because adapter errors, credential gaps, or subscription limits can pause execution.
+
+The manager heartbeat is a single hourly wake checklist. Paperclip `Routines` are separate recurring issue definitions, not heartbeat steps; weekly and batch quality work must be represented as visible routine-created issues.
+
+The `Dashboard Engineering Manager` desired runtime skills include `DenisSergeevitch/agents-best-practices` for agent harness, observability, eval, skill/MCP, permission, context, and feedback-loop design.
+
+Expected manager routines are company-level, not module-project tasks. Their
+live `projectId` must stay empty so they review the whole dashboard team across
+`attraction`, `leadgen`, and future modules:
+
+- `Еженедельный отчет по качеству команды`: Monday 09:00 `Europe/Istanbul`, assigned to `Dashboard Engineering Manager`.
+- `Еженедельный аудит инструментов команды`: Monday 10:00 `Europe/Istanbul`, assigned to `Dashboard Engineering Manager`.
+- `Еженедельное предложение улучшений команды`: Monday 11:00 `Europe/Istanbul`, assigned to `Dashboard Engineering Manager`; requires board approval before any team/process/tool/runtime change is applied.
 
 ## Role Topology
 

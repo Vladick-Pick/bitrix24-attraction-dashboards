@@ -106,6 +106,8 @@ For user-reported regressions, `spec.md` and `evidence.md` must include the sani
 
 If the user-visible result depends on a design/product decision, the assignee must pause and ask the board/owner with a concrete recommendation or choice set. Examples: whether an out-of-timeline meeting date should attach to a semantic stage, render a warning, or be hidden. The decision and owner response must be included in the final handoff.
 
+Every final handoff must start with a short `Для пользователя` section in Russian that a non-developer can understand. Keep it concise: what changed, why it was wrong before, how it works now, and whether anything remains at risk. Put technical details, test commands, file names, PR links, and trace/tool evidence only after that under `Технически` or in the machine-readable artifacts.
+
 ## Bitrix Read-Only Data Proof Gate
 
 For any data-correctness issue involving Bitrix CRM fields, stages, custom fields, manager scope, local snapshot coverage, sync behavior, or report semantics, the assignee must gather a read-only Bitrix proof before implementation is considered ready.

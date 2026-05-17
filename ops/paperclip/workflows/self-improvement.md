@@ -25,6 +25,24 @@ flowchart TD
 
 ## Self-Improvement Review
 
+Run this through Paperclip `Routines` that create concrete weekly issues for
+the manager. Do not put this work into `HEARTBEAT.md`. The heartbeat is only the
+hourly wake checklist; routines are scheduled auditable tasks.
+
+The weekly sequence is:
+
+```text
+Еженедельный отчет по качеству команды
+  -> Еженедельный аудит инструментов команды
+  -> Еженедельное предложение улучшений команды
+  -> board approval
+  -> normal implementation issues for approved changes
+```
+
+The report and proposal must be in Russian. The proposal asks the board to
+approve or reject improvements before any instruction, workflow, skill, MCP,
+runtime config, test/eval, or team-topology change is applied.
+
 Check:
 
 - proof-loop completeness;
@@ -36,7 +54,14 @@ Check:
 - module ontology gaps;
 - agent role overload;
 - cost and latency.
+- recent trace/tool-call quality;
+- false `ready` or unsupported completion claims;
+- dashboard status/comment sync gaps;
+- user-facing report quality;
+- repeated failure classes from `manager-ops-review.md`.
 
 ## Output
 
-The output is a proposal or PR. Agents must not silently rewrite team rules or add tools/agents without review.
+The output is a report, approval proposal, or implementation issue after
+approval. Agents must not silently rewrite team rules, add tools, remove tools,
+or change live runtime config without board approval.

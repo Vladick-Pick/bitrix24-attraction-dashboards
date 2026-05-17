@@ -45,3 +45,5 @@ Runtime changes should be:
 - `proof-loop.md`: required task evidence contract.
 - `team-growth.md`: when to add, split, pause, or remove agents/tools.
 - `metrics.md`: quality and reliability metrics for the agent team.
+- `workflows/manager-ops-review.md`: manager hourly heartbeat operational sweep.
+- `workflows/manager-routines.md`: manager scheduled Paperclip routines such as weekly team-quality reports.

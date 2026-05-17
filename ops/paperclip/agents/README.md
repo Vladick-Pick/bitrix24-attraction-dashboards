@@ -22,6 +22,11 @@ The live company is the runtime source of truth. This repo is the reviewable rec
 - `pre-merge-reviewer` -> `a18581ef-7247-4236-a9c9-caae998478c0`
 - `dashboard-intake-service` -> `78f363d2-d859-4994-b684-e9fc2e75d676`
 
+Legacy draft aliases from the first dashboard-comments worktree are preserved under `_legacy/` for audit only:
+
+- `dashboard-triage-agent` -> current `dashboard-engineering-manager`
+- `dashboard-intake-agent` -> current `dashboard-intake-service`
+
 Current model policy:
 
 - manager/reviewer: `gpt-5.5`, `xhigh`

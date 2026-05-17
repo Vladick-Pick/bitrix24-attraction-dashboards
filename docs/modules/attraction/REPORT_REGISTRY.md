@@ -13,7 +13,7 @@
 Reason dictionary semantics:
 
 - `Корзина` attraction loss rows resolve through the attraction basket/lost reason list in `UF_CRM_1772109151192`, with legacy fallback to `UF_CRM_1647422744` when the destination-specific field is empty.
-- `Возврат` attraction loss rows resolve through the attraction return reason list in `UF_CRM_1758715585`, with legacy fallback to `UF_CRM_1647422744` when the destination-specific field is empty.
+- `Возврат` attraction loss rows resolve through the attraction return reason list in `UF_CRM_1776949411825` (`Причина отказа (Привлечение Возврат в Лидген)`), with legacy fallback to `UF_CRM_1647422744` when the destination-specific field is empty.
 - The attraction report must not read leadgen category `28`, leadgen reason dictionaries, or the leadgen manager whitelist to resolve this table.
 
 Privacy and module boundaries:

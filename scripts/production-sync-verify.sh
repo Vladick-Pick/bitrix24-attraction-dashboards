@@ -113,7 +113,7 @@ login_and_sync() {
   csrf_file="$(mktemp)"
   body_file="$(mktemp)"
   sync_file="$(mktemp)"
-  trap 'rm -f "$cookie_file" "$csrf_file" "$body_file" "$sync_file"' RETURN
+  trap "rm -f '$cookie_file' '$csrf_file' '$body_file' '$sync_file'" RETURN
 
   if [ ! -r "$ADMIN_PASSWORD_FILE" ]; then
     printf 'Admin password file is not readable: %s\n' "$ADMIN_PASSWORD_FILE" >&2
@@ -179,7 +179,7 @@ verify_snapshot() {
     -e "PROD_VERIFY_ISSUE=$PAPERCLIP_ISSUE" \
     -e "PROD_VERIFY_MODULE=$MODULE" \
     "$container" \
-    sh -lc 'cd /app/apps/api && node --input-type=module' <<'NODE'
+    sh -lc 'cd /app/apps/api && node --input-type=module -' <<'NODE'
 import Database from "better-sqlite3";
 
 const ids = String(process.env.PROD_VERIFY_DEAL_IDS ?? "")

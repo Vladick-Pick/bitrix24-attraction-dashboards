@@ -19,10 +19,6 @@ log() {
   printf '[production-sync-verify] %s\n' "$*" >&2
 }
 
-json_string() {
-  node -e 'process.stdout.write(JSON.stringify(process.argv[1] ?? ""))' "$1"
-}
-
 validate_inputs() {
   if [[ ! "$PAPERCLIP_ISSUE" =~ ^BIT-[0-9]+$ ]]; then
     printf 'Invalid PAPERCLIP_ISSUE\n' >&2
@@ -104,7 +100,14 @@ make_backup() {
   log "backup created: $backup"
 }
 
+container_node() {
+  local container="$1"
+  shift
+  docker exec -i "$container" node "$@"
+}
+
 login_and_sync() {
+  local container="$1"
   local cookie_file csrf_file body_file sync_file password login_json
   cookie_file="$(mktemp)"
   csrf_file="$(mktemp)"
@@ -118,11 +121,19 @@ login_and_sync() {
   fi
 
   password="$(tr -d '\r\n' < "$ADMIN_PASSWORD_FILE")"
-  login_json="$(node - "$ADMIN_LOGIN" "$password" <<'NODE'
-const [login, password] = process.argv.slice(2);
+  login_json="$(
+    {
+      printf '%s\n' "$ADMIN_LOGIN"
+      printf '%s' "$password"
+    } | container_node "$container" -e '
+const input = require("node:fs").readFileSync(0, "utf8");
+const separator = input.indexOf("\n");
+if (separator === -1) process.exit(2);
+const login = input.slice(0, separator);
+const password = input.slice(separator + 1);
 process.stdout.write(JSON.stringify({ login, password }));
-NODE
-)"
+'
+  )"
 
   curl -fsS \
     -c "$cookie_file" \
@@ -130,14 +141,13 @@ NODE
     --data-binary "$login_json" \
     "$PRODUCTION_URL/api/auth/login" > "$body_file"
 
-  node - "$body_file" > "$csrf_file" <<'NODE'
-const fs = require("node:fs");
-const body = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  container_node "$container" -e '
+const body = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
 if (!body.csrfToken) {
   process.exit(2);
 }
 process.stdout.write(body.csrfToken);
-NODE
+' < "$body_file" > "$csrf_file"
 
   curl -fsS \
     --max-time 900 \
@@ -147,9 +157,8 @@ NODE
     -X POST \
     "$PRODUCTION_URL/api/sync" > "$sync_file"
 
-  node - "$sync_file" <<'NODE'
-const fs = require("node:fs");
-const summary = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  container_node "$container" -e '
+const summary = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
 const sanitized = {
   syncRunId: summary.syncRunId ?? null,
   mode: summary.mode ?? null,
@@ -158,7 +167,7 @@ const sanitized = {
   diagnosticsCount: Array.isArray(summary.diagnostics) ? summary.diagnostics.length : 0
 };
 console.log(JSON.stringify({ sync: sanitized }, null, 2));
-NODE
+' < "$sync_file"
 }
 
 verify_snapshot() {
@@ -239,14 +248,11 @@ NODE
 }
 
 verify_health() {
-  curl -fsS "$PRODUCTION_URL/api/health" | node -e '
-let input = "";
-process.stdin.on("data", (chunk) => (input += chunk));
-process.stdin.on("end", () => {
-  const body = JSON.parse(input);
-  if (body.ok !== true) process.exit(2);
-  console.log(JSON.stringify({ health: "ok" }, null, 2));
-});
+  local container="$1"
+  curl -fsS "$PRODUCTION_URL/api/health" | container_node "$container" -e '
+const body = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+if (body.ok !== true) process.exit(2);
+console.log(JSON.stringify({ health: "ok" }, null, 2));
 '
 }
 
@@ -257,9 +263,9 @@ main() {
   container="$(resolve_container)"
   log "container: $container"
   make_backup
-  login_and_sync
+  login_and_sync "$container"
   verify_snapshot "$container"
-  verify_health
+  verify_health "$container"
 }
 
 main "$@"

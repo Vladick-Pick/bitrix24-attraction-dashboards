@@ -64,6 +64,17 @@ export interface AuthenticatedModule {
   paperclipTriageAgentId: string | null;
 }
 
+export interface ModuleDefinition {
+  id: string;
+  slug: string;
+  name: string;
+  bitrixCategoryId: string;
+  paperclipCompanyId: string | null;
+  paperclipProjectId: string | null;
+  paperclipGoalId: string | null;
+  paperclipTriageAgentId: string | null;
+}
+
 export interface ModuleUser {
   id: number;
   login: string;
@@ -76,6 +87,16 @@ export interface ModuleUser {
   membershipStatus: ModuleMembershipStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PlatformUser {
+  id: number;
+  login: string;
+  firstName: string | null;
+  lastName: string | null;
+  disabled: boolean;
+  isSuperAdmin: boolean;
+  memberships: ModuleUser[];
 }
 
 export interface AuthSession {
@@ -141,7 +162,18 @@ export interface SqliteAuthStore {
   ensureModule(input: ModuleSeedInput): Promise<void>;
   ensureDefaultModuleLeader(moduleId: string): Promise<void>;
   ensureDefaultSuperAdmin(): Promise<void>;
+  listModules(): Promise<ModuleDefinition[]>;
   listUserModules(userId: number): Promise<AuthenticatedModule[]>;
+  listPlatformUsers(): Promise<PlatformUser[]>;
+  replaceUserModuleMemberships(input: {
+    userId: number;
+    memberships: Array<{
+      moduleId: string;
+      role: ModuleRole;
+      status: ModuleMembershipStatus;
+    }>;
+    now?: Date;
+  }): Promise<PlatformUser | null>;
   setModuleMembership(input: {
     userId: number;
     moduleId: string;
@@ -444,6 +476,34 @@ function readAuthenticatedModule(row: unknown): AuthenticatedModule | null {
   };
 }
 
+function readModuleDefinition(row: unknown): ModuleDefinition | null {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const data = row as {
+    id: string;
+    slug: string;
+    name: string;
+    bitrixCategoryId: string;
+    paperclipCompanyId: string | null;
+    paperclipProjectId: string | null;
+    paperclipGoalId: string | null;
+    paperclipTriageAgentId: string | null;
+  };
+
+  return {
+    id: data.id,
+    slug: data.slug,
+    name: data.name,
+    bitrixCategoryId: data.bitrixCategoryId,
+    paperclipCompanyId: data.paperclipCompanyId ?? null,
+    paperclipProjectId: data.paperclipProjectId ?? null,
+    paperclipGoalId: data.paperclipGoalId ?? null,
+    paperclipTriageAgentId: data.paperclipTriageAgentId ?? null
+  };
+}
+
 function readModuleUser(row: unknown): ModuleUser | null {
   if (!row || typeof row !== "object") {
     return null;
@@ -475,6 +535,22 @@ function readModuleUser(row: unknown): ModuleUser | null {
     membershipStatus: normalizeModuleMembershipStatus(data.status),
     createdAt: data.createdAt,
     updatedAt: data.updatedAt
+  };
+}
+
+function readPlatformUser(row: unknown): Omit<PlatformUser, "memberships"> | null {
+  const user = readAuthUser(row);
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: user.id,
+    login: user.login,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    disabled: user.disabled,
+    isSuperAdmin: user.isSuperAdmin
   };
 }
 
@@ -727,6 +803,19 @@ export function createSqliteAuthStore(input: {
       AND module_memberships.status = 'active'
     ORDER BY modules.slug ASC
   `);
+  const listModulesStatement = database.prepare(`
+    SELECT
+      modules.id,
+      modules.slug,
+      modules.name,
+      modules.bitrix_category_id AS bitrixCategoryId,
+      modules.paperclip_company_id AS paperclipCompanyId,
+      modules.paperclip_project_id AS paperclipProjectId,
+      modules.paperclip_goal_id AS paperclipGoalId,
+      modules.paperclip_triage_agent_id AS paperclipTriageAgentId
+    FROM modules
+    ORDER BY modules.slug ASC
+  `);
   const listAllModulesForSuperAdminStatement = database.prepare(`
     SELECT
       modules.id,
@@ -740,6 +829,11 @@ export function createSqliteAuthStore(input: {
       modules.paperclip_triage_agent_id AS paperclipTriageAgentId
     FROM modules
     ORDER BY modules.slug ASC
+  `);
+  const listPlatformUsersStatement = database.prepare(`
+    SELECT id, login, first_name, last_name, password_hash, disabled, is_super_admin
+    FROM auth_users
+    ORDER BY login ASC
   `);
   const setModuleMembershipStatement = database.prepare(`
     INSERT INTO module_memberships (
@@ -780,6 +874,43 @@ export function createSqliteAuthStore(input: {
     INNER JOIN modules ON modules.id = module_memberships.module_id
     WHERE module_memberships.module_id = ?
     ORDER BY auth_users.login ASC
+  `);
+  const listAllModuleUsersStatement = database.prepare(`
+    SELECT
+      auth_users.id,
+      auth_users.login,
+      auth_users.first_name AS firstName,
+      auth_users.last_name AS lastName,
+      auth_users.disabled,
+      modules.id AS moduleId,
+      modules.slug AS moduleSlug,
+      module_memberships.role,
+      module_memberships.status,
+      module_memberships.created_at AS createdAt,
+      module_memberships.updated_at AS updatedAt
+    FROM module_memberships
+    INNER JOIN auth_users ON auth_users.id = module_memberships.user_id
+    INNER JOIN modules ON modules.id = module_memberships.module_id
+    ORDER BY auth_users.login ASC, modules.slug ASC
+  `);
+  const listModuleUsersByUserStatement = database.prepare(`
+    SELECT
+      auth_users.id,
+      auth_users.login,
+      auth_users.first_name AS firstName,
+      auth_users.last_name AS lastName,
+      auth_users.disabled,
+      modules.id AS moduleId,
+      modules.slug AS moduleSlug,
+      module_memberships.role,
+      module_memberships.status,
+      module_memberships.created_at AS createdAt,
+      module_memberships.updated_at AS updatedAt
+    FROM module_memberships
+    INNER JOIN auth_users ON auth_users.id = module_memberships.user_id
+    INNER JOIN modules ON modules.id = module_memberships.module_id
+    WHERE module_memberships.user_id = ?
+    ORDER BY modules.slug ASC
   `);
   const updateAuthUserByIdStatement = database.prepare(`
     UPDATE auth_users
@@ -853,6 +984,87 @@ export function createSqliteAuthStore(input: {
       updated_at = @updatedAt
     WHERE id = @userId
   `);
+
+  function listMembershipsForUser(userId: number) {
+    return listModuleUsersByUserStatement
+      .all(userId)
+      .map(readModuleUser)
+      .filter((user): user is ModuleUser => Boolean(user));
+  }
+
+  function getPlatformUser(userId: number): PlatformUser | null {
+    const user = readPlatformUser(findUserByIdStatement.get(userId));
+    if (!user) {
+      return null;
+    }
+
+    return {
+      ...user,
+      memberships: listMembershipsForUser(user.id)
+    };
+  }
+
+  const replaceUserModuleMembershipsTransaction = database.transaction(
+    (inputMemberships: {
+      userId: number;
+      memberships: Array<{
+        moduleId: string;
+        role: ModuleRole;
+        status: ModuleMembershipStatus;
+      }>;
+      now: Date;
+    }) => {
+      const user = readAuthUser(findUserByIdStatement.get(inputMemberships.userId));
+      if (!user) {
+        return false;
+      }
+
+      const nowIso = toIso(inputMemberships.now);
+      const modules = listModulesStatement
+        .all()
+        .map(readModuleDefinition)
+        .filter((module): module is ModuleDefinition => Boolean(module));
+      const moduleIds = new Set(modules.map((module) => module.id));
+      const requestedByModule = new Map(
+        inputMemberships.memberships.map((membership) => [
+          membership.moduleId,
+          membership
+        ])
+      );
+
+      for (const moduleId of requestedByModule.keys()) {
+        if (!moduleIds.has(moduleId)) {
+          throw new Error(`Unknown module id: ${moduleId}`);
+        }
+      }
+
+      const existingByModule = new Map(
+        listMembershipsForUser(inputMemberships.userId).map((membership) => [
+          membership.moduleId,
+          membership
+        ])
+      );
+
+      for (const module of modules) {
+        const requested = requestedByModule.get(module.id);
+        const existing = existingByModule.get(module.id);
+        if (!requested && !existing) {
+          continue;
+        }
+
+        setModuleMembershipStatement.run({
+          userId: inputMemberships.userId,
+          moduleId: module.id,
+          role: requested?.role ?? existing?.moduleRole ?? "employee",
+          status: requested?.status ?? "disabled",
+          createdAt: nowIso,
+          updatedAt: nowIso
+        });
+      }
+
+      return true;
+    }
+  );
 
   return {
     async createUser(inputUser) {
@@ -1018,6 +1230,12 @@ export function createSqliteAuthStore(input: {
         updatedAt: toIso(new Date())
       });
     },
+    async listModules() {
+      return listModulesStatement
+        .all()
+        .map(readModuleDefinition)
+        .filter((module): module is ModuleDefinition => Boolean(module));
+    },
     async listUserModules(userId) {
       const user = readAuthUser(findUserByIdStatement.get(userId));
       if (user?.isSuperAdmin) {
@@ -1031,6 +1249,40 @@ export function createSqliteAuthStore(input: {
         .all(userId)
         .map(readAuthenticatedModule)
         .filter((module): module is AuthenticatedModule => Boolean(module));
+    },
+    async listPlatformUsers() {
+      const memberships = listAllModuleUsersStatement
+        .all()
+        .map(readModuleUser)
+        .filter((user): user is ModuleUser => Boolean(user));
+      const membershipsByUserId = new Map<number, ModuleUser[]>();
+      for (const membership of memberships) {
+        const existing = membershipsByUserId.get(membership.id) ?? [];
+        existing.push(membership);
+        membershipsByUserId.set(membership.id, existing);
+      }
+
+      return listPlatformUsersStatement
+        .all()
+        .map(readPlatformUser)
+        .filter((user): user is Omit<PlatformUser, "memberships"> =>
+          Boolean(user)
+        )
+        .map((user) => ({
+          ...user,
+          memberships: membershipsByUserId.get(user.id) ?? []
+        }));
+    },
+    async replaceUserModuleMemberships(inputMemberships) {
+      const updated = replaceUserModuleMembershipsTransaction({
+        ...inputMemberships,
+        now: inputMemberships.now ?? new Date()
+      });
+      if (!updated) {
+        return null;
+      }
+
+      return getPlatformUser(inputMemberships.userId);
     },
     async setModuleMembership(inputMembership) {
       const nowIso = toIso(inputMembership.now ?? new Date());

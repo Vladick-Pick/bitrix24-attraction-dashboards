@@ -1202,6 +1202,152 @@ describe('apiClient', () => {
     })
   })
 
+  it('loads and updates platform module access for super admins', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: {
+            id: 1,
+            login: 'owner@example.com',
+            role: 'admin',
+            isSuperAdmin: true,
+            modules: [
+              {
+                id: 'attraction',
+                slug: 'attraction',
+                name: 'Привлечение',
+                role: 'leader',
+                permissions: ['module-users:manage'],
+              },
+            ],
+          },
+          csrfToken: 'csrf-from-me',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          modules: [
+            {
+              id: 'attraction',
+              slug: 'attraction',
+              name: 'Привлечение',
+            },
+            {
+              id: 'leadgen',
+              slug: 'leadgen',
+              name: 'Лидогенерация',
+              bitrixCategoryId: '28',
+            },
+          ],
+          users: [
+            {
+              id: 2,
+              login: 'leader@example.com',
+              firstName: 'Мария',
+              lastName: 'Потапова',
+              disabled: false,
+              isSuperAdmin: false,
+              memberships: [
+                {
+                  id: 2,
+                  login: 'leader@example.com',
+                  firstName: 'Мария',
+                  lastName: 'Потапова',
+                  disabled: false,
+                  moduleId: 'attraction',
+                  moduleRole: 'leader',
+                  membershipStatus: 'active',
+                  createdAt: '2026-04-10T12:00:00.000Z',
+                  updatedAt: '2026-04-10T12:00:00.000Z',
+                },
+              ],
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: {
+            id: 2,
+            login: 'leader@example.com',
+            firstName: 'Мария',
+            lastName: 'Потапова',
+            disabled: false,
+            isSuperAdmin: false,
+            memberships: [
+              {
+                id: 2,
+                login: 'leader@example.com',
+                firstName: 'Мария',
+                lastName: 'Потапова',
+                disabled: false,
+                moduleId: 'leadgen',
+                moduleRole: 'employee',
+                membershipStatus: 'active',
+                createdAt: '2026-04-10T12:00:00.000Z',
+                updatedAt: '2026-04-10T12:05:00.000Z',
+              },
+            ],
+          },
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiClient.getCurrentUser()
+    const access = await apiClient.getPlatformAccess()
+    const updated = await apiClient.updatePlatformUserMemberships(2, [
+      {
+        moduleId: 'leadgen',
+        role: 'employee',
+        status: 'active',
+      },
+    ])
+
+    expect(access.modules.map((module) => module.id)).toEqual(['attraction', 'leadgen'])
+    expect(access.users[0]).toMatchObject({
+      id: 2,
+      login: 'leader@example.com',
+      memberships: [
+        {
+          moduleId: 'attraction',
+          moduleRole: 'leader',
+          membershipStatus: 'active',
+        },
+      ],
+    })
+    expect(updated.user.memberships[0]).toMatchObject({
+      moduleId: 'leadgen',
+      moduleRole: 'employee',
+    })
+
+    const [accessUrl] = fetchMock.mock.calls[1] as [string, RequestInit]
+    const [patchUrl, patchInit] = fetchMock.mock.calls[2] as [string, RequestInit]
+    expect(new URL(accessUrl, window.location.origin).pathname).toBe(
+      '/api/admin/platform/access',
+    )
+    expect(new URL(patchUrl, window.location.origin).pathname).toBe(
+      '/api/admin/platform/users/2/module-memberships',
+    )
+    expect(patchInit.method).toBe('PATCH')
+    expect(patchInit.headers).toMatchObject({
+      'X-CSRF-Token': 'csrf-from-me',
+    })
+    expect(JSON.parse(String(patchInit.body))).toEqual({
+      memberships: [
+        {
+          moduleId: 'leadgen',
+          role: 'employee',
+          status: 'active',
+        },
+      ],
+    })
+  })
+
   it('uses module-aware API paths for leadgen comments, users, and funnel report', async () => {
     const fetchMock = vi
       .fn()

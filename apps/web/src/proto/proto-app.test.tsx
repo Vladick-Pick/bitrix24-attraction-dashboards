@@ -528,7 +528,7 @@ vi.mock('@/lib/api-client', () => ({
         login: 'employee@example.com',
         firstName: null,
         lastName: null,
-        disabled: true,
+        disabled: false,
         moduleId: 'attraction',
         moduleRole: 'employee',
         membershipStatus: 'disabled',
@@ -536,6 +536,41 @@ vi.mock('@/lib/api-client', () => ({
         updatedAt: '2026-04-10T12:05:00.000Z',
       },
     })),
+    getPlatformAccess: vi.fn(async () => ({
+      modules: [],
+      users: [],
+    })),
+    updatePlatformUserMemberships: vi.fn(
+      async (
+        id: number,
+        memberships: Array<{
+          moduleId: string
+          role: 'leader' | 'employee'
+          status: 'active' | 'disabled'
+        }>,
+      ) => ({
+        user: {
+          id,
+          login: 'employee@example.com',
+          firstName: null,
+          lastName: null,
+          disabled: false,
+          isSuperAdmin: false,
+          memberships: memberships.map((membership) => ({
+            id,
+            login: 'employee@example.com',
+            firstName: null,
+            lastName: null,
+            disabled: false,
+            moduleId: membership.moduleId,
+            moduleRole: membership.role,
+            membershipStatus: membership.status,
+            createdAt: '2026-04-10T12:00:00.000Z',
+            updatedAt: '2026-04-10T12:05:00.000Z',
+          })),
+        },
+      }),
+    ),
   },
 }))
 
@@ -1233,6 +1268,171 @@ describe('ProtoApp', () => {
         'leadgen',
         expect.objectContaining({ preset: 'custom' }),
       )
+    })
+  })
+
+  it('lets a super admin grant explicit module access and role from the account page', async () => {
+    const owner: AuthUser = {
+      id: 1,
+      login: 'owner@example.com',
+      firstName: 'Владислав',
+      lastName: 'Богдан',
+      role: 'admin' as const,
+      isSuperAdmin: true,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+        {
+          id: 'leadgen',
+          slug: 'leadgen',
+          name: 'Лидогенерация',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          bitrixCategoryId: '28',
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    const targetUser = {
+      id: 2,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      disabled: false,
+      isSuperAdmin: false,
+      memberships: [
+        {
+          id: 2,
+          login: 'leader@example.com',
+          firstName: 'Мария',
+          lastName: 'Потапова',
+          disabled: false,
+          moduleId: 'attraction',
+          moduleRole: 'leader' as const,
+          membershipStatus: 'active' as const,
+          createdAt: '2026-04-10T12:00:00.000Z',
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+    }
+    vi.mocked(apiClient.getPlatformAccess).mockResolvedValueOnce({
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+        },
+        {
+          id: 'leadgen',
+          slug: 'leadgen',
+          name: 'Лидогенерация',
+          bitrixCategoryId: '28',
+        },
+      ],
+      users: [targetUser],
+    })
+    vi.mocked(apiClient.updatePlatformUserMemberships)
+      .mockResolvedValueOnce({
+        user: {
+          ...targetUser,
+          memberships: [
+            targetUser.memberships[0]!,
+            {
+              ...targetUser.memberships[0]!,
+              moduleId: 'leadgen',
+              moduleRole: 'employee',
+              updatedAt: '2026-04-10T12:05:00.000Z',
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        user: {
+          ...targetUser,
+          memberships: [
+            targetUser.memberships[0]!,
+            {
+              ...targetUser.memberships[0]!,
+              moduleId: 'leadgen',
+              moduleRole: 'leader',
+              updatedAt: '2026-04-10T12:06:00.000Z',
+            },
+          ],
+        },
+      })
+
+    render(<ProtoApp currentUser={owner} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /^доступы платформы$/i }),
+    ).toBeInTheDocument()
+    const leadgenAccess = screen.getByRole('checkbox', {
+      name: 'leader@example.com: доступ к модулю Лидогенерация',
+    })
+    expect(leadgenAccess).not.toBeChecked()
+
+    await userEvent.click(leadgenAccess)
+
+    await waitFor(() => {
+      expect(apiClient.updatePlatformUserMemberships).toHaveBeenCalledWith(2, [
+        {
+          moduleId: 'attraction',
+          role: 'leader',
+          status: 'active',
+        },
+        {
+          moduleId: 'leadgen',
+          role: 'employee',
+          status: 'active',
+        },
+      ])
+    })
+
+    const leadgenRole = screen.getByRole('combobox', {
+      name: 'leader@example.com: роль в модуле Лидогенерация',
+    })
+    await waitFor(() => expect(leadgenRole).not.toBeDisabled())
+    await userEvent.selectOptions(leadgenRole, 'leader')
+
+    await waitFor(() => {
+      expect(apiClient.updatePlatformUserMemberships).toHaveBeenLastCalledWith(2, [
+        {
+          moduleId: 'attraction',
+          role: 'leader',
+          status: 'active',
+        },
+        {
+          moduleId: 'leadgen',
+          role: 'leader',
+          status: 'active',
+        },
+      ])
     })
   })
 

@@ -786,7 +786,7 @@ describe("dashboard comments to Paperclip", () => {
       .set("X-CSRF-Token", leader.csrfToken)
       .expect(200)
       .expect(({ body }) => {
-        expect(body.user.disabled).toBe(true);
+        expect(body.user.disabled).toBe(false);
         expect(body.user.membershipStatus).toBe("disabled");
       });
 

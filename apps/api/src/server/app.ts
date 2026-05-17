@@ -36,6 +36,7 @@ import { z } from "zod";
 import type {
   AuthenticatedSession,
   AuthenticatedModule,
+  ModuleMembershipStatus,
   ModulePermission,
   ModuleRole,
   PasswordAuthService,
@@ -390,6 +391,16 @@ const updateModuleUserBodySchema = z.object({
   membershipStatus: z.enum(["active", "disabled"]).optional()
 });
 
+const platformMembershipsBodySchema = z.object({
+  memberships: z.array(
+    z.object({
+      moduleId: z.string().trim().min(1).max(100),
+      role: z.enum(["leader", "employee"]),
+      status: z.enum(["active", "disabled"]).default("active")
+    })
+  )
+});
+
 const revenueVelocityExtraQuerySchema = z.object({
   dimension: z
     .enum([
@@ -714,6 +725,11 @@ function requireModuleAccess(
     session,
     module
   };
+}
+
+function requireSuperAdmin(response: express.Response) {
+  const session = readAuthSession(response);
+  return session?.user.isSuperAdmin ? session : null;
 }
 
 function requestRouteParam(request: express.Request, name: string) {
@@ -1129,6 +1145,23 @@ export function createApp(
   const webOrigin = config.webOrigin?.trim() || "http://localhost:5173";
   const apiAuthToken = config.apiAuthToken?.trim() || undefined;
   const auth = config.auth;
+
+  function denyIfMissingAttractionAccess(
+    response: express.Response,
+    options: { leaderOnly?: boolean } = {}
+  ) {
+    if (!auth) {
+      return false;
+    }
+
+    const access = requireModuleAccess(response, undefined, "attraction");
+    if (!access || (options.leaderOnly && access.module.role !== "leader")) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return true;
+    }
+
+    return false;
+  }
 
   app.disable("x-powered-by");
 
@@ -1898,6 +1931,78 @@ export function createApp(
     }
   });
 
+  app.get("/api/admin/platform/access", async (_request, response, next) => {
+    if (!config.authStore) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+    if (!requireSuperAdmin(response)) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      response.json({
+        modules: await config.authStore.listModules(),
+        users: await config.authStore.listPlatformUsers()
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch(
+    "/api/admin/platform/users/:id/module-memberships",
+    async (request, response, next) => {
+      if (!config.authStore) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      if (!requireSuperAdmin(response)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const userId = Number(request.params.id);
+        if (!Number.isInteger(userId) || userId <= 0) {
+          response.status(400).json(createErrorResponse("VALIDATION_ERROR"));
+          return;
+        }
+
+        const payload = platformMembershipsBodySchema.parse(request.body);
+        const modules = await config.authStore.listModules();
+        const moduleIds = new Set(modules.map((module) => module.id));
+        const unknownModule = payload.memberships.find(
+          (membership) => !moduleIds.has(membership.moduleId)
+        );
+        if (unknownModule) {
+          response
+            .status(400)
+            .json(createErrorResponse("UNKNOWN_MODULE", unknownModule.moduleId));
+          return;
+        }
+
+        const user = await config.authStore.replaceUserModuleMemberships({
+          userId,
+          memberships: payload.memberships.map((membership) => ({
+            moduleId: membership.moduleId,
+            role: membership.role as ModuleRole,
+            status: membership.status as ModuleMembershipStatus
+          }))
+        });
+        if (!user) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
+
+        response.json({ user });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
   app.get(["/api/admin/module-users", "/api/modules/:moduleId/admin/module-users"], async (request, response, next) => {
     if (!config.authStore) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -1937,6 +2042,12 @@ export function createApp(
 
     try {
       const payload = createModuleUserBodySchema.parse(request.body);
+      const existing = await config.authStore.findUserByLogin(payload.login);
+      if (existing) {
+        response.status(409).json(createErrorResponse("USER_ALREADY_EXISTS"));
+        return;
+      }
+
       const user = await config.authStore.createUser({
         login: payload.login,
         firstName: normalizeProfileField(payload.firstName) ?? null,
@@ -1993,7 +2104,6 @@ export function createApp(
           : {}),
         ...(payload.password ? { passwordHash: await hashPassword(payload.password) } : {}),
         ...(payload.role ? { role: payload.role as ModuleRole } : {}),
-        ...(payload.disabled !== undefined ? { disabled: payload.disabled } : {}),
         ...(payload.membershipStatus
           ? { membershipStatus: payload.membershipStatus }
           : {})
@@ -2037,7 +2147,6 @@ export function createApp(
       const user = await config.authStore.updateModuleUser({
         userId,
         moduleId: access.module.id,
-        disabled: true,
         membershipStatus: "disabled"
       });
       if (!user) {
@@ -2051,6 +2160,10 @@ export function createApp(
   });
 
   app.get("/api/dashboard", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(await service.getDashboard(parseRangeRequest(request.query)));
     } catch (error) {
@@ -2085,6 +2198,10 @@ export function createApp(
   app.get(
     "/api/reports/source-quality-conversion",
     async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
+
       try {
         response.json(
           await service.getSourceQualityConversionReport(
@@ -2098,6 +2215,10 @@ export function createApp(
   );
 
   app.get("/api/reports/activities-workload", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(
         await service.getActivitiesWorkloadReport(parseRangeRequest(request.query))
@@ -2108,6 +2229,10 @@ export function createApp(
   });
 
   app.get("/api/reports/acquisition-outcomes", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(
         await service.getAcquisitionOutcomesReport(parseRangeRequest(request.query))
@@ -2120,6 +2245,10 @@ export function createApp(
   app.get(
     "/api/reports/target-group-conversion",
     async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
+
       try {
         response.json(
           await service.getTargetGroupConversionReport(
@@ -2135,6 +2264,10 @@ export function createApp(
   app.get(
     "/api/reports/manager-action-outcomes",
     async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
+
       try {
         response.json(
           await service.getManagerActionOutcomeReport(
@@ -2148,6 +2281,10 @@ export function createApp(
   );
 
   app.get("/api/reports/calls-workload", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(
         await service.getCallsWorkloadReport(parseRangeRequest(request.query))
@@ -2158,6 +2295,10 @@ export function createApp(
   });
 
   app.get("/api/reports/conversion-events", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(
         await service.getConversionEventsReport(parseRangeRequest(request.query))
@@ -2168,6 +2309,10 @@ export function createApp(
   });
 
   app.get("/api/reports/cohort-conversion", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(
         await service.getCohortConversionReport(parseRangeRequest(request.query))
@@ -2178,6 +2323,10 @@ export function createApp(
   });
 
   app.get("/api/reports/toc-flow", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(await service.getTocFlowReport(parseRangeRequest(request.query)));
     } catch (error) {
@@ -2186,6 +2335,10 @@ export function createApp(
   });
 
   app.get("/api/reports/revenue-velocity", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(
         await service.getRevenueVelocityReport(
@@ -2198,6 +2351,10 @@ export function createApp(
   });
 
   app.get("/api/meta", async (_request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(await service.getMeta());
     } catch (error) {
@@ -2206,6 +2363,10 @@ export function createApp(
   });
 
   app.get("/api/sales-plan", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       const query = salesPlanQuerySchema.parse(request.query);
       response.json(
@@ -2220,6 +2381,10 @@ export function createApp(
   });
 
   app.put("/api/sales-plan", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+      return;
+    }
+
     try {
       const payload = salesPlanBodySchema.parse(request.body);
       response.json(await service.replaceSalesPlan(payload));
@@ -2229,6 +2394,10 @@ export function createApp(
   });
 
   app.get("/api/sales-plan/quarter", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       const query = salesPlanQuarterQuerySchema.parse(request.query);
       response.json(
@@ -2243,6 +2412,10 @@ export function createApp(
   });
 
   app.put("/api/sales-plan/quarter", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+      return;
+    }
+
     try {
       const payload = salesPlanQuarterBodySchema.parse(request.body);
       response.json(await service.replaceSalesPlanQuarter(payload));
@@ -2252,6 +2425,10 @@ export function createApp(
   });
 
   app.get("/api/sales-plan/effective", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       const query = salesPlanQuerySchema.parse(request.query);
       response.json(
@@ -2266,6 +2443,10 @@ export function createApp(
   });
 
   app.get("/api/settings/pricing", async (_request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
     try {
       response.json(await service.getPricingSettings());
     } catch (error) {
@@ -2274,6 +2455,10 @@ export function createApp(
   });
 
   app.put("/api/settings/pricing", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+      return;
+    }
+
     try {
       const payload = pricingSettingsBodySchema.parse(request.body);
       response.json(
@@ -2294,6 +2479,10 @@ export function createApp(
   });
 
   app.post("/api/sync", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+      return;
+    }
+
     if (activeSync) {
       response.status(409).json(createErrorResponse("SYNC_ALREADY_RUNNING"));
       return;
@@ -2341,6 +2530,10 @@ export function createApp(
   });
 
   app.put("/api/settings/won-stages", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+      return;
+    }
+
     try {
       const payload = updateWonStagesSchema.parse(request.body);
       response.json(await service.updateWonStages(payload.stageIds));

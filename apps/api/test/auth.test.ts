@@ -245,6 +245,191 @@ describe("password session auth", () => {
     store.close();
   });
 
+  it("lets only super admins grant explicit module memberships", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    await store.ensureModule({
+      id: "leadgen",
+      slug: "leadgen",
+      name: "Лидогенерация",
+      bitrixCategoryId: "28"
+    });
+    const owner = await store.createUser({
+      login: "owner@example.com",
+      passwordHash: await hashPassword("correct-password"),
+      now: new Date("2026-05-14T10:00:00.000Z")
+    });
+    const target = await store.createUser({
+      login: "target@example.com",
+      passwordHash: await hashPassword("target-password"),
+      now: new Date("2026-05-14T10:00:00.000Z")
+    });
+    const moduleLeader = await store.createUser({
+      login: "leader@example.com",
+      passwordHash: await hashPassword("leader-password"),
+      now: new Date("2026-05-14T10:00:00.000Z")
+    });
+    await store.setModuleMembership({
+      userId: moduleLeader.id,
+      moduleId: "attraction",
+      role: "leader",
+      status: "active"
+    });
+    await store.ensureDefaultSuperAdmin();
+    const auth = createPasswordAuthService({
+      store,
+      sessionSecret: "test-session-secret-with-at-least-32-bytes",
+      cookieName: "b24dash_session",
+      ttlHours: 12,
+      secureCookie: false
+    });
+    const app = createApp(createMinimalService(), {
+      auth,
+      authStore: store
+    });
+    const ownerAgent = request.agent(app);
+    const ownerLogin = await ownerAgent
+      .post("/api/auth/login")
+      .send({ login: owner.login, password: "correct-password" })
+      .expect(200);
+
+    await ownerAgent
+      .get("/api/admin/platform/access")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.modules.map((module: { id: string }) => module.id)).toEqual([
+          "attraction",
+          "leadgen"
+        ]);
+        expect(body.users).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: target.id,
+              login: "target@example.com",
+              memberships: []
+            })
+          ])
+        );
+      });
+
+    await ownerAgent
+      .patch(`/api/admin/platform/users/${target.id}/module-memberships`)
+      .set("X-CSRF-Token", ownerLogin.body.csrfToken as string)
+      .send({
+        memberships: [
+          { moduleId: "leadgen", role: "employee", status: "active" },
+          { moduleId: "attraction", role: "leader", status: "active" }
+        ]
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.user.memberships).toEqual([
+          expect.objectContaining({
+            moduleId: "attraction",
+            moduleRole: "leader",
+            membershipStatus: "active"
+          }),
+          expect.objectContaining({
+            moduleId: "leadgen",
+            moduleRole: "employee",
+            membershipStatus: "active"
+          })
+        ]);
+      });
+
+    await request(app)
+      .post("/api/auth/login")
+      .send({ login: "target@example.com", password: "target-password" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.user.modules.map((module: { id: string }) => module.id)).toEqual([
+          "attraction",
+          "leadgen"
+        ]);
+      });
+
+    const leaderAgent = request.agent(app);
+    const leaderLogin = await leaderAgent
+      .post("/api/auth/login")
+      .send({ login: "leader@example.com", password: "leader-password" })
+      .expect(200);
+    await leaderAgent.get("/api/admin/platform/access").expect(403);
+    await leaderAgent
+      .patch(`/api/admin/platform/users/${target.id}/module-memberships`)
+      .set("X-CSRF-Token", leaderLogin.body.csrfToken as string)
+      .send({ memberships: [] })
+      .expect(403);
+
+    store.close();
+  });
+
+  it("rejects attraction API access for users without attraction membership", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    await store.ensureModule({
+      id: "leadgen",
+      slug: "leadgen",
+      name: "Лидогенерация",
+      bitrixCategoryId: "28"
+    });
+    const user = await store.createUser({
+      login: "leadgen@example.com",
+      passwordHash: await hashPassword("correct-password"),
+      now: new Date("2026-05-14T10:00:00.000Z")
+    });
+    await store.setModuleMembership({
+      userId: user.id,
+      moduleId: "leadgen",
+      role: "leader",
+      status: "active"
+    });
+    const auth = createPasswordAuthService({
+      store,
+      sessionSecret: "test-session-secret-with-at-least-32-bytes",
+      cookieName: "b24dash_session",
+      ttlHours: 12,
+      secureCookie: false
+    });
+    const app = createApp(createMinimalService(), {
+      auth,
+      authStore: store
+    });
+    const agent = request.agent(app);
+    const loginResponse = await agent
+      .post("/api/auth/login")
+      .send({ login: "leadgen@example.com", password: "correct-password" })
+      .expect(200);
+
+    expect(loginResponse.body.user.modules.map((module: { id: string }) => module.id)).toEqual([
+      "leadgen"
+    ]);
+    await agent.get("/api/dashboard").expect(403);
+    await agent
+      .post("/api/sync")
+      .set("X-CSRF-Token", loginResponse.body.csrfToken as string)
+      .expect(403);
+
+    store.close();
+  });
+
   it("uses a generic invalid credentials response and does not set a cookie", async () => {
     const { app, store } = await createAuthTestApp();
 

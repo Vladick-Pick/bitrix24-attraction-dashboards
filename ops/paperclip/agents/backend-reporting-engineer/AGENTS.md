@@ -28,8 +28,10 @@ Keep the dashboard backend correct, scoped, privacy-preserving, and ready to sup
 - Preserve the attraction manager whitelist unless a reviewed issue explicitly changes reporting scope.
 - Preserve the leadgen manager whitelist separately from attraction. Leadgen must not fall back to attraction managers.
 - Dashboard screens must read the local API and SQLite snapshot, not Bitrix directly.
+- Backend investigation tasks may use Bitrix REST only as read-only evidence through approved server-side tooling or the backend runtime webhook. Do not add direct Bitrix reads to dashboard rendering or report request handlers.
 - Paperclip tokens and API keys must never be returned to the browser or logged.
 - Do not send personal Bitrix data or raw payloads to Paperclip.
+- Do not use direct SSH or personal credentials for normal production sync/backfill/proof tasks. Production mutation must use an approved operation surface from `ops/paperclip/proof-loop.md#production-operation-gate`.
 
 ## Runtime Storage Contract
 
@@ -64,6 +66,54 @@ Any shared backend change must answer:
 
 When changing sync cursors, date filters, or Bitrix query scope, prove that cursor advancement and persistence scope are intentionally separated when needed. Old-created but newly modified leadgen rows may advance the cursor without being persisted if they are outside the reporting creation window.
 
+## Bitrix Data Proof
+
+Before changing CRM field mapping, report SQL, stage/reason semantics, manager scope, or sync behavior based on a production data hypothesis, gather Bitrix read-only evidence for the exact sanitized case.
+
+Use `ops/paperclip/proof-loop.md#bitrix-read-only-data-proof-gate` as the contract. Context7 is mandatory before selecting Bitrix REST methods or request shape. Use `ops/paperclip/tools/bitrix-readonly-proof.mjs` for the Bitrix probe when available; it uses secret-backed `BITRIX24_READONLY_*` env bindings and prints only sanitized field/stage/count evidence.
+
+For new or missing data, do not assume the field is one of the known fields. Follow this sequence:
+
+1. Freeze the exact user case, including affected deal IDs when possible.
+2. Search existing code/docs/audits for candidate field IDs and stage IDs.
+3. Use `crm.deal.userfield.list` to search custom-field metadata by the UI/user label. For Russian labels, search exact words from the card or screenshot: `причина`, `отказ`, `возврат`, `корзина`, `неквал`, `лидген`.
+4. If metadata is ambiguous, ask the user for a Bitrix screenshot of the relevant card block before coding.
+5. Use `crm.deal.list` with a narrow `select` for exact deal IDs and candidate fields. Confirm which field is populated and map enum IDs to labels.
+6. Compare the confirmed Bitrix field values with local SQLite/API output for the same IDs.
+7. Implement only after the source field is proven.
+
+Record only sanitized output: method names, field IDs, stage IDs, row counts, and boolean field-presence counts. Never paste webhook URLs, tokens, raw Bitrix payloads, deal titles, contact names, phones, emails, or free-text personal data.
+
+If the proof disproves the implementation hypothesis, stop and update `problems.md`/the Paperclip issue instead of reshaping tests around the hypothesis. If proof access is unavailable, mark the task `blocked`.
+
+Example failure to avoid: if the user reports 4 attraction deals on `C10:UC_EA3R76` without loss reasons, it is not enough to test `UF_CRM_1647422744`, `UF_CRM_1758715585`, or linked leadgen rows. The correct process is to discover the Bitrix UI field. In this case the missing source is `UF_CRM_1776949411825` / `Причина отказа (Привлечение Возврат в Лидген)`, and the proof must show that those exact 4 deal IDs have enum values there before the code is changed.
+
+## Production Operations
+
+For approved production sync/backfill/verification tasks, use the repo-approved operation surface instead of ad hoc server access. The current operation is the protected GitHub Actions workflow `production-sync-verify.yml`, which runs `scripts/production-sync-verify.sh` on the VPS, creates a backup, triggers the approved sync endpoint, verifies exact snapshot rows, and prints sanitized evidence.
+
+Required inputs must come from the Paperclip issue or manager comment:
+
+- approving Paperclip issue ID;
+- module, currently `attraction`;
+- exact deal IDs;
+- expected stage ID;
+- expected Bitrix field ID;
+- expected deployed commit when the operation depends on a just-merged fix.
+
+For BIT-65 style proof, the operation inputs are:
+
+```bash
+gh workflow run production-sync-verify.yml \
+  -f paperclip_issue=BIT-73 \
+  -f module=attraction \
+  -f deal_ids=156080,156184,156194,156306 \
+  -f stage_id=C10:UC_EA3R76 \
+  -f field_id=UF_CRM_1776949411825
+```
+
+Attach the workflow run URL and sanitized output to the issue. The proof must show backup creation, sync completion, health check, and non-empty `refusal_reason_value` for the exact requested deal IDs. If the workflow cannot run because GitHub permissions, production environment approval, secrets, or operation coverage are missing, mark the task `blocked`; do not request raw SSH as a normal path.
+
 ## Done
 
 Backend work is done when:
@@ -73,4 +123,6 @@ Backend work is done when:
 - migrations are idempotent and tested;
 - retry/error paths preserve user comments;
 - focused API tests run;
+- required Bitrix data proof is attached for CRM data-shape changes;
+- required production operations ran through the approved workflow and have sanitized post-operation proof;
 - privacy/security checks are recorded.

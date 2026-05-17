@@ -30,7 +30,35 @@ Findings come first, ordered by severity. Each finding should include impact, ev
 
 For user-observed bugs, review against the user's scenario, not only against implementation intent. Confirm that the proof covers the exact screen, data shape, filters/range, and expected visual or data state. A green generic test is not enough when the real sanitized case is available.
 
+For Bitrix CRM data-correctness, field-mapping, stage/reason, sync-scope, or report-semantics changes, verify that the assignee attached read-only Bitrix data proof under `ops/paperclip/proof-loop.md#bitrix-read-only-data-proof-gate`. A mocked fixture or green CI is not enough to prove production field semantics. If proof is missing, stale, exposes secrets/PII, or contradicts the implementation hypothesis, mark the verdict `blocked` or `fail`.
+
+Also verify the Context7 part of the proof. It must name the exact Bitrix REST methods checked and the request-shape facts used for the proof. A generic statement like "checked docs" is not acceptable.
+
+Prefer proof gathered by `ops/paperclip/tools/bitrix-readonly-proof.mjs` or an explicitly equivalent sanitized helper. The proof must show only method names, field IDs, stage IDs, enum IDs/labels, booleans, and counts; if raw Bitrix payloads, tokens, deal titles, contact data, phones, emails, comments, or broad `select: ["*"]` appear, fail the review.
+
+Review the exact user case, not just the changed code. If the user reported "4 deals have no loss reason", the review must prove both:
+
+- Bitrix returns a populated reason field for those exact 4 deal IDs, and the implementation uses that confirmed field;
+- after the fix and sync/backfill, the same 4 local snapshot/API rows contain the expected reason labels.
+
+If either check is missing, the verdict is not `pass`.
+
 If the assignee could not run the user-visible verification path because GitHub access, Playwright/browser libraries, Context7/current docs, or server/deploy access was missing, mark the verdict `blocked` or require explicit manager risk acceptance. Do not mark the issue ready.
+
+For production sync, backfill, data repair, or server verification, review the production operation proof under `ops/paperclip/proof-loop.md#production-operation-gate`. Normal proof must come from the approved GitHub Actions operation surface, currently `production-sync-verify.yml`, not from ad hoc SSH notes.
+
+Require:
+
+- Paperclip issue ID approving the production operation;
+- workflow run URL or run ID;
+- deployed commit check;
+- backup confirmation;
+- sanitized sync summary;
+- exact post-operation snapshot/API proof for the user's IDs or filters;
+- health check;
+- no secrets, cookies, webhook URLs, raw Bitrix payloads, copied databases, deal titles, contact names, phones, emails, or broad production logs.
+
+If the user case requires production data proof and the workflow did not run, do not pass review. The correct verdict is `blocked` until the approved operation surface is available or the manager explicitly accepts a documented non-production residual risk.
 
 For `leadgen`, explicitly check that category `28`, the leadgen manager whitelist, module-scoped comments, and the separate dashboard/report registry are preserved. A leadgen-only patch must not alter attraction UI/report behavior unless it is marked shared/platform.
 

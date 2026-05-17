@@ -40,6 +40,7 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 - Ask clarifying questions in Paperclip.
 - Request review, QA, or release-readiness checks.
 - Propose instruction, workflow, skill, MCP, or team changes through repo docs/PR.
+- Route approved production sync/backfill/proof through the protected GitHub Actions operation surface documented in `proof-loop.md#production-operation-gate`.
 
 ## Restrictions
 
@@ -47,6 +48,7 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 - Do not expose Paperclip links in the dashboard for V1 unless a reviewed product issue changes that rule.
 - Do not use SSH/root as the normal path for dashboard-comment work.
 - Do not merge, deploy, or mutate production data unless the issue is explicitly a release/incident task with approval.
+- Do not let specialists bypass a missing production operation workflow with raw SSH or personal credentials; block and open a tooling/access issue instead.
 - Do not add or remove agents/tools silently.
 
 ## Proof Requirements

@@ -38,6 +38,16 @@ Modules may diverge. Do not force future modules into the attraction layout when
 
 `leadgen` has its own dashboard/report registry. A leadgen-only issue may change leadgen screens, comment anchors, notifications, and module admin wiring only in the active leadgen context. It must not change attraction scenes, report copy, filters, or visual behavior unless the issue is explicitly shared/platform.
 
+## Refresh And Sync UI
+
+The dashboard refresh control is module-scoped. It must call the active module sync route and refresh only the active module's data:
+
+- attraction context -> attraction sync/report reload only;
+- leadgen context -> leadgen sync/report reload only;
+- shared shell state can update loading/error affordances, but must not silently trigger the other module's sync.
+
+Do not call legacy `/api/sync` from new module-aware UI unless the issue explicitly requires attraction-only backward compatibility. For leadgen, use the module-aware API client path and keep attraction report metadata untouched.
+
 ## Done
 
 Frontend work is done when:

@@ -16,6 +16,8 @@ Turn dashboard comments and module requests into safe, scoped, verified developm
 
 The live modules are `attraction` and `leadgen`. Each module uses the same platform workflow but has its own module ontology, access rules, data contract, manager whitelist where applicable, report registry, and Paperclip project/goal mapping.
 
+The production runtime also has module-owned sync storage. Platform/auth/comments stay in the platform database, attraction reporting reads the attraction database, and leadgen reporting reads the leadgen database. Treat sync/storage changes as shared platform work unless the issue explicitly proves the change is isolated to one module.
+
 ## What You Own
 
 - parent issue triage and quality;
@@ -38,11 +40,12 @@ The live modules are `attraction` and `leadgen`. Each module uses the same platf
 3. Confirm whether the issue is module-owned or shared/platform. If shared, list every affected module before delegation.
 4. Classify the issue: bug, small feature, report block, data correctness, access/RBAC, clarification, release/incident.
 5. For user-observed bugs, freeze the real sanitized case in the spec: exact screen, deal/report identifier, relevant filters, expected UI state, and the visible failure. Require a fixture, test, or screenshot check that directly proves that scenario.
-6. Freeze or request `spec.md` before implementation for non-trivial work.
-7. Delegate to the smallest correct owner.
-8. Require proof artifacts and fresh verification.
-9. Route final review to `Pre-Merge Reviewer` before claiming readiness.
-10. Close the parent only after implementation, review, and release expectations are satisfied.
+6. For sync, reporting DB, or refresh-button work, require the spec to name the affected module, database file, API endpoint, and expected behavior for the other live module.
+7. Freeze or request `spec.md` before implementation for non-trivial work.
+8. Delegate to the smallest correct owner.
+9. Require proof artifacts and fresh verification.
+10. Route final review to `Pre-Merge Reviewer` before claiming readiness.
+11. Close the parent only after implementation, review, and release expectations are satisfied.
 
 ## Decision Escalation
 
@@ -80,6 +83,14 @@ For a new module:
 - split out module-specific triage only when confidentiality, volume, or business context demands it.
 
 For `leadgen`, enforce the existing baseline: Bitrix category `28`, `Лидген УС`, separate manager whitelist, separate dashboard/report registry, and no attraction UI/report changes from leadgen-only comments.
+
+For module sync:
+
+- attraction refresh must not run leadgen sync;
+- leadgen refresh must not run attraction sync;
+- `POST /api/sync` is legacy attraction-only behavior;
+- module-aware refresh must use `POST /api/modules/:moduleId/sync`;
+- leadgen work must verify that `BITRIX24_LEADGEN_MANAGER_IDS` is configured and non-empty in production or explicitly record an empty-scope limitation.
 
 ## Done
 

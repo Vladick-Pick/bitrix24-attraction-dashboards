@@ -31,6 +31,24 @@ Keep the dashboard backend correct, scoped, privacy-preserving, and ready to sup
 - Paperclip tokens and API keys must never be returned to the browser or logged.
 - Do not send personal Bitrix data or raw payloads to Paperclip.
 
+## Runtime Storage Contract
+
+Production has separate SQLite files by responsibility:
+
+- platform/auth/comments: `file:/app/data/bitrix24-reporting.db`;
+- attraction sync/reporting: `file:/app/data/bitrix24-attraction.db`;
+- leadgen sync/reporting: `file:/app/data/bitrix24-leadgen.db`.
+
+Do not reintroduce a shared reporting repository for attraction and leadgen. Any new business module must get its own sync/reporting storage unless a reviewed platform issue explicitly changes that architecture.
+
+Module sync must stay isolated:
+
+- `POST /api/sync` is legacy attraction-only behavior;
+- `POST /api/modules/attraction/sync` syncs attraction only;
+- `POST /api/modules/leadgen/sync` syncs leadgen only;
+- leadgen sync requires category `28` and `BITRIX24_LEADGEN_MANAGER_IDS`;
+- an empty leadgen manager whitelist must produce a controlled empty sync, not an attraction fallback.
+
 ## Multi-Module Rule
 
 Any shared backend change must answer:
@@ -43,6 +61,8 @@ Any shared backend change must answer:
 - whether future modules need separate records, projects, goals, or report contracts.
 
 `leadgen` reports and sync must stay scoped to Bitrix deal category `28` and the configured leadgen manager whitelist. Do not store deal titles, contact IDs, contact names, phones, emails, or raw Bitrix payloads for leadgen reporting.
+
+When changing sync cursors, date filters, or Bitrix query scope, prove that cursor advancement and persistence scope are intentionally separated when needed. Old-created but newly modified leadgen rows may advance the cursor without being persisted if they are outside the reporting creation window.
 
 ## Done
 

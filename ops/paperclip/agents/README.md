@@ -42,6 +42,18 @@ V1 intentionally starts with a compact team. Do not add agents just because a ro
 
 Every issue must name its module. `leadgen` work is isolated to leadgen-owned UI, reports, docs, tests, and category `28` data scope unless a reviewed issue is explicitly shared/platform.
 
+## Production Runtime Contract
+
+The production dashboard runtime uses separate SQLite files for platform state and each business module:
+
+- Platform/auth/comments: `/opt/bitrix24-reporting/data/bitrix24-reporting.db` on the host, `file:/app/data/bitrix24-reporting.db` in the container.
+- Attraction sync/reporting: `/opt/bitrix24-reporting/data/bitrix24-attraction.db` on the host, `file:/app/data/bitrix24-attraction.db` in the container.
+- Leadgen sync/reporting: `/opt/bitrix24-reporting/data/bitrix24-leadgen.db` on the host, `file:/app/data/bitrix24-leadgen.db` in the container.
+
+Module sync is isolated by contract. The legacy `POST /api/sync` endpoint is attraction-only. Module-aware work must use `POST /api/modules/:moduleId/sync`, and dashboard refresh controls must refresh only the active module. A task that changes sync, reporting repositories, database configuration, Docker env, or production smoke checks must state how platform, attraction, and leadgen storage remain distinct.
+
+Leadgen production sync requires `BITRIX24_LEADGEN_MANAGER_IDS` to be configured. An empty leadgen manager whitelist is a safe empty scope, not permission to fall back to attraction managers. Release and verification tasks must check the configured leadgen manager count before claiming leadgen sync/reporting is ready.
+
 Future split-out roles:
 
 - `Agent Operations Manager`: split out when the team has repeated process defects, stale skills/MCP config, or more than five Paperclip tasks per week.

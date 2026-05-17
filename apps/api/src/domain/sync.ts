@@ -651,55 +651,6 @@ function mapDealRow(
   };
 }
 
-function mapLeadgenDealRow(
-  row: DealRow,
-  returnReasonMap: Record<string, string>,
-  basketReasonMap: Record<string, string>
-): DealSnapshot {
-  const returnReasonValue = normalizeMappedFieldValue(
-    row[LEADGEN_US_RETURN_REASON_FIELD_NAME],
-    returnReasonMap
-  );
-  const basketReasonValue = normalizeMappedFieldValue(
-    row[LEADGEN_US_BASKET_REASON_FIELD_NAME],
-    basketReasonMap
-  );
-  const genericReasonDetail = normalizeMappedFieldValue(
-    row[ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME],
-    {}
-  );
-
-  return {
-    id: row.ID,
-    title: null,
-    contactId: null,
-    leadId: null,
-    categoryId: row.CATEGORY_ID,
-    stageId: row.STAGE_ID,
-    stageSemanticId: row.STAGE_SEMANTIC_ID,
-    opportunity: row.OPPORTUNITY,
-    assignedById: row.ASSIGNED_BY_ID,
-    sourceId: row.SOURCE_ID,
-    qualityValue: null,
-    businessClubValue: null,
-    targetGroupValue: null,
-    meetingTypeValue: null,
-    meetingDateValue: null,
-    tariffValue: null,
-    conversionEventValue: null,
-    refusalReasonValue: returnReasonValue ?? basketReasonValue,
-    refusalReasonDetail: sanitizeRefusalReasonDetail(genericReasonDetail),
-    dateCreate: row.DATE_CREATE,
-    dateModify: row.DATE_MODIFY,
-    dateClosed: row.DATE_CLOSED ?? null,
-    utmSource: row.UTM_SOURCE,
-    utmMedium: row.UTM_MEDIUM,
-    utmCampaign: row.UTM_CAMPAIGN,
-    utmContent: row.UTM_CONTENT,
-    utmTerm: row.UTM_TERM
-  };
-}
-
 function isOpenDealSnapshot(deal: DealSnapshot) {
   return deal.stageSemanticId === "P";
 }
@@ -1447,8 +1398,15 @@ export async function performManualSync(
       })
     );
     const leadgenCategoryId = input.leadgenCategoryId ?? LEADGEN_US_CATEGORY_ID;
-    const leadgenManagerIds: string[] = [];
-    const shouldSyncLeadgen = false;
+    const leadgenManagerIds = Array.from(
+      new Set(
+        (input.leadgenManagerIds ?? [])
+          .map((managerId) => normalizeString(managerId)?.trim() ?? "")
+          .filter((managerId) => managerId.length > 0)
+      )
+    );
+    const shouldSyncLeadgen =
+      leadgenCategoryId.trim().length > 0 && leadgenManagerIds.length > 0;
     const dealStageCategoryIds = Array.from(
       new Set([
         ...input.categoryIds,
@@ -1715,12 +1673,7 @@ export async function performManualSync(
         linkedLeadgenLossLookup
       )
     );
-    const leadgenDeals = scopedLeadgenDealRows.map((row) =>
-      mapLeadgenDealRow(row, leadgenReturnReasonMap, leadgenBasketReasonMap)
-    );
-    const dealsToPersist = Array.from(
-      new Map([...deals, ...leadgenDeals].map((deal) => [deal.id, deal])).values()
-    );
+    const dealsToPersist = deals;
     const scopeExpansionAssignedByIdSet = new Set(scopeExpansionAssignedByIds);
     const scopeExpansionDealIds = deals
       .filter(
@@ -2158,7 +2111,7 @@ export async function performManualSync(
       `callStatsOwners=${callStatsOwnerIds.length}`,
       `scopeExpansionManagers=${scopeExpansionAssignedByIds.length}`,
       `scopeExpansionDeals=${scopeExpansionDealIds.length}`,
-      `leadgenDeals=${leadgenDeals.length}`,
+      `leadgenDeals=${scopedLeadgenDealRows.length}`,
       `leadgenManagers=${leadgenManagerIds.length}`,
       `conversionEventVisits=${conversionEventVisits.length}`,
       `conversionEventVisitsCoverage=${

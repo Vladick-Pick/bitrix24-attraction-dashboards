@@ -35,6 +35,7 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 - module isolation;
 - attraction manager whitelist preservation;
 - module-specific sync/database separation;
+- approved production operation workflow evidence for production sync/backfill/proof;
 - leadgen manager whitelist presence for leadgen sync/report readiness;
 - Paperclip payload sanitization;
 - no secrets/tokens in browser/logs;

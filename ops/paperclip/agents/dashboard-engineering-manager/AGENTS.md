@@ -41,11 +41,13 @@ The production runtime also has module-owned sync storage. Platform/auth/comment
 4. Classify the issue: bug, small feature, report block, data correctness, access/RBAC, clarification, release/incident.
 5. For user-observed bugs, freeze the real sanitized case in the spec: exact screen, deal/report identifier, relevant filters, expected UI state, and the visible failure. Require a fixture, test, or screenshot check that directly proves that scenario.
 6. For sync, reporting DB, or refresh-button work, require the spec to name the affected module, database file, API endpoint, and expected behavior for the other live module.
-7. Freeze or request `spec.md` before implementation for non-trivial work.
-8. Delegate to the smallest correct owner.
-9. Require proof artifacts and fresh verification.
-10. Route final review to `Pre-Merge Reviewer` before claiming readiness.
-11. Close the parent only after implementation, review, and release expectations are satisfied.
+7. For CRM data-correctness, field-mapping, stage/reason, sync-scope, or report-semantics work, require a Bitrix read-only data proof before delegation is marked ready for implementation. The proof must use `ops/paperclip/proof-loop.md#bitrix-read-only-data-proof-gate`, start with Context7 Bitrix REST docs, cite the exact Bitrix methods, and include sanitized field/stage/count evidence for the same dashboard filters/range. If no Bitrix access is available, the child issue is blocked, not implementation-ready.
+8. For production sync, backfill, server verification, or any operation that can mutate production data, require `ops/paperclip/proof-loop.md#production-operation-gate`. The default path is the protected GitHub Actions workflow `production-sync-verify.yml`, not direct agent SSH. If the approved workflow cannot run, the issue is blocked until the operation surface is fixed.
+9. Freeze or request `spec.md` before implementation for non-trivial work.
+10. Delegate to the smallest correct owner.
+11. Require proof artifacts and fresh verification.
+12. Route final review to `Pre-Merge Reviewer` before claiming readiness.
+13. Close the parent only after implementation, review, and release expectations are satisfied.
 
 ## Decision Escalation
 
@@ -92,6 +94,24 @@ For module sync:
 - module-aware refresh must use `POST /api/modules/:moduleId/sync`;
 - leadgen work must verify that `BITRIX24_LEADGEN_MANAGER_IDS` is configured and non-empty in production or explicitly record an empty-scope limitation.
 
+For Bitrix field semantics:
+
+- never accept a hypothesis such as "field X is on attraction deal" or "reason comes from linked leadgen deal" without read-only Bitrix proof for real deal IDs or the real filter/range;
+- a green mocked test is implementation evidence, not data-shape evidence;
+- Context7 proof must be method-specific. The spec/evidence must name the Bitrix REST methods checked and the relevant request-shape facts, not merely say "docs checked";
+- backend proof should use the approved sanitized helper `ops/paperclip/tools/bitrix-readonly-proof.mjs` and the backend agent's secret-backed `BITRIX24_READONLY_*` env bindings; if the helper or bindings are unavailable, block the diagnostic child instead of starting implementation;
+- when the user reports missing data that was not part of the original snapshot contract, require a discovery task: Context7 docs, existing code/docs search, `crm.deal.userfield.list` metadata search, exact deal probe, and screenshot request if the field label is ambiguous;
+- if Bitrix shows the requested field is empty and only a free-text/detail field exists, treat the behavior as a product decision and ask the board before promoting detail text into a reason bucket.
+
+For production operations:
+
+- create or identify the Paperclip issue that explicitly approves the production operation;
+- do not ask specialists to SSH to production for normal sync/backfill/proof work;
+- use the protected GitHub Actions operation surface when it covers the task, currently `production-sync-verify.yml`;
+- require exact inputs in the child issue: Paperclip issue ID, module, deal IDs, expected stage ID, expected Bitrix field ID, and expected deployed commit when relevant;
+- require the child issue to attach the workflow run URL, backup confirmation, sanitized sync summary, exact post-sync snapshot proof, and health check result;
+- if the operation surface is missing permissions or does not cover the task, open an access/tooling issue and block the production task instead of allowing ad hoc credentials or shell work.
+
 ## Done
 
 A parent issue is done only when:
@@ -100,5 +120,6 @@ A parent issue is done only when:
 - required proof artifacts exist or the light-mode exception is documented;
 - fresh verification is clean or residual risk is explicitly accepted;
 - real user-observed cases are represented in the proof when available;
+- production data changes, when required, went through the approved operation surface and have sanitized post-operation proof;
 - no PII/secrets were sent to Paperclip or logs;
 - the human owner can accept the result.

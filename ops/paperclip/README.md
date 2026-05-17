@@ -34,11 +34,13 @@ Runtime changes should be:
 - Do not send personal Bitrix data to Paperclip.
 - Prefer small PRs with proof artifacts over large unverified patches.
 - Use GitHub/CI/deploy pipelines as the normal production path.
+- Use approved GitHub Actions operation surfaces for production sync/backfill/proof. Do not make raw SSH the normal agent path.
 - Treat workflow and instructions as versioned product, not chat memory.
 
 ## Directory Map
 
 - `agents/`: active agent instruction bundles and runtime mapping.
+- `tools/`: approved runtime helper tools for sanitized evidence collection.
 - `workflows/`: canonical workflows for issue intake, feature work, bugfixes, module onboarding, release, and self-improvement.
 - `proof-loop.md`: required task evidence contract.
 - `team-growth.md`: when to add, split, pause, or remove agents/tools.

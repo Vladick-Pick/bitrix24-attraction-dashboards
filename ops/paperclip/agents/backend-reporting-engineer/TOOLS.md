@@ -68,6 +68,98 @@ Expected production paths:
 - leadgen: `file:/app/data/bitrix24-leadgen.db`
 - leadgen manager count: greater than `0` for useful leadgen sync
 
+## Approved Production Operations
+
+Normal agents do not receive raw SSH as the production path. Use the narrow GitHub Actions operation surface when a task needs production sync/backfill and exact post-operation proof.
+
+Current approved workflow:
+
+```text
+.github/workflows/production-sync-verify.yml
+```
+
+Current approved script:
+
+```text
+scripts/production-sync-verify.sh
+```
+
+The workflow requires the protected GitHub `production` environment and existing deploy secrets. It validates inputs, SSHes through the GitHub runner, creates a production DB backup, triggers the app sync endpoint through authenticated HTTP, queries the exact rows in the attraction snapshot, checks health, and emits sanitized JSON only.
+
+Run shape:
+
+```bash
+gh workflow run production-sync-verify.yml \
+  -f paperclip_issue=BIT-73 \
+  -f module=attraction \
+  -f deal_ids=156080,156184,156194,156306 \
+  -f stage_id=C10:UC_EA3R76 \
+  -f field_id=UF_CRM_1776949411825
+gh run watch
+gh run view --log
+```
+
+Required evidence to attach to Paperclip:
+
+- workflow run URL or run ID;
+- deployed commit check;
+- backup path;
+- sanitized sync summary;
+- exact deal rows with IDs, category/stage, `hasReason`, and `refusalReasonValue`;
+- health check.
+
+If `gh workflow run` is unavailable, the production environment requires approval you cannot obtain, required secrets are missing, or the workflow does not cover the operation, mark the task `blocked`. Do not replace it with manual SSH, arbitrary remote scripts, copied SQLite files, or personal credentials.
+
+## Bitrix Read-Only Proof Tools
+
+For CRM data-shape or report-semantics issues, first use Context7 for current Bitrix REST docs, then gather proof through narrow read-only methods. Output must contain only deal IDs, stage IDs, field IDs, booleans, enum labels, and counts. Do not select deal titles, contacts, phones, emails, raw free-text values, webhook URLs, or tokens.
+
+The backend runtime has a dedicated read-only proof credential exposed only as secret-backed environment bindings:
+
+- `BITRIX24_READONLY_PORTAL_HOST`;
+- `BITRIX24_READONLY_WEBHOOK_USER_ID`;
+- `BITRIX24_READONLY_WEBHOOK_TOKEN`.
+
+Use the approved sanitized helper before writing a one-off Bitrix script:
+
+```bash
+node ops/paperclip/tools/bitrix-readonly-proof.mjs userfields --keywords "причина,отказ,возврат,лидген,неквал"
+node ops/paperclip/tools/bitrix-readonly-proof.mjs deal-probe --deal-ids "156080,156184,156194,156306" --fields "UF_CRM_1776949411825"
+node ops/paperclip/tools/bitrix-readonly-proof.mjs status --entity-id "DEAL_STAGE_10"
+```
+
+If the checkout does not contain `ops/paperclip/tools/bitrix-readonly-proof.mjs`, use the mirrored copy under:
+
+```text
+/home/paperclip/.paperclip/instances/default/companies/d3d17397-0250-40f8-a9d6-507b14f38538/repo-docs/ops/paperclip/tools/bitrix-readonly-proof.mjs
+```
+
+If the helper or read-only env bindings are unavailable, mark the issue `blocked`; do not fall back to speculative mocks.
+
+Context7 usage is mandatory and must be specific:
+
+- check the current Bitrix REST docs for each method you plan to use;
+- name the methods in evidence: `crm.deal.fields`, `crm.deal.userfield.list`, `crm.status.list`, `crm.deal.list`, `crm.item.list`, `crm.stagehistory.list`, or `batch`;
+- record the relevant request-shape facts: read-only status, narrow `filter`, narrow `select`, pagination, enum/list handling, and batch limits when used;
+- if Context7 is unavailable or the docs do not cover the required method, mark the task `blocked` instead of guessing.
+
+Allowed direct Bitrix REST methods for manual proof are limited to:
+
+- `crm.deal.fields`;
+- `crm.deal.userfield.list`;
+- `crm.status.list`;
+- `crm.deal.list` with narrow `select` and `filter`;
+- `crm.item.list` with narrow `select` and `filter`;
+- `crm.stagehistory.list`;
+- `batch` containing only the read-only methods above.
+
+For field discovery:
+
+- search existing repo docs/audits first;
+- use `crm.deal.userfield.list` with `LANG: 'ru'` and label keywords from the user/screenshot;
+- ask the user for a Bitrix screenshot when the UI label cannot be identified from metadata;
+- query exact deal IDs with candidate fields before implementing.
+
 ## Restrictions
 
 - Do not print secrets, Paperclip tokens, Bitrix webhooks, session cookies, or raw payloads.

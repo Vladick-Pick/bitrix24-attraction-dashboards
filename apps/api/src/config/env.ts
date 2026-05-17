@@ -97,6 +97,12 @@ const envSchema = z
     DATABASE_URL: z.string().default("file:./data/bitrix24-reporting.db"),
     JSON_BODY_LIMIT: z.string().trim().min(1).default("256kb"),
     NODE_ENV: z.string().default("development"),
+    PAPERCLIP_API_URL: optionalTrimmedString(),
+    PAPERCLIP_API_TOKEN: optionalTrimmedString(),
+    PAPERCLIP_COMPANY_ID: optionalTrimmedString(),
+    PAPERCLIP_PROJECT_ID: optionalTrimmedString(),
+    PAPERCLIP_GOAL_ID: optionalTrimmedString(),
+    PAPERCLIP_TRIAGE_AGENT_ID: optionalTrimmedString(),
     REPORT_DEFAULT_PERIOD_DAYS: z.coerce.number().int().positive().default(30),
     REPORT_WON_STAGE_IDS: z.string().default("C10:WON"),
     SESSION_COOKIE_NAME: z.string().trim().min(1).default("b24dash_session"),
@@ -124,6 +130,32 @@ const envSchema = z
         "BITRIX24_PORTAL_HOST, BITRIX24_WEBHOOK_USER_ID, and BITRIX24_WEBHOOK_TOKEN must be configured together.";
 
       for (const key of webhookKeys) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message
+        });
+      }
+    }
+
+    const paperclipKeys = [
+      "PAPERCLIP_API_URL",
+      "PAPERCLIP_API_TOKEN",
+      "PAPERCLIP_COMPANY_ID",
+      "PAPERCLIP_PROJECT_ID",
+      "PAPERCLIP_GOAL_ID",
+      "PAPERCLIP_TRIAGE_AGENT_ID"
+    ] as const;
+    const configuredPaperclipKeys = paperclipKeys.filter((key) => Boolean(value[key]));
+
+    if (
+      configuredPaperclipKeys.length > 0 &&
+      configuredPaperclipKeys.length < paperclipKeys.length
+    ) {
+      const message =
+        "All PAPERCLIP_* integration values must be configured together.";
+
+      for (const key of paperclipKeys) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: [key],

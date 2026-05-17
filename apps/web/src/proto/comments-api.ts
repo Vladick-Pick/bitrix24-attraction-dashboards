@@ -2,10 +2,9 @@ import type { CommentStore, ProtoComment } from '@/proto/types'
 import { apiClient } from '@/lib/api-client'
 
 const COMMENTS_ENDPOINT =
-  import.meta.env.VITE_PROTO_COMMENTS_ENDPOINT ??
-  (import.meta.env.DEV ? '/__proto/comments' : '/api/proto-comments')
+  import.meta.env.VITE_PROTO_COMMENTS_ENDPOINT ?? '/api/comments'
 
-function shouldUseServerComments() {
+export function shouldUseServerComments() {
   return COMMENTS_ENDPOINT.startsWith('/api/')
 }
 
@@ -19,7 +18,10 @@ async function readJson<T>(response: Response): Promise<T> {
 
 export async function fetchCommentStore() {
   if (shouldUseServerComments()) {
-    return apiClient.getProtoComments()
+    return {
+      comments: await apiClient.getComments(),
+      updatedAt: null,
+    }
   }
 
   const response = await fetch(COMMENTS_ENDPOINT)
@@ -28,7 +30,10 @@ export async function fetchCommentStore() {
 
 export async function saveCommentStore(comments: ProtoComment[]) {
   if (shouldUseServerComments()) {
-    return apiClient.saveProtoComments(comments)
+    return {
+      comments,
+      updatedAt: new Date().toISOString(),
+    }
   }
 
   const response = await fetch(COMMENTS_ENDPOINT, {

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { apiClient } from '@/lib/api-client'
+import type { AuthUser, ModuleUser } from '@/lib/api-client'
 import type {
   DashboardQuery,
   DealPricingRuleInput,
@@ -37,6 +38,7 @@ import {
   scenes,
   sourceOptions,
 } from '@/proto/scenes'
+import { shouldUseServerComments } from '@/proto/comments-api'
 import {
   buildDashboardQueryFromProtoFilters,
   mapActivitiesCallsSceneData,
@@ -206,6 +208,38 @@ function resolveQuarterDateRange(input: { year: number; quarter: number }) {
   return {
     rangeStart: formatDateInputParts(input.year, firstMonth, 1),
     rangeEnd: formatDateInputParts(input.year, lastMonth, lastDay),
+  }
+}
+
+function buildCommentContext(filters: ProtoFilterState) {
+  return {
+    range: {
+      from: `${filters.rangeStart}T00:00:00.000+03:00`,
+      to: `${filters.rangeEnd}T23:59:59.999+03:00`,
+    },
+    filters: {
+      managerIds: filters.managers,
+      sourceKeys: filters.sources,
+    },
+  }
+}
+
+function formatPaperclipStatus(value: ProtoComment['paperclipStatus']) {
+  switch (value) {
+    case 'queued':
+      return 'в очереди'
+    case 'sent':
+      return 'отправлено'
+    case 'in_work':
+      return 'в работе'
+    case 'needs_input':
+      return 'нужен ввод'
+    case 'done':
+      return 'готово'
+    case 'failed':
+      return 'ошибка'
+    default:
+      return 'без статуса'
   }
 }
 
@@ -486,10 +520,11 @@ function MultiSelectField({
   )
 }
 
-export function ProtoApp() {
+export function ProtoApp({ currentUser = null }: { currentUser?: AuthUser | null } = {}) {
   const [activeSceneId, setActiveSceneId] = useState(scenes[0]?.id ?? 'sales')
   const [commentMode, setCommentMode] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
+  const [usersOpen, setUsersOpen] = useState(false)
   const [filters, setFilters] = useState<ProtoFilterState>(() => createDefaultFilters())
   const [appliedFilters, setAppliedFilters] = useState<ProtoFilterState>(() => createDefaultFilters())
   const [salesPlanQuarter, setSalesPlanQuarter] = useState(() =>
@@ -517,6 +552,15 @@ export function ProtoApp() {
   const [lastSync, setLastSync] = useState<LastSyncSummary | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [notifications, setNotifications] = useState<ProtoComment[]>([])
+  const [moduleUsers, setModuleUsers] = useState<ModuleUser[]>([])
+  const [moduleUsersStatus, setModuleUsersStatus] = useState<'idle' | 'loading' | 'saving' | 'error'>('idle')
+  const [moduleUsersError, setModuleUsersError] = useState<string | null>(null)
+  const [newModuleUser, setNewModuleUser] = useState({
+    login: '',
+    password: '',
+    role: 'employee' as 'leader' | 'employee',
+  })
   const [draftComment, setDraftComment] = useState<{
     id: string | null
     x: number
@@ -584,6 +628,69 @@ export function ProtoApp() {
     runtimeData.managerOptions.length > 0 ? runtimeData.managerOptions : managerOptions
   const availableSourceOptions =
     runtimeData.sourceOptions.length > 0 ? runtimeData.sourceOptions : sourceOptions
+  const attractionModule = (currentUser?.modules ?? []).find((module) => module.key === 'attraction')
+  const canManageModuleUsers =
+    attractionModule?.permissions.includes('module-users:manage') ?? false
+  const serverComments = shouldUseServerComments()
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadNotifications() {
+      try {
+        const nextNotifications = await apiClient.getCommentNotifications()
+        if (!cancelled) {
+          setNotifications(nextNotifications)
+        }
+      } catch {
+        if (!cancelled) {
+          setNotifications([])
+        }
+      }
+    }
+
+    void loadNotifications()
+    const interval = window.setInterval(() => {
+      void loadNotifications()
+    }, 30_000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!canManageModuleUsers || !usersOpen) {
+      return
+    }
+
+    let cancelled = false
+    setModuleUsersStatus('loading')
+    setModuleUsersError(null)
+    apiClient
+      .getModuleUsers()
+      .then((users) => {
+        if (!cancelled) {
+          setModuleUsers(users)
+          setModuleUsersStatus('idle')
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setModuleUsersStatus('error')
+          setModuleUsersError(
+            loadError instanceof Error
+              ? loadError.message
+              : 'Не удалось загрузить пользователей',
+          )
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [canManageModuleUsers, usersOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -1089,19 +1196,28 @@ export function ProtoApp() {
     }
 
     const now = new Date().toISOString()
-    await upsertComment({
-      id: draftComment.id ?? crypto.randomUUID(),
-      sceneId: activeScene.id,
-      x: draftComment.x,
-      y: draftComment.y,
-      text,
-      anchor: draftComment.anchor,
-      createdAt:
-        comments.find((item) => item.id === draftComment.id)?.createdAt ?? now,
-      updatedAt: now,
-      status: 'open',
-      archivedAt: null,
-    })
+    try {
+      await upsertComment({
+        id: draftComment.id ?? crypto.randomUUID(),
+        sceneId: activeScene.id,
+        x: draftComment.x,
+        y: draftComment.y,
+        text,
+        anchor: draftComment.anchor,
+        createdAt:
+          comments.find((item) => item.id === draftComment.id)?.createdAt ?? now,
+        updatedAt: now,
+        status: 'open',
+        archivedAt: null,
+      }, buildCommentContext(appliedFilters))
+    } catch {
+      return
+    }
+    try {
+      setNotifications(await apiClient.getCommentNotifications())
+    } catch {
+      // The comment itself was saved; notification refresh can recover on the next poll.
+    }
     setDraftComment(null)
     setCommentsOpen(false)
   }
@@ -1118,9 +1234,70 @@ export function ProtoApp() {
   }
 
   async function handleArchiveComment(commentId: string) {
-    await archiveComment(commentId)
+    try {
+      await archiveComment(commentId)
+    } catch {
+      return
+    }
+
+    try {
+      setNotifications(await apiClient.getCommentNotifications())
+    } catch {
+      // Keep the UI responsive; notifications refresh periodically.
+    }
     setDraftComment(null)
     setCommentsOpen(false)
+  }
+
+  async function handleCreateModuleUser() {
+    const login = newModuleUser.login.trim()
+    const password = newModuleUser.password
+    if (!login || password.length < 8) {
+      return
+    }
+
+    setModuleUsersStatus('saving')
+    setModuleUsersError(null)
+    try {
+      const created = await apiClient.createModuleUser({
+        login,
+        password,
+        role: newModuleUser.role,
+      })
+      setModuleUsers((current) =>
+        [...current.filter((user) => user.id !== created.id), created].sort((left, right) =>
+          left.login.localeCompare(right.login),
+        ),
+      )
+      setNewModuleUser({ login: '', password: '', role: 'employee' })
+      setModuleUsersStatus('idle')
+    } catch (createError) {
+      setModuleUsersStatus('error')
+      setModuleUsersError(
+        createError instanceof Error
+          ? createError.message
+          : 'Не удалось создать пользователя',
+      )
+    }
+  }
+
+  async function handleDisableModuleUser(userId: number, disabled: boolean) {
+    setModuleUsersStatus('saving')
+    setModuleUsersError(null)
+    try {
+      const updated = await apiClient.updateModuleUser(userId, { disabled })
+      setModuleUsers((current) =>
+        current.map((user) => (user.id === updated.id ? updated : user)),
+      )
+      setModuleUsersStatus('idle')
+    } catch (updateError) {
+      setModuleUsersStatus('error')
+      setModuleUsersError(
+        updateError instanceof Error
+          ? updateError.message
+          : 'Не удалось обновить пользователя',
+      )
+    }
   }
 
   return (
@@ -1170,6 +1347,17 @@ export function ProtoApp() {
             <button className="btn btn-ghost" onClick={() => setCommentsOpen((current) => !current)}>
               Комментарии
             </button>
+            {canManageModuleUsers ? (
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setUsersOpen((current) => !current)
+                  setCommentsOpen(true)
+                }}
+              >
+                Пользователи
+              </button>
+            ) : null}
             <button
               className="btn btn-ghost"
               onClick={() => {
@@ -1180,6 +1368,26 @@ export function ProtoApp() {
               {commentMode ? 'Выйти из comment mode' : 'Comment mode'}
             </button>
           </div>
+
+          {notifications.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2" aria-label="Статусы комментариев">
+              {notifications.slice(0, 4).map((notification) => (
+                <span
+                  key={notification.id}
+                  className={cn(
+                    'badge-chip',
+                    notification.paperclipStatus === 'failed'
+                      ? 'badge-red'
+                      : notification.paperclipStatus === 'done'
+                        ? 'badge-green'
+                        : 'badge-neutral',
+                  )}
+                >
+                  {formatPaperclipStatus(notification.paperclipStatus)} · {notification.sceneId}
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           <div className="sync-strip mt-3" aria-live="polite">
             <div className="sync-strip-grid">
@@ -1460,21 +1668,105 @@ export function ProtoApp() {
             commentsOpen ? 'translate-x-0' : 'translate-x-[calc(100%+1rem)]',
           )}
           data-no-comment="true"
+          aria-label="Комментарии и пользователи"
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="subtle-label">Локальные комментарии</div>
+              <div className="subtle-label">Комментарии в Paperclip</div>
               <h2 className="mt-1 text-xl font-bold text-slate-900">{sceneComments.length} заметок</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {updatedAt
                   ? `Последнее сохранение: ${formatDateTime(updatedAt)}`
-                  : '.codex/proto-comments/comments.json'}
+                  : 'Готово к отправке в Paperclip'}
               </p>
             </div>
             <span className="badge-chip badge-neutral">{status}</span>
           </div>
 
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+          {canManageModuleUsers && usersOpen ? (
+            <section className="panel w-full p-4" aria-label="Пользователи модуля">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="subtle-label">Админ модуля</div>
+                  <h3 className="mt-1 text-lg font-bold text-slate-900">Пользователи</h3>
+                </div>
+                <span className="badge-chip badge-neutral">{moduleUsersStatus}</span>
+              </div>
+              {moduleUsersError ? (
+                <p className="mt-2 text-sm text-red-600">{moduleUsersError}</p>
+              ) : null}
+              <div className="mt-3 grid gap-2 md:grid-cols-[1fr_1fr_auto_auto]">
+                <input
+                  className="field"
+                  placeholder="login"
+                  value={newModuleUser.login}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      login: event.target.value,
+                    }))
+                  }
+                />
+                <input
+                  className="field"
+                  placeholder="password"
+                  type="password"
+                  value={newModuleUser.password}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      password: event.target.value,
+                    }))
+                  }
+                />
+                <select
+                  className="field"
+                  value={newModuleUser.role}
+                  onChange={(event) =>
+                    setNewModuleUser((current) => ({
+                      ...current,
+                      role: event.target.value === 'leader' ? 'leader' : 'employee',
+                    }))
+                  }
+                >
+                  <option value="employee">employee</option>
+                  <option value="leader">leader</option>
+                </select>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => void handleCreateModuleUser()}
+                  disabled={moduleUsersStatus === 'saving'}
+                >
+                  Создать
+                </button>
+              </div>
+              <div className="mt-3 flex flex-col gap-2">
+                {moduleUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg bg-slate-50 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900">{user.login}</div>
+                      <div className="text-xs text-slate-500">{user.moduleRole}</div>
+                    </div>
+                    <span className={cn('badge-chip', user.disabled ? 'badge-red' : 'badge-green')}>
+                      {user.disabled ? 'disabled' : 'active'}
+                    </span>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => void handleDisableModuleUser(user.id, !user.disabled)}
+                      disabled={moduleUsersStatus === 'saving'}
+                    >
+                      {user.disabled ? 'Включить' : 'Отключить'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <div className="panel w-full p-4">
             <div className="subtle-label">
@@ -1520,7 +1812,7 @@ export function ProtoApp() {
                   В архив
                 </button>
               ) : null}
-              {draftComment?.id ? (
+              {draftComment?.id && !serverComments ? (
                 <button
                   className="btn btn-ghost"
                   onClick={() => void handleRemoveComment(draftComment.id!)}
@@ -1556,6 +1848,9 @@ export function ProtoApp() {
                         Блок: {comment.anchor.blockLabel}
                       </div>
                     ) : null}
+                    <div className="mt-1 text-xs text-slate-500">
+                      Paperclip: {formatPaperclipStatus(comment.paperclipStatus)}
+                    </div>
                     <div className="mt-1 text-xs text-slate-500">{formatDateTime(comment.updatedAt)}</div>
                   </div>
                 </button>

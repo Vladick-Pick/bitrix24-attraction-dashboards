@@ -722,6 +722,70 @@ vi.mock('@/lib/api-client', () => ({
       },
       diagnostics: [],
     })),
+    getComments: vi.fn(async () => []),
+    createComment: vi.fn(async (input: {
+      sceneId: string
+      x: number
+      y: number
+      text: string
+      anchor?: Record<string, unknown>
+      context?: Record<string, unknown> | null
+    }) => ({
+      id: 'comment-1',
+      sceneId: input.sceneId,
+      x: input.x,
+      y: input.y,
+      text: input.text,
+      status: 'open',
+      archivedAt: null,
+      createdAt: '2026-04-10T12:00:00.000Z',
+      updatedAt: '2026-04-10T12:00:00.000Z',
+      anchor: input.anchor,
+      context: input.context,
+      paperclipStatus: 'sent',
+    })),
+    updateComment: vi.fn(async (commentId: string, input: { text: string }) => ({
+      id: commentId,
+      sceneId: 'sales',
+      x: 0.1,
+      y: 0.2,
+      text: input.text,
+      status: 'open',
+      archivedAt: null,
+      createdAt: '2026-04-10T12:00:00.000Z',
+      updatedAt: '2026-04-10T12:05:00.000Z',
+      paperclipStatus: 'sent',
+    })),
+    archiveComment: vi.fn(async (commentId: string) => ({
+      id: commentId,
+      sceneId: 'sales',
+      x: 0.1,
+      y: 0.2,
+      text: 'archived',
+      status: 'archived',
+      archivedAt: '2026-04-10T12:05:00.000Z',
+      createdAt: '2026-04-10T12:00:00.000Z',
+      updatedAt: '2026-04-10T12:05:00.000Z',
+      paperclipStatus: 'sent',
+    })),
+    getCommentNotifications: vi.fn(async () => []),
+    getModuleUsers: vi.fn(async () => []),
+    createModuleUser: vi.fn(async (input: {
+      login: string
+      password: string
+      role: 'leader' | 'employee'
+    }) => ({
+      id: 2,
+      login: input.login,
+      disabled: false,
+      moduleRole: input.role,
+    })),
+    updateModuleUser: vi.fn(async (userId: number, input: { disabled?: boolean }) => ({
+      id: userId,
+      login: 'employee',
+      disabled: input.disabled ?? false,
+      moduleRole: 'employee',
+    })),
   },
 }))
 
@@ -866,13 +930,27 @@ describe('App', () => {
     expect(apiClient.getDashboard).not.toHaveBeenCalled()
   })
 
+  it('loads the dashboard when password auth is not enabled on the API', async () => {
+    vi.mocked(apiClient.getCurrentUser).mockRejectedValueOnce(
+      Object.assign(new Error('NOT_FOUND'), { status: 404 }),
+    )
+
+    render(<App />)
+
+    expect(
+      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+    ).toBeInTheDocument()
+  })
+
   it('logs in and then loads the dashboard shell', async () => {
     vi.mocked(apiClient.getCurrentUser)
       .mockRejectedValueOnce(Object.assign(new Error('UNAUTHORIZED'), { status: 401 }))
       .mockResolvedValueOnce({
         user: {
+          id: 1,
           login: 'admin',
           role: 'admin',
+          modules: [],
         },
         csrfToken: 'csrf-token',
       })

@@ -17,6 +17,9 @@ import type {
 
 export interface ProtoComment {
   id: string
+  moduleKey?: string
+  authorUserId?: number
+  authorLogin?: string
   sceneId: string
   x: number
   y: number
@@ -26,6 +29,12 @@ export interface ProtoComment {
   createdAt: string
   updatedAt: string
   anchor?: ProtoCommentAnchor
+  context?: ProtoCommentContext | null
+  paperclipIssueId?: string | null
+  paperclipIssueIdentifier?: string | null
+  paperclipStatus?: 'queued' | 'sent' | 'in_work' | 'needs_input' | 'done' | 'failed'
+  paperclipError?: string | null
+  paperclipSyncedAt?: string | null
 }
 
 export interface ProtoCommentAnchor {
@@ -37,6 +46,17 @@ export interface ProtoCommentAnchor {
   elementLabel: string
   relativeX: number
   relativeY: number
+}
+
+export interface ProtoCommentContext {
+  range?: {
+    from: string
+    to: string
+  }
+  filters?: {
+    managerIds?: string[]
+    sourceKeys?: string[]
+  }
 }
 
 export interface CompareRange {

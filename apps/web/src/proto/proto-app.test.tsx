@@ -346,6 +346,77 @@ vi.mock('@/lib/api-client', () => ({
       },
       diagnostics: ['dealCursor=2026-04-26T16:00:00.000Z'],
     })),
+    getComments: vi.fn(async () => []),
+    createComment: vi.fn(async (input: {
+      sceneId: string
+      x: number
+      y: number
+      text: string
+      anchor?: Record<string, unknown>
+      context?: Record<string, unknown> | null
+    }) => ({
+      id: 'comment-1',
+      moduleKey: 'attraction',
+      authorUserId: 1,
+      authorLogin: 'leader',
+      sceneId: input.sceneId,
+      x: input.x,
+      y: input.y,
+      text: input.text,
+      status: 'open',
+      archivedAt: null,
+      createdAt: '2026-04-10T12:00:00.000Z',
+      updatedAt: '2026-04-10T12:00:00.000Z',
+      anchor: input.anchor,
+      context: input.context,
+      paperclipIssueId: 'paperclip-issue-1',
+      paperclipIssueIdentifier: 'BIT-1',
+      paperclipStatus: 'sent',
+      paperclipError: null,
+      paperclipSyncedAt: '2026-04-10T12:00:00.000Z',
+    })),
+    updateComment: vi.fn(async (commentId: string, input: { text: string }) => ({
+      id: commentId,
+      sceneId: 'sales',
+      x: 0.1,
+      y: 0.2,
+      text: input.text,
+      status: 'open',
+      archivedAt: null,
+      createdAt: '2026-04-10T12:00:00.000Z',
+      updatedAt: '2026-04-10T12:05:00.000Z',
+      paperclipStatus: 'sent',
+    })),
+    archiveComment: vi.fn(async (commentId: string) => ({
+      id: commentId,
+      sceneId: 'sales',
+      x: 0.1,
+      y: 0.2,
+      text: 'archived',
+      status: 'archived',
+      archivedAt: '2026-04-10T12:05:00.000Z',
+      createdAt: '2026-04-10T12:00:00.000Z',
+      updatedAt: '2026-04-10T12:05:00.000Z',
+      paperclipStatus: 'sent',
+    })),
+    getCommentNotifications: vi.fn(async () => []),
+    getModuleUsers: vi.fn(async () => []),
+    createModuleUser: vi.fn(async (input: {
+      login: string
+      password: string
+      role: 'leader' | 'employee'
+    }) => ({
+      id: 2,
+      login: input.login,
+      disabled: false,
+      moduleRole: input.role,
+    })),
+    updateModuleUser: vi.fn(async (userId: number, input: { disabled?: boolean }) => ({
+      id: userId,
+      login: 'employee',
+      disabled: input.disabled ?? false,
+      moduleRole: 'employee',
+    })),
   },
 }))
 
@@ -1401,21 +1472,147 @@ describe('ProtoApp', () => {
 
     const pin = await screen.findByRole('button', { name: /^Комментарий 1$/ })
     expect(pin).toHaveStyle({ left: '10%', top: '20%' })
-    const saveCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST')
-    const savedBody = JSON.parse(String(saveCall?.[1]?.body)) as {
-      comments: Array<{ anchor?: Record<string, unknown> }>
-    }
-    expect(savedBody.comments[0]?.anchor).toEqual(
+    expect(apiClient.createComment).toHaveBeenCalledWith(
       expect.objectContaining({
-        blockLabel: expect.stringMatching(/фильтры периода и среза/i),
-        relativeX: 0.1,
-        relativeY: 0.25,
+        sceneId: 'sales',
+        text: 'Проверка точки',
+        anchor: expect.objectContaining({
+          blockLabel: expect.stringMatching(/фильтры периода и среза/i),
+          relativeX: 0.1,
+          relativeY: 0.25,
+        }),
+        context: expect.objectContaining({
+          range: expect.objectContaining({
+            from: expect.stringContaining('T00:00:00.000+03:00'),
+            to: expect.stringContaining('T23:59:59.999+03:00'),
+          }),
+        }),
       }),
     )
+
+    expect(screen.getByText(/paperclip: отправлено/i)).toBeInTheDocument()
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/комментарий к точке интерфейса/i)).toBeDisabled()
     })
+  })
+
+  it('keeps the comment draft open when the API save fails', async () => {
+    vi.mocked(apiClient.createComment).mockRejectedValueOnce(new Error('PERMISSION_DENIED'))
+
+    render(<ProtoApp />)
+
+    await userEvent.click(screen.getByRole('button', { name: /^comment mode$/i }))
+
+    const shell = screen.getByRole('presentation')
+    vi.spyOn(shell, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 1000,
+      height: 1000,
+      top: 0,
+      left: 0,
+      right: 1000,
+      bottom: 1000,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(screen.getByText(/фильтры периода и среза/i), {
+      clientX: 180,
+      clientY: 260,
+    })
+    await userEvent.type(
+      screen.getByPlaceholderText(/комментарий к точке интерфейса/i),
+      'Не сохранять локально',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^сохранить$/i }))
+
+    expect(await screen.findByText('PERMISSION_DENIED')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Комментарий 1$/ })).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/комментарий к точке интерфейса/i)).toBeEnabled()
+  })
+
+  it('does not locally archive a comment when the API archive fails', async () => {
+    vi.mocked(apiClient.getComments).mockResolvedValueOnce([
+      {
+        id: 'comment-1',
+        moduleKey: 'attraction',
+        authorUserId: 1,
+        authorLogin: 'leader',
+        sceneId: 'sales',
+        x: 0.1,
+        y: 0.2,
+        text: 'Комментарий для архива',
+        status: 'open',
+        archivedAt: null,
+        createdAt: '2026-04-10T12:00:00.000Z',
+        updatedAt: '2026-04-10T12:00:00.000Z',
+        paperclipStatus: 'sent',
+        paperclipError: null,
+        paperclipSyncedAt: '2026-04-10T12:00:00.000Z',
+      },
+    ])
+    vi.mocked(apiClient.archiveComment).mockRejectedValueOnce(new Error('PERMISSION_DENIED'))
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^Комментарий 1$/ }))
+    await userEvent.click(screen.getByRole('button', { name: /^В архив$/i }))
+
+    expect(await screen.findByText('PERMISSION_DENIED')).toBeInTheDocument()
+    expect(screen.getByText('1 заметок')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Комментарий 1$/ })).toBeInTheDocument()
+  })
+
+  it('shows module user admin only for attraction leaders', async () => {
+    vi.mocked(apiClient.getModuleUsers).mockResolvedValueOnce([
+      {
+        id: 1,
+        login: 'leader',
+        disabled: false,
+        moduleRole: 'leader',
+      },
+    ])
+
+    const leaderUser = {
+      id: 1,
+      login: 'leader',
+      role: 'admin' as const,
+      modules: [
+        {
+          key: 'attraction',
+          label: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create' as const,
+            'comments:archive' as const,
+            'module-users:manage' as const,
+          ],
+        },
+      ],
+    }
+    const { rerender } = render(<ProtoApp currentUser={leaderUser} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /^Пользователи$/i }))
+
+    const adminPanel = await screen.findByLabelText(/пользователи модуля/i)
+    expect(adminPanel).toBeInTheDocument()
+    expect(within(adminPanel).getAllByText('leader').length).toBeGreaterThan(0)
+
+    const employeeUser = {
+      ...leaderUser,
+      modules: [
+        {
+          key: 'attraction',
+          label: 'Привлечение',
+          role: 'employee' as const,
+          permissions: ['comments:create' as const],
+        },
+      ],
+    }
+    rerender(<ProtoApp currentUser={employeeUser} />)
+
+    expect(screen.queryByRole('button', { name: /^Пользователи$/i })).not.toBeInTheDocument()
   })
 
   it('allows comment pins on the filter panel chrome without blocking form controls', async () => {

@@ -120,6 +120,73 @@ export interface ProtoCommentStore {
   updatedAt: string | null;
 }
 
+export type DashboardCommentStatus = "open" | "archived";
+export type DashboardCommentPaperclipStatus =
+  | "queued"
+  | "sent"
+  | "in_work"
+  | "needs_input"
+  | "done"
+  | "failed";
+
+export interface DashboardCommentContext {
+  range?: {
+    from: string;
+    to: string;
+  };
+  filters?: {
+    managerIds?: string[];
+    sourceKeys?: string[];
+  };
+}
+
+export interface DashboardCommentRecord {
+  id: string;
+  moduleKey: string;
+  authorUserId: number;
+  authorLogin: string;
+  sceneId: string;
+  x: number;
+  y: number;
+  text: string;
+  status: DashboardCommentStatus;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  context: DashboardCommentContext | null;
+  anchor?: ProtoCommentAnchor;
+  paperclipIssueId: string | null;
+  paperclipIssueIdentifier: string | null;
+  paperclipStatus: DashboardCommentPaperclipStatus;
+  paperclipError: string | null;
+  paperclipSyncedAt: string | null;
+}
+
+export interface CreateDashboardCommentInput {
+  id: string;
+  moduleKey: string;
+  authorUserId: number;
+  authorLogin: string;
+  sceneId: string;
+  x: number;
+  y: number;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+  context?: DashboardCommentContext | null;
+  anchor?: ProtoCommentAnchor;
+}
+
+export interface UpdateDashboardCommentPaperclipInput {
+  id: string;
+  paperclipStatus: DashboardCommentPaperclipStatus;
+  paperclipIssueId?: string | null;
+  paperclipIssueIdentifier?: string | null;
+  paperclipError?: string | null;
+  paperclipSyncedAt?: string | null;
+  updatedAt: string;
+}
+
 export interface SqliteRepository {
   getLatestSuccessCursor(
     categoryIds?: string[],
@@ -237,6 +304,25 @@ export interface SqliteRepository {
   replacePricingRules(input: ReplacePricingRulesInput): Promise<DealPricingRule[]>;
   getProtoComments(): Promise<ProtoCommentStore>;
   replaceProtoComments(input: ProtoCommentStore): Promise<ProtoCommentStore>;
+  createComment(input: CreateDashboardCommentInput): Promise<DashboardCommentRecord>;
+  getComments(input: {
+    moduleKey: string;
+    status?: DashboardCommentStatus;
+  }): Promise<DashboardCommentRecord[]>;
+  getCommentById(id: string): Promise<DashboardCommentRecord | null>;
+  updateComment(input: {
+    id: string;
+    text: string;
+    updatedAt: string;
+  }): Promise<DashboardCommentRecord | null>;
+  archiveComment(input: {
+    id: string;
+    archivedAt: string;
+  }): Promise<DashboardCommentRecord | null>;
+  updateCommentPaperclip(input: UpdateDashboardCommentPaperclipInput): Promise<DashboardCommentRecord | null>;
+  getCommentNotifications(input: {
+    moduleKey: string;
+  }): Promise<DashboardCommentRecord[]>;
   getWonStageIds(): Promise<string[]>;
   setWonStageIds(stageIds: string[]): Promise<void>;
   getLastSyncSummary(scopeKey?: string): Promise<LastSyncSummary | null>;
@@ -352,6 +438,35 @@ function parseProtoCommentAnchor(value: string | null): ProtoCommentAnchor | und
   } catch {
     return undefined;
   }
+}
+
+function parseDashboardCommentContext(
+  value: string | null
+): DashboardCommentContext | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as DashboardCommentContext;
+  } catch {
+    return null;
+  }
+}
+
+function mapDashboardCommentRow(
+  row: Omit<DashboardCommentRecord, "anchor" | "context"> & {
+    contextJson: string | null;
+    anchorJson: string | null;
+  }
+): DashboardCommentRecord {
+  const { contextJson, anchorJson, ...comment } = row;
+  const anchor = parseProtoCommentAnchor(anchorJson);
+  return {
+    ...comment,
+    context: parseDashboardCommentContext(contextJson),
+    ...(anchor ? { anchor } : {})
+  };
 }
 
 function ensureColumn(
@@ -638,6 +753,28 @@ export function createSqliteRepository(
       sort_order INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS dashboard_comments (
+      id TEXT PRIMARY KEY,
+      module_key TEXT NOT NULL,
+      author_user_id INTEGER NOT NULL,
+      author_login TEXT NOT NULL,
+      scene_id TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      text TEXT NOT NULL,
+      status TEXT NOT NULL,
+      archived_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      context_json TEXT,
+      anchor_json TEXT,
+      paperclip_issue_id TEXT,
+      paperclip_issue_identifier TEXT,
+      paperclip_status TEXT NOT NULL,
+      paperclip_error TEXT,
+      paperclip_synced_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_deal_snapshots_category_id
       ON deal_snapshots (category_id);
     CREATE INDEX IF NOT EXISTS idx_stage_history_owner_id
@@ -660,6 +797,10 @@ export function createSqliteRepository(
       ON call_snapshots (crm_activity_id);
     CREATE INDEX IF NOT EXISTS idx_proto_comments_scene_status
       ON proto_comments (scene_id, status);
+    CREATE INDEX IF NOT EXISTS idx_dashboard_comments_module_status
+      ON dashboard_comments (module_key, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_dashboard_comments_paperclip_status
+      ON dashboard_comments (module_key, paperclip_status, updated_at);
   `);
 
   ensureColumn(database, "deal_snapshots", "source_id", "TEXT");
@@ -1138,6 +1279,113 @@ export function createSqliteRepository(
       @anchorJson,
       @sortOrder
     )
+  `);
+  const insertDashboardCommentStatement = database.prepare(`
+    INSERT INTO dashboard_comments (
+      id,
+      module_key,
+      author_user_id,
+      author_login,
+      scene_id,
+      x,
+      y,
+      text,
+      status,
+      archived_at,
+      created_at,
+      updated_at,
+      context_json,
+      anchor_json,
+      paperclip_issue_id,
+      paperclip_issue_identifier,
+      paperclip_status,
+      paperclip_error,
+      paperclip_synced_at
+    ) VALUES (
+      @id,
+      @moduleKey,
+      @authorUserId,
+      @authorLogin,
+      @sceneId,
+      @x,
+      @y,
+      @text,
+      @status,
+      @archivedAt,
+      @createdAt,
+      @updatedAt,
+      @contextJson,
+      @anchorJson,
+      @paperclipIssueId,
+      @paperclipIssueIdentifier,
+      @paperclipStatus,
+      @paperclipError,
+      @paperclipSyncedAt
+    )
+  `);
+  const selectDashboardCommentFields = `
+    id,
+    module_key AS moduleKey,
+    author_user_id AS authorUserId,
+    author_login AS authorLogin,
+    scene_id AS sceneId,
+    x,
+    y,
+    text,
+    status,
+    archived_at AS archivedAt,
+    created_at AS createdAt,
+    updated_at AS updatedAt,
+    context_json AS contextJson,
+    anchor_json AS anchorJson,
+    paperclip_issue_id AS paperclipIssueId,
+    paperclip_issue_identifier AS paperclipIssueIdentifier,
+    paperclip_status AS paperclipStatus,
+    paperclip_error AS paperclipError,
+    paperclip_synced_at AS paperclipSyncedAt
+  `;
+  const findDashboardCommentByIdStatement = database.prepare(`
+    SELECT ${selectDashboardCommentFields}
+    FROM dashboard_comments
+    WHERE id = ?
+  `);
+  const getDashboardCommentsStatement = database.prepare(`
+    SELECT ${selectDashboardCommentFields}
+    FROM dashboard_comments
+    WHERE module_key = @moduleKey
+      AND (@status IS NULL OR status = @status)
+    ORDER BY created_at ASC, id ASC
+  `);
+  const updateDashboardCommentStatement = database.prepare(`
+    UPDATE dashboard_comments
+    SET text = @text,
+      updated_at = @updatedAt
+    WHERE id = @id
+  `);
+  const archiveDashboardCommentStatement = database.prepare(`
+    UPDATE dashboard_comments
+    SET status = 'archived',
+      archived_at = @archivedAt,
+      updated_at = @archivedAt
+    WHERE id = @id
+  `);
+  const updateDashboardCommentPaperclipStatement = database.prepare(`
+    UPDATE dashboard_comments
+    SET paperclip_status = @paperclipStatus,
+      paperclip_issue_id = @paperclipIssueId,
+      paperclip_issue_identifier = @paperclipIssueIdentifier,
+      paperclip_error = @paperclipError,
+      paperclip_synced_at = @paperclipSyncedAt,
+      updated_at = @updatedAt
+    WHERE id = @id
+  `);
+  const getDashboardCommentNotificationsStatement = database.prepare(`
+    SELECT ${selectDashboardCommentFields}
+    FROM dashboard_comments
+    WHERE module_key = ?
+      AND status <> 'archived'
+    ORDER BY updated_at DESC, created_at DESC, id ASC
+    LIMIT 20
   `);
   const replaceSalesPlanRowsTransaction = database.transaction(
     (input: ReplaceSalesPlanRowsInput) => {
@@ -2379,6 +2627,104 @@ export function createSqliteRepository(
     async replaceProtoComments(input) {
       replaceProtoCommentsTransaction(input);
       return this.getProtoComments();
+    },
+
+    async createComment(input) {
+      insertDashboardCommentStatement.run({
+        id: input.id,
+        moduleKey: input.moduleKey,
+        authorUserId: input.authorUserId,
+        authorLogin: input.authorLogin,
+        sceneId: input.sceneId,
+        x: input.x,
+        y: input.y,
+        text: input.text,
+        status: "open",
+        archivedAt: null,
+        createdAt: input.createdAt,
+        updatedAt: input.updatedAt,
+        contextJson: input.context ? JSON.stringify(input.context) : null,
+        anchorJson: input.anchor ? JSON.stringify(input.anchor) : null,
+        paperclipIssueId: null,
+        paperclipIssueIdentifier: null,
+        paperclipStatus: "queued",
+        paperclipError: null,
+        paperclipSyncedAt: null
+      });
+
+      const comment = await this.getCommentById(input.id);
+      if (!comment) {
+        throw new Error("Failed to create dashboard comment.");
+      }
+      return comment;
+    },
+
+    async getComments(input) {
+      return getDashboardCommentsStatement
+        .all({
+          moduleKey: input.moduleKey,
+          status: input.status ?? null
+        })
+        .map((row) =>
+          mapDashboardCommentRow(
+            row as Omit<DashboardCommentRecord, "anchor" | "context"> & {
+              contextJson: string | null;
+              anchorJson: string | null;
+            }
+          )
+        );
+    },
+
+    async getCommentById(id) {
+      const row = findDashboardCommentByIdStatement.get(id);
+      return row
+        ? mapDashboardCommentRow(
+            row as Omit<DashboardCommentRecord, "anchor" | "context"> & {
+              contextJson: string | null;
+              anchorJson: string | null;
+            }
+          )
+        : null;
+    },
+
+    async updateComment(input) {
+      updateDashboardCommentStatement.run(input);
+      return this.getCommentById(input.id);
+    },
+
+    async archiveComment(input) {
+      archiveDashboardCommentStatement.run(input);
+      return this.getCommentById(input.id);
+    },
+
+    async updateCommentPaperclip(input) {
+      const current = await this.getCommentById(input.id);
+      updateDashboardCommentPaperclipStatement.run({
+        id: input.id,
+        paperclipStatus: input.paperclipStatus,
+        paperclipIssueId: input.paperclipIssueId ?? current?.paperclipIssueId ?? null,
+        paperclipIssueIdentifier:
+          input.paperclipIssueIdentifier ??
+          current?.paperclipIssueIdentifier ??
+          null,
+        paperclipError: input.paperclipError ?? null,
+        paperclipSyncedAt: input.paperclipSyncedAt ?? null,
+        updatedAt: input.updatedAt
+      });
+      return this.getCommentById(input.id);
+    },
+
+    async getCommentNotifications(input) {
+      return getDashboardCommentNotificationsStatement
+        .all(input.moduleKey)
+        .map((row) =>
+          mapDashboardCommentRow(
+            row as Omit<DashboardCommentRecord, "anchor" | "context"> & {
+              contextJson: string | null;
+              anchorJson: string | null;
+            }
+          )
+        );
     },
 
     async getWonStageIds() {

@@ -2,6 +2,7 @@ import { BitrixClient } from "./bitrix/client.js";
 import { readEnv } from "./config/env.js";
 import { createPasswordAuthService, createSqliteAuthStore } from "./server/auth.js";
 import { createApp } from "./server/app.js";
+import { PaperclipClient } from "./server/paperclip-client.js";
 import { createSqliteRepository } from "./server/sqlite-repository.js";
 import { createReportingService } from "./server/service.js";
 
@@ -75,7 +76,16 @@ const service = createReportingService({
 const authStore =
   env.AUTH_MODE === "password"
     ? createSqliteAuthStore({
-        databaseUrl: env.DATABASE_URL
+        databaseUrl: env.DATABASE_URL,
+        defaultModuleConfig: {
+          moduleKey: "attraction",
+          label: "Привлечение",
+          scopeKey: "attraction",
+          paperclipCompanyId: env.PAPERCLIP_COMPANY_ID ?? null,
+          paperclipProjectId: env.PAPERCLIP_PROJECT_ID ?? null,
+          paperclipGoalId: env.PAPERCLIP_GOAL_ID ?? null,
+          paperclipTriageAgentId: env.PAPERCLIP_TRIAGE_AGENT_ID ?? null
+        }
       })
     : null;
 const auth =
@@ -91,11 +101,20 @@ const auth =
         )
       })
     : undefined;
+const paperclip =
+  env.PAPERCLIP_API_URL && env.PAPERCLIP_API_TOKEN
+    ? new PaperclipClient({
+        apiUrl: env.PAPERCLIP_API_URL,
+        apiToken: env.PAPERCLIP_API_TOKEN
+      })
+    : undefined;
 const app = createApp(service, {
   webOrigin: env.WEB_ORIGIN,
   ...(env.API_AUTH_TOKEN ? { apiAuthToken: env.API_AUTH_TOKEN } : {}),
   ...(auth ? { auth } : {}),
   protoComments: repository,
+  comments: repository,
+  ...(paperclip ? { paperclip } : {}),
   jsonBodyLimit: env.JSON_BODY_LIMIT,
   trustProxy:
     env.TRUST_PROXY === "true"

@@ -159,6 +159,15 @@ tbody tr:hover {
   background: #74859f;
 }
 
+.badge-red {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.badge-red::before {
+  background: #dc2626;
+}
+
 .tab-chip {
   border-radius: 999px;
   padding: 0.58rem 1rem;

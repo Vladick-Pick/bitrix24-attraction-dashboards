@@ -641,15 +641,17 @@ function shouldIgnoreCommentTarget(target: EventTarget | null) {
   )
 }
 
-const commentBlockSelector = [
+const namedCommentBlockSelector = [
   '[data-comment-block-id]',
+  '[data-comment-block-label]',
   '.panel',
   'section',
   'article',
-  'table',
   '[role="region"]',
   '[aria-label]',
 ].join(',')
+
+const tableCommentBlockSelector = 'table'
 
 function cleanCommentLabel(value: string | null | undefined, fallback: string) {
   const normalized = (value ?? '').replace(/\s+/g, ' ').trim()
@@ -698,12 +700,27 @@ function buildElementSelector(element: Element, root: Element) {
 
 function resolveElementLabel(element: Element) {
   const heading = element.querySelector('h1,h2,h3,[role="heading"]')
+  const caption = element.querySelector('caption')
   return cleanCommentLabel(
     element.getAttribute('data-comment-block-label') ??
       element.getAttribute('aria-label') ??
       heading?.textContent ??
+      caption?.textContent ??
       element.textContent,
     element.tagName.toLowerCase(),
+  )
+}
+
+function closestHtmlElement(element: Element, selector: string) {
+  const closest = element.closest(selector)
+  return closest instanceof HTMLElement ? closest : null
+}
+
+function resolveCommentBlockElement(targetElement: Element, shell: HTMLElement) {
+  return (
+    closestHtmlElement(targetElement, namedCommentBlockSelector) ??
+    closestHtmlElement(targetElement, tableCommentBlockSelector) ??
+    shell
   )
 }
 
@@ -714,10 +731,7 @@ function resolveCommentAnchor(
   clientY: number,
 ): ProtoCommentAnchor {
   const targetElement = target instanceof Element ? target : shell
-  const blockElement =
-    targetElement.closest(commentBlockSelector) instanceof HTMLElement
-      ? (targetElement.closest(commentBlockSelector) as HTMLElement)
-      : shell
+  const blockElement = resolveCommentBlockElement(targetElement, shell)
   const rect = blockElement.getBoundingClientRect()
   const relativeX =
     rect.width === 0 ? 0 : Number(((clientX - rect.left) / rect.width).toFixed(4))

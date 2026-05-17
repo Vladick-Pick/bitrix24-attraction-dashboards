@@ -341,8 +341,17 @@ describe("dashboard comments to Paperclip", () => {
       });
 
     expect(paperclip.createIssue).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(paperclip.createIssue.mock.calls[0]?.[0])).not.toMatch(
-      /user@example\.com|\+7 999/
+    const issuePayload = paperclip.createIssue.mock.calls[0]?.[0] as {
+      description: string;
+    };
+    expect(JSON.stringify(issuePayload)).not.toMatch(/user@example\.com|\+7 999/);
+    expect(issuePayload.description).toContain("[redacted-email]");
+    expect(issuePayload.description).toContain("[redacted-phone]");
+    expect(issuePayload.description).toContain(
+      `"rangeStart": "2026-05-01T00:00:00.000+03:00"`
+    );
+    expect(issuePayload.description).toContain(
+      `"rangeEnd": "2026-05-10T23:59:59.999+03:00"`
     );
 
     await agent

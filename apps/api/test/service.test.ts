@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
+  LEADGEN_US_BASKET_REASON_FIELD_NAME,
+  LEADGEN_US_RETURN_REASON_FIELD_NAME,
+  LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME
+} from "../src/domain/sync";
 import { createReportingService } from "../src/server/service";
 
 describe("createReportingService", () => {
@@ -1819,6 +1825,191 @@ describe("createReportingService", () => {
         sourceLabel: "Сайт",
         dealCount: 1
       }
+    ]);
+  });
+
+  it("forwards linked leadgen lookup scope during attraction sync without persisting leadgen deals", async () => {
+    const dealStageCategoryRequests: string[][] = [];
+    const dealRequests: Array<{
+      categoryIds: string[];
+      assignedByIds?: string[];
+      customFieldNames?: string[];
+    }> = [];
+    const storedDeals: Array<Array<{ categoryId: string }>> = [];
+    const repository = {
+      getLatestSuccessCursor: async () => null,
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-01-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-01-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async (rows: Array<{ categoryId: string }>) => {
+        storedDeals.push(rows);
+        return rows.length;
+      },
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      createSyncRun: async () => 68,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async (categoryIds: string[]) => {
+        dealStageCategoryRequests.push(categoryIds);
+        return [
+          {
+            entityType: "deal" as const,
+            categoryId: "10",
+            statusId: "C10:RETURN",
+            name: "Возврат в Лидген(неквал)",
+            semanticId: "F",
+            sortOrder: 100
+          },
+          {
+            entityType: "deal" as const,
+            categoryId: "28",
+            statusId: "C28:LOSE",
+            name: "Лидген потерян",
+            semanticId: "F",
+            sortOrder: 100
+          }
+        ];
+      },
+      fetchSourceCatalog: async () => [
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Сайт",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async (fieldName: string) => {
+        if (fieldName === LEADGEN_US_RETURN_REASON_FIELD_NAME) {
+          return { "301": "Не соответствует критериям" };
+        }
+        if (fieldName === LEADGEN_US_BASKET_REASON_FIELD_NAME) {
+          return { "401": "Перестал выходить на связь" };
+        }
+        return {};
+      },
+      listDeals: async (cursor: {
+        modifiedAfter: string | null;
+        categoryIds: string[];
+        assignedByIds?: string[];
+        customFieldNames?: string[];
+      }) => {
+        dealRequests.push({
+          categoryIds: cursor.categoryIds,
+          ...(cursor.assignedByIds ? { assignedByIds: cursor.assignedByIds } : {}),
+          ...(cursor.customFieldNames
+            ? { customFieldNames: cursor.customFieldNames }
+            : {})
+        });
+
+        if (cursor.categoryIds[0] === "28") {
+          return [
+            {
+              ID: "L_RETURN",
+              LEAD_ID: null,
+              DATE_CREATE: "2026-04-09T09:00:00.000Z",
+              DATE_MODIFY: "2026-04-09T09:00:00.000Z",
+              DATE_CLOSED: "2026-04-09T09:00:00.000Z",
+              CATEGORY_ID: "28",
+              STAGE_ID: "C28:LOSE",
+              STAGE_SEMANTIC_ID: "F",
+              OPPORTUNITY: null,
+              ASSIGNED_BY_ID: "501",
+              SOURCE_ID: "WEB",
+              [LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME]: "A_RETURN",
+              [LEADGEN_US_RETURN_REASON_FIELD_NAME]: "301",
+              UTM_SOURCE: null,
+              UTM_MEDIUM: null,
+              UTM_CAMPAIGN: null,
+              UTM_CONTENT: null,
+              UTM_TERM: null
+            }
+          ];
+        }
+
+        return [
+          {
+            ID: "A_RETURN",
+            LEAD_ID: null,
+            DATE_CREATE: "2026-04-09T10:00:00.000Z",
+            DATE_MODIFY: "2026-04-09T10:00:00.000Z",
+            DATE_CLOSED: "2026-04-09T10:00:00.000Z",
+            CATEGORY_ID: "10",
+            STAGE_ID: "C10:RETURN",
+            STAGE_SEMANTIC_ID: "F",
+            OPPORTUNITY: null,
+            ASSIGNED_BY_ID: "78",
+            SOURCE_ID: "WEB",
+            UTM_SOURCE: null,
+            UTM_MEDIUM: null,
+            UTM_CAMPAIGN: null,
+            UTM_CONTENT: null,
+            UTM_TERM: null
+          }
+        ];
+      },
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      leadgenCategoryId: "28",
+      leadgenManagerIds: ["501", "502"],
+      qualityFieldName: "UF_CRM_1730380390",
+      repository: repository as never,
+      client: client as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T00:00:00.000Z")
+    });
+
+    await service.performSync();
+
+    expect(dealStageCategoryRequests).toEqual([["10", "28"]]);
+    expect(dealRequests).toEqual([
+      expect.objectContaining({
+        categoryIds: ["10"]
+      }),
+      expect.objectContaining({
+        categoryIds: ["28"],
+        assignedByIds: ["501", "502"],
+        customFieldNames: [
+          LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME,
+          ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
+          LEADGEN_US_RETURN_REASON_FIELD_NAME,
+          LEADGEN_US_BASKET_REASON_FIELD_NAME
+        ]
+      })
+    ]);
+    expect(storedDeals).toEqual([
+      [
+        expect.objectContaining({
+          categoryId: "10"
+        })
+      ]
     ]);
   });
 });

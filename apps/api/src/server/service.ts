@@ -2198,6 +2198,12 @@ export function createReportingService(
     async performSync(syncInput) {
       return performManualSync({
         categoryIds: input.dealCategoryIds,
+        ...(input.leadgenCategoryId
+          ? { leadgenCategoryId: input.leadgenCategoryId }
+          : {}),
+        ...(input.leadgenManagerIds
+          ? { leadgenManagerIds: input.leadgenManagerIds }
+          : {}),
         qualityFieldName: input.qualityFieldName,
         client: input.client,
         repository: input.repository,

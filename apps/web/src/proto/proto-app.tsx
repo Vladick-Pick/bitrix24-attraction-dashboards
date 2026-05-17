@@ -848,6 +848,13 @@ function PaperclipNotifications({
   )
 }
 
+type LeadgenReportId = 'sales' | 'activity'
+
+const leadgenReportTabs: Array<{ id: LeadgenReportId; label: string }> = [
+  { id: 'sales', label: 'Отчет по продажам' },
+  { id: 'activity', label: 'Отчет активности' },
+]
+
 function LeadgenDashboard({
   report,
   status,
@@ -862,62 +869,112 @@ function LeadgenDashboard({
   const topUtm = report?.utmRows ?? []
   const topManagers = report?.managerRows ?? []
   const topReasons = report?.reasonRows ?? []
+  const [activeReportId, setActiveReportId] = useState<LeadgenReportId>('sales')
+  const isSalesReport = activeReportId === 'sales'
+  const emptyValue = status === 'loading' ? '...' : '0'
+  const salesMetrics = [
+    {
+      label: 'Всего сделок',
+      value: report ? formatCount(report.totalDeals) : emptyValue,
+      hint: 'в Лидген УС',
+    },
+    {
+      label: 'Создано',
+      value: report ? formatCount(report.createdDeals) : emptyValue,
+      hint: 'за период',
+    },
+    {
+      label: 'Активные',
+      value: report ? formatCount(report.activeDeals) : emptyValue,
+      hint: 'в работе',
+    },
+    {
+      label: 'Закрытые',
+      value: report ? formatCount(report.closedDeals) : emptyValue,
+      hint: 'закрытые сделки',
+    },
+  ]
+  const activityMetrics = [
+    {
+      label: 'Активные',
+      value: report ? formatCount(report.activeDeals) : emptyValue,
+      hint: 'сейчас в работе',
+    },
+    {
+      label: 'Ответственные',
+      value: report ? formatCount(topManagers.length) : emptyValue,
+      hint: 'менеджеры с данными',
+    },
+    {
+      label: 'Источники',
+      value: report ? formatCount(topSources.length) : emptyValue,
+      hint: 'каналы в выборке',
+    },
+    {
+      label: 'UTM',
+      value: report ? formatCount(topUtm.length) : emptyValue,
+      hint: 'кампании в выборке',
+    },
+  ]
+  const activeMetrics = isSalesReport ? salesMetrics : activityMetrics
 
   return (
     <div className="grid gap-6">
       <section
-        className="panel p-5"
-        data-comment-block-id="leadgen-funnel-summary"
-        data-comment-block-label="Лидогенерация: воронка Лидген УС"
+        className="panel sticky top-3 z-20 flex flex-wrap gap-2 p-3"
+        data-no-comment="true"
+        aria-label="Отчеты лидогенерации"
       >
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="subtle-label">Лидогенерация</div>
-            <h2 className="mt-1 text-2xl font-bold text-slate-900">
-              Воронка Лидген УС
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Сводка по отдельной воронке и команде лидогенерации.
-            </p>
-          </div>
-          <span className="badge-chip badge-green">
-            {status === 'loading' ? 'Загрузка' : 'Лидген'}
-          </span>
-        </div>
-
-        {error ? (
-          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="mt-5 grid gap-4 md:grid-cols-4">
-          {[
-            ['Всего сделок', report ? formatCount(report.totalDeals) : '...'],
-            ['Создано', report ? formatCount(report.createdDeals) : '...'],
-            ['Активные', report ? formatCount(report.activeDeals) : '...'],
-            ['Закрытые', report ? formatCount(report.closedDeals) : '...'],
-          ].map(([label, value]) => (
-            <div key={label} className="metric p-4">
-              <p className="subtle-label">{label}</p>
-              <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
-            </div>
-          ))}
-        </div>
-
-        {report?.warnings.length ? (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
-            {report.warnings.join(' ')}
-          </div>
-        ) : null}
+        {leadgenReportTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={cn('tab-chip', activeReportId === tab.id && 'tab-chip-active')}
+            aria-pressed={activeReportId === tab.id}
+            onClick={() => setActiveReportId(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
-        <div
-          className="panel p-5"
-          data-comment-block-id="leadgen-stage-distribution"
-          data-comment-block-label="Лидогенерация: стадии"
-        >
+      {error ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+          {error}
+        </div>
+      ) : null}
+
+      <section
+        className="grid gap-4 md:grid-cols-4"
+        data-comment-block-id={`leadgen-${activeReportId}-kpi`}
+        data-comment-block-label={
+          isSalesReport
+            ? 'Лидогенерация: KPI отчета продаж'
+            : 'Лидогенерация: KPI отчета активности'
+        }
+      >
+        {activeMetrics.map((metric) => (
+          <div key={metric.label} className="metric p-4">
+            <p className="subtle-label">{metric.label}</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{metric.value}</p>
+            <p className="mt-1 text-sm text-slate-500">{metric.hint}</p>
+          </div>
+        ))}
+      </section>
+
+      {report?.warnings.length ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+          {report.warnings.join(' ')}
+        </div>
+      ) : null}
+
+      <section className={cn('grid gap-6', isSalesReport ? '' : 'lg:grid-cols-2')}>
+        {isSalesReport ? (
+          <div
+            className="panel p-5"
+            data-comment-block-id="leadgen-stage-distribution"
+            data-comment-block-label="Лидогенерация: стадии"
+          >
           <div className="subtle-label">Распределение по стадиям</div>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-full text-left text-sm">
@@ -950,13 +1007,15 @@ function LeadgenDashboard({
               </tbody>
             </table>
           </div>
-        </div>
+          </div>
+        ) : null}
 
-        <div
-          className="panel p-5"
-          data-comment-block-id="leadgen-manager-distribution"
-          data-comment-block-label="Лидогенерация: менеджеры"
-        >
+        {!isSalesReport ? (
+          <div
+            className="panel p-5"
+            data-comment-block-id="leadgen-manager-distribution"
+            data-comment-block-label="Лидогенерация: менеджеры"
+          >
           <div className="subtle-label">Менеджеры</div>
           <div className="mt-3 grid gap-2">
             {topManagers.map((row) => (
@@ -974,15 +1033,17 @@ function LeadgenDashboard({
               <p className="text-sm text-slate-500">Нет данных за период.</p>
             ) : null}
           </div>
-        </div>
+          </div>
+        ) : null}
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <div
-          className="panel p-5"
-          data-comment-block-id="leadgen-source-distribution"
-          data-comment-block-label="Лидогенерация: источники"
-        >
+      <section className={cn('grid gap-6', isSalesReport ? '' : 'lg:grid-cols-2')}>
+        {!isSalesReport ? (
+          <div
+            className="panel p-5"
+            data-comment-block-id="leadgen-source-distribution"
+            data-comment-block-label="Лидогенерация: источники"
+          >
           <div className="subtle-label">Источники и UTM</div>
           <div className="mt-3 grid gap-2">
             {topSources.map((row) => (
@@ -1027,13 +1088,15 @@ function LeadgenDashboard({
               </div>
             ) : null}
           </div>
-        </div>
+          </div>
+        ) : null}
 
-        <div
-          className="panel p-5"
-          data-comment-block-id="leadgen-reasons"
-          data-comment-block-label="Лидогенерация: причины возврата и корзины"
-        >
+        {isSalesReport ? (
+          <div
+            className="panel p-5"
+            data-comment-block-id="leadgen-reasons"
+            data-comment-block-label="Лидогенерация: причины возврата и корзины"
+          >
           <div className="subtle-label">Причины возврата / корзины</div>
           <div className="mt-3 grid gap-2">
             {topReasons.map((row) => (
@@ -1049,7 +1112,8 @@ function LeadgenDashboard({
               <p className="text-sm text-slate-500">Нет данных за период.</p>
             ) : null}
           </div>
-        </div>
+          </div>
+        ) : null}
       </section>
     </div>
   )
@@ -1174,6 +1238,11 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const activeModuleSlug = activeModule?.slug ?? activeModule?.id ?? activeModuleId
   const isLeadgenModule = activeModuleSlug === 'leadgen'
   const activeCommentSceneId = isLeadgenModule ? 'leadgen-funnel' : activeSceneId
+  const leadgenSnapshotMeta = leadgenReport
+    ? `${formatCount(leadgenReport.managerRows.length)} менеджеров · ${formatCount(
+        leadgenReport.stageRows.length,
+      )} стадий · ${formatCount(leadgenReport.sourceRows.length)} источников`
+    : null
 
   useEffect(() => {
     if (availableModules.length === 0) {
@@ -1203,17 +1272,16 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const ModuleSwitcher = useMemo(
     () =>
       availableModules.length > 1 ? (
-        <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="flex flex-wrap gap-1 rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm">
           {availableModules.map((module) => (
             <button
               key={module.id}
               type="button"
               className={cn(
-                'rounded-md px-3 py-1.5 text-sm font-semibold transition',
-                module.id === activeModule?.id
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100',
+                'tab-chip',
+                module.id === activeModule?.id && 'tab-chip-active',
               )}
+              aria-pressed={module.id === activeModule?.id}
               onClick={() => switchModule(module.id)}
             >
               {module.name}
@@ -2543,7 +2611,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               <p className="mt-1 text-sm text-slate-600">
                 {isLeadgenModule
                   ? 'Лидген УС: стадии, источники, UTM и менеджеры.'
-                  : 'Контур по продажам, делам, звонкам и когортам на базе дизайна из лидогенерации.'}
+                  : 'Контур по продажам, делам, звонкам и когортам на базе локального Bitrix24 snapshot.'}
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
@@ -2611,11 +2679,21 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               <div>
                 <div className="sync-strip-label">Snapshot</div>
                 <div className="sync-strip-value">
-                  {snapshotStats
+                  {isLeadgenModule
+                    ? leadgenReportStatus === 'loading'
+                      ? 'Загрузка'
+                      : leadgenReport
+                        ? `${formatCount(leadgenReport.totalDeals)} сделок`
+                        : 'Нет данных'
+                    : snapshotStats
                     ? `${formatCount(snapshotStats.deals)} сделок`
                     : 'Нет данных'}
                 </div>
-                {snapshotStats ? (
+                {isLeadgenModule ? (
+                  leadgenSnapshotMeta ? (
+                    <div className="sync-strip-meta">{leadgenSnapshotMeta}</div>
+                  ) : null
+                ) : snapshotStats ? (
                   <div className="sync-strip-meta">
                     {formatCount(snapshotStats.activities)} активностей ·{' '}
                     {formatCount(snapshotStats.calls)} звонков ·{' '}
@@ -2624,12 +2702,22 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 ) : null}
               </div>
               <div>
-                <div className="sync-strip-label">Последний sync</div>
+                <div className="sync-strip-label">
+                  {isLeadgenModule ? 'Импорт лидгена' : 'Последний sync'}
+                </div>
                 <div className="sync-strip-value">
-                  {lastSync ? formatDateTime(lastSync.finishedAt) : 'Еще не было'}
+                  {isLeadgenModule
+                    ? leadgenReport
+                      ? 'Локальный snapshot'
+                      : 'Еще не было'
+                    : lastSync
+                      ? formatDateTime(lastSync.finishedAt)
+                      : 'Еще не было'}
                 </div>
                 <div className="sync-strip-meta">
-                  {lastSync
+                  {isLeadgenModule
+                    ? 'Лидген УС · whitelist · с 01.01.2026'
+                    : lastSync
                     ? `${formatSyncMode(lastSync.mode)} · ${formatDealBreakdown({
                         deals: lastSync.dealsSynced,
                         dealBreakdown: lastSync.dealBreakdown,

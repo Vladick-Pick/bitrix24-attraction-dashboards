@@ -6,6 +6,7 @@ This repository contains Bitrix24 attraction dashboards: local API, SQLite-backe
 ## Working Rules
 - Do not work directly on `main` except for emergency repository maintenance.
 - Use branches named `codex/<task-name>` for implementation work.
+- For frontend/UI changes, read `design.md` before editing and keep module-specific screens on the shared project design system unless a reviewed shared/platform issue explicitly changes it.
 - Keep each branch tied to a backlog item or GitHub issue.
 - Keep git hygiene as a priority: before starting a new task, close stale work, merge verified completed branches, delete obsolete local/remote branches, and start fresh work from updated `main`.
 - Always work from the latest visible project state. Before cleanup, branch switches, merges, rebases, stash use, or new task setup, preserve all user and agent changes in a named branch and commit unless the user explicitly asks for a different storage method.

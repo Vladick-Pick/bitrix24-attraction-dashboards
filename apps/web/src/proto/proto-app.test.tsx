@@ -1108,15 +1108,43 @@ describe('ProtoApp', () => {
     expect(
       await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
     ).toBeInTheDocument()
+    const attractionModuleButton = screen.getByRole('button', { name: /^привлечение$/i })
+    const leadgenModuleButton = screen.getByRole('button', { name: /^лидогенерация$/i })
+    expect(attractionModuleButton).toHaveClass('tab-chip', 'tab-chip-active')
+    expect(leadgenModuleButton).toHaveClass('tab-chip')
+    expect(screen.queryByText(/дизайна из лидогенерации/i)).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: /^лидогенерация$/i }))
+    await userEvent.click(leadgenModuleButton)
 
     expect(
       await screen.findByRole('heading', { name: /^лидогенерация$/i }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/воронка лидген ус/i)).toBeInTheDocument()
+    expect(attractionModuleButton).toHaveClass('tab-chip')
+    expect(attractionModuleButton).not.toHaveClass('tab-chip-active')
+    expect(leadgenModuleButton).toHaveClass('tab-chip', 'tab-chip-active')
+    const leadgenSalesReportButton = screen.getByRole('button', {
+      name: /^отчет по продажам$/i,
+    })
+    const leadgenActivityReportButton = screen.getByRole('button', {
+      name: /^отчет активности$/i,
+    })
+    expect(leadgenSalesReportButton).toHaveClass('tab-chip', 'tab-chip-active')
+    expect(leadgenActivityReportButton).toHaveClass('tab-chip')
+    expect(screen.queryByRole('heading', { name: /^воронка лидген ус$/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/сводка по отдельной воронке/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Всего сделок')).toBeInTheDocument()
     expect(screen.getByText('Новый лид')).toBeInTheDocument()
+    expect(screen.queryByText('Ответственные')).not.toBeInTheDocument()
+
+    await userEvent.click(leadgenActivityReportButton)
+
+    expect(leadgenSalesReportButton).toHaveClass('tab-chip')
+    expect(leadgenSalesReportButton).not.toHaveClass('tab-chip-active')
+    expect(leadgenActivityReportButton).toHaveClass('tab-chip', 'tab-chip-active')
+    expect(screen.queryByText('Всего сделок')).not.toBeInTheDocument()
+    expect(screen.getByText('Ответственные')).toBeInTheDocument()
     expect(screen.getByText('Лидген менеджер')).toBeInTheDocument()
+    expect(screen.queryByText('Новый лид')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(apiClient.getLeadgenFunnelReport).toHaveBeenCalledWith(
         'leadgen',

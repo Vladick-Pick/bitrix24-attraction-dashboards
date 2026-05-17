@@ -12,6 +12,7 @@
 ## Required References
 
 - root `AGENTS.md`
+- root `design.md`
 - `docs/modules/<module>/MODULE_ONTOLOGY.md`
 - `ops/paperclip/workflows/small-feature.md`
 - `ops/paperclip/workflows/report-block.md`
@@ -28,6 +29,7 @@ Preferred references are repo-relative. If the current workspace checkout does n
 Mapping:
 
 - `AGENTS.md` -> `repo-docs/AGENTS.md`
+- `design.md` -> `repo-docs/design.md`
 - `ops/paperclip/...` -> `repo-docs/ops/paperclip/...`
 - `docs/modules/...` -> `repo-docs/docs/modules/...`
 

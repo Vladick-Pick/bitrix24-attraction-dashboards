@@ -48,6 +48,26 @@ Full API suite when auth, migrations, RBAC, status mapping, or shared repository
 pnpm --filter @bitrix24-reporting/api test -- --runInBand
 ```
 
+## Production Runtime Checks
+
+For approved release/incident tasks that touch sync, reporting storage, or database env, verify non-secret runtime state without printing credentials:
+
+```bash
+docker compose -p bitrix24-reporting exec -T app node -e "console.log(JSON.stringify({
+  platform: process.env.PLATFORM_DATABASE_URL ?? process.env.DATABASE_URL,
+  attraction: process.env.ATTRACTION_DATABASE_URL,
+  leadgen: process.env.LEADGEN_DATABASE_URL,
+  leadgenManagers: (process.env.BITRIX24_LEADGEN_MANAGER_IDS ?? '').split(',').filter(Boolean).length
+}))"
+```
+
+Expected production paths:
+
+- platform: `file:/app/data/bitrix24-reporting.db`
+- attraction: `file:/app/data/bitrix24-attraction.db`
+- leadgen: `file:/app/data/bitrix24-leadgen.db`
+- leadgen manager count: greater than `0` for useful leadgen sync
+
 ## Restrictions
 
 - Do not print secrets, Paperclip tokens, Bitrix webhooks, session cookies, or raw payloads.

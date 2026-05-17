@@ -34,6 +34,8 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 - CSRF and server-side RBAC;
 - module isolation;
 - attraction manager whitelist preservation;
+- module-specific sync/database separation;
+- leadgen manager whitelist presence for leadgen sync/report readiness;
 - Paperclip payload sanitization;
 - no secrets/tokens in browser/logs;
 - no personal Bitrix data in storage/UI/Paperclip.

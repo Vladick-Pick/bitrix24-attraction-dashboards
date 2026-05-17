@@ -33,3 +33,11 @@ flowchart TD
 - direct API port not externally reachable;
 - container user is non-root when relevant;
 - changed API/UI behavior works in production.
+
+For sync, reporting storage, or module refresh changes, also verify:
+
+- running app revision matches the deployed commit;
+- platform, attraction, and leadgen database env values point to distinct SQLite files;
+- attraction reporting data is preserved when attraction storage is migrated;
+- leadgen manager whitelist count is greater than `0` before claiming leadgen sync is ready;
+- module-specific sync endpoint behavior matches the task, without triggering the other live module.

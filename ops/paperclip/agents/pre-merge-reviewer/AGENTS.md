@@ -34,6 +34,15 @@ If the assignee could not run the user-visible verification path because GitHub 
 
 For `leadgen`, explicitly check that category `28`, the leadgen manager whitelist, module-scoped comments, and the separate dashboard/report registry are preserved. A leadgen-only patch must not alter attraction UI/report behavior unless it is marked shared/platform.
 
+For sync, reporting storage, database env, or refresh-button changes, explicitly review the module runtime contract:
+
+- platform/auth/comments remain on the platform database;
+- attraction reporting/sync remains on the attraction database;
+- leadgen reporting/sync remains on the leadgen database;
+- module refresh triggers only the active module's sync;
+- leadgen does not fall back to attraction managers when `BITRIX24_LEADGEN_MANAGER_IDS` is empty;
+- production smoke plans include DB env separation and leadgen manager count when leadgen is affected.
+
 ## Boundaries
 
 - Do not merge by default.

@@ -2904,6 +2904,96 @@ describe('ProtoApp', () => {
     })
   })
 
+  it('uses the lost deals card label when a comment is placed inside its reasons table', async () => {
+    vi.mocked(apiClient.getAcquisitionOutcomesReport).mockResolvedValueOnce({
+      range: { from: '2026-04-06T00:00:00.000Z', to: '2026-04-12T23:59:59.999Z' },
+      totalNewDeals: 0,
+      totalLostDeals: 2,
+      newDealsByManager: [],
+      lostDealsByManager: [
+        {
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          totalLostDeals: 2,
+          stages: [{ stageId: 'C10:LOSE', stageName: 'Корзина', count: 2 }],
+        },
+      ],
+      lostStages: [{ stageId: 'C10:LOSE', stageName: 'Корзина', count: 2 }],
+      businessClubByManager: [],
+      topLossReasons: [
+        {
+          stageId: 'C10:LOSE',
+          stageName: 'Корзина',
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          reasonKey: 'Клиенту не интересен формат',
+          reasonLabel: 'Клиенту не интересен формат',
+          count: 2,
+        },
+      ],
+      lostDealDetails: [],
+      comparisons: [],
+    })
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /отчет активности/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^comment mode$/i }))
+
+    const shell = screen.getByRole('presentation')
+    vi.spyOn(shell, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 1000,
+      height: 1000,
+      top: 0,
+      left: 0,
+      right: 1000,
+      bottom: 1000,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    const reasonLabel = await screen.findByText('Клиенту не интересен формат')
+    const lostDealsBlock = screen.getByText('Проигранные сделки').closest('article') as HTMLElement
+    expect(lostDealsBlock).not.toBeNull()
+    vi.spyOn(lostDealsBlock, 'getBoundingClientRect').mockReturnValue({
+      x: 20,
+      y: 120,
+      width: 600,
+      height: 500,
+      top: 120,
+      left: 20,
+      right: 620,
+      bottom: 620,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(reasonLabel, { clientX: 320, clientY: 420 })
+
+    const textarea = screen.getByPlaceholderText(/комментарий к точке интерфейса/i)
+    const draftPanel = screen.getByText('Новая заметка').closest('.panel') as HTMLElement
+    await userEvent.type(textarea, 'Проверить причины потерь')
+    await userEvent.click(within(draftPanel).getByRole('button', { name: /^сохранить$/i }))
+
+    const saveCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST')
+    const savedBody = saveCall
+      ? (JSON.parse(String(saveCall[1]?.body)) as {
+          comments: Array<{ anchor?: Record<string, unknown> }>
+        })
+      : null
+    const createCommentCall = vi.mocked(apiClient.createComment).mock.calls.at(-1)
+    const savedComment = createCommentCall?.[0] as
+      | { anchor?: Record<string, unknown> }
+      | undefined
+    const savedAnchor = savedComment?.anchor ?? savedBody?.comments.at(-1)?.anchor
+    expect(savedAnchor).toEqual(
+      expect.objectContaining({
+        blockLabel: 'Проигранные сделки',
+        elementLabel: 'Клиенту не интересен формат',
+      }),
+    )
+  })
+
   it('blocks repeated comment saves while the first save is still pending', async () => {
     const saveGate: { resolve?: () => void } = {}
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {

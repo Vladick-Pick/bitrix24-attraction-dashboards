@@ -753,10 +753,15 @@ function requestModuleId(request: express.Request) {
   return requestRouteParam(request, "moduleId").trim() || "attraction";
 }
 
+function redactPhoneCandidate(value: string) {
+  const digitCount = value.replace(/\D/g, "").length;
+  return digitCount >= 10 ? "[redacted-phone]" : value;
+}
+
 function sanitizePaperclipText(value: string) {
   return value
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
-    .replace(/\+?\d[\d\s().-]{7,}\d/g, "[redacted-phone]")
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, redactPhoneCandidate)
     .replace(/BITRIX24_WEBHOOK_TOKEN\s*[:=]\s*\S+/gi, "BITRIX24_WEBHOOK_TOKEN=[redacted]");
 }
 

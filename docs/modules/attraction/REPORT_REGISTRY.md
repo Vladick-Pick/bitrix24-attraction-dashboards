@@ -12,11 +12,9 @@
 
 Reason dictionary semantics:
 
-- Regular attraction basket/lost reasons resolve through `UF_CRM_1647422744` when the attraction deal carries that field.
-- Return-to-leadgen losses can reference a linked leadgen deal. During sync only, the backend may read leadgen category rows scoped by the configured leadgen category and leadgen manager whitelist to resolve linked reason fields for the attraction deal.
-- Return-to-leadgen reasons resolve through `UF_CRM_1758715585`.
-- Basket/lost reasons from linked leadgen rows resolve through `UF_CRM_1772109151192`.
-- Linked leadgen rows are lookup-only for this report; they must not be persisted into the attraction snapshot database.
+- `Корзина` attraction loss rows resolve through the attraction basket/lost reason list in `UF_CRM_1772109151192`, with legacy fallback to `UF_CRM_1647422744` when the destination-specific field is empty.
+- `Возврат` attraction loss rows resolve through the attraction return reason list in `UF_CRM_1758715585`, with legacy fallback to `UF_CRM_1647422744` when the destination-specific field is empty.
+- The attraction report must not read leadgen category `28`, leadgen reason dictionaries, or the leadgen manager whitelist to resolve this table.
 
 Privacy and module boundaries:
 

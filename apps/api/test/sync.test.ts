@@ -485,7 +485,9 @@ describe("performManualSync", () => {
           "UF_CRM_MEETING_DATE",
           "UF_CRM_EVENT_OF",
           "UF_CRM_1647422744",
-          "UF_CRM_1647422890"
+          "UF_CRM_1647422890",
+          "UF_CRM_1758715585",
+          "UF_CRM_1772109151192"
         ]);
         return [
           {
@@ -743,7 +745,7 @@ describe("performManualSync", () => {
     });
   });
 
-  it("keeps attraction persistence scoped to attraction when linked leadgen lookup is enabled", async () => {
+  it("keeps attraction sync scoped to attraction without requesting leadgen lookup data", async () => {
     const listDealRequests: Array<{
       categoryIds: string[];
       assignedByIds?: string[];
@@ -793,14 +795,6 @@ describe("performManualSync", () => {
             name: "Новая сделка",
             semanticId: "P",
             sortOrder: 10
-          },
-          {
-            entityType: "deal" as const,
-            categoryId: "28",
-            statusId: "C28:NEW",
-            name: "Новый лид",
-            semanticId: "P",
-            sortOrder: 10
           }
         ];
       },
@@ -831,29 +825,7 @@ describe("performManualSync", () => {
         });
 
         if (cursor.categoryIds[0] === "28") {
-          return [
-            {
-              ID: "LG_LOOKUP_ONLY",
-              CONTACT_ID: "MUST_NOT_PERSIST",
-              LEAD_ID: "MUST_NOT_PERSIST",
-              DATE_CREATE: "2026-05-02T09:00:00.000Z",
-              DATE_MODIFY: "2026-05-02T09:00:00.000Z",
-              DATE_CLOSED: null,
-              CATEGORY_ID: "28",
-              STAGE_ID: "C28:NEW",
-              STAGE_SEMANTIC_ID: "P",
-              OPPORTUNITY: 0,
-              ASSIGNED_BY_ID: "501",
-              SOURCE_ID: "WEB",
-              UF_CRM_1730360968: "D_ATTRACTION",
-              UF_CRM_1758715585: "R1",
-              UTM_SOURCE: null,
-              UTM_MEDIUM: null,
-              UTM_CAMPAIGN: "lookup-only",
-              UTM_CONTENT: null,
-              UTM_TERM: null
-            }
-          ];
+          throw new Error("Attraction sync must not request leadgen category 28");
         }
 
         expect(cursor.categoryIds).toEqual(["10"]);
@@ -889,13 +861,11 @@ describe("performManualSync", () => {
       client,
       repository: repo,
       categoryIds: ["10"],
-      leadgenCategoryId: "28",
-      leadgenManagerIds: ["501", "502"],
       qualityFieldName: "UF_CRM_1730380390",
       now: () => "2026-05-14T00:00:00.000Z"
     });
 
-    expect(requestedStageCategories).toEqual(["10", "28"]);
+    expect(requestedStageCategories).toEqual(["10"]);
     expect(listDealRequests).toEqual([
       expect.objectContaining({
         categoryIds: ["10"],
@@ -908,13 +878,10 @@ describe("performManualSync", () => {
           "72",
           "2236",
           "2764"
-        ]
-      }),
-      expect.objectContaining({
-        categoryIds: ["28"],
-        assignedByIds: ["501", "502"],
+        ],
         customFieldNames: [
-          "UF_CRM_1730360968",
+          "UF_CRM_1730380390",
+          "UF_CRM_1647422744",
           "UF_CRM_1647422890",
           "UF_CRM_1758715585",
           "UF_CRM_1772109151192"
@@ -1264,7 +1231,11 @@ describe("performManualSync", () => {
       fetchSourceCatalog: async () => [],
       fetchDealQualityMap: async () => ({}),
       fetchDealFieldValueMap: async (fieldName: string) => {
-        if (fieldName === "UF_CRM_1647422744") {
+        if (
+          fieldName === "UF_CRM_1647422744" ||
+          fieldName === "UF_CRM_1758715585" ||
+          fieldName === "UF_CRM_1772109151192"
+        ) {
           return {};
         }
 
@@ -1377,7 +1348,11 @@ describe("performManualSync", () => {
       fetchSourceCatalog: async () => [],
       fetchDealQualityMap: async () => ({}),
       fetchDealFieldValueMap: async (fieldName: string) => {
-        if (fieldName === "UF_CRM_1647422744") {
+        if (
+          fieldName === "UF_CRM_1647422744" ||
+          fieldName === "UF_CRM_1758715585" ||
+          fieldName === "UF_CRM_1772109151192"
+        ) {
           return {};
         }
 
@@ -1704,7 +1679,9 @@ describe("performManualSync", () => {
         customFieldNames: [
           "UF_CRM_1730380390",
           "UF_CRM_1647422744",
-          "UF_CRM_1647422890"
+          "UF_CRM_1647422890",
+          "UF_CRM_1758715585",
+          "UF_CRM_1772109151192"
         ]
       }
     ]);
@@ -1724,9 +1701,10 @@ describe("performManualSync", () => {
     ]);
   });
 
-  it("resolves attraction return-to-leadgen and basket loss reasons from linked leadgen dictionaries", async () => {
+  it("resolves attraction basket and return loss reasons from attraction dictionaries without leadgen lookup", async () => {
     const storedDeals: unknown[][] = [];
     const dealRequests: Array<{ categoryIds: string[]; customFieldNames?: string[] }> = [];
+    const fieldMapRequests: string[] = [];
     const repo = {
       getLatestSuccessCursor: async () => null,
       getOperationalHistoryBootstrappedAt: async () => null,
@@ -1776,14 +1754,6 @@ describe("performManualSync", () => {
           sortOrder: 100
         },
         {
-          entityType: "deal" as const,
-          categoryId: "28",
-          statusId: "C28:LOSE",
-          name: "Лидген потерян",
-          semanticId: "F",
-          sortOrder: 100
-        },
-        {
           entityType: "source" as const,
           categoryId: null,
           statusId: "WEB",
@@ -1795,6 +1765,7 @@ describe("performManualSync", () => {
       fetchSourceCatalog: async () => [],
       fetchDealQualityMap: async () => ({}),
       fetchDealFieldValueMap: async (fieldName: string) => {
+        fieldMapRequests.push(fieldName);
         if (fieldName === "UF_CRM_1647422744") {
           return {};
         }
@@ -1835,6 +1806,7 @@ describe("performManualSync", () => {
               OPPORTUNITY: null,
               ASSIGNED_BY_ID: "78",
               SOURCE_ID: "WEB",
+              UF_CRM_1772109151192: "401",
               UTM_SOURCE: null,
               UTM_MEDIUM: null,
               UTM_CAMPAIGN: null,
@@ -1853,6 +1825,7 @@ describe("performManualSync", () => {
               OPPORTUNITY: null,
               ASSIGNED_BY_ID: "78",
               SOURCE_ID: "WEB",
+              UF_CRM_1758715585: "301",
               UTM_SOURCE: null,
               UTM_MEDIUM: null,
               UTM_CAMPAIGN: null,
@@ -1862,56 +1835,7 @@ describe("performManualSync", () => {
           ];
         }
 
-        expect(cursor.categoryIds).toEqual(["28"]);
-        expect(cursor.customFieldNames).toEqual([
-          "UF_CRM_1730360968",
-          "UF_CRM_1647422890",
-          "UF_CRM_1758715585",
-          "UF_CRM_1772109151192"
-        ]);
-
-        return [
-          {
-            ID: "L_LOSE",
-            LEAD_ID: null,
-            DATE_CREATE: "2026-04-08T09:00:00.000Z",
-            DATE_MODIFY: "2026-04-08T09:00:00.000Z",
-            DATE_CLOSED: "2026-04-08T09:00:00.000Z",
-            CATEGORY_ID: "28",
-            STAGE_ID: "C28:LOSE",
-            STAGE_SEMANTIC_ID: "F",
-            OPPORTUNITY: null,
-            ASSIGNED_BY_ID: "78",
-            SOURCE_ID: "WEB",
-            UF_CRM_1730360968: "A_LOSE",
-            UF_CRM_1772109151192: "401",
-            UTM_SOURCE: null,
-            UTM_MEDIUM: null,
-            UTM_CAMPAIGN: null,
-            UTM_CONTENT: null,
-            UTM_TERM: null
-          },
-          {
-            ID: "L_RETURN",
-            LEAD_ID: null,
-            DATE_CREATE: "2026-04-09T09:00:00.000Z",
-            DATE_MODIFY: "2026-04-09T09:00:00.000Z",
-            DATE_CLOSED: "2026-04-09T09:00:00.000Z",
-            CATEGORY_ID: "28",
-            STAGE_ID: "C28:LOSE",
-            STAGE_SEMANTIC_ID: "F",
-            OPPORTUNITY: null,
-            ASSIGNED_BY_ID: "78",
-            SOURCE_ID: "WEB",
-            UF_CRM_1730360968: "A_RETURN",
-            UF_CRM_1758715585: "301",
-            UTM_SOURCE: null,
-            UTM_MEDIUM: null,
-            UTM_CAMPAIGN: null,
-            UTM_CONTENT: null,
-            UTM_TERM: null
-          }
-        ];
+        throw new Error(`Unexpected deal category request: ${cursor.categoryIds.join(",")}`);
       },
       listStageHistory: async () => [],
       listActivities: async () => [],
@@ -1924,14 +1848,23 @@ describe("performManualSync", () => {
       repository: repo,
       categoryIds: ["10"],
       qualityFieldName: "UF_CRM_1730380390",
-      leadgenCategoryId: "28",
-      leadgenManagerIds: ["78"],
       now: () => "2026-04-10T00:00:00.000Z"
     });
 
     expect(dealRequests.map((request) => request.categoryIds)).toEqual([
-      ["10"],
-      ["28"]
+      ["10"]
+    ]);
+    expect(dealRequests[0]?.customFieldNames).toEqual([
+      "UF_CRM_1730380390",
+      "UF_CRM_1647422744",
+      "UF_CRM_1647422890",
+      "UF_CRM_1758715585",
+      "UF_CRM_1772109151192"
+    ]);
+    expect(fieldMapRequests).toEqual([
+      "UF_CRM_1647422744",
+      "UF_CRM_1758715585",
+      "UF_CRM_1772109151192"
     ]);
     expect(storedDeals).toEqual([
       [
@@ -2734,6 +2667,13 @@ describe("performManualSync", () => {
           return {};
         }
 
+        if (
+          fieldName === "UF_CRM_1758715585" ||
+          fieldName === "UF_CRM_1772109151192"
+        ) {
+          return {};
+        }
+
         throw new Error(`Unexpected field map request: ${fieldName}`);
       },
       listDeals: async (cursor: {
@@ -2748,7 +2688,9 @@ describe("performManualSync", () => {
           "UF_CRM_1747682957",
           "UF_CRM_1669784114991",
           "UF_CRM_1647422744",
-          "UF_CRM_1647422890"
+          "UF_CRM_1647422890",
+          "UF_CRM_1758715585",
+          "UF_CRM_1772109151192"
         ]);
 
         return [
@@ -2872,7 +2814,11 @@ describe("performManualSync", () => {
       fetchSourceCatalog: async () => [],
       fetchDealQualityMap: async () => ({}),
       fetchDealFieldValueMap: async (fieldName: string) => {
-        if (fieldName === "UF_CRM_1647422744") {
+        if (
+          fieldName === "UF_CRM_1647422744" ||
+          fieldName === "UF_CRM_1758715585" ||
+          fieldName === "UF_CRM_1772109151192"
+        ) {
           return {};
         }
 
@@ -2889,7 +2835,9 @@ describe("performManualSync", () => {
           "UF_CRM_1730380390",
           "UF_CRM_MEETING_DATE",
           "UF_CRM_1647422744",
-          "UF_CRM_1647422890"
+          "UF_CRM_1647422890",
+          "UF_CRM_1758715585",
+          "UF_CRM_1772109151192"
         ]);
 
         return [

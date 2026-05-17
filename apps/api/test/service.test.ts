@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
-  LEADGEN_US_BASKET_REASON_FIELD_NAME,
-  LEADGEN_US_RETURN_REASON_FIELD_NAME,
-  LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME
-} from "../src/domain/sync";
 import { createReportingService } from "../src/server/service";
 
 describe("createReportingService", () => {
@@ -1828,7 +1822,7 @@ describe("createReportingService", () => {
     ]);
   });
 
-  it("forwards linked leadgen lookup scope during attraction sync without persisting leadgen deals", async () => {
+  it("keeps attraction service sync scoped to attraction even when leadgen report config exists", async () => {
     const dealStageCategoryRequests: string[][] = [];
     const dealRequests: Array<{
       categoryIds: string[];
@@ -1878,14 +1872,6 @@ describe("createReportingService", () => {
             name: "Возврат в Лидген(неквал)",
             semanticId: "F",
             sortOrder: 100
-          },
-          {
-            entityType: "deal" as const,
-            categoryId: "28",
-            statusId: "C28:LOSE",
-            name: "Лидген потерян",
-            semanticId: "F",
-            sortOrder: 100
           }
         ];
       },
@@ -1900,15 +1886,7 @@ describe("createReportingService", () => {
         }
       ],
       fetchDealQualityMap: async () => ({}),
-      fetchDealFieldValueMap: async (fieldName: string) => {
-        if (fieldName === LEADGEN_US_RETURN_REASON_FIELD_NAME) {
-          return { "301": "Не соответствует критериям" };
-        }
-        if (fieldName === LEADGEN_US_BASKET_REASON_FIELD_NAME) {
-          return { "401": "Перестал выходить на связь" };
-        }
-        return {};
-      },
+      fetchDealFieldValueMap: async () => ({}),
       listDeals: async (cursor: {
         modifiedAfter: string | null;
         categoryIds: string[];
@@ -1924,28 +1902,7 @@ describe("createReportingService", () => {
         });
 
         if (cursor.categoryIds[0] === "28") {
-          return [
-            {
-              ID: "L_RETURN",
-              LEAD_ID: null,
-              DATE_CREATE: "2026-04-09T09:00:00.000Z",
-              DATE_MODIFY: "2026-04-09T09:00:00.000Z",
-              DATE_CLOSED: "2026-04-09T09:00:00.000Z",
-              CATEGORY_ID: "28",
-              STAGE_ID: "C28:LOSE",
-              STAGE_SEMANTIC_ID: "F",
-              OPPORTUNITY: null,
-              ASSIGNED_BY_ID: "501",
-              SOURCE_ID: "WEB",
-              [LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME]: "A_RETURN",
-              [LEADGEN_US_RETURN_REASON_FIELD_NAME]: "301",
-              UTM_SOURCE: null,
-              UTM_MEDIUM: null,
-              UTM_CAMPAIGN: null,
-              UTM_CONTENT: null,
-              UTM_TERM: null
-            }
-          ];
+          throw new Error("Attraction service sync must not request leadgen category 28");
         }
 
         return [
@@ -1988,19 +1945,16 @@ describe("createReportingService", () => {
 
     await service.performSync();
 
-    expect(dealStageCategoryRequests).toEqual([["10", "28"]]);
+    expect(dealStageCategoryRequests).toEqual([["10"]]);
     expect(dealRequests).toEqual([
       expect.objectContaining({
-        categoryIds: ["10"]
-      }),
-      expect.objectContaining({
-        categoryIds: ["28"],
-        assignedByIds: ["501", "502"],
+        categoryIds: ["10"],
         customFieldNames: [
-          LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME,
-          ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
-          LEADGEN_US_RETURN_REASON_FIELD_NAME,
-          LEADGEN_US_BASKET_REASON_FIELD_NAME
+          "UF_CRM_1730380390",
+          "UF_CRM_1647422744",
+          "UF_CRM_1647422890",
+          "UF_CRM_1758715585",
+          "UF_CRM_1772109151192"
         ]
       })
     ]);

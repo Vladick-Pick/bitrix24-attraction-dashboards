@@ -6,6 +6,11 @@
 - [ ] `leadgen`
 - [ ] shared/platform
 
+Module label:
+- [ ] `module:attraction`
+- [ ] `module:leadgen`
+- [ ] `module:shared-platform`
+
 ## Affected Areas
 - [ ] API / auth / RBAC
 - [ ] reporting / sync / data contract
@@ -34,4 +39,5 @@
 - [ ] Module ontology was checked for every selected module.
 - [ ] Attraction behavior is unchanged unless `attraction` or `shared/platform` is selected.
 - [ ] Leadgen behavior is unchanged unless `leadgen` or `shared/platform` is selected.
+- [ ] Paperclip project routing is unchanged or explicitly verified for affected modules.
 - [ ] No deal names, contact names, phones, emails, raw Bitrix payloads, cookies, tokens, or secrets are stored, displayed, logged, or sent to Paperclip.

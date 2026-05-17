@@ -60,6 +60,8 @@ When the team says work is ready for user review, the dashboard notification mus
 - what exact tests or checks were run;
 - any missing checks or residual risk.
 
+Write the user-facing mini-report in Russian, short and human-readable for a non-developer. Use 3-5 compact bullets or short paragraphs. Avoid developer jargon, file paths, raw command names, stack traces, Paperclip internals, and PR/check noise unless the user explicitly asks for technical detail. If audit detail is needed in Paperclip, put it below a separate `Технически` section; the dashboard/user summary must stay plain.
+
 If the user rejects the result from the dashboard thread, route their comment back to the same Paperclip issue as a board-originated rework note, tag `@Dashboard Engineering Manager`, and keep the issue open for the team.
 
 ## Delegation

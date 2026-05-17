@@ -37,6 +37,29 @@ Track these metrics for the `Bitrix24 Dashboards` Paperclip team.
 - repeated blockers by category;
 - unused skills/MCP servers;
 - agent heartbeat runs with no useful action.
+- false-ready count: issues claimed ready/done without required proof;
+- dashboard/Paperclip status mismatch count;
+- failed or missing user-facing report count;
+- product decision missed count;
+- trace review coverage for completed and failed issues.
+
+## Manager Ops Review
+
+- hourly sweep completed/skipped;
+- issues reviewed in trace audit;
+- failure classes observed;
+- process changes proposed;
+- process changes converted into validators, tests, docs, evals, or runtime capability fixes.
+
+## Manager Routines
+
+- weekly team-quality routine created/skipped;
+- routine execution issue completed/blocked;
+- weekly capability audit completed/blocked;
+- weekly team-improvement proposal created/deferred;
+- board approvals requested/approved/rejected for team improvements;
+- approved improvements applied and live-verified;
+- routine runs that failed, duplicated, or produced no useful output.
 
 ## Growth Signals
 

@@ -20,9 +20,11 @@ flowchart TD
 ## Server Rules
 
 - GitHub Actions is the normal production path.
+- For production-requested dashboard fixes, a green implementation proof, clean fresh review, available GitHub merge credential, and green CI are enough to proceed through the normal merge/deploy/production-verification path. Do not create a board approval only to ask whether to merge and deploy.
 - If GitHub write/merge credentials are unavailable, mark the release task blocked and do not claim merge/deploy completion.
 - SSH/root is not part of normal dashboard-comment implementation work.
 - Server access is allowed only for explicit release/devops or incident tasks.
+- Human approval is required for direct server work, production data mutation, destructive operations, credentials/access-policy decisions, or accepting missing required verification.
 - Never print production passwords, session cookies, webhooks, raw tokens, or raw payloads.
 
 ## Smoke Checks

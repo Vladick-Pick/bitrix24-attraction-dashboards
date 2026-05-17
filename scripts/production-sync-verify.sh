@@ -172,15 +172,7 @@ console.log(JSON.stringify({ sync: sanitized }, null, 2));
 
 verify_snapshot() {
   local container="$1"
-  docker exec \
-    -e "PROD_VERIFY_DEAL_IDS=$DEAL_IDS" \
-    -e "PROD_VERIFY_STAGE_ID=$STAGE_ID" \
-    -e "PROD_VERIFY_FIELD_ID=$FIELD_ID" \
-    -e "PROD_VERIFY_ISSUE=$PAPERCLIP_ISSUE" \
-    -e "PROD_VERIFY_MODULE=$MODULE" \
-    "$container" \
-    sh -lc 'cd /app/apps/api && node --input-type=module -' <<'NODE'
-import Database from "better-sqlite3";
+  local snapshot_script='import Database from "better-sqlite3";
 
 const ids = String(process.env.PROD_VERIFY_DEAL_IDS ?? "")
   .split(",")
@@ -243,8 +235,18 @@ const ok =
 console.log(JSON.stringify(result, null, 2));
 if (!ok) {
   process.exit(2);
-}
-NODE
+}'
+
+  printf '%s\n' "$snapshot_script" | \
+  docker exec \
+    -e "PROD_VERIFY_DEAL_IDS=$DEAL_IDS" \
+    -e "PROD_VERIFY_STAGE_ID=$STAGE_ID" \
+    -e "PROD_VERIFY_FIELD_ID=$FIELD_ID" \
+    -e "PROD_VERIFY_ISSUE=$PAPERCLIP_ISSUE" \
+    -e "PROD_VERIFY_MODULE=$MODULE" \
+    -i \
+    "$container" \
+    sh -lc 'cd /app/apps/api && node --input-type=module -'
 }
 
 verify_health() {

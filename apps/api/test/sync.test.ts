@@ -527,11 +527,13 @@ describe("performManualSync", () => {
       listConversionEventVisits: async (input: {
         modifiedAfter: string | null;
         reportYear: number;
+        signal?: AbortSignal;
       }) => {
-        expect(input).toEqual({
+        expect(input).toMatchObject({
           modifiedAfter: "2026-04-07T00:00:00.000Z",
           reportYear: 2026
         });
+        expect(input.signal).toBeInstanceOf(AbortSignal);
         return [
           {
             id: "VISIT-1",
@@ -1071,8 +1073,12 @@ describe("performManualSync", () => {
       listConversionEventVisits: async (input: {
         modifiedAfter: string | null;
         reportYear: number;
+        signal?: AbortSignal;
       }) => {
-        conversionVisitRequests.push(input);
+        conversionVisitRequests.push({
+          modifiedAfter: input.modifiedAfter,
+          reportYear: input.reportYear
+        });
         return [
           {
             id: "VISIT-29-04",
@@ -1198,6 +1204,83 @@ describe("performManualSync", () => {
       expect.objectContaining({
         stream: "conversion_event_visits"
       })
+    );
+  });
+
+  it("keeps the main sync successful when conversion event visits time out", async () => {
+    let finishedDiagnostics: string[] = [];
+    let failedSync = false;
+    let conversionEventRequestAborted = false;
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-29T09:56:29.538Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      hasSyncCoverage: async (input: { stream: string }) =>
+        input.stream !== "conversion_event_visits",
+      upsertSyncCoverage: async () => undefined,
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertConversionEventVisits: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 44,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async (input: { diagnostics?: string[] }) => {
+        finishedDiagnostics = input.diagnostics ?? [];
+      },
+      failSyncRun: async () => {
+        failedSync = true;
+      }
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [],
+      listConversionEventVisits: async (input: {
+        signal?: AbortSignal;
+      }) =>
+        new Promise<never>((_resolve, reject) => {
+          input.signal?.addEventListener("abort", () => {
+            conversionEventRequestAborted = true;
+            reject(input.signal?.reason);
+          });
+        }),
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const result = await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-30T15:05:00.000Z",
+      conversionEventVisitsTimeoutMs: 1
+    });
+
+    expect(result.syncRunId).toBe(44);
+    expect(failedSync).toBe(false);
+    expect(conversionEventRequestAborted).toBe(true);
+    expect(finishedDiagnostics).toContain(
+      "conversionEventVisitsError=AbortError"
     );
   });
 

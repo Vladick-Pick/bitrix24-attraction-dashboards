@@ -824,7 +824,8 @@ describe("createReportingService", () => {
       "7814",
       "72",
       "2236",
-      "2764"
+      "2764",
+      "13020"
     ]);
     expect(meta.managerCatalog.map((manager) => manager.name)).not.toContain(
       "Лишний Менеджер"
@@ -956,7 +957,8 @@ describe("createReportingService", () => {
       "7814",
       "72",
       "2236",
-      "2764"
+      "2764",
+      "13020"
     ]);
     expect(meta.sourceCatalog).toEqual([
       { key: "REFERRAL", label: "Referral" },

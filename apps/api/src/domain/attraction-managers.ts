@@ -8,7 +8,8 @@ export const ATTRACTION_MANAGER_CATALOG = [
   { id: "7814", name: "Дарья Бычкова" },
   { id: "72", name: "Крохалева Мария" },
   { id: "2236", name: "Потапова Мария" },
-  { id: "2764", name: "Каньков Вячеслав" }
+  { id: "2764", name: "Каньков Вячеслав" },
+  { id: "13020", name: "Какулия Илья" }
 ] satisfies ManagerDirectoryEntry[];
 
 export const ATTRACTION_MANAGER_IDS = ATTRACTION_MANAGER_CATALOG.map(

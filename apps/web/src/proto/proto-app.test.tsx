@@ -2826,6 +2826,7 @@ describe('ProtoApp', () => {
 
     expect(screen.getByText('Егоров Андрей')).toBeInTheDocument()
     expect(screen.getByText('Каньков Вячеслав')).toBeInTheDocument()
+    expect(screen.getByText('Какулия Илья')).toBeInTheDocument()
     expect(screen.queryByText('Анна Петрова')).not.toBeInTheDocument()
   })
 

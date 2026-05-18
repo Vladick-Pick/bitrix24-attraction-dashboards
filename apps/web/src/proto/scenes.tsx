@@ -1603,6 +1603,7 @@ export const managerOptions: PickerOption[] = [
   { id: '72', label: 'Крохалева Мария', meta: 'Менеджер' },
   { id: '2236', label: 'Потапова Мария', meta: 'Менеджер' },
   { id: '2764', label: 'Каньков Вячеслав', meta: 'Менеджер' },
+  { id: '13020', label: 'Какулия Илья', meta: 'Менеджер' },
 ]
 
 export const sourceOptions: PickerOption[] = [

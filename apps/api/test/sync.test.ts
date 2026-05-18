@@ -6,7 +6,7 @@ import { performManualSync } from "../src/domain/sync";
 
 describe("performManualSync", () => {
   const attractionScopeKey =
-    "category:10:assigned:11234,2236,2764,6994,72,78,7814,7824";
+    "category:10:assigned:11234,13020,2236,2764,6994,72,78,7814,7824";
 
   it("runs a leadgen-only sync for category 28 without touching attraction category 10", async () => {
     const requestedDealCategories: string[][] = [];
@@ -285,7 +285,8 @@ describe("performManualSync", () => {
           "7814",
           "72",
           "2236",
-          "2764"
+          "2764",
+          "13020"
         ]);
         return "2026-04-07T00:00:00.000Z";
       },
@@ -307,7 +308,8 @@ describe("performManualSync", () => {
           "7814",
           "72",
           "2236",
-          "2764"
+          "2764",
+          "13020"
         ]);
         return ["D1", "D2"];
       },
@@ -460,7 +462,8 @@ describe("performManualSync", () => {
             "7814",
             "72",
             "2236",
-            "2764"
+            "2764",
+            "13020"
           ]);
           return [];
         }
@@ -474,7 +477,8 @@ describe("performManualSync", () => {
           "7814",
           "72",
           "2236",
-          "2764"
+          "2764",
+          "13020"
         ]);
         expect(cursor.customFieldNames).toEqual([
           "UF_CRM_1730380390",
@@ -877,7 +881,8 @@ describe("performManualSync", () => {
           "7814",
           "72",
           "2236",
-          "2764"
+          "2764",
+          "13020"
         ],
         customFieldNames: [
           "UF_CRM_1730380390",
@@ -3227,7 +3232,8 @@ describe("performManualSync", () => {
           "7814",
           "72",
           "2236",
-          "2764"
+          "2764",
+          "13020"
         ]
       }
     ]);
@@ -3789,7 +3795,8 @@ describe("performManualSync", () => {
           "7814",
           "72",
           "2236",
-          "2764"
+          "2764",
+          "13020"
         ])
       })
     ]);
@@ -4255,16 +4262,25 @@ describe("performManualSync", () => {
         _categoryIds: string[],
         assignedByIds?: string[]
       ) => {
-        if (assignedByIds?.includes("7814")) {
+        if (assignedByIds?.includes("13020")) {
           return null;
         }
 
         return "2026-04-26T21:31:21.964Z";
       },
       getLatestSuccessfulScope: async () => ({
-        scopeKey: "category:10:assigned:11234,2236,2764,6994,72,78,7824",
+        scopeKey: "category:10:assigned:11234,2236,2764,6994,72,78,7814,7824",
         categoryIds: ["10"],
-        assignedByIds: ["11234", "2236", "2764", "6994", "72", "78", "7824"]
+        assignedByIds: [
+          "11234",
+          "2236",
+          "2764",
+          "6994",
+          "72",
+          "78",
+          "7814",
+          "7824"
+        ]
       }),
       getSyncCursor: async () => null,
       setSyncCursor: async () => undefined,
@@ -4329,7 +4345,7 @@ describe("performManualSync", () => {
           ...(cursor.assignedByIds ? { assignedByIds: cursor.assignedByIds } : {})
         });
 
-        if (cursor.assignedByIds?.length === 1 && cursor.assignedByIds[0] === "7814") {
+        if (cursor.assignedByIds?.length === 1 && cursor.assignedByIds[0] === "13020") {
           return [
             {
               ID: "D_NEW_MANAGER",
@@ -4341,7 +4357,7 @@ describe("performManualSync", () => {
               STAGE_ID: "C10:NEW",
               STAGE_SEMANTIC_ID: "P",
               OPPORTUNITY: null,
-              ASSIGNED_BY_ID: "7814",
+              ASSIGNED_BY_ID: "13020",
               SOURCE_ID: "WEB",
               UTM_SOURCE: null,
               UTM_MEDIUM: null,
@@ -4397,11 +4413,21 @@ describe("performManualSync", () => {
     expect(dealRequests).toEqual([
       {
         modifiedAfter: "2026-04-26T21:31:21.964Z",
-        assignedByIds: ["78", "11234", "7824", "6994", "7814", "72", "2236", "2764"]
+        assignedByIds: [
+          "78",
+          "11234",
+          "7824",
+          "6994",
+          "7814",
+          "72",
+          "2236",
+          "2764",
+          "13020"
+        ]
       },
       {
         modifiedAfter: "2025-04-27T05:00:00.000Z",
-        assignedByIds: ["7814"]
+        assignedByIds: ["13020"]
       }
     ]);
     expect(activityRequests).toEqual([

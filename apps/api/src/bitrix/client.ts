@@ -445,6 +445,7 @@ export class BitrixClient {
     params: Record<string, unknown>,
     options?: {
       allowedCustomFields?: string[];
+      signal?: AbortSignal;
     }
   ) {
     this.ensureConfigured();
@@ -464,7 +465,20 @@ export class BitrixClient {
 
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const controller = new AbortController();
+        let abortFromExternalSignal: (() => void) | null = null;
         const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+        if (options?.signal) {
+          if (options.signal.aborted) {
+            controller.abort(options.signal.reason);
+          } else {
+            abortFromExternalSignal = () => {
+              controller.abort(options.signal?.reason);
+            };
+            options.signal.addEventListener("abort", abortFromExternalSignal, {
+              once: true
+            });
+          }
+        }
 
         try {
           const response = await fetch(url, {
@@ -544,6 +558,10 @@ export class BitrixClient {
 
           return payload;
         } catch (error) {
+          if (options?.signal?.aborted) {
+            throw error;
+          }
+
           if (isTransientNetworkError(error) && attempt < maxAttempts - 1) {
             const delayMs =
               Math.max(this.config.requestIntervalMs, 1_000) * (attempt + 1);
@@ -573,6 +591,9 @@ export class BitrixClient {
           throw error;
         } finally {
           clearTimeout(timeout);
+          if (options?.signal && abortFromExternalSignal) {
+            options.signal.removeEventListener("abort", abortFromExternalSignal);
+          }
         }
       }
 
@@ -626,6 +647,7 @@ export class BitrixClient {
     buildParams: (start: number) => Record<string, unknown>,
     options?: {
       allowedCustomFields?: string[];
+      signal?: AbortSignal;
     }
   ) {
     const rows: T[] = [];
@@ -766,6 +788,7 @@ export class BitrixClient {
   async listConversionEventVisits(input: {
     modifiedAfter: string | null;
     reportYear: number;
+    signal?: AbortSignal;
   }): Promise<ConversionEventVisitSnapshot[]> {
     const metadata = await this.discoverConversionEventMetadata();
     if (!metadata) {
@@ -787,7 +810,8 @@ export class BitrixClient {
           eventDateFieldName: metadata.eventDateFieldName
         }),
       {
-        allowedCustomFields
+        allowedCustomFields,
+        ...(input.signal ? { signal: input.signal } : {})
       }
     );
 

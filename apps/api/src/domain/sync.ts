@@ -111,6 +111,7 @@ export interface SyncClient {
   listConversionEventVisits?(input: {
     modifiedAfter: string | null;
     reportYear: number;
+    signal?: AbortSignal;
   }): Promise<ConversionEventVisitSnapshot[]>;
   listContacts?(input: {
     ids: string[];
@@ -273,6 +274,7 @@ interface PerformManualSyncInput {
   now: () => string;
   bootstrapLookbackDays?: number;
   onProgress?: (event: SyncProgressEvent) => void;
+  conversionEventVisitsTimeoutMs?: number;
 }
 
 export interface SnapshotStatsScope {
@@ -293,6 +295,7 @@ const TASK_ACTIVITY_PROVIDER_IDS = ["CRM_TODO", "CRM_TASKS_TASK"] as const;
 const MISSING_CALL_ACTIVITY_BACKFILL_LIMIT = 20_000;
 const MISSING_CALL_STATS_BACKFILL_LIMIT = 20_000;
 const CALL_STATS_REFRESH_LIMIT = 20_000;
+const DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS = 45_000;
 export const ACTIVITY_HISTORY_COVERAGE_VERSION = "activity-bindings-v2";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_STREAM = "deal_custom_fields";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER = "all";
@@ -937,6 +940,38 @@ function describeSyncError(error: unknown) {
   return causeCode ? `${error.name}:${causeCode}` : error.name;
 }
 
+function createAbortError(message: string) {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+async function fetchConversionEventVisitsWithTimeout(input: {
+  client: SyncClient;
+  modifiedAfter: string | null;
+  reportYear: number;
+  timeoutMs: number;
+}) {
+  if (!input.client.listConversionEventVisits) {
+    return [];
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(createAbortError("conversion event visits timed out"));
+  }, input.timeoutMs);
+
+  try {
+    return await input.client.listConversionEventVisits({
+      modifiedAfter: input.modifiedAfter,
+      reportYear: input.reportYear,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function buildSyncFailureDiagnostics(error: unknown) {
   if (!(error instanceof Error)) {
     return ["SYNC_FAILED", "error=unknown"];
@@ -1371,8 +1406,7 @@ export async function performManualSync(
       dealStages,
       sourceCatalog,
       deltaDealRows,
-      scopeExpansionDealRows,
-      conversionEventVisits
+      scopeExpansionDealRows
     ] = await Promise.all([
       fetchDealStages,
       fetchSourceCatalog,
@@ -1390,17 +1424,6 @@ export async function performManualSync(
             assignedByIds: scopeExpansionAssignedByIds,
             qualityFieldName: input.qualityFieldName,
             customFieldNames: dealCustomFieldNames
-          })
-        : Promise.resolve([]),
-      input.client.listConversionEventVisits
-        ? input.client.listConversionEventVisits({
-            modifiedAfter: conversionEventModifiedAfter,
-            reportYear: new Date(Date.parse(startedAt)).getUTCFullYear()
-          }).catch((error: unknown) => {
-            conversionEventDiagnostics.push(
-              `conversionEventVisitsError=${describeSyncError(error)}`
-            );
-            return [];
           })
         : Promise.resolve([])
     ]);
@@ -1939,6 +1962,21 @@ export async function performManualSync(
             ownerIds: stageHistoryOwnerIds
           })
         : [];
+    const conversionEventVisits = input.client.listConversionEventVisits
+      ? await fetchConversionEventVisitsWithTimeout({
+          client: input.client,
+          modifiedAfter: conversionEventModifiedAfter,
+          reportYear: new Date(Date.parse(startedAt)).getUTCFullYear(),
+          timeoutMs:
+            input.conversionEventVisitsTimeoutMs ??
+            DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS
+        }).catch((error: unknown) => {
+          conversionEventDiagnostics.push(
+            `conversionEventVisitsError=${describeSyncError(error)}`
+          );
+          return [];
+        })
+      : [];
     const stageHistory = stageHistoryRows.map(mapStageHistoryRow);
     const calls = callRows.map(mapCallRow);
     const changes: SyncChangeSummary = {

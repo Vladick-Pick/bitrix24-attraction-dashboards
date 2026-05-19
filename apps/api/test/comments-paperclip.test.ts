@@ -733,7 +733,7 @@ describe("dashboard comments to Paperclip", () => {
 
   it("keeps rework feedback on the original Paperclip issue and surfaces delivery failure", async () => {
     const conflictError = Object.assign(
-      new Error("Paperclip issue comment failed with 409: Issue follow-up blocked by unresolved blockers"),
+      new Error("Paperclip issue comment failed with 409: Board comments are disabled"),
       { status: 409 }
     );
     const createIssue = vi
@@ -766,7 +766,7 @@ describe("dashboard comments to Paperclip", () => {
         expect(body.comment.paperclipIssueIdentifier).toBe("BIT-42");
         expect(body.comment.paperclipStatus).toBe("failed");
         expect(body.comment.paperclipSyncStatus).toBe("failed");
-        expect(body.comment.paperclipError).toContain("Issue follow-up blocked by unresolved blockers");
+        expect(body.comment.paperclipError).toContain("Board comments are disabled");
       });
 
     expect(addIssueComment).toHaveBeenCalledWith(
@@ -776,6 +776,61 @@ describe("dashboard comments to Paperclip", () => {
         reopen: true
       })
     );
+    expect(paperclip.createIssue).toHaveBeenCalledTimes(1);
+
+    store.close();
+  });
+
+  it("falls back to a non-resume board rework comment when Paperclip blocks a parent follow-up", async () => {
+    const blockedParentError = Object.assign(
+      new Error("Paperclip issue comment failed with 409: Issue follow-up blocked by unresolved blockers"),
+      { status: 409 }
+    );
+    const addIssueComment = vi
+      .fn()
+      .mockRejectedValueOnce(blockedParentError)
+      .mockResolvedValueOnce(undefined);
+    const { agent, csrfToken, paperclip, store } = await createCommentsApp({
+      paperclipAddIssueComment: addIssueComment
+    });
+
+    const created = await agent
+      .post("/api/comments")
+      .set("X-CSRF-Token", csrfToken)
+      .send(commentPayload({ text: "Проверь готовый отчет" }))
+      .expect(201);
+
+    await agent
+      .post(`/api/comments/${created.body.comment.id}/rework`)
+      .set("X-CSRF-Token", csrfToken)
+      .send({ text: "Вернуть замечания в ту же задачу" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.comment.paperclipIssueId).toBe("paperclip-issue-1");
+        expect(body.comment.paperclipIssueIdentifier).toBe("BIT-42");
+        expect(body.comment.paperclipStatus).toBe("in_work");
+        expect(body.comment.paperclipSyncStatus).toBe("sent");
+        expect(body.comment.paperclipError).toBeNull();
+      });
+
+    expect(addIssueComment).toHaveBeenCalledTimes(2);
+    const firstCall = addIssueComment.mock.calls[0]?.[0];
+    const secondCall = addIssueComment.mock.calls[1]?.[0];
+    expect(firstCall).toEqual(
+      expect.objectContaining({
+        issueId: "paperclip-issue-1",
+        origin: "dashboard_rework",
+        reopen: true
+      })
+    );
+    expect(secondCall).toEqual(
+      expect.objectContaining({
+        issueId: "paperclip-issue-1",
+        origin: "dashboard_rework",
+        reopen: false
+      })
+    );
+    expect(secondCall?.body).toBe(firstCall?.body);
     expect(paperclip.createIssue).toHaveBeenCalledTimes(1);
 
     store.close();

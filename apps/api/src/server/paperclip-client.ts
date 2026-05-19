@@ -230,7 +230,6 @@ export class PaperclipClient implements PaperclipIssueClient {
   #dashboardReworkUsesBoardToken(input: PaperclipIssueCommentInput) {
     return (
       input.origin === "dashboard_rework" &&
-      input.reopen === true &&
       this.#reworkCommentMode === "board"
     );
   }
@@ -241,7 +240,7 @@ export class PaperclipClient implements PaperclipIssueClient {
     ) {
       return {
         body: input.body,
-        resume: true
+        ...(input.reopen === true ? { resume: true } : {})
       };
     }
 

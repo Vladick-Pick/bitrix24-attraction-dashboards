@@ -39,6 +39,37 @@ describe("PaperclipClient", () => {
     });
   });
 
+  it("posts dashboard rework comments as board comments without resume intent", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PaperclipClient({
+      apiUrl: "http://paperclip.local/",
+      apiToken: "agent-token",
+      boardApiToken: "board-token",
+      reworkCommentMode: "board"
+    });
+
+    await client.addIssueComment({
+      issueId: "issue-1",
+      origin: "dashboard_rework",
+      body: "Комментарий без возобновления",
+      reopen: false
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit
+    ];
+    expect(url).toBe("http://paperclip.local/api/issues/issue-1/comments");
+    const headers = new Headers(init.headers);
+    expect(headers.get("Authorization")).toBe("Bearer board-token");
+    expect(JSON.parse(String(init.body))).toEqual({
+      body: "Комментарий без возобновления"
+    });
+  });
+
   it("fails fast when board-mode rework has no board token", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);

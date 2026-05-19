@@ -1365,22 +1365,23 @@ describe('ProtoApp', () => {
     const leadgenSalesReportButton = screen.getByRole('button', {
       name: /^отчет по продажам$/i,
     })
-    const leadgenCallsReportButton = screen.getByRole('button', {
-      name: /^отчет звонков$/i,
+    expect(screen.queryByRole('button', { name: /^отчет звонков$/i })).not.toBeInTheDocument()
+    const leadgenActivityReportButton = screen.getByRole('button', {
+      name: /^отчет активности$/i,
     })
     expect(leadgenSalesReportButton).toHaveClass('tab-chip', 'tab-chip-active')
-    expect(leadgenCallsReportButton).toHaveClass('tab-chip')
+    expect(leadgenActivityReportButton).toHaveClass('tab-chip')
     expect(screen.queryByRole('heading', { name: /^воронка лидген ус$/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/сводка по отдельной воронке/i)).not.toBeInTheDocument()
     expect(screen.getByText('Всего сделок')).toBeInTheDocument()
     expect(screen.getByText('Новый лид')).toBeInTheDocument()
     expect(screen.queryByText('Ответственные')).not.toBeInTheDocument()
 
-    await userEvent.click(leadgenCallsReportButton)
+    await userEvent.click(leadgenActivityReportButton)
 
     expect(leadgenSalesReportButton).toHaveClass('tab-chip')
     expect(leadgenSalesReportButton).not.toHaveClass('tab-chip-active')
-    expect(leadgenCallsReportButton).toHaveClass('tab-chip', 'tab-chip-active')
+    expect(leadgenActivityReportButton).toHaveClass('tab-chip', 'tab-chip-active')
     expect(screen.queryByText('Всего сделок')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /^отчет звонков$/i })).toBeInTheDocument()
     expect(

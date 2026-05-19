@@ -34,6 +34,9 @@ import {
 } from "./sync.js";
 
 const LEADGEN_DEFAULT_FROM = "2026-01-01T00:00:00+03:00";
+const LEADGEN_TASK_ACTIVITY_PROVIDER_IDS = ["CRM_TODO", "CRM_TASKS_TASK"] as const;
+const LEADGEN_ACTIVITY_HISTORY_COVERAGE_STREAM = "activity_history";
+const LEADGEN_ACTIVITY_HISTORY_COVERAGE_VERSION = "activity-bindings-v2";
 const EMPTY_SNAPSHOT_STATS: SnapshotStats = {
   deals: 0,
   activities: 0,
@@ -126,6 +129,10 @@ function buildSyncCursorKey(scopeKey: string) {
 
 function buildCallStatsCursorKey(scopeKey: string) {
   return `${scopeKey}:call_stats:call_start_date`;
+}
+
+function buildActivityCursorKey(scopeKey: string) {
+  return `${scopeKey}:activities:last_updated`;
 }
 
 function timestampValue(value: string | null | undefined) {
@@ -363,6 +370,25 @@ function buildFailureDiagnostics(error: unknown) {
   return ["SYNC_FAILED", `error=${error.name}`];
 }
 
+async function hasLeadgenActivityCoverage(input: {
+  repository: SyncRepository;
+  scopeKey: string;
+  providerId: string;
+  requiredFrom: string;
+}) {
+  if (!input.repository.hasSyncCoverage) {
+    return true;
+  }
+
+  return input.repository.hasSyncCoverage({
+    scopeKey: input.scopeKey,
+    stream: LEADGEN_ACTIVITY_HISTORY_COVERAGE_STREAM,
+    providerId: input.providerId,
+    requiredFrom: input.requiredFrom,
+    algorithmVersion: LEADGEN_ACTIVITY_HISTORY_COVERAGE_VERSION
+  });
+}
+
 export async function performLeadgenSync(
   input: PerformLeadgenSyncInput
 ): Promise<ManualSyncSummary> {
@@ -372,6 +398,7 @@ export async function performLeadgenSync(
   const scopeKey = buildLeadgenScopeKey(categoryId, managerIds);
   const cursorKey = buildSyncCursorKey(scopeKey);
   const callStatsCursorKey = buildCallStatsCursorKey(scopeKey);
+  const activityCursorKey = buildActivityCursorKey(scopeKey);
   const hasLeadgenScope = categoryId.length > 0 && managerIds.length > 0;
   const createdFrom = input.from ?? LEADGEN_DEFAULT_FROM;
   const snapshotBefore = hasLeadgenScope
@@ -388,6 +415,10 @@ export async function performLeadgenSync(
   const callStatsCursorFromState =
     hasLeadgenScope && input.repository.getSyncCursor
       ? await input.repository.getSyncCursor(callStatsCursorKey)
+      : null;
+  const activityCursorFromState =
+    hasLeadgenScope && input.repository.getSyncCursor
+      ? await input.repository.getSyncCursor(activityCursorKey)
       : null;
   const callHistoryBootstrappedAt =
     hasLeadgenScope && input.repository.getCallHistoryBootstrappedAt
@@ -408,6 +439,22 @@ export async function performLeadgenSync(
   const mode = latestDealCursor ? "delta" : "full";
   const runModifiedAfter = latestDealCursor;
   const queryModifiedAfter = latestDealCursor ?? input.from ?? LEADGEN_DEFAULT_FROM;
+  const activityModifiedAfter = activityCursorFromState ?? queryModifiedAfter;
+  const taskActivityCoverage = hasLeadgenScope
+    ? await Promise.all(
+        LEADGEN_TASK_ACTIVITY_PROVIDER_IDS.map((providerId) =>
+          hasLeadgenActivityCoverage({
+            repository: input.repository,
+            scopeKey,
+            providerId,
+            requiredFrom: createdFrom
+          })
+        )
+      )
+    : LEADGEN_TASK_ACTIVITY_PROVIDER_IDS.map(() => true);
+  const taskActivityProvidersToBackfill = LEADGEN_TASK_ACTIVITY_PROVIDER_IDS.filter(
+    (_providerId, index) => !taskActivityCoverage[index]
+  );
   const callStatsModifiedAfter = shouldBackfillCallStats
     ? createdFrom
     : callStatsCursorFromState ?? queryModifiedAfter;
@@ -534,13 +581,39 @@ export async function performLeadgenSync(
       ...existingScopedDealIds,
       ...deals.map((deal) => deal.id)
     ]);
-    const activityRows =
+    const historicalTaskActivityRows =
+      operationalOwnerIds.length > 0 &&
+      input.client.listActivities &&
+      taskActivityProvidersToBackfill.length > 0
+        ? (
+            await Promise.all(
+              taskActivityProvidersToBackfill.map((providerId) =>
+                input.client.listActivities
+                  ? input.client.listActivities({
+                      ownerIds: operationalOwnerIds,
+                      modifiedAfter: createdFrom,
+                      providerId
+                    })
+                  : Promise.resolve([])
+              )
+            )
+          ).flat()
+        : [];
+    const deltaActivityRows =
       operationalOwnerIds.length > 0 && input.client.listActivities
         ? await input.client.listActivities({
             ownerIds: operationalOwnerIds,
-            modifiedAfter: queryModifiedAfter
+            modifiedAfter: activityModifiedAfter
           })
         : [];
+    const activityRows = Array.from(
+      new Map(
+        [...historicalTaskActivityRows, ...deltaActivityRows].map((row) => [
+          String(row.ID),
+          row
+        ])
+      ).values()
+    );
     const activities = activityRows.map(mapActivityRow);
     const callActivityIds = activities
       .filter((activity) => activity.providerId === "VOXIMPLANT_CALL")
@@ -613,6 +686,13 @@ export async function performLeadgenSync(
 
     const finishedAt = input.now();
     const nextCursor = advanceCursor(runModifiedAfter, cursorRows);
+    const nextActivityCursor = input.client.listActivities
+      ? advanceTimestampCursorThroughWindow(
+          activityModifiedAfter,
+          deltaActivityRows.map((row) => row.LAST_UPDATED),
+          startedAt
+        )
+      : null;
     const nextCallStatsCursor = advanceTimestampCursorThroughWindow(
       callStatsModifiedAfter,
       supplementalCallRows.map((row) => row.CALL_START_DATE),
@@ -620,6 +700,10 @@ export async function performLeadgenSync(
     );
     const diagnostics = [
       `dealCursor=${nextCursor ?? "not-updated"}`,
+      `activityCursor=${nextActivityCursor ?? "not-updated"}`,
+      `taskActivityCoverage=${
+        taskActivityProvidersToBackfill.length > 0 ? "backfill" : "delta"
+      }`,
       `callStatsCursor=${nextCallStatsCursor ?? "not-updated"}`,
       `callStatsCoverage=${shouldBackfillCallStats ? "backfill" : "delta"}`,
       `leadgenDeals=${deals.length}`,
@@ -652,6 +736,13 @@ export async function performLeadgenSync(
           updatedAt: finishedAt
         });
       }
+      if (input.repository.setSyncCursor && nextActivityCursor) {
+        void input.repository.setSyncCursor({
+          key: activityCursorKey,
+          cursorValue: nextActivityCursor,
+          updatedAt: finishedAt
+        });
+      }
       if (input.repository.setSyncCursor && nextCallStatsCursor) {
         void input.repository.setSyncCursor({
           key: callStatsCursorKey,
@@ -669,6 +760,22 @@ export async function performLeadgenSync(
           algorithmVersion: CALL_STATS_COVERAGE_VERSION,
           syncedAt: finishedAt
         });
+      }
+      if (
+        input.repository.upsertSyncCoverage &&
+        taskActivityProvidersToBackfill.length > 0
+      ) {
+        for (const providerId of taskActivityProvidersToBackfill) {
+          void input.repository.upsertSyncCoverage({
+            scopeKey,
+            stream: LEADGEN_ACTIVITY_HISTORY_COVERAGE_STREAM,
+            providerId,
+            coveredFrom: createdFrom,
+            coveredTo: null,
+            algorithmVersion: LEADGEN_ACTIVITY_HISTORY_COVERAGE_VERSION,
+            syncedAt: finishedAt
+          });
+        }
       }
     });
 

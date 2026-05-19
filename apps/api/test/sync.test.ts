@@ -544,6 +544,152 @@ describe("performManualSync", () => {
     expect(result.changes.calls).toBe(1);
   });
 
+  it("backfills leadgen task activities from coverage instead of the advanced deal cursor", async () => {
+    const activityRequests: Array<{
+      ownerIds: string[];
+      modifiedAfter: string | null;
+      providerId?: string;
+    }> = [];
+    const storedActivities: unknown[][] = [];
+    const cursorWrites: Array<{ key: string; cursorValue: string }> = [];
+    const coverageWrites: Array<{
+      stream: string;
+      providerId: string | null;
+      coveredFrom: string;
+    }> = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-05-19T00:00:00.000Z",
+      getSyncCursor: async (key: string) =>
+        key.endsWith(":deals:date_modify")
+          ? "2026-05-19T00:00:00.000Z"
+          : null,
+      hasSyncCoverage: async (input: { stream: string; providerId: string | null }) =>
+        !(
+          input.stream === "activity_history" &&
+          (input.providerId === "CRM_TODO" ||
+            input.providerId === "CRM_TASKS_TASK")
+        ),
+      upsertSyncCoverage: async (input: {
+        stream: string;
+        providerId: string | null;
+        coveredFrom: string;
+      }) => {
+        coverageWrites.push(input);
+      },
+      getCallHistoryBootstrappedAt: async () => "2026-05-19T00:00:00.000Z",
+      getSnapshotStats: async () => ({
+        deals: 163,
+        activities: 6,
+        calls: 0,
+        stageHistory: 369
+      }),
+      replaceStageCatalog: async () => undefined,
+      getDealIdsByCategoryIds: async () => ["LG_EXISTING"],
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async (rows: unknown[]) => {
+        storedActivities.push(rows);
+        return rows.length;
+      },
+      upsertActivityBindings: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 131,
+      setSyncCursor: async (input: { key: string; cursorValue: string }) => {
+        cursorWrites.push(input);
+      },
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [],
+      listStageHistory: async () => [],
+      listActivities: async (input: {
+        ownerIds: string[];
+        modifiedAfter: string | null;
+        providerId?: string;
+      }) => {
+        activityRequests.push(input);
+        if (
+          input.providerId === "CRM_TODO" &&
+          input.modifiedAfter === "2026-01-01T00:00:00+03:00"
+        ) {
+          return [
+            {
+              ID: "TASK_BACKFILL",
+              OWNER_TYPE_ID: "2",
+              OWNER_ID: "LG_EXISTING",
+              TYPE_ID: "6",
+              PROVIDER_ID: "CRM_TODO",
+              RESPONSIBLE_ID: "501",
+              CREATED: "2026-05-12T10:00:00.000Z",
+              DEADLINE: null,
+              LAST_UPDATED: "2026-05-12T10:30:00.000Z",
+              COMPLETED: "Y",
+              COMPLETED_DATE: "2026-05-12T10:30:00.000Z"
+            }
+          ];
+        }
+        return [];
+      },
+      listActivityBindings: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const result = await performLeadgenSync({
+      client,
+      repository: repo as never,
+      categoryId: "28",
+      managerIds: ["501", "502"],
+      now: () => "2026-05-19T12:00:00.000Z"
+    });
+
+    expect(activityRequests).toContainEqual({
+      ownerIds: ["LG_EXISTING"],
+      modifiedAfter: "2026-01-01T00:00:00+03:00",
+      providerId: "CRM_TODO"
+    });
+    expect(activityRequests).toContainEqual({
+      ownerIds: ["LG_EXISTING"],
+      modifiedAfter: "2026-01-01T00:00:00+03:00",
+      providerId: "CRM_TASKS_TASK"
+    });
+    expect(storedActivities).toEqual([
+      [
+        expect.objectContaining({
+          id: "TASK_BACKFILL",
+          providerId: "CRM_TODO",
+          completed: true
+        })
+      ]
+    ]);
+    expect(cursorWrites).toContainEqual(
+      expect.objectContaining({
+        key: "module:leadgen:category:28:assigned:501,502:activities:last_updated",
+        cursorValue: "2026-05-19T12:00:00.000Z"
+      })
+    );
+    expect(coverageWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stream: "activity_history",
+          providerId: "CRM_TODO",
+          coveredFrom: "2026-01-01T00:00:00+03:00"
+        }),
+        expect.objectContaining({
+          stream: "activity_history",
+          providerId: "CRM_TASKS_TASK",
+          coveredFrom: "2026-01-01T00:00:00+03:00"
+        })
+      ])
+    );
+    expect(result.changes.activities).toBe(1);
+  });
+
   it("runs a category-scoped delta sync for deals and operational snapshots", async () => {
     const calls: Array<{ modifiedAfter: string | null }> = [];
     let requestedDealStageCategories: string[] = [];

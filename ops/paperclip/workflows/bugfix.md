@@ -12,7 +12,7 @@ flowchart TD
   F --> G["Run focused checks"]
   G --> H["Fresh verification"]
   H -->|fail| F
-  H -->|pass| I["Review, PR, and close/archive source comment"]
+  H -->|pass| I["Review, PR, and report ready for board review"]
 ```
 
 ## Rules
@@ -23,5 +23,5 @@ flowchart TD
 - The proof must check the symptom the user reported, not only the code path that seemed related. For visual bugs, this means asserting or screenshot-checking the exact UI state the user expected to see.
 - If the correct product behavior requires a decision, do not guess. Return the issue to the dashboard/board with a small choice set or a clear question, then wait for the owner comment before implementing that part.
 - When returning work to a user for review, include a mini-report: what changed, what the root cause was, how it now behaves, and what was verified.
-- For production comments, archive the source dashboard comment only after the fix is deployed and verified in production.
+- Dashboard comment archival is board/user-owned review state. Agents must not archive production dashboard comments automatically after deploy or proof. Archive a production dashboard comment only when the board explicitly asks to archive that exact comment.
 - If the bug is data correctness related, pin date range, funnel/category, manager whitelist, stage rules, and SQL/query semantics before changing code.

@@ -94,7 +94,7 @@ If a named preset is unavailable in the current runtime, emulate it with the clo
 ## Proven Git, Deploy, And Server Practices
 - Treat GitHub Actions as the production path: implement locally, run focused checks, commit, push a `codex/*` branch, open a PR, wait for CI, merge, then wait for `Deploy Production`.
 - When a user asks to fix comments/issues found in the deployed app, assume the expected handoff is a deployed production fix through `main` unless they explicitly say to stop before merge/deploy.
-- After a deployed-app comment is actually fixed and verified in production, archive that production comment through `/api/proto-comments`/SQLite so resolved comments do not remain open.
+- Dashboard comment archival is board/user-owned review state. Agents must not archive production dashboard comments automatically after deploy or proof. Archive a production dashboard comment only when the board explicitly asks to archive that exact comment.
 - After a production deploy, verify the actual VPS state, not only GitHub: check `/opt/bitrix24-reporting/app` commit, container status, health endpoint, and the specific API behavior changed by the PR.
 - Keep production verification explicit and repeatable. Good smoke checks include `curl https://dashboardpriv.claricont.com/api/health`, unauthenticated protected endpoint returning `401`, authenticated endpoint behavior with session cookie and CSRF, and direct API port not reachable externally.
 - Never print or paste production passwords, session cookies, Bitrix webhooks, raw tokens, or raw payloads. If a server-side password file exists, read it inside the remote command and only print non-secret status such as `login: ok`.

@@ -389,6 +389,7 @@ const reworkCommentBodySchema = z.object({
 
 const PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER =
   "source: dashboard-system / development-ready-report";
+const PAPERCLIP_DEVELOPMENT_READY_REPORT_HEADING = "## Готово к проверке";
 
 const createModuleUserBodySchema = z.object({
   login: z.string().trim().email().max(200),
@@ -805,7 +806,7 @@ function buildPaperclipIssueDescription(input: {
           "- Keep leadgen scoped to Bitrix category 28 and the leadgen manager whitelist.",
           "- Do not request SSH/root access as part of normal implementation.",
           "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
-          `- When ready for dashboard review, add one issue comment containing exactly this marker line: ${PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER}. The dashboard shows only that marked team report.`,
+          `- When ready for dashboard review, add one issue comment containing exactly this marker line followed by ${PAPERCLIP_DEVELOPMENT_READY_REPORT_HEADING}: ${PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER}. The dashboard shows only that marked ready report.`,
           "- Create a focused branch/PR through the normal GitHub/CI workflow."
         ]
       : [
@@ -813,7 +814,7 @@ function buildPaperclipIssueDescription(input: {
           "- Keep attraction manager scoping intact.",
           "- Do not request SSH/root access as part of normal implementation.",
           "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
-          `- When ready for dashboard review, add one issue comment containing exactly this marker line: ${PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER}. The dashboard shows only that marked team report.`,
+          `- When ready for dashboard review, add one issue comment containing exactly this marker line followed by ${PAPERCLIP_DEVELOPMENT_READY_REPORT_HEADING}: ${PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER}. The dashboard shows only that marked ready report.`,
           "- Create a focused branch/PR through the normal GitHub/CI workflow."
         ];
 
@@ -896,10 +897,12 @@ function buildPaperclipReworkComment(input: {
     formatJsonForPaperclip(input.comment.context ?? null),
     "```",
     "",
-    "### Required Handoff",
+    "### Rework Handling",
     "",
-    `- Ответить в этом же issue одним мини-отчетом с маркером: ${PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER}.`,
-    "- В отчете указать: что сделано, root cause, как теперь работает, что проверено.",
+    "- Treat this as board rework intake. Triage, delegation, blocker, and progress comments are not dashboard-ready reports.",
+    "- Do not include the dashboard ready-report marker in triage, delegation, blocker, or progress comments.",
+    "- Use the dashboard ready-report marker from the original issue description only after the corrected work is implemented, freshly reviewed, deployed or verified when required, and ready for dashboard review.",
+    "- In the final ready report include: what was done, root cause, how it works now, and what was checked.",
     "- Если нужен продуктовый выбор, не угадывать поведение: предложить варианты и ждать board comment.",
     "- Не включать имена/контакты, телефоны, email, raw Bitrix payloads, cookies, tokens или secrets."
   ].join("\n");
@@ -982,9 +985,13 @@ function isDashboardOriginatedPaperclipComment(comment: PaperclipIssueComment) {
 }
 
 function isDevelopmentReadyReportComment(comment: PaperclipIssueComment) {
-  return comment.body
-    .toLowerCase()
-    .includes(PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER);
+  const body = comment.body.toLowerCase();
+  return (
+    body.includes(PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER) &&
+    comment.body
+      .split("\n")
+      .some((line) => line.trim() === PAPERCLIP_DEVELOPMENT_READY_REPORT_HEADING)
+  );
 }
 
 function stripDevelopmentReadyReportMarker(body: string) {

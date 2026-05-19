@@ -590,6 +590,17 @@ describe("dashboard comments to Paperclip", () => {
           createdAt: "2026-05-12T12:00:00.000Z"
         },
         {
+          id: "paperclip-comment-marked-progress",
+          body: [
+            "Source: dashboard-system / development-ready-report",
+            "",
+            "Triage update: task remains blocked by implementation subtasks."
+          ].join("\n"),
+          authorAgentId: "agent-1",
+          authorUserId: null,
+          createdAt: "2026-05-12T13:00:00.000Z"
+        },
+        {
           id: "paperclip-comment-ready",
           body: [
             "Source: dashboard-system / development-ready-report",
@@ -775,6 +786,13 @@ describe("dashboard comments to Paperclip", () => {
         origin: "dashboard_rework",
         reopen: true
       })
+    );
+    const reworkBody = addIssueComment.mock.calls[0]?.[0]?.body ?? "";
+    expect(reworkBody).not.toContain(
+      "source: dashboard-system / development-ready-report"
+    );
+    expect(reworkBody).toContain(
+      "Do not include the dashboard ready-report marker in triage"
     );
     expect(paperclip.createIssue).toHaveBeenCalledTimes(1);
 

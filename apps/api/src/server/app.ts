@@ -387,6 +387,9 @@ const reworkCommentBodySchema = z.object({
   text: z.string().trim().min(1).max(5000)
 });
 
+const PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER =
+  "source: dashboard-system / development-ready-report";
+
 const createModuleUserBodySchema = z.object({
   login: z.string().trim().email().max(200),
   firstName: z.string().trim().max(100).nullable().optional(),
@@ -802,6 +805,7 @@ function buildPaperclipIssueDescription(input: {
           "- Keep leadgen scoped to Bitrix category 28 and the leadgen manager whitelist.",
           "- Do not request SSH/root access as part of normal implementation.",
           "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
+          `- When ready for dashboard review, add one issue comment containing exactly this marker line: ${PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER}. The dashboard shows only that marked team report.`,
           "- Create a focused branch/PR through the normal GitHub/CI workflow."
         ]
       : [
@@ -809,6 +813,7 @@ function buildPaperclipIssueDescription(input: {
           "- Keep attraction manager scoping intact.",
           "- Do not request SSH/root access as part of normal implementation.",
           "- Do not include deal/contact names, phones, emails, raw Bitrix payloads, or secrets in follow-up comments.",
+          `- When ready for dashboard review, add one issue comment containing exactly this marker line: ${PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER}. The dashboard shows only that marked team report.`,
           "- Create a focused branch/PR through the normal GitHub/CI workflow."
         ];
 
@@ -893,7 +898,8 @@ function buildPaperclipReworkComment(input: {
     "",
     "### Required Handoff",
     "",
-    "- Ответить в этом же issue с мини-отчетом: что сделано, root cause, как теперь работает, что проверено.",
+    `- Ответить в этом же issue одним мини-отчетом с маркером: ${PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER}.`,
+    "- В отчете указать: что сделано, root cause, как теперь работает, что проверено.",
     "- Если нужен продуктовый выбор, не угадывать поведение: предложить варианты и ждать board comment.",
     "- Не включать имена/контакты, телефоны, email, raw Bitrix payloads, cookies, tokens или secrets."
   ].join("\n");
@@ -904,7 +910,7 @@ function mapPaperclipIssueStatus(status: string | null | undefined): PaperclipCo
     return "in_work";
   }
   if (status === "blocked") {
-    return "needs_input";
+    return "in_work";
   }
   if (status === "done" || status === "cancelled") {
     return "done";
@@ -920,12 +926,34 @@ function isDashboardOriginatedPaperclipComment(comment: PaperclipIssueComment) {
   );
 }
 
+function isDevelopmentReadyReportComment(comment: PaperclipIssueComment) {
+  return comment.body
+    .toLowerCase()
+    .includes(PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER);
+}
+
+function stripDevelopmentReadyReportMarker(body: string) {
+  return body
+    .split("\n")
+    .filter(
+      (line) =>
+        !line
+          .trim()
+          .toLowerCase()
+          .includes(PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER)
+    )
+    .join("\n")
+    .trim();
+}
+
 function toPaperclipReadyReport(
   comment: PaperclipIssueComment
 ): DashboardPaperclipReadyReport {
   return {
     id: comment.id,
-    body: sanitizePaperclipText(comment.body).trim(),
+    body: stripDevelopmentReadyReportMarker(
+      sanitizePaperclipText(comment.body)
+    ),
     authorAgentId: comment.authorAgentId,
     authorUserId: comment.authorUserId,
     createdAt: comment.createdAt,
@@ -933,54 +961,14 @@ function toPaperclipReadyReport(
   };
 }
 
-function getPaperclipThreadEntryKind(
-  comment: PaperclipIssueComment
-): DashboardPaperclipThreadEntryKind {
-  if (isDashboardOriginatedPaperclipComment(comment)) {
-    return "dashboard_rework";
-  }
-  if (comment.authorAgentId) {
-    return "development_report";
-  }
-  if (comment.authorUserId) {
-    return "board_note";
-  }
-  return "system_note";
-}
-
-function toPaperclipThreadEntry(
-  comment: PaperclipIssueComment
-): DashboardPaperclipThreadEntry {
-  return {
-    ...toPaperclipReadyReport(comment),
-    kind: getPaperclipThreadEntryKind(comment)
-  };
-}
-
-function selectPaperclipThread(
-  comments: PaperclipIssueComment[]
-): DashboardPaperclipThreadEntry[] {
-  return comments
-    .filter((comment) => comment.body.trim().length > 0)
-    .sort((left, right) => {
-      const leftTime = Date.parse(left.createdAt);
-      const rightTime = Date.parse(right.createdAt);
-      return (Number.isNaN(leftTime) ? 0 : leftTime) - (Number.isNaN(rightTime) ? 0 : rightTime);
-    })
-    .map(toPaperclipThreadEntry);
-}
-
 function selectPaperclipReadyReport(
-  comments: PaperclipIssueComment[] | DashboardPaperclipThreadEntry[]
+  comments: PaperclipIssueComment[]
 ): DashboardPaperclipReadyReport | null {
   const candidates = comments
     .filter((comment) => comment.body.trim().length > 0)
     .filter((comment) => comment.authorAgentId)
-    .filter((comment) =>
-      "kind" in comment
-        ? comment.kind === "development_report"
-        : !isDashboardOriginatedPaperclipComment(comment)
-    )
+    .filter((comment) => !isDashboardOriginatedPaperclipComment(comment))
+    .filter(isDevelopmentReadyReportComment)
     .sort((left, right) => {
       const leftTime = Date.parse(left.createdAt);
       const rightTime = Date.parse(right.createdAt);
@@ -1571,18 +1559,17 @@ export function createApp(
     }
   }
 
-  async function loadPaperclipThread(
+  async function loadPaperclipIssueComments(
     comment: DashboardCommentRecord
-  ): Promise<DashboardPaperclipThreadEntry[]> {
+  ): Promise<PaperclipIssueComment[]> {
     if (!config.paperclip || !comment.paperclipIssueId) {
       return [];
     }
 
     try {
-      const issueComments = await config.paperclip.listIssueComments({
+      return await config.paperclip.listIssueComments({
         issueId: comment.paperclipIssueId
       });
-      return selectPaperclipThread(issueComments);
     } catch {
       return [];
     }
@@ -1594,14 +1581,17 @@ export function createApp(
     paperclipReadyReport: DashboardPaperclipReadyReport | null;
     paperclipThread: DashboardPaperclipThreadEntry[];
   }> {
-    const paperclipThread = await loadPaperclipThread(comment);
+    const issueComments =
+      comment.paperclipStatus === "done"
+        ? await loadPaperclipIssueComments(comment)
+        : [];
 
     return {
       paperclipReadyReport:
         comment.paperclipStatus === "done"
-          ? selectPaperclipReadyReport(paperclipThread)
+          ? selectPaperclipReadyReport(issueComments)
           : null,
-      paperclipThread
+      paperclipThread: []
     };
   }
 

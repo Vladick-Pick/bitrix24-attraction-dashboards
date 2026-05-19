@@ -56,7 +56,6 @@ import type {
   ModuleUser,
   PaperclipCommentStatus,
   PaperclipReadyReport,
-  PaperclipThreadEntry,
   PickerOption,
   PlatformAccess,
   PlatformMembershipInput,
@@ -109,6 +108,13 @@ const notificationSyncLabels: Record<CommentNotification['paperclipSyncStatus'],
   sent: 'Синхронизировано',
   failed: 'Ошибка отправки',
 }
+
+const commentsPanelStatusLabels = {
+  loading: 'Комментарии загружаются',
+  ready: 'Панель готова',
+  saving: 'Сохраняем',
+  error: 'Ошибка панели',
+} satisfies Record<'loading' | 'ready' | 'saving' | 'error', string>
 
 const commentNotificationReadStorageKey = 'bitrix24-dashboard.comment-notifications.read.v1'
 
@@ -177,48 +183,6 @@ function formatReadyReportBody(value: string) {
     .trim()
 }
 
-function extractMarkdownSection(value: string, heading: string) {
-  const lines = value.split('\n')
-  const startIndex = lines.findIndex(
-    (line) => line.replace(/^#{1,6}\s+/, '').trim() === heading,
-  )
-  if (startIndex < 0) {
-    return ''
-  }
-
-  const sectionLines: string[] = []
-  for (const line of lines.slice(startIndex + 1)) {
-    if (/^#{1,6}\s+/.test(line) && sectionLines.some((item) => item.trim().length > 0)) {
-      break
-    }
-    sectionLines.push(line)
-  }
-
-  return sectionLines.join('\n').trim()
-}
-
-function formatThreadEntryBody(entry: PaperclipThreadEntry) {
-  const body =
-    entry.kind === 'dashboard_rework'
-      ? extractMarkdownSection(entry.body, 'Пользовательский комментарий') || entry.body
-      : entry.body
-
-  return formatReadyReportBody(body)
-}
-
-function getThreadEntryLabel(kind: PaperclipThreadEntry['kind']) {
-  switch (kind) {
-    case 'dashboard_rework':
-      return 'Возврат на доработку'
-    case 'development_report':
-      return 'Команда разработки'
-    case 'board_note':
-      return 'Решение пользователя'
-    default:
-      return 'Системная запись'
-  }
-}
-
 function formatDateTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
@@ -270,54 +234,6 @@ function DevelopmentReadyReport({
       <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">
         {formatReadyReportBody(reportBody)}
       </p>
-    </section>
-  )
-}
-
-function DevelopmentThreadHistory({
-  thread,
-}: {
-  thread: PaperclipThreadEntry[] | null | undefined
-}) {
-  const entries = thread?.filter((entry) => entry.body.trim().length > 0) ?? []
-
-  if (entries.length === 0) {
-    return null
-  }
-
-  return (
-    <section className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
-          История команды разработки
-        </div>
-        <span className="badge-chip badge-neutral">{entries.length}</span>
-      </div>
-      <div className="mt-3 grid max-h-96 gap-3 overflow-y-auto overscroll-contain pr-1">
-        {entries.map((entry) => (
-          <article
-            key={entry.id}
-            className={cn(
-              'rounded-xl border px-3 py-3',
-              entry.kind === 'dashboard_rework'
-                ? 'border-blue-200 bg-blue-50/60'
-                : 'border-slate-200 bg-slate-50/70',
-            )}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
-                {getThreadEntryLabel(entry.kind)}
-              </span>
-              <time className="text-xs font-semibold text-slate-500">
-                {formatDateTime(entry.createdAt)}
-              </time>
-            </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">
-              {formatThreadEntryBody(entry)}
-            </p>
-          </article>
-        ))}
-      </div>
     </section>
   )
 }
@@ -1522,13 +1438,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     anchor: ProtoCommentAnchor
     paperclipStatus?: ProtoComment['paperclipStatus']
     paperclipReadyReport?: ProtoComment['paperclipReadyReport']
-    paperclipThread?: ProtoComment['paperclipThread']
   } | null>(null)
   const [reworkText, setReworkText] = useState('')
   const [commentSavePending, setCommentSavePending] = useState(false)
   const [commentReworkPending, setCommentReworkPending] = useState(false)
 
   const shellRef = useRef<HTMLDivElement>(null)
+  const commentPanelRef = useRef<HTMLElement>(null)
   const runtimeRequestRef = useRef(0)
   const commentSaveInFlightRef = useRef(false)
   const commentReworkInFlightRef = useRef(false)
@@ -1542,6 +1458,33 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     retryComment,
     reworkComment,
   } = useProtoComments(activeModuleId)
+
+  useEffect(() => {
+    if (!commentsOpen) {
+      return
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      if (commentPanelRef.current?.contains(target)) {
+        return
+      }
+      const targetElement = target instanceof Element ? target : target.parentElement
+      if (targetElement?.closest('[data-comments-panel-trigger="true"]')) {
+        return
+      }
+
+      setDraftComment(null)
+      setReworkText('')
+      setCommentsOpen(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [commentsOpen])
 
   useEffect(() => {
     function handlePopState() {
@@ -1669,6 +1612,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           (comment.status ?? 'open') === 'open',
       ),
     [activeCommentSceneId, comments],
+  )
+  const activeDraftStoredComment = useMemo(
+    () =>
+      draftComment?.id
+        ? comments.find((comment) => comment.id === draftComment.id) ?? null
+        : null,
+    [comments, draftComment?.id],
   )
   const notificationSummary = useMemo(() => {
     const counts = new Map<CommentNotification['status'], number>()
@@ -2342,7 +2292,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         } satisfies ProtoCommentAnchor),
       paperclipStatus: comment.paperclipStatus,
       paperclipReadyReport: comment.paperclipReadyReport,
-      paperclipThread: comment.paperclipThread,
     })
     setReworkText('')
     setCommentsOpen(true)
@@ -3254,7 +3203,11 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             >
               {syncStatus === 'syncing' ? 'Синхронизация...' : 'Обновить данные'}
             </button>
-            <button className="btn btn-ghost" onClick={() => setCommentsOpen((current) => !current)}>
+            <button
+              className="btn btn-ghost"
+              data-comments-panel-trigger="true"
+              onClick={() => setCommentsOpen((current) => !current)}
+            >
               Комментарии
             </button>
             <button
@@ -3573,6 +3526,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         )}
 
         <aside
+          ref={commentPanelRef}
           className={cn(
             'panel fixed top-4 right-4 bottom-4 z-40 flex w-full max-w-xl flex-col gap-4 overflow-hidden p-5 transition-transform duration-200',
             commentsOpen ? 'translate-x-0' : 'translate-x-[calc(100%+1rem)]',
@@ -3589,7 +3543,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                   : 'Заметок пока нет'}
               </p>
             </div>
-            <span className="badge-chip badge-neutral">{status}</span>
+            <span className="badge-chip badge-neutral">{commentsPanelStatusLabels[status]}</span>
           </div>
 
           {error ? <p className="shrink-0 text-sm text-red-600">{error}</p> : null}
@@ -3651,8 +3605,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                     </button>
                   ) : null}
                   {draftComment?.id &&
-                  comments.find((comment) => comment.id === draftComment.id)
-                    ?.paperclipSyncStatus === 'failed' ? (
+                  activeDraftStoredComment?.paperclipSyncStatus === 'failed' &&
+                  !activeDraftStoredComment.paperclipIssueId ? (
                     <button
                       className="btn btn-ghost"
                       onClick={() => void handleRetryComment(draftComment.id!)}
@@ -3666,10 +3620,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                   report={draftComment?.paperclipReadyReport}
                   status={draftComment?.paperclipStatus}
                 />
-                <DevelopmentThreadHistory thread={draftComment?.paperclipThread} />
                 {draftComment?.id &&
                 canArchiveComments &&
-                comments.find((comment) => comment.id === draftComment.id)?.paperclipIssueId ? (
+                activeDraftStoredComment?.paperclipIssueId ? (
                   <div className="mt-4 border-t border-slate-200 pt-4">
                     <div className="subtle-label">Вернуть команде разработки</div>
                     <div className="mt-2">

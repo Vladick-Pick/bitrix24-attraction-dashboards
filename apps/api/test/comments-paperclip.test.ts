@@ -118,6 +118,12 @@ async function createCommentsApp(input: {
       updatedAt?: string;
     }>
   >;
+  paperclipAddIssueComment?: (payload: {
+    issueId: string;
+    body: string;
+    reopen?: boolean;
+    origin?: "dashboard_rework" | "issue_comment";
+  }) => Promise<void>;
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "bitrix24-comments-"));
   tempDirs.push(directory);
@@ -190,7 +196,8 @@ async function createCommentsApp(input: {
     ),
     listIssueComments: vi.fn(
       input.paperclipListIssueComments ?? (async () => [])
-    )
+    ),
+    addIssueComment: vi.fn(input.paperclipAddIssueComment ?? (async () => undefined))
   };
   const app = createApp(createMinimalService(), {
     auth,
@@ -425,7 +432,7 @@ describe("dashboard comments to Paperclip", () => {
         expect(body.comments).toEqual([
           expect.objectContaining({
             paperclipIssueIdentifier: "BIT-42",
-            paperclipStatus: "needs_input",
+            paperclipStatus: "in_work",
             paperclipSyncStatus: "sent"
           })
         ]);
@@ -513,7 +520,7 @@ describe("dashboard comments to Paperclip", () => {
     store.close();
   });
 
-  it("includes the latest agent ready report from linked Paperclip issue comments", async () => {
+  it("includes only the marked team ready report from linked Paperclip issue comments", async () => {
     const { agent, csrfToken, store } = await createCommentsApp({
       paperclipGetIssue: async ({ issueId }) => ({
         id: issueId,
@@ -539,8 +546,17 @@ describe("dashboard comments to Paperclip", () => {
           createdAt: "2026-05-12T10:00:00.000Z"
         },
         {
+          id: "paperclip-comment-unmarked-agent-note",
+          body: "Internal implementation note: this should not be shown as the dashboard report.",
+          authorAgentId: "agent-1",
+          authorUserId: null,
+          createdAt: "2026-05-12T12:00:00.000Z"
+        },
+        {
           id: "paperclip-comment-ready",
           body: [
+            "Source: dashboard-system / development-ready-report",
+            "",
             "## Готово к проверке",
             "",
             "- Сделано: показали предупреждение в таймлайне.",
@@ -573,8 +589,15 @@ describe("dashboard comments to Paperclip", () => {
           })
         );
         expect(body.comments[0]?.paperclipReadyReport.body).not.toContain(
+          "development-ready-report"
+        );
+        expect(body.comments[0]?.paperclipReadyReport.body).not.toContain(
+          "Internal implementation note"
+        );
+        expect(body.comments[0]?.paperclipReadyReport.body).not.toContain(
           "Возврат на доработку"
         );
+        expect(body.comments[0]?.paperclipThread).toEqual([]);
       });
 
     await agent
@@ -584,17 +607,18 @@ describe("dashboard comments to Paperclip", () => {
         expect(body.notifications[0]?.paperclipReadyReport?.body).toContain(
           "Проверено: web vitest"
         );
+        expect(body.notifications[0]?.paperclipThread).toEqual([]);
       });
 
     store.close();
   });
 
-  it("includes Paperclip thread history for linked comments even before done", async () => {
+  it("does not expose Paperclip thread history or unmarked agent comments", async () => {
     const { agent, csrfToken, store } = await createCommentsApp({
       paperclipGetIssue: async ({ issueId }) => ({
         id: issueId,
         identifier: "BIT-42",
-        status: "in_progress"
+        status: "done"
       }),
       paperclipListIssueComments: async () => [
         {
@@ -623,7 +647,13 @@ describe("dashboard comments to Paperclip", () => {
         },
         {
           id: "paperclip-comment-first-report",
-          body: "Первый отчет команды: добавлены бейджи задач и звонков.",
+          body: [
+            "Source: dashboard-system / development-ready-report",
+            "",
+            "## Готово к проверке",
+            "",
+            "Первый отчет команды: добавлены бейджи задач и звонков."
+          ].join("\n"),
           authorAgentId: "agent-1",
           authorUserId: null,
           createdAt: "2026-05-14T09:00:00.000Z"
@@ -641,32 +671,75 @@ describe("dashboard comments to Paperclip", () => {
       .get("/api/comments")
       .expect(200)
       .expect(({ body }) => {
-        expect(body.comments[0]?.paperclipStatus).toBe("in_work");
-        expect(body.comments[0]?.paperclipReadyReport).toBeNull();
-        expect(body.comments[0]?.paperclipThread).toEqual([
+        expect(body.comments[0]?.paperclipStatus).toBe("done");
+        expect(body.comments[0]?.paperclipReadyReport).toEqual(
           expect.objectContaining({
             id: "paperclip-comment-first-report",
-            kind: "development_report",
             body: expect.stringContaining("Первый отчет команды")
-          }),
-          expect.objectContaining({
-            id: "paperclip-comment-rework",
-            kind: "dashboard_rework",
-            body: expect.stringContaining("Возврат на доработку")
-          }),
-          expect.objectContaining({
-            id: "paperclip-comment-new-report",
-            kind: "development_report",
-            body: expect.stringContaining("Новый мини-отчет")
           })
-        ]);
-        expect(JSON.stringify(body.comments[0]?.paperclipThread)).not.toContain(
+        );
+        expect(body.comments[0]?.paperclipReadyReport.body).not.toContain(
+          "development-ready-report"
+        );
+        expect(body.comments[0]?.paperclipReadyReport.body).not.toContain(
           "user@example.com"
         );
-        expect(JSON.stringify(body.comments[0]?.paperclipThread)).not.toContain(
-          "+7 999"
+        expect(body.comments[0]?.paperclipReadyReport.body).not.toContain("+7 999");
+        expect(body.comments[0]?.paperclipReadyReport.body).not.toContain(
+          "Новый мини-отчет"
         );
+        expect(body.comments[0]?.paperclipThread).toEqual([]);
       });
+
+    store.close();
+  });
+
+  it("keeps rework feedback on the original Paperclip issue and surfaces delivery failure", async () => {
+    const conflictError = Object.assign(
+      new Error("Paperclip issue comment failed with 409: Issue follow-up blocked by unresolved blockers"),
+      { status: 409 }
+    );
+    const createIssue = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "paperclip-issue-1",
+        identifier: "BIT-42",
+        status: "done"
+      });
+    const addIssueComment = vi.fn().mockRejectedValueOnce(conflictError);
+    const { agent, csrfToken, paperclip, store } = await createCommentsApp({
+      paperclipCreateIssue: createIssue,
+      paperclipAddIssueComment: addIssueComment
+    });
+
+    const created = await agent
+      .post("/api/comments")
+      .set("X-CSRF-Token", csrfToken)
+      .send(commentPayload({ text: "Исправить готовый отчет user@example.com +7 999 111 22 33" }))
+      .expect(201);
+
+    await agent
+      .post(`/api/comments/${created.body.comment.id}/rework`)
+      .set("X-CSRF-Token", csrfToken)
+      .send({ text: "1. Убрать MVP карточки отчетов. Телефон +7 999 555 44 33" })
+      .expect(502)
+      .expect(({ body }) => {
+        expect(body.error).toBe("PAPERCLIP_REWORK_FAILED");
+        expect(body.comment.paperclipIssueId).toBe("paperclip-issue-1");
+        expect(body.comment.paperclipIssueIdentifier).toBe("BIT-42");
+        expect(body.comment.paperclipStatus).toBe("failed");
+        expect(body.comment.paperclipSyncStatus).toBe("failed");
+        expect(body.comment.paperclipError).toContain("Issue follow-up blocked by unresolved blockers");
+      });
+
+    expect(addIssueComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: "paperclip-issue-1",
+        origin: "dashboard_rework",
+        reopen: true
+      })
+    );
+    expect(paperclip.createIssue).toHaveBeenCalledTimes(1);
 
     store.close();
   });

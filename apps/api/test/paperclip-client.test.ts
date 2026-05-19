@@ -115,6 +115,46 @@ describe("PaperclipClient", () => {
     });
   });
 
+  it("preserves Paperclip issue comment conflict details for dashboard delivery errors", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "Issue follow-up blocked by unresolved blockers"
+          }),
+          {
+            status: 409,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PaperclipClient({
+      apiUrl: "http://paperclip.local",
+      apiToken: "agent-token",
+      boardApiToken: "board-token",
+      reworkCommentMode: "board"
+    });
+
+    await expect(
+      client.addIssueComment({
+        issueId: "issue-1",
+        origin: "dashboard_rework",
+        body: "Вернуть в работу",
+        reopen: true
+      })
+    ).rejects.toMatchObject({
+      name: "PaperclipRequestError",
+      status: 409,
+      message: expect.stringContaining(
+        "Issue follow-up blocked by unresolved blockers"
+      )
+    });
+  });
+
   it("lists issue comments through the authenticated Paperclip API", async () => {
     const fetchMock = vi.fn(
       async () =>

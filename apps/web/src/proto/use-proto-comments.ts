@@ -40,11 +40,11 @@ function formatCommentError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback
 
   if (message === 'PAPERCLIP_REWORK_FAILED') {
-    return 'Не удалось отправить комментарий команде разработки. Статус комментария сохранен, можно повторить позже.'
+    return 'Не удалось отправить комментарий команде разработки: текст доработки не доставлен и не опубликован. Исправьте текст или повторите отправку из формы доработки.'
   }
 
   if (message === 'PAPERCLIP_NOT_CONFIGURED') {
-    return 'Команда разработки сейчас недоступна. Статус комментария сохранен, можно повторить позже.'
+    return 'Команда разработки сейчас недоступна: текст доработки не доставлен и не опубликован. Повторите отправку из формы доработки позже.'
   }
 
   return message.replace(/paperclip/gi, 'команда разработки')

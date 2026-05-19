@@ -1583,7 +1583,19 @@ export function createReportingService(
             : Promise.resolve([]),
           input.repository.getAllCalls()
         ]);
-      const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
+      const resolvedRange = resolveRange(
+        periodDays,
+        range,
+        input.defaultPeriodDays,
+        nowFactory()
+      );
+      const allScopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
+      const scopedDeals =
+        workloadScope === "leadgen"
+          ? allScopedDeals.filter((deal) =>
+              isTimestampWithinRange(deal.dateCreate, resolvedRange)
+            )
+          : allScopedDeals;
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
       const managerIds = new Set(scopedFilters.managerIds ?? []);
       const scopedActivities = activities.filter(
@@ -1651,12 +1663,6 @@ export function createReportingService(
           calls: scopedCalls,
           managerDirectory
         });
-      const resolvedRange = resolveRange(
-        periodDays,
-        range,
-        input.defaultPeriodDays,
-        nowFactory()
-      );
 
       const report = attachComparisons(
         buildSnapshot(resolvedRange),

@@ -986,11 +986,34 @@ function isDashboardOriginatedPaperclipComment(comment: PaperclipIssueComment) {
 
 function isDevelopmentReadyReportComment(comment: PaperclipIssueComment) {
   const body = comment.body.toLowerCase();
-  return (
-    body.includes(PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER) &&
+  if (!body.includes(PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER)) {
+    return false;
+  }
+
+  if (
     comment.body
       .split("\n")
       .some((line) => line.trim() === PAPERCLIP_DEVELOPMENT_READY_REPORT_HEADING)
+  ) {
+    return true;
+  }
+
+  return isLegacyDevelopmentReadyReportComment(comment.body);
+}
+
+function isLegacyDevelopmentReadyReportComment(body: string) {
+  const normalized = body.toLowerCase();
+  const contentAfterMarker = body
+    .replace(new RegExp(PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER, "i"), "")
+    .trim();
+
+  return (
+    /^done:/i.test(contentAfterMarker) &&
+    /what was done:/i.test(body) &&
+    /root cause/i.test(body) &&
+    /(?:what was checked:|verified|checked|проверено)/i.test(body) &&
+    /(?:ready for (?:dashboard|board|user) review|production-verified|deployed|готово к проверке)/i.test(body) &&
+    !/(?:dependency-blocked|remains blocked|unresolved blockers|blocked by|заблокирован)/i.test(normalized)
   );
 }
 

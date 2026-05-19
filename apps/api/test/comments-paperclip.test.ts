@@ -615,6 +615,29 @@ describe("dashboard comments to Paperclip", () => {
           authorAgentId: "agent-1",
           authorUserId: null,
           createdAt: "2026-05-12T11:00:00.000Z"
+        },
+        {
+          id: "paperclip-comment-legacy-ready",
+          body: [
+            "source: dashboard-system / development-ready-report",
+            "",
+            "Done: corrected work is implemented, reviewed, deployed, and ready for dashboard review.",
+            "",
+            "What was done:",
+            "",
+            "- Убрали лишнюю карточку.",
+            "",
+            "Root cause:",
+            "",
+            "- Старый dashboard prompt не требовал отдельный heading.",
+            "",
+            "What was checked:",
+            "",
+            "- API tests and production smoke."
+          ].join("\n"),
+          authorAgentId: "agent-1",
+          authorUserId: null,
+          createdAt: "2026-05-12T14:00:00.000Z"
         }
       ]
     });
@@ -631,9 +654,9 @@ describe("dashboard comments to Paperclip", () => {
       .expect(({ body }) => {
         expect(body.comments[0]?.paperclipReadyReport).toEqual(
           expect.objectContaining({
-            id: "paperclip-comment-ready",
-            body: expect.stringContaining("Root cause: дата встречи"),
-            createdAt: "2026-05-12T11:00:00.000Z"
+            id: "paperclip-comment-legacy-ready",
+            body: expect.stringContaining("Root cause:"),
+            createdAt: "2026-05-12T14:00:00.000Z"
           })
         );
         expect(body.comments[0]?.paperclipReadyReport.body).not.toContain(
@@ -653,7 +676,7 @@ describe("dashboard comments to Paperclip", () => {
       .expect(200)
       .expect(({ body }) => {
         expect(body.notifications[0]?.paperclipReadyReport?.body).toContain(
-          "Проверено: web vitest"
+          "What was checked"
         );
         expect(body.notifications[0]?.paperclipThread).toEqual([]);
       });

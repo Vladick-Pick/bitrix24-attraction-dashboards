@@ -2471,6 +2471,26 @@ export const apiClient = {
       normalizeLeadgenFunnelReport,
     )
   },
+  async getLeadgenActivitiesWorkloadReport(moduleId: string, query: DashboardQuery) {
+    return requestJson(
+      buildUrl(
+        `/api/modules/${encodeURIComponent(moduleId)}/reports/activities-workload`,
+        buildQueryParams(query),
+      ),
+      { method: 'GET' },
+      normalizeActivitiesWorkloadReport,
+    )
+  },
+  async getLeadgenCallsWorkloadReport(moduleId: string, query: DashboardQuery) {
+    return requestJson(
+      buildUrl(
+        `/api/modules/${encodeURIComponent(moduleId)}/reports/calls-workload`,
+        buildQueryParams(query),
+      ),
+      { method: 'GET' },
+      normalizeCallsWorkloadReport,
+    )
+  },
   async getSalesPlan(range: ReportRange) {
     return requestJson(
       buildUrl('/api/sales-plan', {

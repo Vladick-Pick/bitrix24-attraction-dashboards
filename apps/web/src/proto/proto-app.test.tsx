@@ -248,6 +248,47 @@ vi.mock('@/lib/api-client', () => ({
       managerRows: [],
       comparisons: [],
     })),
+    getLeadgenActivitiesWorkloadReport: vi.fn(async () => ({
+      range: { from: '2026-04-01T00:00:00.000+03:00', to: '2026-04-30T23:59:59.999+03:00' },
+      totalDealCount: 4,
+      totalCreatedCount: 12,
+      totalRescheduledCount: 0,
+      totalClosedCount: 9,
+      totalMeetingCount: 0,
+      warnings: [],
+      managerRows: [
+        {
+          managerId: '501',
+          managerName: 'Лидген менеджер',
+          dealCount: 4,
+          createdCount: 12,
+          rescheduledCount: 0,
+          closedCount: 9,
+          meetingCount: 0,
+          averageCreatedPerDeal: 3,
+          averageRescheduledPerDeal: 0,
+          averageClosedPerDeal: 2.25,
+          averageMeetingsPerDeal: 0,
+          meetingTypeBreakdown: [],
+          businessClubBreakdown: [],
+          slaMetrics: [],
+          stageBreakdown: [
+            {
+              stageId: 'C28:NEW',
+              stageName: 'Новый лид',
+              dealCount: 4,
+              createdCount: 12,
+              rescheduledCount: 0,
+              closedCount: 9,
+              averageCreatedPerDeal: 3,
+              averageRescheduledPerDeal: 0,
+              averageClosedPerDeal: 2.25,
+            },
+          ],
+        },
+      ],
+      comparisons: [],
+    })),
     getConversionEventsReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalInvitedCount: 0,
@@ -274,6 +315,54 @@ vi.mock('@/lib/api-client', () => ({
       totalConnectedCallsOverThirtySeconds: 0,
       warnings: [],
       managerRows: [],
+      comparisons: [],
+    })),
+    getLeadgenCallsWorkloadReport: vi.fn(async () => ({
+      range: { from: '2026-04-01T00:00:00.000+03:00', to: '2026-04-30T23:59:59.999+03:00' },
+      totalDealCount: 4,
+      totalCalls: 18,
+      totalIncomingCalls: 2,
+      totalOutgoingCalls: 16,
+      totalOtherOutgoingCalls: 3,
+      totalConnectedCalls: 12,
+      totalFailedCalls: 4,
+      totalCallsOverThirtySeconds: 10,
+      totalConnectedCallsOverThirtySeconds: 9,
+      warnings: [],
+      managerRows: [
+        {
+          managerId: '501',
+          managerName: 'Лидген менеджер',
+          dealCount: 4,
+          totalCalls: 18,
+          incomingCalls: 2,
+          outgoingCalls: 16,
+          otherOutgoingCalls: 3,
+          connectedCalls: 12,
+          failedCalls: 4,
+          callsOverThirtySeconds: 10,
+          connectedCallsOverThirtySeconds: 9,
+          averageCallsPerDeal: 4.5,
+          averageDurationSeconds: 72,
+          stageBreakdown: [
+            {
+              stageId: 'C28:NEW',
+              stageName: 'Новый лид',
+              dealCount: 4,
+              totalCalls: 18,
+              incomingCalls: 2,
+              outgoingCalls: 16,
+              otherOutgoingCalls: 3,
+              connectedCalls: 12,
+              failedCalls: 4,
+              callsOverThirtySeconds: 10,
+              connectedCallsOverThirtySeconds: 9,
+              averageCallsPerDeal: 4.5,
+              averageDurationSeconds: 72,
+            },
+          ],
+        },
+      ],
       comparisons: [],
     })),
     getAcquisitionOutcomesReport: vi.fn(async () => ({
@@ -1232,6 +1321,8 @@ describe('ProtoApp', () => {
     expect(leadgenModuleButton).toHaveClass('tab-chip')
     expect(screen.queryByText(/дизайна из лидогенерации/i)).not.toBeInTheDocument()
 
+    vi.mocked(apiClient.getActivitiesWorkloadReport).mockClear()
+    vi.mocked(apiClient.getCallsWorkloadReport).mockClear()
     await userEvent.click(leadgenModuleButton)
 
     expect(
@@ -1260,14 +1351,31 @@ describe('ProtoApp', () => {
     expect(leadgenSalesReportButton).not.toHaveClass('tab-chip-active')
     expect(leadgenActivityReportButton).toHaveClass('tab-chip', 'tab-chip-active')
     expect(screen.queryByText('Всего сделок')).not.toBeInTheDocument()
-    expect(screen.getByText('Ответственные')).toBeInTheDocument()
-    expect(screen.getByText('Лидген менеджер')).toBeInTheDocument()
-    expect(screen.queryByText('Новый лид')).not.toBeInTheDocument()
+    const workloadSummary = await screen.findByRole('heading', {
+      name: /лидген: звонки и дела по менеджерам/i,
+    })
+    const workloadSection = workloadSummary.closest('section')
+    expect(workloadSection).not.toBeNull()
+    expect(within(workloadSection as HTMLElement).getByText('Лидген менеджер')).toBeInTheDocument()
+    expect(within(workloadSection as HTMLElement).getByText('12')).toBeInTheDocument()
+    expect(within(workloadSection as HTMLElement).getByText('16')).toBeInTheDocument()
+    expect(screen.queryByText('Источники и UTM')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ответственные')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(apiClient.getLeadgenFunnelReport).toHaveBeenCalledWith(
         'leadgen',
         expect.objectContaining({ preset: 'custom' }),
       )
+      expect(apiClient.getLeadgenActivitiesWorkloadReport).toHaveBeenCalledWith(
+        'leadgen',
+        expect.objectContaining({ preset: 'custom' }),
+      )
+      expect(apiClient.getLeadgenCallsWorkloadReport).toHaveBeenCalledWith(
+        'leadgen',
+        expect.objectContaining({ preset: 'custom' }),
+      )
+      expect(apiClient.getActivitiesWorkloadReport).not.toHaveBeenCalled()
+      expect(apiClient.getCallsWorkloadReport).not.toHaveBeenCalled()
     })
   })
 

@@ -1,4 +1,6 @@
 import type {
+  ActivitiesWorkloadReport,
+  CallsWorkloadReport,
   LeadgenFunnelReport,
   ManualSyncSummary,
   SyncProgressEvent
@@ -32,6 +34,10 @@ interface CreateLeadgenServiceInput {
 
 export interface LeadgenService {
   getLeadgenFunnelReport(input: LeadgenRangeRequest): Promise<LeadgenFunnelReport>;
+  getActivitiesWorkloadReport(
+    input: LeadgenRangeRequest
+  ): Promise<ActivitiesWorkloadReport>;
+  getCallsWorkloadReport(input: LeadgenRangeRequest): Promise<CallsWorkloadReport>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
   }): Promise<ManualSyncSummary>;
@@ -43,6 +49,7 @@ export function createLeadgenService(input: CreateLeadgenServiceInput): LeadgenS
     dealCategoryIds: [input.categoryId],
     leadgenCategoryId: input.categoryId,
     leadgenManagerIds: input.managerIds,
+    workloadScope: "leadgen",
     qualityFieldName: input.qualityFieldName,
     client: input.client as never,
     repository: input.repository,
@@ -53,6 +60,14 @@ export function createLeadgenService(input: CreateLeadgenServiceInput): LeadgenS
   return {
     getLeadgenFunnelReport(inputRange) {
       return reporting.getLeadgenFunnelReport(inputRange);
+    },
+
+    getActivitiesWorkloadReport(inputRange) {
+      return reporting.getActivitiesWorkloadReport(inputRange);
+    },
+
+    getCallsWorkloadReport(inputRange) {
+      return reporting.getCallsWorkloadReport(inputRange);
     },
 
     performSync(syncInput) {

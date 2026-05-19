@@ -743,6 +743,8 @@ describe("createApp", () => {
     let receivedActivitiesInput: unknown = null;
     let receivedRevenueVelocityInput: unknown = null;
     let receivedLeadgenFunnelInput: unknown = null;
+    let receivedLeadgenActivitiesInput: unknown = null;
+    let receivedLeadgenCallsInput: unknown = null;
     const dashboard: DashboardData = {
       salesSummary: {
         salesCount: 3,
@@ -1078,7 +1080,33 @@ describe("createApp", () => {
       })
     };
 
-    const app = createApp(service);
+    const app = createApp(service, {
+      modules: {
+        leadgen: {
+          getLeadgenFunnelReport: async (input: unknown) => {
+            receivedLeadgenFunnelInput = input;
+            return leadgenFunnelReport;
+          },
+          getActivitiesWorkloadReport: async (input: unknown) => {
+            receivedLeadgenActivitiesInput = input;
+            return {
+              ...activitiesReport,
+              totalDealCount: 2,
+              totalCreatedCount: 3
+            };
+          },
+          getCallsWorkloadReport: async (input: unknown) => {
+            receivedLeadgenCallsInput = input;
+            return {
+              ...callsReport,
+              totalDealCount: 2,
+              totalCalls: 4
+            };
+          },
+          performSync: async () => createSyncSummary({ syncRunId: 28 })
+        }
+      }
+    });
 
     await request(app)
       .get("/api/dashboard")
@@ -1245,6 +1273,43 @@ describe("createApp", () => {
       filters: {
         managerIds: ["501"],
         sourceKeys: ["WEB"]
+      }
+    });
+
+    await request(app)
+      .get("/api/modules/leadgen/reports/activities-workload")
+      .query({
+        from: "2026-05-11T00:00:00.000Z",
+        to: "2026-05-17T23:59:59.999Z"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalDealCount).toBe(2);
+        expect(body.totalCreatedCount).toBe(3);
+      });
+
+    await request(app)
+      .get("/api/modules/leadgen/reports/calls-workload")
+      .query({
+        from: "2026-05-11T00:00:00.000Z",
+        to: "2026-05-17T23:59:59.999Z"
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalDealCount).toBe(2);
+        expect(body.totalCalls).toBe(4);
+      });
+
+    expect(receivedLeadgenActivitiesInput).toEqual({
+      range: {
+        from: "2026-05-11T00:00:00.000Z",
+        to: "2026-05-17T23:59:59.999Z"
+      }
+    });
+    expect(receivedLeadgenCallsInput).toEqual({
+      range: {
+        from: "2026-05-11T00:00:00.000Z",
+        to: "2026-05-17T23:59:59.999Z"
       }
     });
 

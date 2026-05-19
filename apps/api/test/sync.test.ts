@@ -11,7 +11,14 @@ describe("performManualSync", () => {
   it("runs a leadgen-only sync for category 28 without touching attraction category 10", async () => {
     const requestedDealCategories: string[][] = [];
     const storedDeals: unknown[][] = [];
+    const storedStageHistory: unknown[][] = [];
+    const storedActivities: unknown[][] = [];
+    const storedActivityBindings: unknown[][] = [];
+    const storedCalls: unknown[][] = [];
     const storedManagers: unknown[][] = [];
+    const activityRequests: unknown[] = [];
+    const callRequests: unknown[] = [];
+    const stageHistoryRequests: unknown[] = [];
     let syncRunScopeKey: string | null = null;
     let storedCursor: unknown = null;
 
@@ -24,8 +31,33 @@ describe("performManualSync", () => {
         stageHistory: 0
       }),
       replaceStageCatalog: async () => undefined,
+      getDealIdsByCategoryIds: async (
+        categoryIds: string[],
+        assignedByIds?: string[]
+      ) => {
+        expect(categoryIds).toEqual(["28"]);
+        expect(assignedByIds).toEqual(["501", "502"]);
+        return ["LG_ALLOWED"];
+      },
+      getActivitiesByIds: async () => [],
       upsertDeals: async (rows: unknown[]) => {
         storedDeals.push(rows);
+        return rows.length;
+      },
+      upsertStageHistory: async (rows: unknown[]) => {
+        storedStageHistory.push(rows);
+        return rows.length;
+      },
+      upsertActivities: async (rows: unknown[]) => {
+        storedActivities.push(rows);
+        return rows.length;
+      },
+      upsertActivityBindings: async (rows: unknown[]) => {
+        storedActivityBindings.push(rows);
+        return rows.length;
+      },
+      upsertCalls: async (rows: unknown[]) => {
+        storedCalls.push(rows);
         return rows.length;
       },
       upsertManagerDirectory: async (rows: unknown[]) => {
@@ -129,6 +161,64 @@ describe("performManualSync", () => {
           }
         ];
       },
+      listStageHistory: async (input: unknown) => {
+        stageHistoryRequests.push(input);
+        return [
+          {
+            ID: "SH1",
+            OWNER_ID: "LG_ALLOWED",
+            CATEGORY_ID: "28",
+            STAGE_ID: "C28:NEW",
+            STAGE_SEMANTIC_ID: "P",
+            TYPE_ID: null,
+            CREATED_TIME: "2026-05-03T10:15:00.000Z"
+          }
+        ];
+      },
+      listActivities: async (input: unknown) => {
+        activityRequests.push(input);
+        return [
+          {
+            ID: "A1",
+            OWNER_TYPE_ID: "2",
+            OWNER_ID: "LG_ALLOWED",
+            TYPE_ID: "2",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            RESPONSIBLE_ID: "501",
+            CREATED: "2026-05-03T10:20:00.000Z",
+            DEADLINE: null,
+            LAST_UPDATED: "2026-05-03T10:20:00.000Z",
+            COMPLETED: "Y",
+            COMPLETED_DATE: "2026-05-03T10:25:00.000Z"
+          }
+        ];
+      },
+      listActivityBindings: async (activityIds: string[]) => {
+        expect(activityIds).toEqual(["A1"]);
+        return [
+          {
+            activityId: "A1",
+            ownerTypeId: "2",
+            ownerId: "LG_ALLOWED"
+          }
+        ];
+      },
+      listCalls: async (input: unknown) => {
+        callRequests.push(input);
+        return [
+          {
+            ID: "CALL1",
+            CRM_ACTIVITY_ID: "A1",
+            PORTAL_USER_ID: "501",
+            CALL_TYPE: "1",
+            CALL_START_DATE: "2026-05-03T10:20:00.000Z",
+            CALL_DURATION: "60",
+            CRM_ENTITY_TYPE: "DEAL",
+            CRM_ENTITY_ID: "LG_ALLOWED",
+            CALL_FAILED_CODE: "200"
+          }
+        ];
+      },
       fetchUsers: async (input: { ids: string[] }) => {
         expect(input.ids).toEqual(["501"]);
         return [
@@ -164,6 +254,58 @@ describe("performManualSync", () => {
         })
       ]
     ]);
+    expect(activityRequests).toEqual([
+      {
+        ownerIds: ["LG_ALLOWED"],
+        modifiedAfter: "2026-05-01T00:00:00.000Z"
+      }
+    ]);
+    expect(stageHistoryRequests).toEqual([{ ownerIds: ["LG_ALLOWED"] }]);
+    expect(callRequests).toEqual([
+      { activityIds: ["A1"] },
+      {
+        callStartDateFrom: "2026-05-01T00:00:00.000Z",
+        callStartDateTo: "2026-05-14T00:00:00.000Z",
+        portalUserIds: ["501", "502"]
+      }
+    ]);
+    expect(storedStageHistory).toEqual([
+      [
+        expect.objectContaining({
+          ownerId: "LG_ALLOWED",
+          categoryId: "28",
+          stageId: "C28:NEW"
+        })
+      ]
+    ]);
+    expect(storedActivities).toEqual([
+      [
+        expect.objectContaining({
+          id: "A1",
+          ownerId: "LG_ALLOWED",
+          responsibleId: "501"
+        })
+      ]
+    ]);
+    expect(storedActivityBindings).toEqual([
+      [
+        {
+          activityId: "A1",
+          ownerTypeId: "2",
+          ownerId: "LG_ALLOWED"
+        }
+      ]
+    ]);
+    expect(storedCalls).toEqual([
+      [
+        expect.objectContaining({
+          id: "CALL1",
+          crmActivityId: "A1",
+          portalUserId: "501",
+          crmEntityId: "LG_ALLOWED"
+        })
+      ]
+    ]);
     expect(storedManagers).toEqual([
       [
         {
@@ -175,7 +317,14 @@ describe("performManualSync", () => {
     expect(result).toMatchObject({
       syncRunId: 128,
       dealsSynced: 1,
-      mode: "delta"
+      mode: "delta",
+      changes: {
+        deals: 1,
+        activities: 1,
+        calls: 1,
+        stageHistory: 1,
+        managers: 1
+      }
     });
     expect(storedCursor).toEqual(
       expect.objectContaining({

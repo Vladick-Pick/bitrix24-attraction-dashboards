@@ -97,6 +97,7 @@ interface CreateReportingServiceInput {
   dealCategoryIds: string[];
   leadgenCategoryId?: string;
   leadgenManagerIds?: string[];
+  workloadScope?: "attraction" | "leadgen";
   qualityFieldName: string;
   tariffFieldName?: string;
   businessClubFieldName?: string;
@@ -747,6 +748,8 @@ export function createReportingService(
     input.leadgenCategoryId ?? LEADGEN_US_CATEGORY_ID
   );
   const leadgenManagerIds = uniqueStrings(input.leadgenManagerIds ?? []);
+  const workloadScope = input.workloadScope ?? "attraction";
+  const noLeadgenManagerMatchId = "__NO_LEADGEN_MANAGER_MATCH__";
   const getScopedStageCatalog = async (includeSources = false) =>
     filterStageCatalog(
       await input.repository.getStageCatalog(),
@@ -870,6 +873,35 @@ export function createReportingService(
 
     return sortSources(Array.from(rows.values()));
   };
+  const normalizeLeadgenWorkloadFilters = (filters: ReportFilters | undefined) => {
+    const requestedManagerIds = filters?.managerIds ?? [];
+    const allowedManagers = new Set(leadgenManagerIds);
+    const scopedManagerIds =
+      requestedManagerIds.length > 0
+        ? requestedManagerIds.filter((id) => allowedManagers.has(id))
+        : leadgenManagerIds;
+
+    return {
+      filters: {
+        ...(filters ?? {}),
+        managerIds:
+          scopedManagerIds.length > 0
+            ? scopedManagerIds
+            : [noLeadgenManagerMatchId]
+      },
+      warnings:
+        leadgenManagerIds.length === 0
+          ? ["Leadgen manager whitelist is empty."]
+          : []
+    };
+  };
+  const normalizeWorkloadFilters = (filters: ReportFilters | undefined) =>
+    workloadScope === "leadgen"
+      ? normalizeLeadgenWorkloadFilters(filters)
+      : {
+          filters: normalizeAttractionManagerFilters(filters),
+          warnings: [] as string[]
+        };
 
   return {
     async getLeadgenFunnelReport({ periodDays, range, filters }) {
@@ -1529,7 +1561,8 @@ export function createReportingService(
       compareRanges,
       filters
     }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const workloadFilters = normalizeWorkloadFilters(filters);
+      const scopedFilters = workloadFilters.filters;
       const [
         deals,
         stageCatalog,
@@ -1570,7 +1603,8 @@ export function createReportingService(
           ...scopedActivities.map((row) => row.responsibleId),
           ...scopedDeadlineChanges.map((row) => row.responsibleId),
           managerIds.has(UNASSIGNED_MANAGER_ID) ? UNASSIGNED_MANAGER_ID : null
-        ])
+        ]),
+        { attractionOrder: workloadScope !== "leadgen" }
       );
       const scopedStageHistory = stageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
@@ -1624,11 +1658,16 @@ export function createReportingService(
         nowFactory()
       );
 
-      return attachComparisons(
+      const report = attachComparisons(
         buildSnapshot(resolvedRange),
         compareRanges,
         buildSnapshot
       ) as ActivitiesWorkloadReport;
+
+      return {
+        ...report,
+        warnings: [...workloadFilters.warnings, ...report.warnings]
+      };
     },
 
     async getAcquisitionOutcomesReport({
@@ -1814,7 +1853,8 @@ export function createReportingService(
     },
 
     async getCallsWorkloadReport({ periodDays, range, compareRanges, filters }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const workloadFilters = normalizeWorkloadFilters(filters);
+      const scopedFilters = workloadFilters.filters;
       const repositoryWithActivityBindings = input.repository as Partial<SqliteRepository>;
       const [deals, stageCatalog, stageHistory, activities, activityBindings, calls] =
         await Promise.all([
@@ -1828,7 +1868,7 @@ export function createReportingService(
           input.repository.getAllCalls()
         ]);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters, {
-        includeManagerFilter: false
+        includeManagerFilter: workloadScope === "leadgen"
       });
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
       const activityById = new Map(activities.map((activity) => [activity.id, activity]));
@@ -1854,7 +1894,8 @@ export function createReportingService(
               : null
           ),
           managerIds.has(UNASSIGNED_MANAGER_ID) ? UNASSIGNED_MANAGER_ID : null
-        ])
+        ]),
+        { attractionOrder: workloadScope !== "leadgen" }
       );
       const scopedStageHistory = stageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
@@ -1877,11 +1918,16 @@ export function createReportingService(
         nowFactory()
       );
 
-      return attachComparisons(
+      const report = attachComparisons(
         buildSnapshot(resolvedRange),
         compareRanges,
         buildSnapshot
       ) as CallsWorkloadReport;
+
+      return {
+        ...report,
+        warnings: [...workloadFilters.warnings, ...report.warnings]
+      };
     },
 
     async getConversionEventsReport({

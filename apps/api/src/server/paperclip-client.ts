@@ -39,6 +39,23 @@ export interface PaperclipIssueClient {
   addIssueComment(input: PaperclipIssueCommentInput): Promise<void>;
 }
 
+export class PaperclipRequestError extends Error {
+  readonly status: number;
+  readonly responseMessage: string | null;
+
+  constructor(input: {
+    operation: string;
+    status: number;
+    responseMessage?: string | null;
+  }) {
+    const detail = input.responseMessage ? `: ${input.responseMessage}` : "";
+    super(`${input.operation} failed with ${input.status}${detail}`);
+    this.name = "PaperclipRequestError";
+    this.status = input.status;
+    this.responseMessage = input.responseMessage ?? null;
+  }
+}
+
 function asString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
@@ -66,6 +83,36 @@ function normalizeIssueComment(value: unknown): PaperclipIssueComment | null {
     createdAt,
     updatedAt: asString(data.updatedAt) || createdAt
   };
+}
+
+function extractPaperclipErrorMessage(value: unknown) {
+  const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return asString(data.error) || asString(data.message) || asString(data.code);
+}
+
+async function readPaperclipErrorMessage(response: Response) {
+  const text = await response.text().catch(() => "");
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return extractPaperclipErrorMessage(parsed) || text.slice(0, 500);
+  } catch {
+    return text.slice(0, 500);
+  }
+}
+
+async function throwPaperclipRequestError(
+  operation: string,
+  response: Response
+): Promise<never> {
+  throw new PaperclipRequestError({
+    operation,
+    status: response.status,
+    responseMessage: await readPaperclipErrorMessage(response)
+  });
 }
 
 export class PaperclipClient implements PaperclipIssueClient {
@@ -120,7 +167,7 @@ export class PaperclipClient implements PaperclipIssueClient {
     );
 
     if (!response.ok) {
-      throw new Error(`Paperclip issue creation failed with ${response.status}`);
+      await throwPaperclipRequestError("Paperclip issue creation", response);
     }
 
     const body = (await response.json()) as unknown;
@@ -143,7 +190,7 @@ export class PaperclipClient implements PaperclipIssueClient {
     );
 
     if (!response.ok) {
-      throw new Error(`Paperclip issue fetch failed with ${response.status}`);
+      await throwPaperclipRequestError("Paperclip issue fetch", response);
     }
 
     const body = (await response.json()) as unknown;
@@ -166,7 +213,7 @@ export class PaperclipClient implements PaperclipIssueClient {
     );
 
     if (!response.ok) {
-      throw new Error(`Paperclip issue comments fetch failed with ${response.status}`);
+      await throwPaperclipRequestError("Paperclip issue comments fetch", response);
     }
 
     const body = (await response.json()) as unknown;
@@ -224,7 +271,7 @@ export class PaperclipClient implements PaperclipIssueClient {
     );
 
     if (!response.ok) {
-      throw new Error(`Paperclip issue comment failed with ${response.status}`);
+      await throwPaperclipRequestError("Paperclip issue comment", response);
     }
   }
 }

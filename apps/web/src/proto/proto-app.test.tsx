@@ -1012,7 +1012,7 @@ describe('ProtoApp', () => {
     expect(screen.getAllByText(/отчёт команды разработки не найден/i).length).toBeGreaterThan(0)
   })
 
-  it('shows development team thread history in the comment review panel', async () => {
+  it('does not show development team thread history in the comment review panel', async () => {
     const paperclipThread: PaperclipThreadEntry[] = [
       {
         id: 'thread-first-report',
@@ -1089,10 +1089,40 @@ describe('ProtoApp', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^комментарии$/i }))
     await userEvent.click(await screen.findByRole('button', { name: /проверить историю команды/i }))
 
-    expect(await screen.findByText(/история команды разработки/i)).toBeInTheDocument()
-    expect(screen.getByText(/первый отчет команды/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/возврат на доработку/i).length).toBeGreaterThan(0)
-    expect(screen.getByText(/новый мини-отчет команды/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/проверить историю команды/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/история команды разработки/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/первый отчет команды/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/возврат на доработку: бейдж/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/новый мини-отчет команды/i)).not.toBeInTheDocument()
+  })
+
+  it('closes the comments panel when the user clicks outside it', async () => {
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^комментарии$/i }))
+
+    const panel = screen.getByText('Комментарии модуля').closest('aside')
+    expect(panel).not.toBeNull()
+    expect(panel).toHaveClass('translate-x-0')
+
+    await userEvent.click(await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }))
+
+    expect(panel).toHaveClass('translate-x-[calc(100%+1rem)]')
+  })
+
+  it('keeps the comments button as an explicit panel toggle', async () => {
+    render(<ProtoApp />)
+
+    const commentsButton = await screen.findByRole('button', { name: /^комментарии$/i })
+    await userEvent.click(commentsButton)
+
+    const panel = screen.getByText('Комментарии модуля').closest('aside')
+    expect(panel).not.toBeNull()
+    expect(panel).toHaveClass('translate-x-0')
+
+    await userEvent.click(commentsButton)
+
+    expect(panel).toHaveClass('translate-x-[calc(100%+1rem)]')
   })
 
   it('keeps the development rework form inside a scrollable comments panel body', async () => {

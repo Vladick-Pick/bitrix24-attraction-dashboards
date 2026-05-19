@@ -84,6 +84,8 @@ describe('useProtoComments dashboard API', () => {
     expect(reworkResult).toBe(false)
     expect(result.current.status).toBe('ready')
     expect(result.current.error).toMatch(/не удалось отправить комментарий/i)
+    expect(result.current.error).toMatch(/текст доработки не доставлен/i)
+    expect(result.current.error).not.toMatch(/статус комментария сохранен/i)
     expect(result.current.comments[0]).toMatchObject({
       id: 'comment-1',
       paperclipStatus: 'failed',

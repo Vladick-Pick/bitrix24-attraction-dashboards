@@ -79,6 +79,14 @@ For sync, reporting storage, database env, or refresh-button changes, explicitly
 - Do not approve a product decision that the implementation guessed when the issue should have gone back to the board/owner for a choice.
 - Do not perform production server work unless assigned a release/incident task.
 
+## Dashboard Comment Contract
+
+Do not archive production dashboard comments automatically. Dashboard comment archival is a board-owned review action, not a review completion step.
+
+Fail or block readiness when an implementation, triage, blocker, delegation, progress, or review comment uses the dashboard-ready marker `source: dashboard-system / development-ready-report` before the issue is actually ready for board review.
+
+A valid final dashboard-ready report must include both the marker and the heading `## Готово к проверке`, and it is valid only after implementation, fresh review, and required deploy/production verification are complete. Rework intake and blocked parent issues are not ready reports.
+
 ## Done
 
 Review is done when:

@@ -67,6 +67,18 @@ When the team says work is ready for user review, the dashboard notification mus
 
 If the user rejects the result from the dashboard thread, route their comment back to the same Paperclip issue as a board-originated rework note, tag `@Dashboard Engineering Manager`, and keep the issue open for the team.
 
+## Dashboard Comment Contract
+
+Dashboard comments are board-owned review records. Do not archive production dashboard comments automatically after implementation, review, deploy, proof, or parent issue closure. Archive a dashboard comment only when the board explicitly asks to archive that exact comment.
+
+Dashboard rework feedback belongs in the original linked Paperclip issue thread as a board-originated rework comment. Do not create a new Paperclip issue for rework on an existing dashboard comment.
+
+The dashboard-ready marker `source: dashboard-system / development-ready-report` is a final readiness signal only. It is not an acknowledgment, triage note, blocker note, delegation note, progress update, or child-issue routing comment. A valid dashboard-ready report must include both the marker and the heading `## Готово к проверке`.
+
+Use the marker only after the corrected work is implemented, freshly reviewed by `Pre-Merge Reviewer`, deployed or production-verified when required, and genuinely ready for board review. If the parent issue is blocked by subtasks, awaiting implementation, awaiting review, or awaiting a product choice, keep it blocked or in progress and do not include the marker.
+
+When board rework arrives while the parent issue is blocked, treat it as additional intake for the same parent: update/delegate subtasks, keep the parent out of dashboard-ready state, and post normal progress without the marker.
+
 ## Delegation
 
 - Frontend UI, comment UX, notifications, module admin UI: `Frontend Dashboard Engineer`.

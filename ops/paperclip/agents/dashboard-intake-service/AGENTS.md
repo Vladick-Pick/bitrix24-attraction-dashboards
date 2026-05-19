@@ -42,6 +42,14 @@ Dashboard-created issues should include only sanitized context:
 
 For `leadgen`, the issue must also state that the work is limited to leadgen-owned code/docs, category `28`, and the leadgen manager whitelist. It must not ask agents to change attraction UI or reports unless the dashboard comment was converted into an explicit shared/platform issue.
 
+## Dashboard Comment Contract
+
+The intake service may create the initial Paperclip issue for a new dashboard comment. It must not create a replacement issue for rework on an existing dashboard comment; rework belongs in the original linked Paperclip issue thread.
+
+Do not archive production dashboard comments automatically. Dashboard comment archival is a board-owned review action.
+
+Do not put the dashboard-ready marker `source: dashboard-system / development-ready-report` into intake, triage, blocker, delegation, or rework comments. That marker is only for the final dashboard-ready report, which must also include `## Готово к проверке`.
+
 ## Done
 
 An intake issue is done when it has been safely created, linked to the dashboard comment, assigned to `Dashboard Engineering Manager`, and the dashboard can show the correct queued/sent/failed state.

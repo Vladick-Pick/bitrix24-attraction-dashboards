@@ -887,7 +887,7 @@ type LeadgenReportId = 'sales' | 'activity'
 
 const leadgenReportTabs: Array<{ id: LeadgenReportId; label: string }> = [
   { id: 'sales', label: 'Отчет по продажам' },
-  { id: 'activity', label: 'Отчет звонков' },
+  { id: 'activity', label: 'Отчет активности' },
 ]
 
 function LeadgenDashboard({

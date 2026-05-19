@@ -918,6 +918,61 @@ function mapPaperclipIssueStatus(status: string | null | undefined): PaperclipCo
   return "sent";
 }
 
+function paperclipErrorStatus(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : null;
+}
+
+function paperclipErrorMessage(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return error instanceof Error ? error.message : "";
+  }
+
+  const responseMessage = (error as { responseMessage?: unknown }).responseMessage;
+  const message = error instanceof Error ? error.message : "";
+  return [
+    typeof responseMessage === "string" ? responseMessage : "",
+    message
+  ].join(" ");
+}
+
+function isPaperclipBlockedFollowUpError(error: unknown) {
+  return (
+    paperclipErrorStatus(error) === 409 &&
+    /(?:follow-up blocked|unresolved blockers)/i.test(paperclipErrorMessage(error))
+  );
+}
+
+async function addDashboardReworkComment(input: {
+  paperclip: PaperclipIssueClient;
+  issueId: string;
+  body: string;
+}) {
+  try {
+    await input.paperclip.addIssueComment({
+      issueId: input.issueId,
+      origin: "dashboard_rework",
+      body: input.body,
+      reopen: true
+    });
+  } catch (error) {
+    if (!isPaperclipBlockedFollowUpError(error)) {
+      throw error;
+    }
+
+    await input.paperclip.addIssueComment({
+      issueId: input.issueId,
+      origin: "dashboard_rework",
+      body: input.body,
+      reopen: false
+    });
+  }
+}
+
 function isDashboardOriginatedPaperclipComment(comment: PaperclipIssueComment) {
   const body = comment.body.toLowerCase();
   return (
@@ -1905,16 +1960,15 @@ export function createApp(
       });
 
       try {
-        await config.paperclip.addIssueComment({
+        await addDashboardReworkComment({
+          paperclip: config.paperclip,
           issueId: existing.paperclipIssueId,
-          origin: "dashboard_rework",
           body: buildPaperclipReworkComment({
             module: access.module,
             authorLogin: access.session.user.login,
             comment: existing,
             text: payload.text
-          }),
-          reopen: true
+          })
         });
 
         const synced = await config.comments.updateDashboardCommentPaperclip({

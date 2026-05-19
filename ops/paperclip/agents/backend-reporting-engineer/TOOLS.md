@@ -84,7 +84,12 @@ Current approved script:
 scripts/production-sync-verify.sh
 ```
 
-The workflow requires the protected GitHub `production` environment and existing deploy secrets. It validates inputs, SSHes through the GitHub runner, creates a production DB backup, triggers the app sync endpoint through authenticated HTTP, queries the exact rows in the attraction snapshot, checks health, and emits sanitized JSON only.
+The workflow requires the protected GitHub `production` environment and existing deploy secrets. It validates inputs, SSHes through the GitHub runner, creates a production DB backup, triggers the app sync endpoint through authenticated HTTP, checks health, and emits sanitized JSON only.
+
+Supported modules:
+
+- `attraction`: exact deal IDs, category 10 stage ID, Bitrix `UF_CRM_*` field ID, and exact attraction snapshot rows.
+- `leadgen`: category `28`, frozen workload range `2026-05-11T00:00:00.000Z..2026-05-17T23:59:59.999Z`, separate DB env path proof, leadgen manager whitelist count, leadgen snapshot scope counts, and activities/calls workload report shapes.
 
 Run shape:
 
@@ -99,13 +104,25 @@ gh run watch
 gh run view --log
 ```
 
+```bash
+gh workflow run production-sync-verify.yml \
+  -f paperclip_issue=BIT-84 \
+  -f module=leadgen \
+  -f category_id=28 \
+  -f range_from=2026-05-11T00:00:00.000Z \
+  -f range_to=2026-05-17T23:59:59.999Z \
+  -f expected_commit=<deployed-fix-commit>
+gh run watch
+gh run view --log
+```
+
 Required evidence to attach to Paperclip:
 
 - workflow run URL or run ID;
 - deployed commit check;
 - backup path;
 - sanitized sync summary;
-- exact deal rows with IDs, category/stage, `hasReason`, and `refusalReasonValue`;
+- exact attraction deal rows with IDs, category/stage, `hasReason`, and `refusalReasonValue`, or leadgen category/whitelist snapshot counts plus workload report shapes;
 - health check.
 
 If `gh workflow run` is unavailable, the production environment requires approval you cannot obtain, required secrets are missing, or the workflow does not cover the operation, mark the task `blocked`. Do not replace it with manual SSH, arbitrary remote scripts, copied SQLite files, or personal credentials.

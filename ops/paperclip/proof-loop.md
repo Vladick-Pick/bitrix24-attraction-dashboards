@@ -55,7 +55,10 @@ For sync/backfill/verification tasks, the current approved surface is the GitHub
 .github/workflows/production-sync-verify.yml
 ```
 
-That workflow runs `scripts/production-sync-verify.sh` on the VPS using GitHub protected environment secrets, creates a production DB backup, triggers the approved sync endpoint, and prints only sanitized proof for exact deal IDs. It is intentionally narrow: `MODULE=attraction`, numeric deal IDs, one expected stage ID, and one expected Bitrix field ID.
+That workflow runs `scripts/production-sync-verify.sh` on the VPS using GitHub protected environment secrets, creates a production DB backup, triggers the approved sync endpoint, and prints only sanitized proof. It is intentionally narrow:
+
+- `MODULE=attraction`: numeric deal IDs, one expected category 10 stage ID, and one expected Bitrix field ID.
+- `MODULE=leadgen`: category `28`, frozen workload range `2026-05-11T00:00:00.000Z..2026-05-17T23:59:59.999Z`, distinct production DB env paths, non-empty `BITRIX24_LEADGEN_MANAGER_IDS`, and aggregate activities/calls workload report shapes.
 
 Use it for approved production operations such as:
 
@@ -68,6 +71,16 @@ gh workflow run production-sync-verify.yml \
   -f field_id=UF_CRM_1776949411825
 ```
 
+```bash
+gh workflow run production-sync-verify.yml \
+  -f paperclip_issue=BIT-84 \
+  -f module=leadgen \
+  -f category_id=28 \
+  -f range_from=2026-05-11T00:00:00.000Z \
+  -f range_to=2026-05-17T23:59:59.999Z \
+  -f expected_commit=<deployed-fix-commit>
+```
+
 Required operation evidence:
 
 - Paperclip issue ID that approved the production operation;
@@ -75,7 +88,7 @@ Required operation evidence:
 - deployed commit check result;
 - backup path printed by the operation;
 - sanitized sync summary;
-- exact post-sync snapshot proof for the requested IDs;
+- exact post-sync snapshot proof for requested attraction IDs, or sanitized leadgen category/whitelist snapshot counts plus workload report shapes;
 - health check result;
 - no secrets, cookies, webhook URLs, raw payloads, names, phones, emails, or broad production logs.
 

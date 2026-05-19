@@ -1866,6 +1866,25 @@ describe("createReportingService", () => {
           utmTerm: null
         },
         {
+          id: "LEADGEN_OLD_DEAL_WITH_PERIOD_TASK",
+          leadId: null,
+          categoryId: "28",
+          stageId: "C28:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "501",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-05-01T10:00:00.000Z",
+          dateModify: "2026-05-12T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
           id: "ATTRACTION_DEAL",
           leadId: null,
           categoryId: "10",
@@ -1943,6 +1962,19 @@ describe("createReportingService", () => {
           lastUpdated: "2026-05-12T12:00:00.000Z",
           completed: true,
           completedTime: "2026-05-12T12:30:00.000Z"
+        },
+        {
+          id: "A_OLD_DEAL",
+          ownerTypeId: "2",
+          ownerId: "LEADGEN_OLD_DEAL_WITH_PERIOD_TASK",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "501",
+          createdTime: "2026-05-12T13:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-05-12T13:30:00.000Z",
+          completed: true,
+          completedTime: "2026-05-12T13:30:00.000Z"
         }
       ],
       getAllActivityDeadlineChanges: async () => [],
@@ -2001,6 +2033,7 @@ describe("createReportingService", () => {
 
     expect(activities.totalDealCount).toBe(1);
     expect(activities.totalCreatedCount).toBe(1);
+    expect(activities.totalClosedCount).toBe(1);
     expect(activities.managerRows.map((row) => row.managerId)).toEqual(["501"]);
     expect(calls.totalDealCount).toBe(1);
     expect(calls.totalCalls).toBe(1);

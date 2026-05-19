@@ -255,6 +255,12 @@ function describeBitrixError(error: unknown) {
   return causeCode ? `${error.name}:${causeCode}` : error.name;
 }
 
+function createAbortError(message: string) {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
 function logBitrixRequest(
   level: "info" | "warn" | "error",
   event: string,
@@ -466,22 +472,41 @@ export class BitrixClient {
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const controller = new AbortController();
         let abortFromExternalSignal: (() => void) | null = null;
-        const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+        const timeoutPromise = new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            const error = createAbortError("Bitrix24 request timed out");
+            controller.abort(error);
+            reject(error);
+          }, this.config.timeoutMs);
+        });
+        const externalAbortPromise = options?.signal
+          ? new Promise<never>((_resolve, reject) => {
+              const abortRequest = () => {
+                const reason =
+                  options.signal?.reason instanceof Error
+                    ? options.signal.reason
+                    : createAbortError("Bitrix24 request aborted");
+                controller.abort(reason);
+                reject(reason);
+              };
+
+              if (options.signal?.aborted) {
+                abortRequest();
+              } else {
+                abortFromExternalSignal = abortRequest;
+                options.signal?.addEventListener("abort", abortRequest, {
+                  once: true
+                });
+              }
+            })
+          : null;
         if (options?.signal) {
-          if (options.signal.aborted) {
-            controller.abort(options.signal.reason);
-          } else {
-            abortFromExternalSignal = () => {
-              controller.abort(options.signal?.reason);
-            };
-            options.signal.addEventListener("abort", abortFromExternalSignal, {
-              once: true
-            });
-          }
+          options.signal.throwIfAborted?.();
         }
 
         try {
-          const response = await fetch(url, {
+          const fetchRequest = fetch(url, {
             method: "POST",
             headers: {
               "Content-Type": "application/json"
@@ -489,6 +514,11 @@ export class BitrixClient {
             body: JSON.stringify(params),
             signal: controller.signal
           });
+          const response = await Promise.race(
+            externalAbortPromise
+              ? [fetchRequest, timeoutPromise, externalAbortPromise]
+              : [fetchRequest, timeoutPromise]
+          );
 
           let payload: BitrixResponse<T>;
           try {
@@ -590,7 +620,9 @@ export class BitrixClient {
           }
           throw error;
         } finally {
-          clearTimeout(timeout);
+          if (timeout) {
+            clearTimeout(timeout);
+          }
           if (options?.signal && abortFromExternalSignal) {
             options.signal.removeEventListener("abort", abortFromExternalSignal);
           }

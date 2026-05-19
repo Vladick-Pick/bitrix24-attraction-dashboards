@@ -1505,6 +1505,10 @@ export function createApp(
       return comment;
     }
 
+    if (comment.paperclipIssueId) {
+      return comment;
+    }
+
     if (!config.paperclip || !module.paperclipCompanyId) {
       return config.comments.updateDashboardCommentPaperclip({
         id: comment.id,
@@ -1969,6 +1973,13 @@ export function createApp(
         access.module.role !== "leader"
       ) {
         response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+      if (existing.paperclipIssueId) {
+        response.status(409).json({
+          ...createErrorResponse("PAPERCLIP_ISSUE_ALREADY_LINKED"),
+          comment: existing
+        });
         return;
       }
       const delivered = await deliverCommentToPaperclip(existing, access.module);

@@ -410,6 +410,43 @@ describe("dashboard comments to Paperclip", () => {
     store.close();
   });
 
+  it("does not retry initial delivery for comments already linked to a Paperclip issue", async () => {
+    const createIssue = vi.fn()
+      .mockResolvedValueOnce({
+        id: "paperclip-issue-original",
+        identifier: "BIT-78",
+        status: "done"
+      })
+      .mockResolvedValueOnce({
+        id: "paperclip-issue-duplicate",
+        identifier: "BIT-88",
+        status: "todo"
+      });
+    const { agent, csrfToken, paperclip, store } = await createCommentsApp({
+      paperclipCreateIssue: createIssue
+    });
+
+    const created = await agent
+      .post("/api/comments")
+      .set("X-CSRF-Token", csrfToken)
+      .send(commentPayload({ text: "Проверь повторную доставку linked issue" }))
+      .expect(201);
+
+    await agent
+      .post(`/api/comments/${created.body.comment.id}/retry`)
+      .set("X-CSRF-Token", csrfToken)
+      .expect(409)
+      .expect(({ body }) => {
+        expect(body.error).toBe("PAPERCLIP_ISSUE_ALREADY_LINKED");
+        expect(body.comment.paperclipIssueId).toBe("paperclip-issue-original");
+        expect(body.comment.paperclipIssueIdentifier).toBe("BIT-78");
+        expect(body.comment.paperclipSyncStatus).toBe("sent");
+      });
+
+    expect(paperclip.createIssue).toHaveBeenCalledTimes(1);
+    store.close();
+  });
+
   it("refreshes linked Paperclip statuses when dashboard comments are loaded", async () => {
     const { agent, csrfToken, store } = await createCommentsApp({
       paperclipGetIssue: async ({ issueId }) => ({

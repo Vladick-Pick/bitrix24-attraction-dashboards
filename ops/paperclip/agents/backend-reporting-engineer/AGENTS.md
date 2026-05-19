@@ -90,15 +90,14 @@ Example failure to avoid: if the user reports 4 attraction deals on `C10:UC_EA3R
 
 ## Production Operations
 
-For approved production sync/backfill/verification tasks, use the repo-approved operation surface instead of ad hoc server access. The current operation is the protected GitHub Actions workflow `production-sync-verify.yml`, which runs `scripts/production-sync-verify.sh` on the VPS, creates a backup, triggers the approved sync endpoint, verifies exact snapshot rows, and prints sanitized evidence.
+For approved production sync/backfill/verification tasks, use the repo-approved operation surface instead of ad hoc server access. The current operation is the protected GitHub Actions workflow `production-sync-verify.yml`, which runs `scripts/production-sync-verify.sh` on the VPS, creates a backup, triggers the approved sync endpoint, verifies exact attraction snapshot rows or sanitized leadgen workload proof, and prints sanitized evidence.
 
 Required inputs must come from the Paperclip issue or manager comment:
 
 - approving Paperclip issue ID;
-- module, currently `attraction`;
-- exact deal IDs;
-- expected stage ID;
-- expected Bitrix field ID;
+- module, currently `attraction` or `leadgen`;
+- for attraction: exact deal IDs, expected stage ID, and expected Bitrix field ID;
+- for leadgen: category `28` and frozen workload range `2026-05-11T00:00:00.000Z..2026-05-17T23:59:59.999Z`;
 - expected deployed commit when the operation depends on a just-merged fix.
 
 For BIT-65 style proof, the operation inputs are:
@@ -112,7 +111,19 @@ gh workflow run production-sync-verify.yml \
   -f field_id=UF_CRM_1776949411825
 ```
 
-Attach the workflow run URL and sanitized output to the issue. The proof must show backup creation, sync completion, health check, and non-empty `refusal_reason_value` for the exact requested deal IDs. If the workflow cannot run because GitHub permissions, production environment approval, secrets, or operation coverage are missing, mark the task `blocked`; do not request raw SSH as a normal path.
+For leadgen workload proof, the operation inputs are:
+
+```bash
+gh workflow run production-sync-verify.yml \
+  -f paperclip_issue=BIT-84 \
+  -f module=leadgen \
+  -f category_id=28 \
+  -f range_from=2026-05-11T00:00:00.000Z \
+  -f range_to=2026-05-17T23:59:59.999Z \
+  -f expected_commit=<deployed-fix-commit>
+```
+
+Attach the workflow run URL and sanitized output to the issue. Attraction proof must show backup creation, sync completion, health check, and non-empty `refusal_reason_value` for the exact requested deal IDs. Leadgen proof must show backup creation, sync completion, health check, separate DB env paths, non-empty leadgen manager whitelist count, category/whitelist snapshot scope counts, and workload report result shapes. If the workflow cannot run because GitHub permissions, production environment approval, secrets, or operation coverage are missing, mark the task `blocked`; do not request raw SSH as a normal path.
 
 ## Done
 

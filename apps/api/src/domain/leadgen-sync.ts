@@ -25,6 +25,9 @@ import type {
 } from "./sync.js";
 import {
   ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
+  CALL_STATS_COVERAGE_PROVIDER,
+  CALL_STATS_COVERAGE_STREAM,
+  CALL_STATS_COVERAGE_VERSION,
   LEADGEN_US_BASKET_REASON_FIELD_NAME,
   LEADGEN_US_RETURN_REASON_FIELD_NAME,
   LEADGEN_US_TO_ATTRACTION_DEAL_FIELD_NAME
@@ -121,6 +124,10 @@ function buildSyncCursorKey(scopeKey: string) {
   return `${scopeKey}:deals:date_modify`;
 }
 
+function buildCallStatsCursorKey(scopeKey: string) {
+  return `${scopeKey}:call_stats:call_start_date`;
+}
+
 function timestampValue(value: string | null | undefined) {
   if (!value) {
     return Number.NEGATIVE_INFINITY;
@@ -150,6 +157,22 @@ function advanceCursor(currentCursor: string | null, rows: DealRow[]) {
   return timestampValue(rowCursor) > timestampValue(currentCursor)
     ? rowCursor
     : currentCursor;
+}
+
+function advanceTimestampCursorThroughWindow(
+  currentCursor: string | null,
+  rowTimestamps: Array<string | null | undefined>,
+  completedThrough: string
+) {
+  const rowCursor = maxTimestamp(rowTimestamps);
+  const selectedCursor =
+    timestampValue(rowCursor) > timestampValue(currentCursor)
+      ? rowCursor
+      : currentCursor;
+
+  return timestampValue(completedThrough) > timestampValue(selectedCursor)
+    ? completedThrough
+    : selectedCursor;
 }
 
 function buildProgressEvent(input: {
@@ -348,7 +371,9 @@ export async function performLeadgenSync(
   const startedAt = input.now();
   const scopeKey = buildLeadgenScopeKey(categoryId, managerIds);
   const cursorKey = buildSyncCursorKey(scopeKey);
+  const callStatsCursorKey = buildCallStatsCursorKey(scopeKey);
   const hasLeadgenScope = categoryId.length > 0 && managerIds.length > 0;
+  const createdFrom = input.from ?? LEADGEN_DEFAULT_FROM;
   const snapshotBefore = hasLeadgenScope
     ? await getSnapshotStats(input.repository, categoryId, managerIds)
     : EMPTY_SNAPSHOT_STATS;
@@ -360,9 +385,32 @@ export async function performLeadgenSync(
     ? cursorFromState ??
       (await input.repository.getLatestSuccessCursor([categoryId], managerIds))
     : null;
+  const callStatsCursorFromState =
+    hasLeadgenScope && input.repository.getSyncCursor
+      ? await input.repository.getSyncCursor(callStatsCursorKey)
+      : null;
+  const callHistoryBootstrappedAt =
+    hasLeadgenScope && input.repository.getCallHistoryBootstrappedAt
+      ? await input.repository.getCallHistoryBootstrappedAt()
+      : "__legacy__";
+  const hasCallStatsCoverage =
+    !hasLeadgenScope ||
+    (input.repository.hasSyncCoverage
+      ? await input.repository.hasSyncCoverage({
+          scopeKey,
+          stream: CALL_STATS_COVERAGE_STREAM,
+          providerId: CALL_STATS_COVERAGE_PROVIDER,
+          requiredFrom: createdFrom,
+          algorithmVersion: CALL_STATS_COVERAGE_VERSION
+        })
+      : Boolean(callHistoryBootstrappedAt));
+  const shouldBackfillCallStats = hasLeadgenScope && !hasCallStatsCoverage;
   const mode = latestDealCursor ? "delta" : "full";
   const runModifiedAfter = latestDealCursor;
   const queryModifiedAfter = latestDealCursor ?? input.from ?? LEADGEN_DEFAULT_FROM;
+  const callStatsModifiedAfter = shouldBackfillCallStats
+    ? createdFrom
+    : callStatsCursorFromState ?? queryModifiedAfter;
   const syncRunId = await input.repository.createSyncRun({
     startedAt,
     mode,
@@ -439,7 +487,6 @@ export async function performLeadgenSync(
       })
     );
 
-    const createdFrom = input.from ?? LEADGEN_DEFAULT_FROM;
     const [dealStages, sourceCatalog, dealRows, returnReasonMap, basketReasonMap] =
       await Promise.all([
         input.client.fetchDealStages([categoryId]),
@@ -510,7 +557,7 @@ export async function performLeadgenSync(
           : Promise.resolve([]),
         input.client.listCalls
           ? input.client.listCalls({
-              callStartDateFrom: queryModifiedAfter,
+              callStartDateFrom: callStatsModifiedAfter,
               callStartDateTo: startedAt,
               portalUserIds: managerIds
             })
@@ -566,8 +613,15 @@ export async function performLeadgenSync(
 
     const finishedAt = input.now();
     const nextCursor = advanceCursor(runModifiedAfter, cursorRows);
+    const nextCallStatsCursor = advanceTimestampCursorThroughWindow(
+      callStatsModifiedAfter,
+      supplementalCallRows.map((row) => row.CALL_START_DATE),
+      startedAt
+    );
     const diagnostics = [
       `dealCursor=${nextCursor ?? "not-updated"}`,
+      `callStatsCursor=${nextCallStatsCursor ?? "not-updated"}`,
+      `callStatsCoverage=${shouldBackfillCallStats ? "backfill" : "delta"}`,
       `leadgenDeals=${deals.length}`,
       `leadgenActivities=${activities.length}`,
       `leadgenCalls=${calls.length}`,
@@ -585,11 +639,35 @@ export async function performLeadgenSync(
       }
       void input.repository.upsertCalls(calls);
       void input.repository.upsertManagerDirectory(managerDirectory);
+      if (
+        shouldBackfillCallStats &&
+        input.repository.markCallHistoryBootstrapped
+      ) {
+        void input.repository.markCallHistoryBootstrapped(finishedAt);
+      }
       if (input.repository.setSyncCursor && nextCursor) {
         void input.repository.setSyncCursor({
           key: cursorKey,
           cursorValue: nextCursor,
           updatedAt: finishedAt
+        });
+      }
+      if (input.repository.setSyncCursor && nextCallStatsCursor) {
+        void input.repository.setSyncCursor({
+          key: callStatsCursorKey,
+          cursorValue: nextCallStatsCursor,
+          updatedAt: finishedAt
+        });
+      }
+      if (input.repository.upsertSyncCoverage && shouldBackfillCallStats) {
+        void input.repository.upsertSyncCoverage({
+          scopeKey,
+          stream: CALL_STATS_COVERAGE_STREAM,
+          providerId: CALL_STATS_COVERAGE_PROVIDER,
+          coveredFrom: createdFrom,
+          coveredTo: null,
+          algorithmVersion: CALL_STATS_COVERAGE_VERSION,
+          syncedAt: finishedAt
         });
       }
     });

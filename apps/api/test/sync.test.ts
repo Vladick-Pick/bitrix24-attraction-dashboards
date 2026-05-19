@@ -20,7 +20,7 @@ describe("performManualSync", () => {
     const callRequests: unknown[] = [];
     const stageHistoryRequests: unknown[] = [];
     let syncRunScopeKey: string | null = null;
-    let storedCursor: unknown = null;
+    const storedCursors: unknown[] = [];
 
     const repo = {
       getLatestSuccessCursor: async () => "2026-05-01T00:00:00.000Z",
@@ -69,7 +69,7 @@ describe("performManualSync", () => {
         return 128;
       },
       setSyncCursor: async (input: unknown) => {
-        storedCursor = input;
+        storedCursors.push(input);
       },
       finishSyncRun: async () => undefined,
       failSyncRun: async () => undefined
@@ -326,9 +326,16 @@ describe("performManualSync", () => {
         managers: 1
       }
     });
-    expect(storedCursor).toEqual(
+    expect(storedCursors).toContainEqual(
       expect.objectContaining({
+        key: "module:leadgen:category:28:assigned:501,502:deals:date_modify",
         cursorValue: "2026-05-03T11:00:00.000Z"
+      })
+    );
+    expect(storedCursors).toContainEqual(
+      expect.objectContaining({
+        key: "module:leadgen:category:28:assigned:501,502:call_stats:call_start_date",
+        cursorValue: "2026-05-14T00:00:00.000Z"
       })
     );
   });
@@ -407,6 +414,134 @@ describe("performManualSync", () => {
         modifiedAfter: null
       })
     );
+  });
+
+  it("backfills leadgen supplemental calls from call-stat coverage instead of the deal cursor", async () => {
+    const callRequests: Array<{
+      activityIds?: string[];
+      callStartDateFrom?: string;
+      callStartDateTo?: string;
+      portalUserIds?: string[];
+    }> = [];
+    const cursorWrites: Array<{ key: string; cursorValue: string }> = [];
+    const coverageWrites: Array<{
+      stream: string;
+      providerId: string | null;
+      coveredFrom: string;
+    }> = [];
+    const storedCalls: unknown[][] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-05-19T00:00:00.000Z",
+      getSyncCursor: async (key: string) =>
+        key.endsWith(":deals:date_modify") ? "2026-05-19T00:00:00.000Z" : null,
+      hasSyncCoverage: async (input: { stream: string }) =>
+        input.stream !== "call_stats",
+      upsertSyncCoverage: async (input: {
+        stream: string;
+        providerId: string | null;
+        coveredFrom: string;
+      }) => {
+        coverageWrites.push(input);
+      },
+      getCallHistoryBootstrappedAt: async () => null,
+      getSnapshotStats: async () => ({
+        deals: 163,
+        activities: 325,
+        calls: 0,
+        stageHistory: 369
+      }),
+      replaceStageCatalog: async () => undefined,
+      getDealIdsByCategoryIds: async () => ["LG_EXISTING"],
+      getActivitiesByIds: async () => [],
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityBindings: async () => 0,
+      upsertCalls: async (rows: unknown[]) => {
+        storedCalls.push(rows);
+        return rows.length;
+      },
+      upsertManagerDirectory: async () => 0,
+      markCallHistoryBootstrapped: async () => undefined,
+      createSyncRun: async () => 130,
+      setSyncCursor: async (input: { key: string; cursorValue: string }) => {
+        cursorWrites.push(input);
+      },
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [],
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listActivityBindings: async () => [],
+      listCalls: async (input: {
+        activityIds?: string[];
+        callStartDateFrom?: string;
+        callStartDateTo?: string;
+        portalUserIds?: string[];
+      }) => {
+        callRequests.push(input);
+        if (input.callStartDateFrom !== "2026-01-01T00:00:00+03:00") {
+          return [];
+        }
+        return [
+          {
+            ID: "CALL_BACKFILL",
+            CRM_ACTIVITY_ID: null,
+            PORTAL_USER_ID: "501",
+            CALL_TYPE: "1",
+            CALL_START_DATE: "2026-05-12T10:20:00.000Z",
+            CALL_DURATION: "60",
+            CRM_ENTITY_TYPE: "DEAL",
+            CRM_ENTITY_ID: "LG_EXISTING",
+            CALL_FAILED_CODE: "200"
+          }
+        ];
+      },
+      fetchUsers: async () => []
+    };
+
+    const result = await performLeadgenSync({
+      client,
+      repository: repo as never,
+      categoryId: "28",
+      managerIds: ["501", "502"],
+      now: () => "2026-05-19T12:00:00.000Z"
+    });
+
+    expect(callRequests).toContainEqual({
+      callStartDateFrom: "2026-01-01T00:00:00+03:00",
+      callStartDateTo: "2026-05-19T12:00:00.000Z",
+      portalUserIds: ["501", "502"]
+    });
+    expect(storedCalls).toEqual([
+      [
+        expect.objectContaining({
+          id: "CALL_BACKFILL",
+          portalUserId: "501",
+          crmEntityType: "DEAL",
+          crmEntityId: "LG_EXISTING"
+        })
+      ]
+    ]);
+    expect(cursorWrites).toContainEqual(
+      expect.objectContaining({
+        key: "module:leadgen:category:28:assigned:501,502:call_stats:call_start_date",
+        cursorValue: "2026-05-19T12:00:00.000Z"
+      })
+    );
+    expect(coverageWrites).toContainEqual(
+      expect.objectContaining({
+        stream: "call_stats",
+        providerId: "VOXIMPLANT_CALL",
+        coveredFrom: "2026-01-01T00:00:00+03:00"
+      })
+    );
+    expect(result.changes.calls).toBe(1);
   });
 
   it("runs a category-scoped delta sync for deals and operational snapshots", async () => {

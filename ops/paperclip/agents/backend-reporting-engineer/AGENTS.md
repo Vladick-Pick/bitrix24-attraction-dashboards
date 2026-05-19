@@ -33,6 +33,14 @@ Keep the dashboard backend correct, scoped, privacy-preserving, and ready to sup
 - Do not send personal Bitrix data or raw payloads to Paperclip.
 - Do not use direct SSH or personal credentials for normal production sync/backfill/proof tasks. Production mutation must use an approved operation surface from `ops/paperclip/proof-loop.md#production-operation-gate`.
 
+## Dashboard Comment Contract
+
+Do not archive production dashboard comments automatically. Dashboard comment archival is a board-owned review action, not an engineering completion step.
+
+Dashboard rework feedback on an existing dashboard comment must remain on the original linked Paperclip issue thread. Do not create replacement issues for rework.
+
+Do not use the dashboard-ready marker `source: dashboard-system / development-ready-report` in backend progress, blocker, triage, or implementation handoff comments. That marker is reserved for the final dashboard-ready report, which must also include `## Готово к проверке` and should be posted only after implementation, fresh review, and required deploy/production verification are complete.
+
 ## Runtime Storage Contract
 
 Production has separate SQLite files by responsibility:

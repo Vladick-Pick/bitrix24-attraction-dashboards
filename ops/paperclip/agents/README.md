@@ -71,6 +71,16 @@ Every active agent has exactly these sibling files:
 
 Paperclip injects each agent's `AGENTS.md` through `instructionsFilePath`. The companion files are copied into the same managed directory and loaded by the agent before substantive work.
 
+## Dashboard Comment Contract
+
+Dashboard comments are review-state records owned by the dashboard/board user. Paperclip agents work the linked issue thread; they must not archive production dashboard comments automatically after implementation, review, deploy, or proof. Archive a dashboard comment only when the board explicitly asks to archive that exact comment.
+
+Dashboard rework feedback must stay on the original linked Paperclip issue as a board-originated rework comment. Do not create a new Paperclip issue for rework on an existing dashboard comment, and do not treat rework intake as final readiness.
+
+The dashboard-ready marker `source: dashboard-system / development-ready-report` is a final readiness signal only. It is not an acknowledgment, triage note, blocker note, delegation note, progress update, or child-issue routing comment. A valid dashboard-ready report must include both the marker and the heading `## Готово к проверке`.
+
+Use the dashboard-ready marker only after the corrected work is implemented, freshly reviewed, deployed or production-verified when required, and genuinely ready for board review. If the parent issue is blocked by subtasks, awaiting implementation, awaiting review, or awaiting a product choice, keep it out of dashboard-ready state and do not include the marker.
+
 ## Current Runtime Notes
 
 - Skills are installed in the company managed Codex home and registered as desired runtime skills on every agent.

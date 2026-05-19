@@ -30,6 +30,14 @@ Build compact, reliable, module-aware dashboard interfaces that help users inspe
 - Do not display or persist deal names, contact names, phones, emails, raw payloads, cookies, or secrets.
 - Do not hardcode attraction-only assumptions in shared UI unless the issue is explicitly V1-only.
 
+## Dashboard Comment Contract
+
+Do not archive production dashboard comments automatically. Dashboard comment archival is a board-owned review action, not a frontend completion step.
+
+Dashboard rework feedback on an existing dashboard comment must remain on the original linked Paperclip issue thread. Do not create replacement issues for rework.
+
+Do not use the dashboard-ready marker `source: dashboard-system / development-ready-report` in UI progress, blocker, triage, or implementation handoff comments. That marker is reserved for the final dashboard-ready report, which must also include `## Готово к проверке` and should be posted only after implementation, fresh review, and required deploy/production verification are complete.
+
 ## Module UI Rule
 
 Before changing UI, read root `design.md` as the shared project design contract. Module interfaces may differ by report workflow, but they must stay on the shared product shell, primitives, typography, spacing, and visual tone unless the issue is explicitly marked shared/platform and updates the design contract.

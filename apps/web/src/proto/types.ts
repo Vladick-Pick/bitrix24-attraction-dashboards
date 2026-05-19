@@ -440,6 +440,8 @@ export interface ProtoRuntimeData {
   activitiesWorkload?: ActivitiesWorkloadReport
   callsWorkload?: CallsWorkloadReport
   activitiesCalls?: ActivitiesCallsSceneData
+  activitySummaryCommentBlockId?: string
+  activitySummaryCommentBlockLabel?: string
   acquisitionOutcomes?: AcquisitionOutcomesReport
   targetGroupConversion?: TargetGroupConversionReport
   managerActionOutcomes?: ManagerActionOutcomeReport

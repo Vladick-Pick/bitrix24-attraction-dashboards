@@ -4886,7 +4886,7 @@ function BusinessClubWorkloadSection({
   )
 }
 
-function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
+export function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
   const [summarySort, setSummarySort] = useState<ActivitySummarySort>({
     index: 2,
     direction: 'desc',
@@ -4909,7 +4909,11 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
 
   if (isUnavailable) {
     return (
-      <section className="panel p-5">
+      <section
+        className="panel min-w-0 p-5"
+        data-comment-block-id={runtimeData?.activitySummaryCommentBlockId}
+        data-comment-block-label={runtimeData?.activitySummaryCommentBlockLabel}
+      >
         <PanelHeading
           title="Отчет активности"
           description={
@@ -4923,9 +4927,9 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {SHOW_ACTIVITY_MATRIX ? (
-      <section className="panel p-5">
+      <section className="panel min-w-0 p-5">
         <PanelHeading
           title="Матрица активности"
           description="Показывает текущий период, сравнение и процентную динамику по выбранному окну фильтров."
@@ -4943,8 +4947,8 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
             {visibleWarnings.join(' · ')}
           </div>
         ) : null}
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
+        <div className="w-full max-w-full overflow-x-auto">
+          <table className="min-w-[920px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
                 <th className="px-3 py-3">Менеджер</th>
@@ -5019,14 +5023,18 @@ function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
       </section>
       ) : null}
 
-      <section className="panel p-5">
+      <section
+        className="panel min-w-0 p-5"
+        data-comment-block-id={runtimeData?.activitySummaryCommentBlockId}
+        data-comment-block-label={runtimeData?.activitySummaryCommentBlockLabel}
+      >
         <PanelHeading
           title="Сводка по менеджерам"
           description="Абсолютные значения и динамика относительно первого периода сравнения."
           right={<span className="badge-chip badge-neutral">{getFilterScopeLabel(filters)}</span>}
         />
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
+        <div className="w-full max-w-full overflow-x-auto">
+          <table className="min-w-[920px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
                 <th className="px-3 py-3">Менеджер</th>

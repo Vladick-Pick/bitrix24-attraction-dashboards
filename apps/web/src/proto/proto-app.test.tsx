@@ -1320,6 +1320,7 @@ describe('ProtoApp', () => {
     expect(attractionModuleButton).toHaveClass('tab-chip', 'tab-chip-active')
     expect(leadgenModuleButton).toHaveClass('tab-chip')
     expect(screen.queryByText(/дизайна из лидогенерации/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^отчет активности$/i })).toBeInTheDocument()
 
     vi.mocked(apiClient.getActivitiesWorkloadReport).mockClear()
     vi.mocked(apiClient.getCallsWorkloadReport).mockClear()
@@ -1334,31 +1335,54 @@ describe('ProtoApp', () => {
     const leadgenSalesReportButton = screen.getByRole('button', {
       name: /^отчет по продажам$/i,
     })
-    const leadgenActivityReportButton = screen.getByRole('button', {
-      name: /^отчет активности$/i,
+    const leadgenCallsReportButton = screen.getByRole('button', {
+      name: /^отчет звонков$/i,
     })
     expect(leadgenSalesReportButton).toHaveClass('tab-chip', 'tab-chip-active')
-    expect(leadgenActivityReportButton).toHaveClass('tab-chip')
+    expect(leadgenCallsReportButton).toHaveClass('tab-chip')
     expect(screen.queryByRole('heading', { name: /^воронка лидген ус$/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/сводка по отдельной воронке/i)).not.toBeInTheDocument()
     expect(screen.getByText('Всего сделок')).toBeInTheDocument()
     expect(screen.getByText('Новый лид')).toBeInTheDocument()
     expect(screen.queryByText('Ответственные')).not.toBeInTheDocument()
 
-    await userEvent.click(leadgenActivityReportButton)
+    await userEvent.click(leadgenCallsReportButton)
 
     expect(leadgenSalesReportButton).toHaveClass('tab-chip')
     expect(leadgenSalesReportButton).not.toHaveClass('tab-chip-active')
-    expect(leadgenActivityReportButton).toHaveClass('tab-chip', 'tab-chip-active')
+    expect(leadgenCallsReportButton).toHaveClass('tab-chip', 'tab-chip-active')
     expect(screen.queryByText('Всего сделок')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^отчет звонков$/i })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: /лидген: звонки и дела по менеджерам/i }),
+    ).not.toBeInTheDocument()
     const workloadSummary = await screen.findByRole('heading', {
-      name: /лидген: звонки и дела по менеджерам/i,
+      name: /сводка по менеджерам/i,
     })
     const workloadSection = workloadSummary.closest('section')
     expect(workloadSection).not.toBeNull()
+    expect(workloadSection).toHaveAttribute(
+      'data-comment-block-id',
+      'leadgen-workload-managers',
+    )
+    expect(workloadSection).toHaveAttribute(
+      'data-comment-block-label',
+      'Лидогенерация: Отчет звонков',
+    )
     expect(within(workloadSection as HTMLElement).getByText('Лидген менеджер')).toBeInTheDocument()
     expect(within(workloadSection as HTMLElement).getByText('12')).toBeInTheDocument()
     expect(within(workloadSection as HTMLElement).getByText('16')).toBeInTheDocument()
+    const workloadHeaders = within(workloadSection as HTMLElement)
+      .getAllByRole('columnheader')
+      .map((header) =>
+        header.textContent
+          ?.replace(/\s+/g, ' ')
+          .replace(/\s*(сорт|убыв|возр)$/i, '')
+          .trim(),
+      )
+    expect(workloadHeaders).not.toContain('Сделки')
+    expect(screen.queryByText('Лидген: нагрузка по этапам')).not.toBeInTheDocument()
+    expect(screen.queryByText('leadgen-workload-stages')).not.toBeInTheDocument()
     expect(screen.queryByText('Источники и UTM')).not.toBeInTheDocument()
     expect(screen.queryByText('Ответственные')).not.toBeInTheDocument()
     await waitFor(() => {

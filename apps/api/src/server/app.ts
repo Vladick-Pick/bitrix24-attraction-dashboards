@@ -148,6 +148,10 @@ interface AppService {
 
 interface ModuleService {
   getLeadgenFunnelReport?(input: RangeRequest): Promise<LeadgenFunnelReport>;
+  getActivitiesWorkloadReport?(
+    input: RangeRequest
+  ): Promise<ActivitiesWorkloadReport>;
+  getCallsWorkloadReport?(input: RangeRequest): Promise<CallsWorkloadReport>;
   getMeta?(): Promise<MetaResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
@@ -2291,6 +2295,68 @@ export function createApp(
       next(error);
     }
   });
+
+  app.get(
+    "/api/modules/:moduleId/reports/activities-workload",
+    async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "leadgen") {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      const moduleService = moduleServices.get(moduleId);
+      if (!moduleService?.getActivitiesWorkloadReport) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      try {
+        response.json(
+          await moduleService.getActivitiesWorkloadReport(
+            parseRangeRequest(request.query)
+          )
+        );
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/api/modules/:moduleId/reports/calls-workload",
+    async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "leadgen") {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      const moduleService = moduleServices.get(moduleId);
+      if (!moduleService?.getCallsWorkloadReport) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      try {
+        response.json(
+          await moduleService.getCallsWorkloadReport(parseRangeRequest(request.query))
+        );
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
 
   app.get(
     "/api/reports/source-quality-conversion",

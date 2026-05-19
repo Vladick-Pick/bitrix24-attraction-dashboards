@@ -1824,6 +1824,233 @@ describe("createReportingService", () => {
     ]);
   });
 
+  it("builds leadgen workload reports from category 28 and the leadgen manager whitelist", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "LEADGEN_ALLOWED",
+          leadId: null,
+          categoryId: "28",
+          stageId: "C28:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "501",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-05-12T10:00:00.000Z",
+          dateModify: "2026-05-12T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "LEADGEN_OUTSIDE_MANAGER",
+          leadId: null,
+          categoryId: "28",
+          stageId: "C28:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "999",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-05-12T10:00:00.000Z",
+          dateModify: "2026-05-12T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "ATTRACTION_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "501",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-05-12T10:00:00.000Z",
+          dateModify: "2026-05-12T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "28",
+          statusId: "C28:NEW",
+          name: "Новый лид",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Сайт",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [
+        {
+          id: "A_ALLOWED",
+          ownerTypeId: "2",
+          ownerId: "LEADGEN_ALLOWED",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "501",
+          createdTime: "2026-05-12T11:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-05-12T11:00:00.000Z",
+          completed: true,
+          completedTime: "2026-05-12T11:30:00.000Z"
+        },
+        {
+          id: "A_CALL",
+          ownerTypeId: "2",
+          ownerId: "LEADGEN_ALLOWED",
+          typeId: "2",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "501",
+          createdTime: "2026-05-12T11:05:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-05-12T11:05:00.000Z",
+          completed: true,
+          completedTime: "2026-05-12T11:06:00.000Z"
+        },
+        {
+          id: "A_OUTSIDE_MANAGER",
+          ownerTypeId: "2",
+          ownerId: "LEADGEN_ALLOWED",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "999",
+          createdTime: "2026-05-12T12:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-05-12T12:00:00.000Z",
+          completed: true,
+          completedTime: "2026-05-12T12:30:00.000Z"
+        }
+      ],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllDealMeetingDateChanges: async () => [],
+      getAllActivityBindings: async () => [],
+      getAllCalls: async () => [
+        {
+          id: "CALL_ALLOWED",
+          crmActivityId: "A_CALL",
+          portalUserId: "501",
+          callType: "1",
+          callStartDate: "2026-05-12T11:05:00.000Z",
+          callDurationSeconds: 65,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_OUTSIDE_MANAGER",
+          crmActivityId: "A_ALLOWED",
+          portalUserId: "999",
+          callType: "1",
+          callStartDate: "2026-05-12T11:10:00.000Z",
+          callDurationSeconds: 65,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "200"
+        }
+      ],
+      getManagerDirectory: async () => [{ id: "501", name: "Лидген менеджер" }],
+      upsertManagerDirectory: async () => 0
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["28"],
+      leadgenCategoryId: "28",
+      leadgenManagerIds: ["501"],
+      workloadScope: "leadgen",
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-05-14T12:00:00.000Z")
+    });
+
+    const range = {
+      from: "2026-05-11T00:00:00.000Z",
+      to: "2026-05-17T23:59:59.999Z"
+    };
+    const [activities, calls] = await Promise.all([
+      service.getActivitiesWorkloadReport({ range }),
+      service.getCallsWorkloadReport({ range })
+    ]);
+
+    expect(activities.totalDealCount).toBe(1);
+    expect(activities.totalCreatedCount).toBe(1);
+    expect(activities.managerRows.map((row) => row.managerId)).toEqual(["501"]);
+    expect(calls.totalDealCount).toBe(1);
+    expect(calls.totalCalls).toBe(1);
+    expect(calls.linkedDealCalls.totalCalls).toBe(1);
+    expect(calls.managerRows.map((row) => row.managerId)).toEqual(["501"]);
+  });
+
+  it("returns empty leadgen workload reports with a warning when the leadgen whitelist is empty", async () => {
+    const repository = {
+      getAllDeals: async () => [],
+      getStageCatalog: async () => [],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllDealMeetingDateChanges: async () => [],
+      getAllActivityBindings: async () => [],
+      getAllCalls: async () => [],
+      getManagerDirectory: async () => [],
+      upsertManagerDirectory: async () => 0
+    };
+    const service = createReportingService({
+      dealCategoryIds: ["28"],
+      leadgenCategoryId: "28",
+      leadgenManagerIds: [],
+      workloadScope: "leadgen",
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-05-14T12:00:00.000Z")
+    });
+
+    const range = {
+      from: "2026-05-11T00:00:00.000Z",
+      to: "2026-05-17T23:59:59.999Z"
+    };
+    const [activities, calls] = await Promise.all([
+      service.getActivitiesWorkloadReport({ range }),
+      service.getCallsWorkloadReport({ range })
+    ]);
+
+    expect(activities.totalDealCount).toBe(0);
+    expect(activities.warnings).toContain("Leadgen manager whitelist is empty.");
+    expect(calls.totalDealCount).toBe(0);
+    expect(calls.totalCalls).toBe(0);
+    expect(calls.warnings).toContain("Leadgen manager whitelist is empty.");
+  });
+
   it("keeps attraction service sync scoped to attraction even when leadgen report config exists", async () => {
     const dealStageCategoryRequests: string[][] = [];
     const dealRequests: Array<{

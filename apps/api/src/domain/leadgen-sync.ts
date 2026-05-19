@@ -1,16 +1,28 @@
 import type {
+  ActivityBindingSnapshot,
+  ActivitySnapshot,
+  CallSnapshot,
   DealSnapshot,
   ManagerDirectoryEntry,
   ManualSyncSummary,
   SnapshotStats,
   StageCatalogEntry,
+  StageHistorySnapshot,
   SyncChangeSummary,
   SyncDealChangeBreakdown,
   SyncProgressEvent,
   SyncProgressPhase
 } from "@bitrix24-reporting/contracts";
 
-import type { DealRow, SyncRepository, UserRow } from "./sync.js";
+import type {
+  ActivityBindingRow,
+  ActivityRow,
+  CallRow,
+  DealRow,
+  StageHistoryRow,
+  SyncRepository,
+  UserRow
+} from "./sync.js";
 import {
   ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
   LEADGEN_US_BASKET_REASON_FIELD_NAME,
@@ -36,6 +48,22 @@ export interface LeadgenSyncClient {
     assignedByIds?: string[];
     customFieldNames?: string[];
   }): Promise<DealRow[]>;
+  listStageHistory?(input: {
+    ownerIds?: string[];
+    categoryIds?: string[];
+  }): Promise<StageHistoryRow[]>;
+  listActivities?(input: {
+    ownerIds: string[];
+    modifiedAfter: string | null;
+    providerId?: string;
+  }): Promise<ActivityRow[]>;
+  listActivityBindings?(activityIds: string[]): Promise<ActivityBindingRow[]>;
+  listCalls?(input: {
+    activityIds?: string[];
+    callStartDateFrom?: string;
+    callStartDateTo?: string;
+    portalUserIds?: string[];
+  }): Promise<CallRow[]>;
   fetchUsers(input: { ids: string[] }): Promise<UserRow[]>;
 }
 
@@ -225,6 +253,66 @@ function mapUserRow(row: UserRow): ManagerDirectoryEntry {
   };
 }
 
+function mapStageHistoryRow(row: StageHistoryRow): StageHistorySnapshot {
+  return {
+    id: String(row.ID),
+    ownerId: String(row.OWNER_ID),
+    categoryId:
+      row.CATEGORY_ID === null || row.CATEGORY_ID === undefined
+        ? null
+        : String(row.CATEGORY_ID),
+    stageId: row.STAGE_ID,
+    stageSemanticId: row.STAGE_SEMANTIC_ID,
+    typeId: row.TYPE_ID,
+    createdTime: row.CREATED_TIME
+  };
+}
+
+function mapActivityRow(row: ActivityRow): ActivitySnapshot {
+  const completed = row.COMPLETED === "Y";
+
+  return {
+    id: String(row.ID),
+    ownerTypeId: String(row.OWNER_TYPE_ID),
+    ownerId: String(row.OWNER_ID),
+    typeId: normalizeString(row.TYPE_ID),
+    providerId: row.PROVIDER_ID,
+    responsibleId: normalizeString(row.RESPONSIBLE_ID),
+    createdTime: row.CREATED,
+    deadline: row.DEADLINE ?? null,
+    lastUpdated: row.LAST_UPDATED,
+    completed,
+    completedTime: completed ? row.COMPLETED_DATE ?? row.LAST_UPDATED : null
+  };
+}
+
+function mapActivityBindingRow(row: ActivityBindingRow): ActivityBindingSnapshot {
+  return {
+    activityId: String(row.activityId),
+    ownerTypeId: String(row.ownerTypeId),
+    ownerId: String(row.ownerId)
+  };
+}
+
+function mapCallRow(row: CallRow): CallSnapshot {
+  const duration =
+    typeof row.CALL_DURATION === "number"
+      ? row.CALL_DURATION
+      : Number(row.CALL_DURATION ?? 0);
+
+  return {
+    id: String(row.ID),
+    crmActivityId: normalizeString(row.CRM_ACTIVITY_ID),
+    portalUserId: normalizeString(row.PORTAL_USER_ID),
+    callType: normalizeString(row.CALL_TYPE),
+    callStartDate: row.CALL_START_DATE,
+    callDurationSeconds: Number.isFinite(duration) ? duration : 0,
+    crmEntityType: row.CRM_ENTITY_TYPE,
+    crmEntityId: normalizeString(row.CRM_ENTITY_ID),
+    callFailedCode: normalizeString(row.CALL_FAILED_CODE)
+  };
+}
+
 async function getSnapshotStats(
   repository: SyncRepository,
   categoryId: string,
@@ -391,12 +479,63 @@ export async function performLeadgenSync(
     const deals = scopedRows.map((row) =>
       mapLeadgenDealRow(row, returnReasonMap, basketReasonMap)
     );
+    const existingScopedDealIds = await input.repository.getDealIdsByCategoryIds(
+      [categoryId],
+      managerIds
+    );
+    const operationalOwnerIds = uniqueStrings([
+      ...existingScopedDealIds,
+      ...deals.map((deal) => deal.id)
+    ]);
+    const activityRows =
+      operationalOwnerIds.length > 0 && input.client.listActivities
+        ? await input.client.listActivities({
+            ownerIds: operationalOwnerIds,
+            modifiedAfter: queryModifiedAfter
+          })
+        : [];
+    const activities = activityRows.map(mapActivityRow);
+    const callActivityIds = activities
+      .filter((activity) => activity.providerId === "VOXIMPLANT_CALL")
+      .map((activity) => activity.id);
+    const [activityBindings, callRowsByActivity, supplementalCallRows, stageHistory] =
+      await Promise.all([
+        input.client.listActivityBindings && callActivityIds.length > 0
+          ? input.client.listActivityBindings(callActivityIds).then((rows) =>
+              rows.map(mapActivityBindingRow)
+            )
+          : Promise.resolve([]),
+        callActivityIds.length > 0 && input.client.listCalls
+          ? input.client.listCalls({ activityIds: callActivityIds })
+          : Promise.resolve([]),
+        input.client.listCalls
+          ? input.client.listCalls({
+              callStartDateFrom: queryModifiedAfter,
+              callStartDateTo: startedAt,
+              portalUserIds: managerIds
+            })
+          : Promise.resolve([]),
+        operationalOwnerIds.length > 0 && input.client.listStageHistory
+          ? input.client
+              .listStageHistory({ ownerIds: operationalOwnerIds })
+              .then((rows) => rows.map(mapStageHistoryRow))
+          : Promise.resolve([])
+      ]);
+    const calls = Array.from(
+      new Map(
+        [...callRowsByActivity, ...supplementalCallRows]
+          .map(mapCallRow)
+          .map((call) => [call.id, call])
+      ).values()
+    );
     const managerDirectory = (
       await input.client.fetchUsers({
         ids: uniqueStrings(
-          deals
-            .map((deal) => deal.assignedById)
-            .filter((managerId): managerId is string => Boolean(managerId))
+          [
+            ...deals.map((deal) => deal.assignedById),
+            ...activities.map((activity) => activity.responsibleId),
+            ...calls.map((call) => call.portalUserId)
+          ].filter((managerId): managerId is string => Boolean(managerId))
         )
       })
     ).map(mapUserRow);
@@ -404,9 +543,9 @@ export async function performLeadgenSync(
     const changes: SyncChangeSummary = {
       deals: deals.length,
       dealBreakdown,
-      activities: 0,
-      calls: 0,
-      stageHistory: 0,
+      activities: activities.length,
+      calls: calls.length,
+      stageHistory: stageHistory.length,
       managers: managerDirectory.length
     };
 
@@ -430,12 +569,21 @@ export async function performLeadgenSync(
     const diagnostics = [
       `dealCursor=${nextCursor ?? "not-updated"}`,
       `leadgenDeals=${deals.length}`,
+      `leadgenActivities=${activities.length}`,
+      `leadgenCalls=${calls.length}`,
+      `leadgenStageHistory=${stageHistory.length}`,
       `leadgenManagers=${managerIds.length}`
     ];
 
     runSnapshotTransaction(input.repository, () => {
       void input.repository.replaceStageCatalog([...dealStages, ...sourceCatalog]);
       void input.repository.upsertDeals(deals);
+      void input.repository.upsertStageHistory(stageHistory);
+      void input.repository.upsertActivities(activities);
+      if (input.repository.upsertActivityBindings) {
+        void input.repository.upsertActivityBindings(activityBindings);
+      }
+      void input.repository.upsertCalls(calls);
       void input.repository.upsertManagerDirectory(managerDirectory);
       if (input.repository.setSyncCursor && nextCursor) {
         void input.repository.setSyncCursor({

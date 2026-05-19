@@ -1348,7 +1348,7 @@ describe('apiClient', () => {
     })
   })
 
-  it('uses module-aware API paths for leadgen comments, users, and funnel report', async () => {
+  it('uses module-aware API paths for leadgen comments, users, funnel, and workload reports', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1391,19 +1391,63 @@ describe('apiClient', () => {
           warnings: [],
         }),
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          range: {
+            from: '2026-05-01T00:00:00.000Z',
+            to: '2026-05-31T23:59:59.999Z',
+          },
+          totalDealCount: 4,
+          totalCreatedCount: 12,
+          totalRescheduledCount: 0,
+          totalClosedCount: 9,
+          totalMeetingCount: 0,
+          warnings: [],
+          managerRows: [],
+          comparisons: [],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          range: {
+            from: '2026-05-01T00:00:00.000Z',
+            to: '2026-05-31T23:59:59.999Z',
+          },
+          totalDealCount: 4,
+          totalCalls: 18,
+          totalIncomingCalls: 2,
+          totalOutgoingCalls: 16,
+          totalOtherOutgoingCalls: 3,
+          totalConnectedCalls: 12,
+          totalFailedCalls: 4,
+          totalCallsOverThirtySeconds: 10,
+          totalConnectedCallsOverThirtySeconds: 9,
+          warnings: [],
+          managerRows: [],
+          comparisons: [],
+        }),
+      })
 
     vi.stubGlobal('fetch', fetchMock)
 
-    await apiClient.getComments('leadgen')
-    await apiClient.getModuleUsers('leadgen')
-    const report = await apiClient.getLeadgenFunnelReport('leadgen', {
-      preset: 'custom',
+    const query = {
+      preset: 'custom' as const,
       from: '2026-05-01T00:00:00.000Z',
       to: '2026-05-31T23:59:59.999Z',
       managerIds: ['501'],
-    })
+    }
+
+    await apiClient.getComments('leadgen')
+    await apiClient.getModuleUsers('leadgen')
+    const report = await apiClient.getLeadgenFunnelReport('leadgen', query)
+    const activities = await apiClient.getLeadgenActivitiesWorkloadReport('leadgen', query)
+    const calls = await apiClient.getLeadgenCallsWorkloadReport('leadgen', query)
 
     expect(report.totalDeals).toBe(4)
+    expect(activities.totalCreatedCount).toBe(12)
+    expect(calls.totalCalls).toBe(18)
     expect(report.stageRows[0]).toMatchObject({
       stageId: 'C28:NEW',
       stageName: 'Новый лид',
@@ -1414,6 +1458,8 @@ describe('apiClient', () => {
       '/api/modules/leadgen/comments',
       '/api/modules/leadgen/admin/module-users',
       '/api/modules/leadgen/reports/funnel',
+      '/api/modules/leadgen/reports/activities-workload',
+      '/api/modules/leadgen/reports/calls-workload',
     ])
   })
 

@@ -21,6 +21,8 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { apiClient } from '@/lib/api-client'
 import type {
+  ActivitiesWorkloadReport,
+  CallsWorkloadReport,
   DashboardQuery,
   DealPricingRuleInput,
   LastSyncSummary,
@@ -59,6 +61,7 @@ import type {
   PlatformAccess,
   PlatformMembershipInput,
   PlatformUser,
+  ActivitiesCallsSceneData,
   ProtoComment,
   ProtoCommentAnchor,
   ProtoCommentContext,
@@ -72,6 +75,12 @@ type CustomDashboardQuery = Extract<DashboardQuery, { preset: 'custom' }>
 
 type ProtoAppProps = {
   currentUser?: AuthUser | null
+}
+
+type LeadgenWorkloadData = {
+  activities: ActivitiesWorkloadReport
+  calls: CallsWorkloadReport
+  scene: ActivitiesCallsSceneData
 }
 
 type ProtoRoute = 'dashboard' | 'account'
@@ -378,6 +387,14 @@ function writeProtoRoute(route: ProtoRoute) {
 
 function formatCount(value: number) {
   return new Intl.NumberFormat('ru-RU').format(Math.round(value))
+}
+
+function formatOneDecimal(value: number) {
+  if (!Number.isFinite(value)) {
+    return '0.0'
+  }
+
+  return (Math.round((value + Number.EPSILON) * 10) / 10).toFixed(1)
 }
 
 function formatSyncMode(value: 'full' | 'delta' | undefined) {
@@ -966,21 +983,146 @@ const leadgenReportTabs: Array<{ id: LeadgenReportId; label: string }> = [
 
 function LeadgenDashboard({
   report,
+  workload,
   status,
   error,
 }: {
   report: LeadgenFunnelReport | null
+  workload: LeadgenWorkloadData | null
   status: 'idle' | 'loading' | 'error'
   error: string | null
 }) {
   const topStages = report?.stageRows ?? []
-  const topSources = report?.sourceRows ?? []
-  const topUtm = report?.utmRows ?? []
-  const topManagers = report?.managerRows ?? []
   const topReasons = report?.reasonRows ?? []
   const [activeReportId, setActiveReportId] = useState<LeadgenReportId>('sales')
   const isSalesReport = activeReportId === 'sales'
   const emptyValue = status === 'loading' ? '...' : '0'
+  const workloadManagers = useMemo(() => {
+    const rows = new Map<
+      string,
+      {
+        managerId: string
+        managerName: string
+        dealCount: number
+        createdCount: number
+        closedCount: number
+        outgoingCalls: number
+        connectedCallsOverThirtySeconds: number
+        failedCalls: number
+        incomingCalls: number
+        callsPerDeal: number
+      }
+    >()
+
+    for (const row of workload?.activities.managerRows ?? []) {
+      rows.set(row.managerId, {
+        managerId: row.managerId,
+        managerName: row.managerName,
+        dealCount: row.dealCount,
+        createdCount: row.createdCount,
+        closedCount: row.closedCount,
+        outgoingCalls: 0,
+        connectedCallsOverThirtySeconds: 0,
+        failedCalls: 0,
+        incomingCalls: 0,
+        callsPerDeal: 0,
+      })
+    }
+
+    for (const row of workload?.calls.managerRows ?? []) {
+      const current = rows.get(row.managerId) ?? {
+        managerId: row.managerId,
+        managerName: row.managerName,
+        dealCount: row.dealCount,
+        createdCount: 0,
+        closedCount: 0,
+        outgoingCalls: 0,
+        connectedCallsOverThirtySeconds: 0,
+        failedCalls: 0,
+        incomingCalls: 0,
+        callsPerDeal: 0,
+      }
+
+      rows.set(row.managerId, {
+        ...current,
+        managerName: current.managerName || row.managerName,
+        dealCount: Math.max(current.dealCount, row.dealCount),
+        outgoingCalls: row.outgoingCalls,
+        connectedCallsOverThirtySeconds: row.connectedCallsOverThirtySeconds,
+        failedCalls: row.failedCalls,
+        incomingCalls: row.incomingCalls,
+        callsPerDeal: row.averageCallsPerDeal,
+      })
+    }
+
+    return Array.from(rows.values()).sort((left, right) => {
+      const byDeals = right.dealCount - left.dealCount
+      return byDeals || left.managerName.localeCompare(right.managerName, 'ru-RU')
+    })
+  }, [workload])
+  const workloadStages = useMemo(() => {
+    const rows = new Map<
+      string,
+      {
+        key: string
+        stageName: string
+        dealCount: number
+        createdCount: number
+        closedCount: number
+        totalCalls: number
+        callsPerDeal: number
+      }
+    >()
+
+    for (const manager of workload?.activities.managerRows ?? []) {
+      for (const stage of manager.stageBreakdown) {
+        const key = stage.stageId || stage.stageName
+        const current = rows.get(key) ?? {
+          key,
+          stageName: stage.stageName,
+          dealCount: 0,
+          createdCount: 0,
+          closedCount: 0,
+          totalCalls: 0,
+          callsPerDeal: 0,
+        }
+        rows.set(key, {
+          ...current,
+          dealCount: current.dealCount + stage.dealCount,
+          createdCount: current.createdCount + stage.createdCount,
+          closedCount: current.closedCount + stage.closedCount,
+        })
+      }
+    }
+
+    for (const manager of workload?.calls.managerRows ?? []) {
+      for (const stage of manager.stageBreakdown) {
+        const key = stage.stageId || stage.stageName
+        const current = rows.get(key) ?? {
+          key,
+          stageName: stage.stageName,
+          dealCount: 0,
+          createdCount: 0,
+          closedCount: 0,
+          totalCalls: 0,
+          callsPerDeal: 0,
+        }
+        rows.set(key, {
+          ...current,
+          dealCount: Math.max(current.dealCount, stage.dealCount),
+          totalCalls: current.totalCalls + stage.totalCalls,
+          callsPerDeal: 0,
+        })
+      }
+    }
+
+    return Array.from(rows.values())
+      .map((row) => ({
+        ...row,
+        callsPerDeal: row.dealCount > 0 ? row.totalCalls / row.dealCount : 0,
+      }))
+      .sort((left, right) => right.dealCount - left.dealCount)
+  }, [workload])
   const salesMetrics = [
     {
       label: 'Всего сделок',
@@ -1005,27 +1147,34 @@ function LeadgenDashboard({
   ]
   const activityMetrics = [
     {
-      label: 'Активные',
-      value: report ? formatCount(report.activeDeals) : emptyValue,
-      hint: 'сейчас в работе',
+      label: 'Сделки',
+      value: workload ? formatCount(workload.activities.totalDealCount) : emptyValue,
+      hint: 'в workload-выборке',
     },
     {
-      label: 'Ответственные',
-      value: report ? formatCount(topManagers.length) : emptyValue,
-      hint: 'менеджеры с данными',
+      label: 'Создано задач',
+      value: workload ? formatCount(workload.activities.totalCreatedCount) : emptyValue,
+      hint: 'за период',
     },
     {
-      label: 'Источники',
-      value: report ? formatCount(topSources.length) : emptyValue,
-      hint: 'каналы в выборке',
+      label: 'Закрыто задач',
+      value: workload ? formatCount(workload.activities.totalClosedCount) : emptyValue,
+      hint: 'в выбранном окне',
     },
     {
-      label: 'UTM',
-      value: report ? formatCount(topUtm.length) : emptyValue,
-      hint: 'кампании в выборке',
+      label: 'Звонки',
+      value: workload ? formatCount(workload.calls.totalCalls) : emptyValue,
+      hint: workload
+        ? `${formatOneDecimal(
+            workload.calls.totalDealCount > 0
+              ? workload.calls.totalCalls / workload.calls.totalDealCount
+              : 0,
+          )} на сделку`
+        : 'загрузка',
     },
   ]
   const activeMetrics = isSalesReport ? salesMetrics : activityMetrics
+  const workloadWarnings = workload?.scene.warnings ?? []
 
   return (
     <div className="grid gap-6">
@@ -1055,11 +1204,13 @@ function LeadgenDashboard({
 
       <section
         className="grid gap-4 md:grid-cols-4"
-        data-comment-block-id={`leadgen-${activeReportId}-kpi`}
+        data-comment-block-id={
+          isSalesReport ? 'leadgen-sales-kpi' : 'leadgen-workload-kpi'
+        }
         data-comment-block-label={
           isSalesReport
             ? 'Лидогенерация: KPI отчета продаж'
-            : 'Лидогенерация: KPI отчета активности'
+            : 'Лидогенерация: KPI звонков и дел'
         }
       >
         {activeMetrics.map((metric) => (
@@ -1074,6 +1225,12 @@ function LeadgenDashboard({
       {report?.warnings.length ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
           {report.warnings.join(' ')}
+        </div>
+      ) : null}
+
+      {!isSalesReport && workloadWarnings.length > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+          {workloadWarnings.join(' ')}
         </div>
       ) : null}
 
@@ -1121,27 +1278,73 @@ function LeadgenDashboard({
 
         {!isSalesReport ? (
           <div
-            className="panel p-5"
-            data-comment-block-id="leadgen-manager-distribution"
-            data-comment-block-label="Лидогенерация: менеджеры"
+            className="panel p-5 lg:col-span-2"
+            data-comment-block-id="leadgen-workload-managers"
+            data-comment-block-label="Лидогенерация: звонки и дела по менеджерам"
           >
-          <div className="subtle-label">Менеджеры</div>
-          <div className="mt-3 grid gap-2">
-            {topManagers.map((row) => (
-              <div
-                key={row.managerId}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-              >
-                <span className="min-w-0 truncate font-semibold text-slate-900">
-                  {row.managerName}
-                </span>
-                <span className="badge-chip badge-neutral">{formatCount(row.dealCount)}</span>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  Лидген: звонки и дела по менеджерам
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Реальная workload-выборка Лидген УС по активным фильтрам.
+                </p>
               </div>
-            ))}
-            {topManagers.length === 0 ? (
-              <p className="text-sm text-slate-500">Нет данных за период.</p>
-            ) : null}
-          </div>
+              <span className="badge-chip badge-neutral">
+                {workload ? `${formatCount(workloadManagers.length)} менеджеров` : 'загрузка'}
+              </span>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs uppercase tracking-[0.1em] text-slate-500">
+                  <tr className="border-b border-slate-200">
+                    <th className="py-2 pr-4">Менеджер</th>
+                    <th className="py-2 pr-4">Сделки</th>
+                    <th className="py-2 pr-4">Создано задач</th>
+                    <th className="py-2 pr-4">Закрыто задач</th>
+                    <th className="py-2 pr-4">Исходящие</th>
+                    <th className="py-2 pr-4">Успешные &gt;30 сек</th>
+                    <th className="py-2 pr-4">Недозвоны</th>
+                    <th className="py-2 pr-4">Входящие</th>
+                    <th className="py-2 pr-4">Звонков/сделку</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {workloadManagers.map((row) => (
+                    <tr key={row.managerId}>
+                      <td className="py-2 pr-4 font-semibold text-slate-900">
+                        {row.managerName}
+                      </td>
+                      <td className="py-2 pr-4">{formatCount(row.dealCount)}</td>
+                      <td className="py-2 pr-4">{formatCount(row.createdCount)}</td>
+                      <td className="py-2 pr-4">{formatCount(row.closedCount)}</td>
+                      <td className="py-2 pr-4">{formatCount(row.outgoingCalls)}</td>
+                      <td className="py-2 pr-4">
+                        {formatCount(row.connectedCallsOverThirtySeconds)}
+                      </td>
+                      <td className="py-2 pr-4">{formatCount(row.failedCalls)}</td>
+                      <td className="py-2 pr-4">{formatCount(row.incomingCalls)}</td>
+                      <td className="py-2 pr-4">{formatOneDecimal(row.callsPerDeal)}</td>
+                    </tr>
+                  ))}
+                  {status === 'loading' && workloadManagers.length === 0 ? (
+                    <tr>
+                      <td className="py-4 text-slate-500" colSpan={9}>
+                        Загружаю leadgen workload.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {status !== 'loading' && workloadManagers.length === 0 ? (
+                    <tr>
+                      <td className="py-4 text-slate-500" colSpan={9}>
+                        Нет звонков и дел в выбранном периоде.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
       </section>
@@ -1149,54 +1352,65 @@ function LeadgenDashboard({
       <section className={cn('grid gap-6', isSalesReport ? '' : 'lg:grid-cols-2')}>
         {!isSalesReport ? (
           <div
-            className="panel p-5"
-            data-comment-block-id="leadgen-source-distribution"
-            data-comment-block-label="Лидогенерация: источники"
+            className="panel p-5 lg:col-span-2"
+            data-comment-block-id="leadgen-workload-stages"
+            data-comment-block-label="Лидогенерация: нагрузка по этапам"
           >
-          <div className="subtle-label">Источники и UTM</div>
-          <div className="mt-3 grid gap-2">
-            {topSources.map((row) => (
-              <div
-                key={row.sourceKey}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
-              >
-                <span className="font-semibold text-slate-900">{row.sourceLabel}</span>
-                <span className="badge-chip badge-neutral">{formatCount(row.dealCount)}</span>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  Лидген: нагрузка по этапам
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Сумма сделок, задач и звонков по стадиям Лидген УС.
+                </p>
               </div>
-            ))}
-            {topSources.length === 0 ? (
-              <p className="text-sm text-slate-500">Нет данных за период.</p>
-            ) : null}
-            {topUtm.length > 0 ? (
-              <div className="mt-3 border-t border-slate-100 pt-3">
-                <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
-                  UTM
-                </div>
-                <div className="grid gap-2">
-                  {topUtm.map((row, index) => {
-                    const label =
-                      [row.utmSource, row.utmMedium, row.utmCampaign]
-                        .filter(Boolean)
-                        .join(' / ') || 'Без UTM'
-
-                    return (
-                      <div
-                        key={`${label}-${index}`}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                      >
-                        <span className="min-w-0 truncate font-semibold text-slate-900">
-                          {label}
-                        </span>
-                        <span className="badge-chip badge-neutral">
-                          {formatCount(row.dealCount)}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
-          </div>
+              <span className="badge-chip badge-neutral">
+                {workload ? `${formatCount(workloadStages.length)} этапов` : 'загрузка'}
+              </span>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs uppercase tracking-[0.1em] text-slate-500">
+                  <tr className="border-b border-slate-200">
+                    <th className="py-2 pr-4">Этап</th>
+                    <th className="py-2 pr-4">Сделки</th>
+                    <th className="py-2 pr-4">Создано задач</th>
+                    <th className="py-2 pr-4">Закрыто задач</th>
+                    <th className="py-2 pr-4">Звонки</th>
+                    <th className="py-2 pr-4">Звонков/сделку</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {workloadStages.map((row) => (
+                    <tr key={row.key}>
+                      <td className="py-2 pr-4 font-semibold text-slate-900">
+                        {row.stageName}
+                      </td>
+                      <td className="py-2 pr-4">{formatCount(row.dealCount)}</td>
+                      <td className="py-2 pr-4">{formatCount(row.createdCount)}</td>
+                      <td className="py-2 pr-4">{formatCount(row.closedCount)}</td>
+                      <td className="py-2 pr-4">{formatCount(row.totalCalls)}</td>
+                      <td className="py-2 pr-4">{formatOneDecimal(row.callsPerDeal)}</td>
+                    </tr>
+                  ))}
+                  {status === 'loading' && workloadStages.length === 0 ? (
+                    <tr>
+                      <td className="py-4 text-slate-500" colSpan={6}>
+                        Загружаю этапы leadgen workload.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {status !== 'loading' && workloadStages.length === 0 ? (
+                    <tr>
+                      <td className="py-4 text-slate-500" colSpan={6}>
+                        Нет этапов с workload-данными в выбранном периоде.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
 
@@ -1262,6 +1476,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     operationalError: null,
   })
   const [leadgenReport, setLeadgenReport] = useState<LeadgenFunnelReport | null>(null)
+  const [leadgenWorkload, setLeadgenWorkload] = useState<LeadgenWorkloadData | null>(null)
   const [leadgenReportStatus, setLeadgenReportStatus] = useState<'idle' | 'loading' | 'error'>(
     'idle',
   )
@@ -1591,14 +1806,24 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         if (isLeadgenModule) {
           setLeadgenReportStatus('loading')
           setLeadgenReportError(null)
+          setLeadgenWorkload(null)
           setPricingSettingsLoading(false)
 
-          const report = await apiClient.getLeadgenFunnelReport(activeModuleId, query)
+          const [report, activities, calls] = await Promise.all([
+            apiClient.getLeadgenFunnelReport(activeModuleId, query),
+            apiClient.getLeadgenActivitiesWorkloadReport(activeModuleId, query),
+            apiClient.getLeadgenCallsWorkloadReport(activeModuleId, query),
+          ])
           if (cancelled || runtimeRequestRef.current !== requestId) {
             return
           }
 
           setLeadgenReport(report)
+          setLeadgenWorkload({
+            activities,
+            calls,
+            scene: mapActivitiesCallsSceneData({ activities, calls }),
+          })
           setLeadgenReportStatus('idle')
           setRuntimeData((current) => ({
             ...current,
@@ -1622,6 +1847,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         }
 
         setLeadgenReport(null)
+        setLeadgenWorkload(null)
         setLeadgenReportStatus('idle')
         setLeadgenReportError(null)
         setPricingSettingsLoading(true)
@@ -1801,6 +2027,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         }))
         if (isLeadgenModule) {
           setLeadgenReportStatus('error')
+          setLeadgenWorkload(null)
           setLeadgenReportError(
             error instanceof Error ? error.message : 'Не удалось загрузить отчет leadgen',
           )
@@ -2999,7 +3226,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               ) : null}
               <span className="badge-chip badge-neutral">Desktop only</span>
               <span className="badge-chip badge-green">
-                {activeScene.id === 'sales'
+                {isLeadgenModule
+                  ? leadgenReportStatus === 'loading'
+                    ? 'Загрузка leadgen'
+                    : leadgenReportStatus === 'error'
+                      ? 'Ошибка leadgen'
+                      : 'Leadgen API'
+                  : activeScene.id === 'sales'
                   ? runtimeData.salesDashboard
                     ? 'Sales report live'
                     : 'Sales loading'
@@ -3259,6 +3492,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         {isLeadgenModule ? (
           <LeadgenDashboard
             report={leadgenReport}
+            workload={leadgenWorkload}
             status={leadgenReportStatus}
             error={leadgenReportError}
           />

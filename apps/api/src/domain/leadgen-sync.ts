@@ -37,6 +37,7 @@ const LEADGEN_DEFAULT_FROM = "2026-01-01T00:00:00+03:00";
 const LEADGEN_TASK_ACTIVITY_PROVIDER_IDS = ["CRM_TODO", "CRM_TASKS_TASK"] as const;
 const LEADGEN_ACTIVITY_HISTORY_COVERAGE_STREAM = "activity_history";
 const LEADGEN_ACTIVITY_HISTORY_COVERAGE_VERSION = "activity-bindings-v2";
+const MISSING_CALL_ACTIVITY_BACKFILL_LIMIT = 20_000;
 const EMPTY_SNAPSHOT_STATS: SnapshotStats = {
   deals: 0,
   activities: 0,
@@ -63,6 +64,7 @@ export interface LeadgenSyncClient {
     modifiedAfter: string | null;
     providerId?: string;
   }): Promise<ActivityRow[]>;
+  listActivitiesByIds?(activityIds: string[]): Promise<ActivityRow[]>;
   listActivityBindings?(activityIds: string[]): Promise<ActivityBindingRow[]>;
   listCalls?(input: {
     activityIds?: string[];
@@ -581,6 +583,7 @@ export async function performLeadgenSync(
       ...existingScopedDealIds,
       ...deals.map((deal) => deal.id)
     ]);
+    const operationalOwnerIdSet = new Set(operationalOwnerIds);
     const historicalTaskActivityRows =
       operationalOwnerIds.length > 0 &&
       input.client.listActivities &&
@@ -614,19 +617,39 @@ export async function performLeadgenSync(
         ])
       ).values()
     );
-    const activities = activityRows.map(mapActivityRow);
-    const callActivityIds = activities
+    const missingCallActivityIds =
+      input.repository.getCallActivityIdsMissingActivities &&
+      input.client.listActivitiesByIds &&
+      operationalOwnerIds.length > 0
+        ? await input.repository.getCallActivityIdsMissingActivities(
+            MISSING_CALL_ACTIVITY_BACKFILL_LIMIT,
+            createdFrom
+          )
+        : [];
+    const missingCallActivityRows =
+      missingCallActivityIds.length > 0 && input.client.listActivitiesByIds
+        ? (await input.client.listActivitiesByIds(missingCallActivityIds)).filter(
+            (row) =>
+              String(row.OWNER_TYPE_ID) === "2" &&
+              operationalOwnerIdSet.has(String(row.OWNER_ID))
+          )
+        : [];
+    const initialActivityRows = Array.from(
+      new Map(
+        [...activityRows, ...missingCallActivityRows].map((row) => [
+          String(row.ID),
+          row
+        ])
+      ).values()
+    );
+    const initialActivities = initialActivityRows.map(mapActivityRow);
+    const initialCallActivityIds = initialActivities
       .filter((activity) => activity.providerId === "VOXIMPLANT_CALL")
       .map((activity) => activity.id);
-    const [activityBindings, callRowsByActivity, supplementalCallRows, stageHistory] =
+    const [callRowsByActivity, supplementalCallRows, stageHistory] =
       await Promise.all([
-        input.client.listActivityBindings && callActivityIds.length > 0
-          ? input.client.listActivityBindings(callActivityIds).then((rows) =>
-              rows.map(mapActivityBindingRow)
-            )
-          : Promise.resolve([]),
-        callActivityIds.length > 0 && input.client.listCalls
-          ? input.client.listCalls({ activityIds: callActivityIds })
+        initialCallActivityIds.length > 0 && input.client.listCalls
+          ? input.client.listCalls({ activityIds: initialCallActivityIds })
           : Promise.resolve([]),
         input.client.listCalls
           ? input.client.listCalls({
@@ -641,6 +664,66 @@ export async function performLeadgenSync(
               .then((rows) => rows.map(mapStageHistoryRow))
           : Promise.resolve([])
       ]);
+    const initialActivityIdSet = new Set(
+      initialActivityRows.map((row) => String(row.ID))
+    );
+    const supplementalActivityIds =
+      operationalOwnerIds.length > 0
+        ? Array.from(
+            new Set(
+              supplementalCallRows
+                .map((row) => normalizeString(row.CRM_ACTIVITY_ID))
+                .filter((activityId): activityId is string => {
+                  if (!activityId || activityId === "0") {
+                    return false;
+                  }
+
+                  return !initialActivityIdSet.has(activityId);
+                })
+            )
+          )
+        : [];
+    const storedSupplementalActivities =
+      supplementalActivityIds.length > 0
+        ? await input.repository.getActivitiesByIds(supplementalActivityIds)
+        : [];
+    const storedSupplementalActivityIdSet = new Set(
+      storedSupplementalActivities.map((activity) => activity.id)
+    );
+    const missingSupplementalActivityIds = supplementalActivityIds.filter(
+      (activityId) => !storedSupplementalActivityIdSet.has(activityId)
+    );
+    const fetchedSupplementalActivityRows =
+      input.client.listActivitiesByIds &&
+      missingSupplementalActivityIds.length > 0
+        ? (await input.client.listActivitiesByIds(missingSupplementalActivityIds)).filter(
+            (row) =>
+              String(row.OWNER_TYPE_ID) === "2" &&
+              operationalOwnerIdSet.has(String(row.OWNER_ID))
+          )
+        : [];
+    const scopedSupplementalActivities = storedSupplementalActivities.filter(
+      (activity) =>
+        activity.ownerTypeId === "2" && operationalOwnerIdSet.has(activity.ownerId)
+    );
+    const activities = Array.from(
+      new Map(
+        [
+          ...initialActivities,
+          ...scopedSupplementalActivities,
+          ...fetchedSupplementalActivityRows.map(mapActivityRow)
+        ].map((activity) => [activity.id, activity])
+      ).values()
+    );
+    const callActivityIdsForBindings = activities
+      .filter((activity) => activity.providerId === "VOXIMPLANT_CALL")
+      .map((activity) => activity.id);
+    const activityBindings =
+      input.client.listActivityBindings && callActivityIdsForBindings.length > 0
+        ? (await input.client.listActivityBindings(callActivityIdsForBindings)).map(
+            mapActivityBindingRow
+          )
+        : [];
     const calls = Array.from(
       new Map(
         [...callRowsByActivity, ...supplementalCallRows]

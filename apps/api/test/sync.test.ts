@@ -544,6 +544,325 @@ describe("performManualSync", () => {
     expect(result.changes.calls).toBe(1);
   });
 
+  it("hydrates missing leadgen call activities from supplemental call stats", async () => {
+    const activityByIdRequests: string[][] = [];
+    const bindingRequests: string[][] = [];
+    const storedActivities: unknown[][] = [];
+    const storedActivityBindings: unknown[][] = [];
+    const storedCalls: unknown[][] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-05-19T00:00:00.000Z",
+      getSyncCursor: async (key: string) =>
+        key.endsWith(":deals:date_modify") ? "2026-05-19T00:00:00.000Z" : null,
+      hasSyncCoverage: async (input: { stream: string }) =>
+        input.stream !== "call_stats",
+      upsertSyncCoverage: async () => undefined,
+      getCallHistoryBootstrappedAt: async () => null,
+      getSnapshotStats: async () => ({
+        deals: 163,
+        activities: 55,
+        calls: 55,
+        stageHistory: 369
+      }),
+      replaceStageCatalog: async () => undefined,
+      getDealIdsByCategoryIds: async () => ["LG_EXISTING"],
+      getActivitiesByIds: async (activityIds: string[]) => {
+        expect(activityIds).toEqual(["A_SUPPLEMENTAL"]);
+        return [];
+      },
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async (rows: unknown[]) => {
+        storedActivities.push(rows);
+        return rows.length;
+      },
+      upsertActivityBindings: async (rows: unknown[]) => {
+        storedActivityBindings.push(rows);
+        return rows.length;
+      },
+      upsertCalls: async (rows: unknown[]) => {
+        storedCalls.push(rows);
+        return rows.length;
+      },
+      upsertManagerDirectory: async () => 0,
+      markCallHistoryBootstrapped: async () => undefined,
+      createSyncRun: async () => 132,
+      setSyncCursor: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [],
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listActivitiesByIds: async (activityIds: string[]) => {
+        activityByIdRequests.push(activityIds);
+        return [
+          {
+            ID: "A_SUPPLEMENTAL",
+            OWNER_TYPE_ID: "2",
+            OWNER_ID: "LG_EXISTING",
+            TYPE_ID: "2",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            RESPONSIBLE_ID: "501",
+            CREATED: "2026-05-12T10:20:00.000Z",
+            DEADLINE: null,
+            LAST_UPDATED: "2026-05-12T10:25:00.000Z",
+            COMPLETED: "Y",
+            COMPLETED_DATE: "2026-05-12T10:25:00.000Z"
+          }
+        ];
+      },
+      listActivityBindings: async (activityIds: string[]) => {
+        bindingRequests.push(activityIds);
+        return [
+          {
+            activityId: "A_SUPPLEMENTAL",
+            ownerTypeId: "2",
+            ownerId: "LG_EXISTING"
+          }
+        ];
+      },
+      listCalls: async (input: {
+        activityIds?: string[];
+        callStartDateFrom?: string;
+      }) => {
+        if (input.activityIds) {
+          return [];
+        }
+
+        if (input.callStartDateFrom !== "2026-01-01T00:00:00+03:00") {
+          return [];
+        }
+
+        return [
+          {
+            ID: "CALL_SUPPLEMENTAL",
+            CRM_ACTIVITY_ID: "A_SUPPLEMENTAL",
+            PORTAL_USER_ID: "501",
+            CALL_TYPE: "1",
+            CALL_START_DATE: "2026-05-12T10:20:00.000Z",
+            CALL_DURATION: "60",
+            CRM_ENTITY_TYPE: "CONTACT",
+            CRM_ENTITY_ID: "CONTACT_1",
+            CALL_FAILED_CODE: "200"
+          }
+        ];
+      },
+      fetchUsers: async () => []
+    };
+
+    const result = await performLeadgenSync({
+      client,
+      repository: repo as never,
+      categoryId: "28",
+      managerIds: ["501"],
+      now: () => "2026-05-19T12:00:00.000Z"
+    });
+
+    expect(activityByIdRequests).toEqual([["A_SUPPLEMENTAL"]]);
+    expect(bindingRequests).toEqual([["A_SUPPLEMENTAL"]]);
+    expect(storedActivities).toEqual([
+      [
+        expect.objectContaining({
+          id: "A_SUPPLEMENTAL",
+          ownerTypeId: "2",
+          ownerId: "LG_EXISTING",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "501"
+        })
+      ]
+    ]);
+    expect(storedActivityBindings).toEqual([
+      [
+        {
+          activityId: "A_SUPPLEMENTAL",
+          ownerTypeId: "2",
+          ownerId: "LG_EXISTING"
+        }
+      ]
+    ]);
+    expect(storedCalls).toEqual([
+      [
+        expect.objectContaining({
+          id: "CALL_SUPPLEMENTAL",
+          crmActivityId: "A_SUPPLEMENTAL",
+          crmEntityType: "CONTACT"
+        })
+      ]
+    ]);
+    expect(result.changes).toEqual(
+      expect.objectContaining({
+        activities: 1,
+        calls: 1
+      })
+    );
+  });
+
+  it("hydrates missing leadgen call activities from existing stored contact call snapshots", async () => {
+    const missingActivityLookups: unknown[][] = [];
+    const activityByIdRequests: string[][] = [];
+    const bindingRequests: string[][] = [];
+    const storedActivities: unknown[][] = [];
+    const storedActivityBindings: unknown[][] = [];
+    const storedCalls: unknown[][] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-05-19T00:00:00.000Z",
+      getSyncCursor: async (key: string) =>
+        key.endsWith(":call_stats:call_start_date")
+          ? "2026-05-20T00:00:00.000Z"
+          : "2026-05-19T00:00:00.000Z",
+      hasSyncCoverage: async () => true,
+      upsertSyncCoverage: async () => undefined,
+      getCallHistoryBootstrappedAt: async () => "2026-05-19T18:02:30.303Z",
+      getSnapshotStats: async () => ({
+        deals: 3361,
+        activities: 6255,
+        calls: 55,
+        stageHistory: 10999
+      }),
+      replaceStageCatalog: async () => undefined,
+      getDealIdsByCategoryIds: async () => ["LG_EXISTING"],
+      getCallActivityIdsMissingActivities: async (
+        limit: number,
+        callStartDateFrom: string | null,
+        ownerIds: string[] = []
+      ) => {
+        missingActivityLookups.push([limit, callStartDateFrom, ownerIds]);
+        return ["A_STORED_CALL"];
+      },
+      getActivitiesByIds: async () => [],
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async (rows: unknown[]) => {
+        storedActivities.push(rows);
+        return rows.length;
+      },
+      upsertActivityBindings: async (rows: unknown[]) => {
+        storedActivityBindings.push(rows);
+        return rows.length;
+      },
+      upsertCalls: async (rows: unknown[]) => {
+        storedCalls.push(rows);
+        return rows.length;
+      },
+      upsertManagerDirectory: async () => 0,
+      markCallHistoryBootstrapped: async () => undefined,
+      createSyncRun: async () => 133,
+      setSyncCursor: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [],
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listActivitiesByIds: async (activityIds: string[]) => {
+        activityByIdRequests.push(activityIds);
+        return [
+          {
+            ID: "A_STORED_CALL",
+            OWNER_TYPE_ID: "2",
+            OWNER_ID: "LG_EXISTING",
+            TYPE_ID: "2",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            RESPONSIBLE_ID: "501",
+            CREATED: "2026-04-12T10:20:00.000Z",
+            DEADLINE: null,
+            LAST_UPDATED: "2026-04-12T10:25:00.000Z",
+            COMPLETED: "Y",
+            COMPLETED_DATE: "2026-04-12T10:25:00.000Z"
+          }
+        ];
+      },
+      listActivityBindings: async (activityIds: string[]) => {
+        bindingRequests.push(activityIds);
+        return [
+          {
+            activityId: "A_STORED_CALL",
+            ownerTypeId: "2",
+            ownerId: "LG_EXISTING"
+          }
+        ];
+      },
+      listCalls: async (input: { activityIds?: string[] }) => {
+        if (!input.activityIds) {
+          return [];
+        }
+
+        return [
+          {
+            ID: "CALL_STORED",
+            CRM_ACTIVITY_ID: "A_STORED_CALL",
+            PORTAL_USER_ID: "501",
+            CALL_TYPE: "1",
+            CALL_START_DATE: "2026-04-12T10:20:00.000Z",
+            CALL_DURATION: "75",
+            CRM_ENTITY_TYPE: "CONTACT",
+            CRM_ENTITY_ID: "CONTACT_1",
+            CALL_FAILED_CODE: "200"
+          }
+        ];
+      },
+      fetchUsers: async () => []
+    };
+
+    const result = await performLeadgenSync({
+      client,
+      repository: repo as never,
+      categoryId: "28",
+      managerIds: ["501"],
+      now: () => "2026-05-20T12:00:00.000Z"
+    });
+
+    expect(missingActivityLookups).toEqual([
+      [20_000, "2026-01-01T00:00:00+03:00", []]
+    ]);
+    expect(activityByIdRequests).toEqual([["A_STORED_CALL"]]);
+    expect(bindingRequests).toEqual([["A_STORED_CALL"]]);
+    expect(storedActivities).toEqual([
+      [
+        expect.objectContaining({
+          id: "A_STORED_CALL",
+          ownerTypeId: "2",
+          ownerId: "LG_EXISTING",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "501"
+        })
+      ]
+    ]);
+    expect(storedActivityBindings).toEqual([
+      [
+        {
+          activityId: "A_STORED_CALL",
+          ownerTypeId: "2",
+          ownerId: "LG_EXISTING"
+        }
+      ]
+    ]);
+    expect(storedCalls).toEqual([
+      [
+        expect.objectContaining({
+          id: "CALL_STORED",
+          crmActivityId: "A_STORED_CALL",
+          crmEntityType: "CONTACT"
+        })
+      ]
+    ]);
+    expect(result.changes).toEqual(
+      expect.objectContaining({
+        activities: 1,
+        calls: 1
+      })
+    );
+  });
+
   it("backfills leadgen task activities from coverage instead of the advanced deal cursor", async () => {
     const activityRequests: Array<{
       ownerIds: string[];

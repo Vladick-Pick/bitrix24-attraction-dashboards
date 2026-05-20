@@ -664,7 +664,7 @@ describe("performManualSync", () => {
     });
 
     expect(activityByIdRequests).toEqual([["A_SUPPLEMENTAL"]]);
-    expect(bindingRequests).toEqual([["A_SUPPLEMENTAL"]]);
+    expect(bindingRequests).toEqual([]);
     expect(storedActivities).toEqual([
       [
         expect.objectContaining({
@@ -676,15 +676,7 @@ describe("performManualSync", () => {
         })
       ]
     ]);
-    expect(storedActivityBindings).toEqual([
-      [
-        {
-          activityId: "A_SUPPLEMENTAL",
-          ownerTypeId: "2",
-          ownerId: "LG_EXISTING"
-        }
-      ]
-    ]);
+    expect(storedActivityBindings).toEqual([[]]);
     expect(storedCalls).toEqual([
       [
         expect.objectContaining({
@@ -813,7 +805,7 @@ describe("performManualSync", () => {
       [20_000, "2026-01-01T00:00:00+03:00", []]
     ]);
     expect(activityByIdRequests).toEqual([["A_STORED_CALL"]]);
-    expect(bindingRequests).toEqual([["A_STORED_CALL"]]);
+    expect(bindingRequests).toEqual([]);
     expect(storedActivities).toEqual([
       [
         expect.objectContaining({
@@ -825,15 +817,7 @@ describe("performManualSync", () => {
         })
       ]
     ]);
-    expect(storedActivityBindings).toEqual([
-      [
-        {
-          activityId: "A_STORED_CALL",
-          ownerTypeId: "2",
-          ownerId: "LG_EXISTING"
-        }
-      ]
-    ]);
+    expect(storedActivityBindings).toEqual([[]]);
     expect(storedCalls).toEqual([[]]);
     expect(result.changes).toEqual(
       expect.objectContaining({

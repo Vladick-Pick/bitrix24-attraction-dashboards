@@ -643,7 +643,8 @@ export async function performLeadgenSync(
       ).values()
     );
     const initialActivities = initialActivityRows.map(mapActivityRow);
-    const initialCallActivityIds = initialActivities
+    const initialCallActivityIds = activityRows
+      .map(mapActivityRow)
       .filter((activity) => activity.providerId === "VOXIMPLANT_CALL")
       .map((activity) => activity.id);
     const [callRowsByActivity, supplementalCallRows, stageHistory] =

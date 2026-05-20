@@ -792,23 +792,11 @@ describe("performManualSync", () => {
         ];
       },
       listCalls: async (input: { activityIds?: string[] }) => {
-        if (!input.activityIds) {
-          return [];
+        if (input.activityIds) {
+          throw new Error("Stored call snapshots already contain these calls");
         }
 
-        return [
-          {
-            ID: "CALL_STORED",
-            CRM_ACTIVITY_ID: "A_STORED_CALL",
-            PORTAL_USER_ID: "501",
-            CALL_TYPE: "1",
-            CALL_START_DATE: "2026-04-12T10:20:00.000Z",
-            CALL_DURATION: "75",
-            CRM_ENTITY_TYPE: "CONTACT",
-            CRM_ENTITY_ID: "CONTACT_1",
-            CALL_FAILED_CODE: "200"
-          }
-        ];
+        return [];
       },
       fetchUsers: async () => []
     };
@@ -846,19 +834,11 @@ describe("performManualSync", () => {
         }
       ]
     ]);
-    expect(storedCalls).toEqual([
-      [
-        expect.objectContaining({
-          id: "CALL_STORED",
-          crmActivityId: "A_STORED_CALL",
-          crmEntityType: "CONTACT"
-        })
-      ]
-    ]);
+    expect(storedCalls).toEqual([[]]);
     expect(result.changes).toEqual(
       expect.objectContaining({
         activities: 1,
-        calls: 1
+        calls: 0
       })
     );
   });

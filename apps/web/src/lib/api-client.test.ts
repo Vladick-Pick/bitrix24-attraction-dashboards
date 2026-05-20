@@ -1367,6 +1367,31 @@ describe('apiClient', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
+          stageCatalog: [],
+          managerCatalog: [],
+          sourceCatalog: [],
+          wonStageIds: [],
+          defaultPeriodDays: 30,
+          lastSync: null,
+          snapshotStats: {
+            deals: 4140,
+            activities: 306,
+            calls: 119,
+            stageHistory: 13166,
+          },
+          syncHealth: {
+            status: 'ready',
+            blocking: false,
+            checkedAt: '2026-05-14T12:00:00.000Z',
+            lastSuccessfulSync: null,
+            issues: [],
+            warnings: [],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
           range: {
             from: '2026-05-01T00:00:00.000Z',
             to: '2026-05-31T23:59:59.999Z',
@@ -1441,6 +1466,7 @@ describe('apiClient', () => {
 
     await apiClient.getComments('leadgen')
     await apiClient.getModuleUsers('leadgen')
+    await apiClient.getMeta('leadgen')
     const report = await apiClient.getLeadgenFunnelReport('leadgen', query)
     const activities = await apiClient.getLeadgenActivitiesWorkloadReport('leadgen', query)
     const calls = await apiClient.getLeadgenCallsWorkloadReport('leadgen', query)
@@ -1457,6 +1483,7 @@ describe('apiClient', () => {
     ).toEqual([
       '/api/modules/leadgen/comments',
       '/api/modules/leadgen/admin/module-users',
+      '/api/modules/leadgen/meta',
       '/api/modules/leadgen/reports/funnel',
       '/api/modules/leadgen/reports/activities-workload',
       '/api/modules/leadgen/reports/calls-workload',

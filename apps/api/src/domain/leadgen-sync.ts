@@ -117,7 +117,7 @@ function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.map(String).map((value) => value.trim()).filter(Boolean)));
 }
 
-function buildLeadgenScopeKey(categoryId: string, managerIds: string[]) {
+export function buildLeadgenScopeKey(categoryId: string, managerIds: string[]) {
   return `module:leadgen:category:${categoryId}:assigned:${[...managerIds]
     .sort()
     .join(",")}`;

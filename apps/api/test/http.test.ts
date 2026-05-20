@@ -1103,6 +1103,49 @@ describe("createApp", () => {
               totalCalls: 4
             };
           },
+          getMeta: async () => ({
+            stageCatalog: [
+              {
+                entityType: "deal" as const,
+                categoryId: "28",
+                statusId: "C28:NEW",
+                name: "Новый лид",
+                semanticId: "P"
+              }
+            ],
+            managerCatalog: [{ id: "501", name: "Лидген менеджер" }],
+            sourceCatalog: [{ key: "WEB", label: "Сайт" }],
+            wonStageIds: [],
+            defaultPeriodDays: 30,
+            lastSync: {
+              finishedAt: "2026-05-14T12:00:00.000Z",
+              leadsSynced: 0,
+              dealsSynced: 333,
+              mode: "delta" as const,
+              dealBreakdown: {
+                total: 333,
+                created: 300,
+                updated: 30,
+                closed: 3,
+                reopened: 0,
+                unchanged: 0
+              }
+            },
+            snapshotStats: {
+              deals: 4140,
+              activities: 306,
+              calls: 119,
+              stageHistory: 13166
+            },
+            syncHealth: {
+              status: "ready" as const,
+              blocking: false,
+              checkedAt: "2026-05-14T12:00:00.000Z",
+              lastSuccessfulSync: "2026-05-14T12:00:00.000Z",
+              issues: [],
+              warnings: []
+            }
+          }),
           performSync: async () => createSyncSummary({ syncRunId: 28 })
         }
       }
@@ -1249,6 +1292,20 @@ describe("createApp", () => {
           activities: 12,
           calls: 7,
           stageHistory: 18
+        });
+      });
+
+    await request(app)
+      .get("/api/modules/leadgen/meta")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.lastSync.finishedAt).toBe("2026-05-14T12:00:00.000Z");
+        expect(body.lastSync.dealsSynced).toBe(333);
+        expect(body.snapshotStats).toEqual({
+          deals: 4140,
+          activities: 306,
+          calls: 119,
+          stageHistory: 13166
         });
       });
 

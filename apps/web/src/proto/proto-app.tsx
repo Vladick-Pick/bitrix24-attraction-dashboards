@@ -1280,12 +1280,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const activeModuleSlug = activeModule?.slug ?? activeModule?.id ?? activeModuleId
   const isLeadgenModule = activeModuleSlug === 'leadgen'
   const activeCommentSceneId = isLeadgenModule ? 'leadgen-funnel' : activeSceneId
-  const leadgenSnapshotMeta = leadgenReport
-    ? `${formatCount(leadgenReport.managerRows.length)} менеджеров · ${formatCount(
-        leadgenReport.stageRows.length,
-      )} стадий · ${formatCount(leadgenReport.sourceRows.length)} источников`
-    : null
-
   useEffect(() => {
     if (availableModules.length === 0) {
       return
@@ -1311,6 +1305,12 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     setCommentsOpen(false)
     setCommentMode(false)
     setDraftComment(null)
+    setSyncSummary(null)
+    setSyncProgress(null)
+    setSyncError(null)
+    setSnapshotStats(null)
+    setLastSync(null)
+    setSyncWarning(null)
   }, [])
 
   const ModuleSwitcher = useMemo(
@@ -1524,7 +1524,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           setLeadgenWorkload(null)
           setPricingSettingsLoading(false)
 
-          const [report, activities, calls] = await Promise.all([
+          const [meta, report, activities, calls] = await Promise.all([
+            apiClient.getMeta(activeModuleId),
             apiClient.getLeadgenFunnelReport(activeModuleId, query),
             apiClient.getLeadgenActivitiesWorkloadReport(activeModuleId, query),
             apiClient.getLeadgenCallsWorkloadReport(activeModuleId, query),
@@ -1539,6 +1540,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             calls,
             scene: mapActivitiesCallsSceneData({ activities, calls }),
           })
+          setSnapshotStats(meta.snapshotStats)
+          setLastSync(meta.lastSync)
+          setSyncWarning(resolveSyncHealthWarning(meta))
           setLeadgenReportStatus('idle')
           setRuntimeData((current) => ({
             ...current,
@@ -1555,9 +1559,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             operationalStatus: 'ready',
             operationalError: null,
           }))
-          setSnapshotStats(null)
-          setLastSync(null)
-          setSyncWarning(null)
           return
         }
 
@@ -1567,7 +1568,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setLeadgenReportError(null)
         setPricingSettingsLoading(true)
         const [meta, pricingSettings] = await Promise.all([
-          apiClient.getMeta(),
+          apiClient.getMeta(activeModuleId),
           apiClient.getPricingSettings(),
         ])
         if (cancelled || runtimeRequestRef.current !== requestId) {
@@ -1869,8 +1870,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     }
   }, [isLeadgenModule, salesPlanQuarter])
 
-  async function refreshSyncMeta() {
-    const meta = await apiClient.getMeta()
+  async function refreshSyncMeta(moduleId = activeModuleId) {
+    const meta = await apiClient.getMeta(moduleId)
     setSnapshotStats(meta.snapshotStats)
     setLastSync(meta.lastSync)
     setSyncWarning(resolveSyncHealthWarning(meta))
@@ -1883,6 +1884,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
     setSyncStatus('syncing')
     setSyncError(null)
+    setSyncSummary(null)
     setSyncProgress({
       syncRunId: null,
       phase: 'inspect_snapshot',
@@ -1931,9 +1933,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         operationalError: null,
       }))
     } finally {
-      if (!isLeadgenModule) {
-        await refreshSyncMeta().catch(() => undefined)
-      }
+      await refreshSyncMeta(activeModuleId).catch(() => undefined)
       setSyncStatus('idle')
     }
   }
@@ -2991,21 +2991,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               <div>
                 <div className="sync-strip-label">Snapshot</div>
                 <div className="sync-strip-value">
-                  {isLeadgenModule
-                    ? leadgenReportStatus === 'loading'
-                      ? 'Загрузка'
-                      : leadgenReport
-                        ? `${formatCount(leadgenReport.totalDeals)} сделок`
-                        : 'Нет данных'
-                    : snapshotStats
+                  {snapshotStats
                     ? `${formatCount(snapshotStats.deals)} сделок`
-                    : 'Нет данных'}
+                    : isLeadgenModule && leadgenReportStatus === 'loading'
+                      ? 'Загрузка'
+                      : 'Нет данных'}
                 </div>
-                {isLeadgenModule ? (
-                  leadgenSnapshotMeta ? (
-                    <div className="sync-strip-meta">{leadgenSnapshotMeta}</div>
-                  ) : null
-                ) : snapshotStats ? (
+                {snapshotStats ? (
                   <div className="sync-strip-meta">
                     {formatCount(snapshotStats.activities)} активностей ·{' '}
                     {formatCount(snapshotStats.calls)} звонков ·{' '}
@@ -3014,22 +3006,12 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 ) : null}
               </div>
               <div>
-                <div className="sync-strip-label">
-                  {isLeadgenModule ? 'Импорт лидгена' : 'Последний sync'}
-                </div>
+                <div className="sync-strip-label">Последний sync</div>
                 <div className="sync-strip-value">
-                  {isLeadgenModule
-                    ? leadgenReport
-                      ? 'Локальный snapshot'
-                      : 'Еще не было'
-                    : lastSync
-                      ? formatDateTime(lastSync.finishedAt)
-                      : 'Еще не было'}
+                  {lastSync ? formatDateTime(lastSync.finishedAt) : 'Еще не было'}
                 </div>
                 <div className="sync-strip-meta">
-                  {isLeadgenModule
-                    ? 'Лидген УС · whitelist · с 01.01.2026'
-                    : lastSync
+                  {lastSync
                     ? `${formatSyncMode(lastSync.mode)} · ${formatDealBreakdown({
                         deals: lastSync.dealsSynced,
                         dealBreakdown: lastSync.dealBreakdown,

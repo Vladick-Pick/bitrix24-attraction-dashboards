@@ -716,9 +716,7 @@ export async function performLeadgenSync(
         ].map((activity) => [activity.id, activity])
       ).values()
     );
-    const callActivityIdsForBindings = activities
-      .filter((activity) => activity.providerId === "VOXIMPLANT_CALL")
-      .map((activity) => activity.id);
+    const callActivityIdsForBindings = initialCallActivityIds;
     const activityBindings =
       input.client.listActivityBindings && callActivityIdsForBindings.length > 0
         ? (await input.client.listActivityBindings(callActivityIdsForBindings)).map(

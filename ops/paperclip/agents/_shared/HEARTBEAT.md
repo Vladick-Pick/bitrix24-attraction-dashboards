@@ -44,8 +44,9 @@ When asked to plan, or when a dashboard comment is ambiguous enough to require d
 5. Checkout the chosen issue before doing work.
 6. Read the issue, comments, ancestors, project, goal, and relevant work products.
 7. Read the repository `AGENTS.md` and the files in this instruction bundle.
-8. Do the smallest useful unit of work in the current heartbeat.
-9. If delegating, create child issues with `parentId`, `goalId`, acceptance criteria, verification commands, and a specific assignee.
-10. Before exiting, update the issue with what changed, verification status, and the next action.
+8. Before code edits, delegation handoff, review-ready status, PR, merge, or deploy work, run `pnpm session:preflight` from the task branch and record the result. If it fails, block or preserve/reconcile the state without discarding user or agent work.
+9. Do the smallest useful unit of work in the current heartbeat.
+10. If delegating, create child issues with `parentId`, `goalId`, acceptance criteria, verification commands, and a specific assignee.
+11. Before exiting, update the issue with what changed, verification status, and the next action.
 
 If blocked, set status to `blocked` and comment with the blocker, owner, and exact unblock action. Never silently leave work stale.

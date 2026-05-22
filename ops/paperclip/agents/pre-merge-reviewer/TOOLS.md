@@ -43,6 +43,12 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 
 ## Verification Commands
 
+Start review by confirming the branch still reflects the latest visible project state:
+
+```bash
+pnpm session:preflight
+```
+
 Use the same focused commands as the implementer when practical. For broader risk:
 
 ```bash

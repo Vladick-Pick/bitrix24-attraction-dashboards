@@ -132,6 +132,7 @@ A parent issue is done only when:
 
 - acceptance criteria are satisfied;
 - required proof artifacts exist or the light-mode exception is documented;
+- repository work includes a passing `pnpm session:preflight` result or an explicit blocked/accepted exception;
 - fresh verification is clean or residual risk is explicitly accepted;
 - real user-observed cases are represented in the proof when available;
 - production data changes, when required, went through the approved operation surface and have sanitized post-operation proof;

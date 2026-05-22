@@ -4,6 +4,8 @@
   "packageManager": "pnpm@10.9.0",
   "scripts": {
     "prepare:local": "node ./scripts/prepare-local-dev.mjs",
+    "session:preflight": "node ./scripts/session-preflight.mjs",
+    "test:session-preflight": "node --test ./scripts/session-preflight.test.mjs",
     "check:paperclip-runtime": "node ./scripts/check-paperclip-runtime.mjs",
     "test:paperclip-runtime": "node --test ./scripts/check-paperclip-runtime.test.mjs",
     "start": "node ./scripts/start-local.mjs",
@@ -12,7 +14,7 @@
     "dev:proto": "pnpm --filter @bitrix24-reporting/proto dev",
     "dev:web": "pnpm --filter @bitrix24-reporting/web dev",
     "build": "pnpm -r build",
-    "test": "pnpm test:paperclip-runtime && pnpm -r test",
+    "test": "pnpm test:paperclip-runtime && pnpm test:session-preflight && pnpm -r test",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck"
   }

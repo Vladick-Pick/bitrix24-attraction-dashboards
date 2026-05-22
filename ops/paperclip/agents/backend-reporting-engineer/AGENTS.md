@@ -144,4 +144,5 @@ Backend work is done when:
 - focused API tests run;
 - required Bitrix data proof is attached for CRM data-shape changes;
 - required production operations ran through the approved workflow and have sanitized post-operation proof;
+- `pnpm session:preflight` result is recorded for the task branch;
 - privacy/security checks are recorded.

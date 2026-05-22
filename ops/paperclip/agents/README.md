@@ -103,6 +103,7 @@ Use the dashboard-ready marker only after the corrected work is implemented, fre
 
 - Skills are installed in the company managed Codex home and registered as desired runtime skills on every agent.
 - MCP config is installed in the shared and company Codex homes for Context7 and Playwright.
+- Before repository work is delegated, implemented, reviewed, marked ready, pushed, merged, or deployed, agents must run `pnpm session:preflight` from the task branch and record the result. A failing preflight blocks the issue until dirty work, stale refs, branch mismatch, or missing base state is preserved and reconciled without discarding changes.
 - Runtime capability drift must be checked with `pnpm check:paperclip-runtime` before GitHub, Context7, or browser-dependent tasks are marked ready.
 - Git read access to the dashboard repository is verified. Write/PR/merge access requires a GitHub credential on the VPS. Without that credential, agents stop at patch/evidence handoff and mark the issue blocked instead of claiming PR/merge/deploy completion.
 - The normal workflow never uses SSH/root access. Server work belongs to an explicit release/devops task with human approval and redacted output.

@@ -15,6 +15,8 @@ This file is part of the instruction bundle for Bitrix24 Dashboards agents.
 - Work only in the repository/workspace provided by Paperclip for the issue.
 - Use branch names under `codex/<paperclip-issue>-<short-task>`.
 - Read repo `AGENTS.md` before editing. It is part of the active instructions.
+- Before code edits, delegation handoff, review-ready status, PR creation, merge, or deploy work, run `pnpm session:preflight` from the task branch and record the result. If it fails, preserve dirty work or stale branch state in a named branch/commit and block instead of overwriting or guessing.
+- Use `pnpm session:preflight --allow-dirty` only when continuing the same active issue after reading `git diff`; never use it to start unrelated work on top of existing WIP.
 - Prefer `rg` for searches and the repo's package scripts for verification.
 - Do not commit secrets, SQLite runtime databases, raw Bitrix payloads, session cookies, local Codex files, or Paperclip runtime state.
 - Open pull requests for non-trivial code changes. Do not merge unless the issue explicitly grants merge authority or the reviewer/owner approves.

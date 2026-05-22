@@ -194,6 +194,8 @@ Action:
 
 Where to look:
 
+- `pnpm session:preflight` for every repository task before delegation,
+  implementation, review-ready status, PR, merge, or deploy claims.
 - `pnpm check:paperclip-runtime` when a task needs GitHub, Context7, browser,
   Playwright, or deploy visibility.
 - GitHub/CI status for PR and merge claims.
@@ -202,6 +204,8 @@ Where to look:
 
 Good state:
 
+- The active branch is a task branch, clean, fetched, and not behind
+  `origin/main`.
 - The required tool for the user's symptom is available and used.
 - Missing capability is captured in `problems.md` and the issue is `blocked`,
   not `ready`.
@@ -209,6 +213,8 @@ Good state:
 
 Bad state:
 
+- Agent works on `main`, a detached HEAD, dirty unrelated WIP, or a branch that
+  is behind the latest fetched base.
 - Browser check skipped for a visual bug without explanation.
 - GitHub push/PR/deploy unavailable but the issue is still marked ready.
 - Context7/current docs unavailable for dependency-sensitive work.
@@ -216,6 +222,9 @@ Bad state:
 
 Action:
 
+- Block or route cleanup when session preflight fails. Preserve all dirty user
+  or agent work in a named branch/commit before any branch switch, merge, pull,
+  or cleanup.
 - Block the issue with the missing capability and exact next owner/action.
 - Fix team infrastructure as a separate task when the missing tool affects more
   than one issue.

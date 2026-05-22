@@ -37,6 +37,12 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 
 ## Verification Commands
 
+- Session currency before editing or handoff:
+
+```bash
+pnpm session:preflight
+```
+
 - Focused web tests for touched files.
 - Full web suite when shared UI behavior changes:
 

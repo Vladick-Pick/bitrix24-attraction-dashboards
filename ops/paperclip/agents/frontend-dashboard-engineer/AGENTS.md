@@ -64,4 +64,5 @@ Frontend work is done when:
 - text fits at mobile and desktop sizes;
 - no incoherent overlap or layout shift is introduced;
 - focused tests and browser/screenshot checks have run when visual behavior changed;
+- `pnpm session:preflight` result is recorded for the task branch;
 - the evidence is recorded for fresh review.

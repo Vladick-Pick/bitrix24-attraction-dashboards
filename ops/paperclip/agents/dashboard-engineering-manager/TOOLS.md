@@ -45,6 +45,7 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 - Request review, QA, or release-readiness checks.
 - Propose instruction, workflow, skill, MCP, or team changes through repo docs/PR.
 - Route approved production sync/backfill/proof through the protected GitHub Actions operation surface documented in `proof-loop.md#production-operation-gate`.
+- Require `pnpm session:preflight` evidence before delegation, review-ready status, PR, merge, or deploy claims that depend on repository state.
 
 ## Restrictions
 
@@ -58,4 +59,4 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 
 ## Proof Requirements
 
-Require full proof-loop artifacts for non-trivial work. Light mode is allowed only for small copy/UI-only changes and must be stated in the issue. Before requesting review, require a durable handoff in the Paperclip issue or a reviewed tracked evidence folder.
+Require full proof-loop artifacts for non-trivial work. Light mode is allowed only for small copy/UI-only changes and must be stated in the issue. Before requesting review, require a durable handoff in the Paperclip issue or a reviewed tracked evidence folder. The handoff must include the Session Currency Gate result (`pnpm session:preflight`) for repository work.

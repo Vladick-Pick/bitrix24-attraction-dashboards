@@ -35,6 +35,18 @@ Fresh verification must not rely only on a local ignored `.paperclip/tasks` fold
 
 If a required environment capability is unavailable, the task is `blocked`, not `ready`. Missing GitHub push/PR access, missing browser/Playwright runtime, missing Context7/current-doc access for dependency-sensitive work, or missing production/deploy access must be recorded in `problems.md` and `verdict.json.unrunChecks`. A manager may explicitly accept the residual risk, but an assignee must not claim "ready" while the user-visible verification path is unavailable.
 
+## Session Freshness Gate
+
+Before coding, delegation handoff, review-ready status, PR creation, merge, deploy, or any proof claim that depends on repository state, run:
+
+```bash
+pnpm session:preflight
+```
+
+Record the command and result in `evidence.md`/`evidence.json`. This gate proves the agent is on a task branch, the worktree is clean, `origin/main` was fetched, and the branch is not behind the latest visible base. If it fails, the issue is `blocked` until existing user or agent work is preserved in a named branch/commit and the branch is reconciled without losing changes.
+
+`--allow-dirty` is allowed only when continuing the same active issue after reading `git diff` and confirming the dirty files belong to that issue. `--no-fetch` is allowed only in an intentionally offline runtime with the limitation recorded in the handoff.
+
 ## Runtime Capability Gate
 
 Before assigning, reviewing, or marking ready any task that needs GitHub, browser/Playwright, or Context7/current documentation, run:
@@ -226,6 +238,14 @@ If the assignee cannot access Bitrix REST or the production/local snapshot neede
     "noPiiInPaperclipPayload": true,
     "noSecretsLogged": true,
     "bitrixProofRedacted": true
+  },
+  "sessionPreflight": {
+    "required": true,
+    "status": "pass",
+    "command": "pnpm session:preflight",
+    "base": "origin/main",
+    "branch": "codex/BIT-123-example",
+    "notes": ""
   },
   "bitrixDataProof": {
     "required": false,

@@ -183,11 +183,19 @@ describe("password session auth", () => {
     const store = createSqliteAuthStore({
       databaseUrl: `file:${databasePath}`
     });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    await store.ensureDefaultModuleLeader("attraction");
     const user = await store.findUserByLogin("legacy-admin");
 
-    await expect(user ? store.getUserModules(user.id) : null).resolves.toEqual([
+    await expect(user ? store.listUserModules(user.id) : null).resolves.toEqual([
       expect.objectContaining({
-        key: "attraction",
+        id: "attraction",
+        slug: "attraction",
         role: "leader",
         permissions: expect.arrayContaining(["module-users:manage"])
       })
@@ -202,6 +210,12 @@ describe("password session auth", () => {
     const store = createSqliteAuthStore({
       databaseUrl: `file:${join(directory, "reporting.sqlite")}`
     });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
 
     const first = await store.createUser({
       login: "first-admin",
@@ -211,14 +225,16 @@ describe("password session auth", () => {
       login: "later-user",
       passwordHash: await hashPassword("later-password")
     });
+    await store.ensureDefaultModuleLeader("attraction");
 
-    await expect(store.getUserModules(first.id)).resolves.toEqual([
+    await expect(store.listUserModules(first.id)).resolves.toEqual([
       expect.objectContaining({
-        key: "attraction",
+        id: "attraction",
+        slug: "attraction",
         role: "leader"
       })
     ]);
-    await expect(store.getUserModules(later.id)).resolves.toEqual([]);
+    await expect(store.listUserModules(later.id)).resolves.toEqual([]);
 
     store.close();
   });

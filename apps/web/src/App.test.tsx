@@ -782,8 +782,6 @@ vi.mock('@/lib/api-client', () => ({
       updatedAt: '2026-04-10T12:05:00.000Z',
       paperclipStatus: 'sent',
     })),
-    getCommentNotifications: vi.fn(async () => []),
-    getModuleUsers: vi.fn(async () => []),
     createModuleUser: vi.fn(async (input: {
       login: string
       password: string
@@ -945,16 +943,14 @@ describe('App', () => {
     expect(apiClient.getDashboard).not.toHaveBeenCalled()
   })
 
-  it('loads the dashboard when password auth is not enabled on the API', async () => {
+  it('keeps the login shell when the auth probe is unavailable', async () => {
     vi.mocked(apiClient.getCurrentUser).mockRejectedValueOnce(
       Object.assign(new Error('NOT_FOUND'), { status: 404 }),
     )
 
     render(<App />)
 
-    expect(
-      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^вход в дашборд$/i })).toBeInTheDocument()
   })
 
   it('logs in and then loads the dashboard shell', async () => {

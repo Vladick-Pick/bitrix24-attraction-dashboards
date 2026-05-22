@@ -2558,8 +2558,12 @@ export const apiClient = {
       normalizePricingSettings,
     )
   },
-  async getMeta() {
-    return requestJson(buildUrl('/api/meta'), { method: 'GET' }, normalizeMeta)
+  async getMeta(moduleId = 'attraction') {
+    return requestJson(
+      buildUrl(buildModulePath(moduleId, '/api/meta')),
+      { method: 'GET' },
+      normalizeMeta,
+    )
   },
   async getSourceQualityConversionReport(query: DashboardQuery) {
     return requestJson(

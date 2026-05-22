@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client'
 import type {
   DashboardData,
   DealPricingRuleInput,
+  MetaResponse,
   SalesPlanData,
   SalesPlanInput,
   SalesPlanQuarterData,
@@ -1296,6 +1297,75 @@ describe('ProtoApp', () => {
   })
 
   it('lets a super admin switch to the leadgen module and loads its isolated funnel report', async () => {
+    const attractionMeta: MetaResponse = {
+      stageCatalog: [],
+      managerCatalog: [],
+      sourceCatalog: [],
+      wonStageIds: [],
+      defaultPeriodDays: 30,
+      lastSync: {
+        finishedAt: '2026-05-19T20:14:33.000Z',
+        leadsSynced: 0,
+        dealsSynced: 113,
+        mode: 'delta',
+        dealBreakdown: {
+          total: 113,
+          created: 28,
+          updated: 83,
+          closed: 2,
+          reopened: 0,
+          unchanged: 0,
+        },
+      },
+      snapshotStats: {
+        deals: 3734,
+        activities: 19994,
+        calls: 8155,
+        stageHistory: 13166,
+      },
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '2026-05-19T20:14:33.000Z',
+        lastSuccessfulSync: '2026-05-19T20:14:33.000Z',
+        issues: [],
+        warnings: [],
+      },
+    }
+    const leadgenMeta: MetaResponse = {
+      ...attractionMeta,
+      lastSync: {
+        finishedAt: '2026-05-19T20:18:39.000Z',
+        leadsSynced: 0,
+        dealsSynced: 333,
+        mode: 'delta',
+        dealBreakdown: {
+          total: 333,
+          created: 300,
+          updated: 30,
+          closed: 3,
+          reopened: 0,
+          unchanged: 0,
+        },
+      },
+      snapshotStats: {
+        deals: 4140,
+        activities: 306,
+        calls: 119,
+        stageHistory: 13166,
+      },
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '2026-05-19T20:18:39.000Z',
+        lastSuccessfulSync: '2026-05-19T20:18:39.000Z',
+        issues: [],
+        warnings: [],
+      },
+    }
+    vi.mocked(apiClient.getMeta)
+      .mockResolvedValueOnce(attractionMeta)
+      .mockResolvedValueOnce(leadgenMeta)
     const owner: AuthUser = {
       id: 1,
       login: 'owner@example.com',
@@ -1359,6 +1429,13 @@ describe('ProtoApp', () => {
     expect(
       await screen.findByRole('heading', { name: /^лидогенерация$/i }),
     ).toBeInTheDocument()
+    expect(await screen.findByText(/4\s*140 сделок/i)).toBeInTheDocument()
+    expect(screen.getByText(/306 активностей/i)).toBeInTheDocument()
+    expect(screen.getByText(/119 звонков/i)).toBeInTheDocument()
+    expect(screen.getByText(/^Последний sync$/i)).toBeInTheDocument()
+    expect(screen.getByText('19.05.2026, 23:18:39')).toBeInTheDocument()
+    expect(screen.getByText(/delta · новых 300 · обновлено 30 · закрыто 3/i)).toBeInTheDocument()
+    expect(apiClient.getMeta).toHaveBeenCalledWith('leadgen')
     expect(attractionModuleButton).toHaveClass('tab-chip')
     expect(attractionModuleButton).not.toHaveClass('tab-chip-active')
     expect(leadgenModuleButton).toHaveClass('tab-chip', 'tab-chip-active')
@@ -2267,7 +2344,7 @@ describe('ProtoApp', () => {
       .closest('section')
     expect(salesSection).not.toBeNull()
 
-    await userEvent.click(within(salesSection!).getByRole('button', { name: /подробнее/i }))
+    await userEvent.click(await within(salesSection!).findByRole('button', { name: /подробнее/i }))
 
     const callStageRow = within(salesSection!)
       .getByText('Звонок-знакомство')
@@ -3334,8 +3411,17 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp currentUser={owner} />)
 
+    await userEvent.click(await screen.findByRole('button', { name: /^обновить данные$/i }))
+    await waitFor(() => expect(apiClient.triggerSync).toHaveBeenCalledWith(
+      'attraction',
+      expect.any(Function),
+    ))
+    await waitFor(() => expect(screen.getByText(/обновлено 12/i)).toBeInTheDocument())
+
     await userEvent.click(await screen.findByRole('button', { name: /^лидогенерация$/i }))
     expect(await screen.findByRole('heading', { name: /^лидогенерация$/i })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Готов к запуску')).toBeInTheDocument())
+    expect(screen.queryByText(/обновлено 12/i)).not.toBeInTheDocument()
 
     vi.mocked(apiClient.triggerSync).mockClear()
     vi.mocked(apiClient.getDashboard).mockClear()

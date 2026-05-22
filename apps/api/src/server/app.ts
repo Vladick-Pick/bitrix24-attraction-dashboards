@@ -2610,6 +2610,26 @@ export function createApp(
     }
   });
 
+  app.get("/api/modules/:moduleId/meta", async (request, response, next) => {
+    const moduleId = requestModuleId(request);
+    const moduleService = moduleServices.get(moduleId);
+    if (!moduleService?.getMeta) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    try {
+      response.json(await moduleService.getMeta());
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/sales-plan", async (request, response, next) => {
     if (denyIfMissingAttractionAccess(response)) {
       return;

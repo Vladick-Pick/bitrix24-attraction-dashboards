@@ -92,6 +92,7 @@ A valid final dashboard-ready report must include both the marker and the headin
 Review is done when:
 
 - blocking findings are listed or absence of blockers is explicit;
+- session preflight evidence and current branch freshness are checked;
 - test/evidence status is clear;
 - real-case fixture or visual proof status is clear when the issue came from a concrete user screenshot/comment;
 - PII/secrets/RBAC risks are checked;

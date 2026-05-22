@@ -108,7 +108,9 @@ Leadgen comments must not include personal Bitrix data, contact details, deal na
 
 - Company: `Bitrix24 Dashboards` unless overridden by `PAPERCLIP_LEADGEN_COMPANY_ID`.
 - Goal: leadgen-specific goal when `PAPERCLIP_LEADGEN_GOAL_ID` is configured; otherwise the shared dashboard modules goal.
-- Project: leadgen-specific project when `PAPERCLIP_LEADGEN_PROJECT_ID` is configured.
+- Project: `Leadgen Dashboard`
+  (`84f6b163-c73a-4e19-8837-a545e9d11ee6`) when
+  `PAPERCLIP_LEADGEN_PROJECT_ID` is configured.
 - Workflow lane: `Dashboard Comment Intake`.
 - Default worker owner: `Dashboard Engineering Manager`.
 - Service identity: `Dashboard Intake Service`.

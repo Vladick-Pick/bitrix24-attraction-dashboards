@@ -35,6 +35,18 @@ Fresh verification must not rely only on a local ignored `.paperclip/tasks` fold
 
 If a required environment capability is unavailable, the task is `blocked`, not `ready`. Missing GitHub push/PR access, missing browser/Playwright runtime, missing Context7/current-doc access for dependency-sensitive work, or missing production/deploy access must be recorded in `problems.md` and `verdict.json.unrunChecks`. A manager may explicitly accept the residual risk, but an assignee must not claim "ready" while the user-visible verification path is unavailable.
 
+## Session Freshness Gate
+
+Before coding, delegation handoff, review-ready status, PR creation, merge, deploy, or any proof claim that depends on repository state, run:
+
+```bash
+pnpm session:preflight
+```
+
+Record the command and result in `evidence.md`/`evidence.json`. This gate proves the agent is on a task branch, the worktree is clean, `origin/main` was fetched, and the branch is not behind the latest visible base. If it fails, the issue is `blocked` until existing user or agent work is preserved in a named branch/commit and the branch is reconciled without losing changes.
+
+`--allow-dirty` is allowed only when continuing the same active issue after reading `git diff` and confirming the dirty files belong to that issue. `--no-fetch` is allowed only in an intentionally offline runtime with the limitation recorded in the handoff.
+
 ## Runtime Capability Gate
 
 Before assigning, reviewing, or marking ready any task that needs GitHub, browser/Playwright, or Context7/current documentation, run:
@@ -105,6 +117,8 @@ If the workflow is missing, GitHub workflow permission is missing, the productio
 For user-reported regressions, `spec.md` and `evidence.md` must include the sanitized real scenario that was checked. Capture identifiers such as deal id, screen, filter/date range, stage names, expected label, and the observed failure. Do not include names, phones, emails, tokens, raw Bitrix payloads, cookies, or secrets.
 
 If the user-visible result depends on a design/product decision, the assignee must pause and ask the board/owner with a concrete recommendation or choice set. Examples: whether an out-of-timeline meeting date should attach to a semantic stage, render a warning, or be hidden. The decision and owner response must be included in the final handoff.
+
+Every final handoff must start with a short `Для пользователя` section in Russian that a non-developer can understand. Keep it concise: what changed, why it was wrong before, how it works now, and whether anything remains at risk. Put technical details, test commands, file names, PR links, and trace/tool evidence only after that under `Технически` or in the machine-readable artifacts.
 
 ## Bitrix Read-Only Data Proof Gate
 
@@ -224,6 +238,14 @@ If the assignee cannot access Bitrix REST or the production/local snapshot neede
     "noPiiInPaperclipPayload": true,
     "noSecretsLogged": true,
     "bitrixProofRedacted": true
+  },
+  "sessionPreflight": {
+    "required": true,
+    "status": "pass",
+    "command": "pnpm session:preflight",
+    "base": "origin/main",
+    "branch": "codex/BIT-123-example",
+    "notes": ""
   },
   "bitrixDataProof": {
     "required": false,

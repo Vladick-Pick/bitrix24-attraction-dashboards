@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import Database from "better-sqlite3";
 import type { DashboardData, ManualSyncSummary } from "@bitrix24-reporting/contracts";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
@@ -142,6 +143,101 @@ describe("password session auth", () => {
       store
     };
   }
+
+  it("backfills legacy auth users into the attraction module as leaders", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const databasePath = join(directory, "reporting.sqlite");
+    const database = new Database(databasePath);
+    database.exec(`
+      CREATE TABLE auth_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        login TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        disabled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        disabled_at TEXT,
+        last_login_at TEXT
+      );
+    `);
+    database
+      .prepare(
+        `INSERT INTO auth_users (
+          login,
+          password_hash,
+          disabled,
+          created_at,
+          updated_at,
+          disabled_at
+        ) VALUES (?, ?, 0, ?, ?, NULL)`
+      )
+      .run(
+        "legacy-admin",
+        await hashPassword("correct-password"),
+        "2026-04-30T10:00:00.000Z",
+        "2026-04-30T10:00:00.000Z"
+      );
+    database.close();
+
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${databasePath}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    await store.ensureDefaultModuleLeader("attraction");
+    const user = await store.findUserByLogin("legacy-admin");
+
+    await expect(user ? store.listUserModules(user.id) : null).resolves.toEqual([
+      expect.objectContaining({
+        id: "attraction",
+        slug: "attraction",
+        role: "leader",
+        permissions: expect.arrayContaining(["module-users:manage"])
+      })
+    ]);
+
+    store.close();
+  });
+
+  it("does not auto-grant attraction leadership to later generic auth users", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+
+    const first = await store.createUser({
+      login: "first-admin",
+      passwordHash: await hashPassword("first-password")
+    });
+    const later = await store.createUser({
+      login: "later-user",
+      passwordHash: await hashPassword("later-password")
+    });
+    await store.ensureDefaultModuleLeader("attraction");
+
+    await expect(store.listUserModules(first.id)).resolves.toEqual([
+      expect.objectContaining({
+        id: "attraction",
+        slug: "attraction",
+        role: "leader"
+      })
+    ]);
+    await expect(store.listUserModules(later.id)).resolves.toEqual([]);
+
+    store.close();
+  });
 
   it("keeps health public but rejects report APIs without a valid session", async () => {
     const { app, store } = await createAuthTestApp();

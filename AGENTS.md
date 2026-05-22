@@ -9,6 +9,7 @@ This repository contains Bitrix24 attraction dashboards: local API, SQLite-backe
 - For frontend/UI changes, read `design.md` before editing and keep module-specific screens on the shared project design system unless a reviewed shared/platform issue explicitly changes it.
 - Keep each branch tied to a backlog item or GitHub issue.
 - Keep git hygiene as a priority: before starting a new task, close stale work, merge verified completed branches, delete obsolete local/remote branches, and start fresh work from updated `main`.
+- At the start of every new implementation, review, or Paperclip delegation session, run the Session Currency Gate below before editing code or marking work ready.
 - Always work from the latest visible project state. Before cleanup, branch switches, merges, rebases, stash use, or new task setup, preserve all user and agent changes in a named branch and commit unless the user explicitly asks for a different storage method.
 - Never leave important work only in stash. If unrelated WIP blocks cleanup or implementation, move it to a clearly named backup branch/commit and report that branch before continuing.
 - Prefer small, reviewable changes over broad mixed commits.
@@ -16,6 +17,15 @@ This repository contains Bitrix24 attraction dashboards: local API, SQLite-backe
 - Do not commit runtime Paperclip proof folders under `.paperclip/tasks/` unless an issue explicitly asks for durable evidence in git.
 - Convert prototype comments from `.codex/proto-comments/comments.json` into GitHub issues or `docs/backlog.md` items before implementation.
 - Use the Context7 MCP server frequently when library/framework/API documentation may affect implementation details or when current docs are needed.
+
+## Session Currency Gate
+- Before code edits, run `git status --short`, `git branch --show-current`, and `git remote -v`, then run `pnpm session:preflight`.
+- `pnpm session:preflight` must pass before ordinary implementation, delegation, review-ready claims, PR creation, merge, or deploy work. It fails when the worktree is dirty, the branch is `main` or detached, `origin/main` cannot be fetched, or the branch is behind the latest fetched base.
+- If the preflight fails, do not continue by overwriting or ignoring the state. Preserve all user and agent work in a named branch and commit, inspect the diff, then reconcile with the latest base through a non-destructive git operation.
+- Use `pnpm session:preflight --allow-dirty` only when continuing the same active task after reading `git diff` and confirming the dirty files belong to that task.
+- Use `pnpm session:preflight --allow-main` only for read-only checks or explicit emergency repository maintenance.
+- Use `pnpm session:preflight --no-fetch` only in an intentionally offline runtime after confirming refs were updated externally; record that limitation in the handoff.
+- Paperclip agents must record the command and result in proof artifacts or issue comments for any non-trivial code task.
 
 ## Backlog And Issues
 - GitHub Issues are the source of truth once the remote repository is connected.
@@ -77,6 +87,7 @@ If a named preset is unavailable in the current runtime, emulate it with the clo
 - Never fetch or store deal names or contact personal data for reporting. Use deal/contact IDs only; if upstream Bitrix responses include names, phones, emails, or other personal fields, ignore or redact them before persistence and UI output.
 
 ## Verification
+- Session currency: `pnpm session:preflight`.
 - API targeted tests: `pnpm --filter @bitrix24-reporting/api test -- --runInBand <test files>`.
 - API full suite: `pnpm --filter @bitrix24-reporting/api test -- --runInBand`.
 - Web full suite: `pnpm --filter @bitrix24-reporting/web exec vitest run`.

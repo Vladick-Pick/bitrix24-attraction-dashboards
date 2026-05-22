@@ -35,6 +35,7 @@ Runtime changes should be:
 - Prefer small PRs with proof artifacts over large unverified patches.
 - Use GitHub/CI/deploy pipelines as the normal production path.
 - Use approved GitHub Actions operation surfaces for production sync/backfill/proof. Do not make raw SSH the normal agent path.
+- Run the repository Session Currency Gate (`pnpm session:preflight`) before code edits, delegation, review-ready claims, PR/deploy work, or any handoff that depends on current git state.
 - Treat workflow and instructions as versioned product, not chat memory.
 
 ## Directory Map
@@ -45,3 +46,5 @@ Runtime changes should be:
 - `proof-loop.md`: required task evidence contract.
 - `team-growth.md`: when to add, split, pause, or remove agents/tools.
 - `metrics.md`: quality and reliability metrics for the agent team.
+- `workflows/manager-ops-review.md`: manager hourly heartbeat operational sweep.
+- `workflows/manager-routines.md`: manager scheduled Paperclip routines such as weekly team-quality reports.

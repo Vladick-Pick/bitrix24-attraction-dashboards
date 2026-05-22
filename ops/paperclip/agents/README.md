@@ -9,8 +9,9 @@ The live company is the runtime source of truth. This repo is the reviewable rec
 - Company: `d3d17397-0250-40f8-a9d6-507b14f38538`
 - Issue prefix: `BIT`
 - Goal: `Operate Bitrix24 dashboard modules`
-- Project: `Attraction Dashboard`
-- Leadgen project: configured by `PAPERCLIP_LEADGEN_PROJECT_ID` when available
+- GitHub source: one repository, `Vladick-Pick/bitrix24-attraction-dashboards`
+- Module project: `attraction` -> `Attraction Dashboard` (`c72f6e08-5483-4e15-8f7d-d33a2c8df4cf`)
+- Module project: `leadgen` -> `Leadgen Dashboard` (`84f6b163-c73a-4e19-8837-a545e9d11ee6`)
 - Workflow lane: `Dashboard Comment Intake`
 - Primary workspace: `https://github.com/Vladick-Pick/bitrix24-attraction-dashboards.git`, default ref `main`
 
@@ -22,6 +23,11 @@ The live company is the runtime source of truth. This repo is the reviewable rec
 - `pre-merge-reviewer` -> `a18581ef-7247-4236-a9c9-caae998478c0`
 - `dashboard-intake-service` -> `78f363d2-d859-4994-b684-e9fc2e75d676`
 
+Legacy draft aliases from the first dashboard-comments worktree are preserved under `_legacy/` for audit only:
+
+- `dashboard-triage-agent` -> current `dashboard-engineering-manager`
+- `dashboard-intake-agent` -> current `dashboard-intake-service`
+
 Current model policy:
 
 - manager/reviewer: `gpt-5.5`, `xhigh`
@@ -29,6 +35,18 @@ Current model policy:
 - intake service: `gpt-5.5`, `low`, heartbeat disabled
 
 All worker heartbeats are configured to run hourly with on-demand wake enabled, one concurrent run per agent. Live status must still be checked in Paperclip because adapter errors, credential gaps, or subscription limits can pause execution.
+
+The manager heartbeat is a single hourly wake checklist. Paperclip `Routines` are separate recurring issue definitions, not heartbeat steps; weekly and batch quality work must be represented as visible routine-created issues.
+
+The `Dashboard Engineering Manager` desired runtime skills include `DenisSergeevitch/agents-best-practices` for agent harness, observability, eval, skill/MCP, permission, context, and feedback-loop design.
+
+Expected manager routines are company-level, not module-project tasks. Their
+live `projectId` must stay empty so they review the whole dashboard team across
+`attraction`, `leadgen`, and future modules:
+
+- `Еженедельный отчет по качеству команды`: Monday 09:00 `Europe/Istanbul`, assigned to `Dashboard Engineering Manager`.
+- `Еженедельный аудит инструментов команды`: Monday 10:00 `Europe/Istanbul`, assigned to `Dashboard Engineering Manager`.
+- `Еженедельное предложение улучшений команды`: Monday 11:00 `Europe/Istanbul`, assigned to `Dashboard Engineering Manager`; requires board approval before any team/process/tool/runtime change is applied.
 
 ## Role Topology
 
@@ -85,6 +103,7 @@ Use the dashboard-ready marker only after the corrected work is implemented, fre
 
 - Skills are installed in the company managed Codex home and registered as desired runtime skills on every agent.
 - MCP config is installed in the shared and company Codex homes for Context7 and Playwright.
+- Before repository work is delegated, implemented, reviewed, marked ready, pushed, merged, or deployed, agents must run `pnpm session:preflight` from the task branch and record the result. A failing preflight blocks the issue until dirty work, stale refs, branch mismatch, or missing base state is preserved and reconciled without discarding changes.
 - Runtime capability drift must be checked with `pnpm check:paperclip-runtime` before GitHub, Context7, or browser-dependent tasks are marked ready.
 - Git read access to the dashboard repository is verified. Write/PR/merge access requires a GitHub credential on the VPS. Without that credential, agents stop at patch/evidence handoff and mark the issue blocked instead of claiming PR/merge/deploy completion.
 - The normal workflow never uses SSH/root access. Server work belongs to an explicit release/devops task with human approval and redacted output.

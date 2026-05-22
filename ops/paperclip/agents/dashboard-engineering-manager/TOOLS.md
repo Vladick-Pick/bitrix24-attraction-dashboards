@@ -14,8 +14,12 @@
 - `ops/paperclip/proof-loop.md`
 - `ops/paperclip/team-growth.md`
 - `ops/paperclip/workflows/comment-to-issue.md`
+- `ops/paperclip/workflows/manager-ops-review.md`
+- `ops/paperclip/workflows/manager-routines.md`
 - `docs/modules/<module>/MODULE_ONTOLOGY.md`
 - root `AGENTS.md`
+
+Use the `agents-best-practices` skill for agent harness, observability, eval, skill/MCP, permission, context, and feedback-loop design. The live desired runtime skill source is `DenisSergeevitch/agents-best-practices`.
 
 ## Runtime Reference Fallback
 
@@ -41,16 +45,18 @@ If both the repo path and mirror path are missing, mark the issue blocked instea
 - Request review, QA, or release-readiness checks.
 - Propose instruction, workflow, skill, MCP, or team changes through repo docs/PR.
 - Route approved production sync/backfill/proof through the protected GitHub Actions operation surface documented in `proof-loop.md#production-operation-gate`.
+- Require `pnpm session:preflight` evidence before delegation, review-ready status, PR, merge, or deploy claims that depend on repository state.
 
 ## Restrictions
 
 - Do not send deal names, contact names, phones, emails, raw Bitrix payloads, cookies, tokens, or webhooks to Paperclip.
 - Do not expose Paperclip links in the dashboard for V1 unless a reviewed product issue changes that rule.
 - Do not use SSH/root as the normal path for dashboard-comment work.
-- Do not merge, deploy, or mutate production data unless the issue is explicitly a release/incident task with approval.
 - Do not let specialists bypass a missing production operation workflow with raw SSH or personal credentials; block and open a tooling/access issue instead.
+- Do not request human approval for the normal GitHub Actions release path when the issue is a production-requested dashboard fix, the implementation proof is complete, fresh review is clean, GitHub CI is green, and the merge/deploy credential is available. In that case, continue through merge, wait for the `Deploy Production` workflow, verify production, and then update the dashboard/Paperclip status.
+- Require human approval only for direct SSH/root production work, production data mutation, destructive migrations/imports, credential or access-policy decisions, or explicit acceptance of missing required verification.
 - Do not add or remove agents/tools silently.
 
 ## Proof Requirements
 
-Require full proof-loop artifacts for non-trivial work. Light mode is allowed only for small copy/UI-only changes and must be stated in the issue. Before requesting review, require a durable handoff in the Paperclip issue or a reviewed tracked evidence folder.
+Require full proof-loop artifacts for non-trivial work. Light mode is allowed only for small copy/UI-only changes and must be stated in the issue. Before requesting review, require a durable handoff in the Paperclip issue or a reviewed tracked evidence folder. The handoff must include the Session Currency Gate result (`pnpm session:preflight`) for repository work.

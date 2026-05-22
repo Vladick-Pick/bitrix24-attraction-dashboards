@@ -39,6 +39,21 @@ Dashboard comments are module-scoped by default:
 - a leadgen-only issue must not alter attraction scenes, report semantics, manager whitelist, or visual behavior.
 - an attraction-only issue must not alter leadgen scenes, category `28` scoping, manager whitelist, or visual behavior.
 
+## Paperclip Project Routing
+
+Dashboard comment issue creation must use the active module's Paperclip mapping:
+
+- `attraction` -> `Attraction Dashboard`
+  (`c72f6e08-5483-4e15-8f7d-d33a2c8df4cf`);
+- `leadgen` -> `Leadgen Dashboard`
+  (`84f6b163-c73a-4e19-8837-a545e9d11ee6`);
+- shared/platform tasks may use no module project or a reviewed shared project
+  when one exists.
+
+The GitHub repository stays shared. GitHub issues and PRs should carry exactly
+one module label: `module:attraction`, `module:leadgen`, or
+`module:shared-platform`.
+
 ## Banned Payload Data
 
 - deal/contact names;

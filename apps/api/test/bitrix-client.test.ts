@@ -154,6 +154,35 @@ describe("BitrixClient pagination", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("retries fetch promises that ignore abort signals after the hard timeout", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise(() => undefined))
+      .mockResolvedValueOnce(
+        createResponse({
+          result: [{ ID: "1" }]
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 5,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(client.listDeals({ modifiedAfter: null })).resolves.toEqual([
+      {
+        ID: "1"
+      }
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("retries transient non-json responses from Bitrix", async () => {
     const fetchMock = vi
       .fn()

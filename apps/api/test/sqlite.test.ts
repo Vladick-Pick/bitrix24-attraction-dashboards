@@ -80,6 +80,7 @@ describe("createSqliteRepository", () => {
     await repository.upsertConversionEventVisits([
       {
         id: "VISIT-1",
+        eventId: null,
         eventName: "Знакомство с клубом 29.04.",
         eventDate: "2026-04-29T00:00:00.000Z",
         status: "attended",
@@ -97,6 +98,7 @@ describe("createSqliteRepository", () => {
     await expect(repository.getAllConversionEventVisits()).resolves.toEqual([
       {
         id: "VISIT-1",
+        eventId: null,
         eventName: "Знакомство с клубом 29.04.",
         eventDate: "2026-04-29T00:00:00.000Z",
         status: "attended",
@@ -109,6 +111,647 @@ describe("createSqliteRepository", () => {
         createdTime: "2026-04-20T10:00:00.000Z",
         updatedTime: "2026-04-29T13:56:00.000Z"
       }
+    ]);
+  });
+
+  it("prunes conversion event snapshots outside the scoped deals and planned event types", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.upsertConversionEventVisits([
+      {
+        id: "VISIT-DIRECT",
+        eventId: "EVENT-ALLOWED",
+        eventName: "Гостевая встреча 28.05.",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        status: "invited",
+        stageId: "DT:NEW",
+        stageName: "Приглашен",
+        dealId: "D1",
+        contactId: "C1",
+        managerId: "78",
+        sourceId: "WEB",
+        createdTime: "2026-05-20T10:00:00.000Z",
+        updatedTime: "2026-05-20T10:00:00.000Z"
+      },
+      {
+        id: "VISIT-CONTACT-ONLY",
+        eventId: "EVENT-CLUB",
+        eventName: "Клубная активность",
+        eventDate: "2026-06-01T00:00:00.000Z",
+        status: "invited",
+        stageId: "DT:NEW",
+        stageName: "Приглашен",
+        dealId: null,
+        contactId: "C1",
+        managerId: "78",
+        sourceId: "WEB",
+        createdTime: "2026-05-20T11:00:00.000Z",
+        updatedTime: "2026-05-20T11:00:00.000Z"
+      },
+      {
+        id: "VISIT-OTHER-DEAL",
+        eventId: "EVENT-CLUB",
+        eventName: "Клубная активность",
+        eventDate: "2026-06-02T00:00:00.000Z",
+        status: "attended",
+        stageId: "DT:ATTENDED",
+        stageName: "Пришел",
+        dealId: "D2",
+        contactId: "C2",
+        managerId: "78",
+        sourceId: "WEB",
+        createdTime: "2026-05-20T12:00:00.000Z",
+        updatedTime: "2026-05-20T12:00:00.000Z"
+      }
+    ]);
+
+    await repository.upsertEventVisitStageHistory([
+      {
+        historyId: "H-DIRECT",
+        visitId: "VISIT-DIRECT",
+        entityTypeId: 162,
+        categoryId: 14,
+        stageId: "DT:NEW",
+        stageName: "Приглашен",
+        typeId: 1,
+        changedAt: "2026-05-20T10:00:00.000Z"
+      },
+      {
+        historyId: "H-CONTACT",
+        visitId: "VISIT-CONTACT-ONLY",
+        entityTypeId: 162,
+        categoryId: 14,
+        stageId: "DT:NEW",
+        stageName: "Приглашен",
+        typeId: 1,
+        changedAt: "2026-05-20T11:00:00.000Z"
+      },
+      {
+        historyId: "H-OTHER",
+        visitId: "VISIT-OTHER-DEAL",
+        entityTypeId: 162,
+        categoryId: 14,
+        stageId: "DT:ATTENDED",
+        stageName: "Пришел",
+        typeId: 2,
+        changedAt: "2026-05-20T12:00:00.000Z"
+      }
+    ]);
+
+    await repository.upsertEventSnapshots([
+      {
+        eventId: "EVENT-ALLOWED",
+        entityTypeId: 137,
+        categoryId: 12,
+        title: "Гостевая встреча 28.05.",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        startAt: null,
+        endAt: null,
+        stageId: "DT137_12:PLANNED",
+        stageName: "Планируется",
+        status: "planned",
+        eventTypeId: "128",
+        eventTypeLabel: "Мероприятие Привлечения",
+        formatId: null,
+        createdTime: "2026-05-14T08:18:44.000Z",
+        updatedTime: "2026-05-19T20:57:57.000Z"
+      },
+      {
+        eventId: "EVENT-CLUB",
+        entityTypeId: 137,
+        categoryId: 12,
+        title: "Клубная активность",
+        eventDate: "2026-06-01T00:00:00.000Z",
+        startAt: null,
+        endAt: null,
+        stageId: "DT137_12:PLANNED",
+        stageName: "Планируется",
+        status: "planned",
+        eventTypeId: "999",
+        eventTypeLabel: "Клубная активность",
+        formatId: null,
+        createdTime: "2026-05-14T08:18:44.000Z",
+        updatedTime: "2026-05-19T20:57:57.000Z"
+      }
+    ]);
+
+    await repository.upsertEventVisitFacts([
+      {
+        visitId: "VISIT-DIRECT",
+        eventId: "EVENT-ALLOWED",
+        dealId: "D1",
+        contactId: "C1",
+        leadId: null,
+        managerId: "78",
+        sourceId: "WEB",
+        currentStageId: "DT:NEW",
+        currentStageName: "Приглашен",
+        invitedAt: "2026-05-20T10:00:00.000Z",
+        confirmedAt: null,
+        attendedAt: null,
+        refusedAt: null,
+        finalStatus: "invited",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        stageIdAtEvent: "C10:NEW",
+        linkConfidence: "high",
+        linkReason: "event_visit_deal",
+        payloadJson: null
+      },
+      {
+        visitId: "VISIT-CONTACT-ONLY",
+        eventId: "EVENT-CLUB",
+        dealId: null,
+        contactId: "C1",
+        leadId: null,
+        managerId: "78",
+        sourceId: "WEB",
+        currentStageId: "DT:NEW",
+        currentStageName: "Приглашен",
+        invitedAt: "2026-05-20T11:00:00.000Z",
+        confirmedAt: null,
+        attendedAt: null,
+        refusedAt: null,
+        finalStatus: "invited",
+        eventDate: "2026-06-01T00:00:00.000Z",
+        stageIdAtEvent: null,
+        linkConfidence: "low",
+        linkReason: "event_visit_without_direct_deal",
+        payloadJson: null
+      },
+      {
+        visitId: "VISIT-OTHER-DEAL",
+        eventId: "EVENT-CLUB",
+        dealId: "D2",
+        contactId: "C2",
+        leadId: null,
+        managerId: "78",
+        sourceId: "WEB",
+        currentStageId: "DT:ATTENDED",
+        currentStageName: "Пришел",
+        invitedAt: "2026-05-20T12:00:00.000Z",
+        confirmedAt: null,
+        attendedAt: "2026-06-02T00:00:00.000Z",
+        refusedAt: null,
+        finalStatus: "attended",
+        eventDate: "2026-06-02T00:00:00.000Z",
+        stageIdAtEvent: null,
+        linkConfidence: "low",
+        linkReason: "event_visit_deal_out_of_scope",
+        payloadJson: null
+      }
+    ]);
+
+    await repository.upsertDealTouchpointFacts([
+      {
+        factId: "event:VISIT-DIRECT",
+        kind: "conversion_event_visit",
+        sourceSystem: "bitrix24",
+        sourceEntityType: "conversion_event_visit",
+        sourceEntityId: "VISIT-DIRECT",
+        occurredAt: "2026-05-20T10:00:00.000Z",
+        dealId: "D1",
+        contactId: "C1",
+        leadId: null,
+        managerId: "78",
+        sourceId: "WEB",
+        stageIdAtEvent: "C10:NEW",
+        stageNameAtEvent: "Новая",
+        linkConfidence: "high",
+        linkReason: "event_visit_deal",
+        payloadJson: null
+      },
+      {
+        factId: "event:VISIT-CONTACT-ONLY",
+        kind: "conversion_event_visit",
+        sourceSystem: "bitrix24",
+        sourceEntityType: "conversion_event_visit",
+        sourceEntityId: "VISIT-CONTACT-ONLY",
+        occurredAt: "2026-05-20T11:00:00.000Z",
+        dealId: null,
+        contactId: "C1",
+        leadId: null,
+        managerId: "78",
+        sourceId: "WEB",
+        stageIdAtEvent: null,
+        stageNameAtEvent: null,
+        linkConfidence: "low",
+        linkReason: "event_visit_without_direct_deal",
+        payloadJson: null
+      },
+      {
+        factId: "event:VISIT-OTHER-DEAL",
+        kind: "conversion_event_visit",
+        sourceSystem: "bitrix24",
+        sourceEntityType: "conversion_event_visit",
+        sourceEntityId: "VISIT-OTHER-DEAL",
+        occurredAt: "2026-05-20T12:00:00.000Z",
+        dealId: "D2",
+        contactId: "C2",
+        leadId: null,
+        managerId: "78",
+        sourceId: "WEB",
+        stageIdAtEvent: null,
+        stageNameAtEvent: null,
+        linkConfidence: "low",
+        linkReason: "event_visit_deal_out_of_scope",
+        payloadJson: null
+      },
+      {
+        factId: "call:CALL-1",
+        kind: "call",
+        sourceSystem: "bitrix24",
+        sourceEntityType: "call",
+        sourceEntityId: "CALL-1",
+        occurredAt: "2026-05-20T13:00:00.000Z",
+        dealId: "D2",
+        contactId: "C2",
+        leadId: null,
+        managerId: "78",
+        sourceId: "WEB",
+        stageIdAtEvent: "C10:NEW",
+        stageNameAtEvent: "Новая",
+        linkConfidence: "high",
+        linkReason: "activity_owner_deal",
+        payloadJson: null
+      }
+    ]);
+
+    await expect(
+      repository.pruneConversionEventSnapshots({
+        scopedDealIds: ["D1"],
+        enabledEventTypeIds: ["128"]
+      })
+    ).resolves.toEqual({
+      conversionEventVisits: 2,
+      eventVisitStageHistory: 2,
+      eventVisitFacts: 2,
+      dealTouchpointFacts: 2,
+      eventSnapshots: 1
+    });
+
+    await expect(repository.getAllConversionEventVisits()).resolves.toEqual([
+      expect.objectContaining({ id: "VISIT-DIRECT", dealId: "D1" })
+    ]);
+    await expect(repository.getAllEventVisitStageHistory()).resolves.toEqual([
+      expect.objectContaining({ historyId: "H-DIRECT", visitId: "VISIT-DIRECT" })
+    ]);
+    await expect(repository.getAllEventVisitFacts()).resolves.toEqual([
+      expect.objectContaining({ visitId: "VISIT-DIRECT", dealId: "D1" })
+    ]);
+    await expect(repository.getAllDealTouchpointFacts()).resolves.toEqual([
+      expect.objectContaining({ factId: "event:VISIT-DIRECT" }),
+      expect.objectContaining({ factId: "call:CALL-1" })
+    ]);
+    await expect(repository.getAllEventSnapshots()).resolves.toEqual([
+      expect.objectContaining({ eventId: "EVENT-ALLOWED", eventTypeId: "128" })
+    ]);
+  });
+
+  it("keeps planned event snapshots when no planned event types are configured yet", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.upsertEventSnapshots([
+      {
+        eventId: "31394",
+        entityTypeId: 137,
+        categoryId: 12,
+        title: "Гостевая встреча 28.05.",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        startAt: null,
+        endAt: null,
+        stageId: "DT137_12:PLANNED",
+        stageName: "Планируется",
+        status: "planned",
+        eventTypeId: "128",
+        eventTypeLabel: "Мероприятие Привлечения",
+        formatId: null,
+        createdTime: "2026-05-14T08:18:44.000Z",
+        updatedTime: "2026-05-19T20:57:57.000Z"
+      }
+    ]);
+
+    await expect(
+      repository.pruneConversionEventSnapshots({
+        scopedDealIds: ["D1"],
+        enabledEventTypeIds: []
+      })
+    ).resolves.toEqual({
+      conversionEventVisits: 0,
+      eventVisitStageHistory: 0,
+      eventVisitFacts: 0,
+      dealTouchpointFacts: 0,
+      eventSnapshots: 0
+    });
+
+    await expect(repository.getAllEventSnapshots()).resolves.toEqual([
+      expect.objectContaining({
+        eventId: "31394",
+        title: "Гостевая встреча 28.05."
+      })
+    ]);
+  });
+
+  it("reconciles conversion visit dates from authoritative event snapshots", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.upsertConversionEventVisits([
+      {
+        id: "311478",
+        eventId: "2192",
+        eventName:
+          "МСК Гость Клуба: Александр Аузан 17.10.23 Александр Аузан оффлайн",
+        eventDate: "2026-10-17T00:00:00.000Z",
+        status: "attended",
+        stageId: "DT162_14:SUCCESS",
+        stageName: "На мероприятии",
+        dealId: "105712",
+        contactId: "0",
+        managerId: "78",
+        sourceId: null,
+        createdTime: "2023-10-23T10:04:20+03:00",
+        updatedTime: "2023-10-23T10:04:20+03:00"
+      }
+    ]);
+
+    await repository.upsertEventSnapshots([
+      {
+        eventId: "2192",
+        entityTypeId: 137,
+        categoryId: 12,
+        title: "МСК Гость Клуба: Александр Аузан 17.10.23 Александр Аузан оффлайн",
+        eventDate: "2023-10-17T00:00:00.000Z",
+        startAt: "2023-10-17T00:00:00.000Z",
+        endAt: null,
+        stageId: "DT137_12:COMPLETED",
+        stageName: "Проведено",
+        status: "completed",
+        eventTypeId: "128",
+        eventTypeLabel: "Мероприятие Привлечения",
+        formatId: null,
+        createdTime: "2023-10-01T10:00:00.000Z",
+        updatedTime: "2023-10-18T10:00:00.000Z"
+      }
+    ]);
+
+    await expect(repository.getAllConversionEventVisits()).resolves.toEqual([
+      expect.objectContaining({
+        id: "311478",
+        eventDate: "2023-10-17T00:00:00.000Z"
+      })
+    ]);
+  });
+
+  it("persists canonical identity, touchpoint and event facts without raw personal data", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.upsertIdentityLinks([
+      {
+        identityId: "identity:deal:156562",
+        moduleKey: "attraction",
+        dealId: "156562",
+        leadId: "900",
+        contactId: "321",
+        dealCategoryId: "10",
+        leadCategoryId: null,
+        currentManagerId: "13020",
+        currentStageId: "C10:DEMO",
+        sourceId: "REPEAT_SALE",
+        createdAt: "2026-05-13T10:00:00.000Z",
+        updatedAt: "2026-05-18T15:41:58.000Z",
+        linkConfidence: "high",
+        linkReason: "deal_snapshot"
+      }
+    ]);
+
+    await repository.upsertDealStageFacts([
+      {
+        factId: "stage:deal:156562:stage-1",
+        sourceSystem: "bitrix24",
+        sourceEntityId: "stage-1",
+        dealId: "156562",
+        contactId: "321",
+        leadId: "900",
+        categoryId: "10",
+        stageId: "C10:DEMO",
+        stageName: "Демонстрация",
+        stageSemanticId: "P",
+        enteredAt: "2026-05-18T12:00:00.000Z",
+        leftAt: null,
+        managerId: "13020",
+        sourceId: "REPEAT_SALE",
+        sortOrder: 40,
+        payloadJson: null
+      }
+    ]);
+
+    await repository.upsertDealTouchpointFacts([
+      {
+        factId: "call:CALL-1",
+        kind: "call",
+        sourceSystem: "bitrix24",
+        sourceEntityType: "call",
+        sourceEntityId: "CALL-1",
+        occurredAt: "2026-05-18T13:00:00.000Z",
+        dealId: "156562",
+        contactId: "321",
+        leadId: "900",
+        managerId: "13020",
+        sourceId: "REPEAT_SALE",
+        stageIdAtEvent: "C10:DEMO",
+        stageNameAtEvent: "Демонстрация",
+        linkConfidence: "high",
+        linkReason: "activity_owner_deal",
+        payloadJson: JSON.stringify({
+          durationSeconds: 95,
+          connected: true
+        })
+      }
+    ]);
+
+    await repository.upsertEventSnapshots([
+      {
+        eventId: "31394",
+        entityTypeId: 137,
+        categoryId: 12,
+        title: "Гостевая встреча 28.05.",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        startAt: null,
+        endAt: null,
+        stageId: "DT137_12:UC_9FT1X8",
+        stageName: "Планируется",
+        status: "planned",
+        eventTypeId: "128",
+        eventTypeLabel: "Мероприятие Привлечения",
+        formatId: "2788",
+        createdTime: "2026-05-14T08:18:44.000Z",
+        updatedTime: "2026-05-19T20:57:57.000Z"
+      }
+    ]);
+
+    await repository.upsertEventVisitFacts([
+      {
+        visitId: "455358",
+        eventId: "29402",
+        dealId: "156562",
+        contactId: "321",
+        leadId: "900",
+        managerId: "13020",
+        sourceId: "REPEAT_SALE",
+        currentStageId: "DT162_14:NEW",
+        currentStageName: "Приглашен",
+        invitedAt: "2026-05-18T15:41:58.000Z",
+        confirmedAt: null,
+        attendedAt: null,
+        refusedAt: null,
+        finalStatus: "invited",
+        eventDate: "2026-05-21T00:00:00.000Z",
+        stageIdAtEvent: "C10:DEMO",
+        linkConfidence: "high",
+        linkReason: "visit_parent_deal",
+        payloadJson: null
+      }
+    ]);
+
+    await repository.upsertEventVisitStageHistory([
+      {
+        historyId: "147080",
+        visitId: "455358",
+        entityTypeId: 162,
+        categoryId: 14,
+        stageId: "DT162_14:NEW",
+        stageName: "Приглашен",
+        typeId: 1,
+        changedAt: "2026-05-18T15:41:58.000Z"
+      }
+    ]);
+
+    await repository.replaceConversionEventTypeOptions([
+      {
+        id: "128",
+        title: "Мероприятие Привлечения",
+        categoryId: 30,
+        stageId: null,
+        selectedForPlannedInventory: true
+      }
+    ]);
+
+    await repository.replaceModuleEventTypeSettings({
+      moduleKey: "attraction",
+      rows: [
+        {
+          moduleKey: "attraction",
+          eventTypeId: "128",
+          eventTypeLabel: "Мероприятие Привлечения",
+          enabled: true,
+          updatedAt: "2026-05-24T12:00:00.000Z"
+        }
+      ]
+    });
+
+    await expect(repository.getAllIdentityLinks()).resolves.toEqual([
+      expect.objectContaining({
+        identityId: "identity:deal:156562",
+        dealId: "156562",
+        contactId: "321",
+        linkReason: "deal_snapshot"
+      })
+    ]);
+    await expect(repository.getAllDealStageFacts()).resolves.toEqual([
+      expect.objectContaining({
+        factId: "stage:deal:156562:stage-1",
+        stageName: "Демонстрация"
+      })
+    ]);
+    await expect(repository.getAllDealTouchpointFacts()).resolves.toEqual([
+      expect.objectContaining({
+        factId: "call:CALL-1",
+        kind: "call",
+        payloadJson: JSON.stringify({
+          durationSeconds: 95,
+          connected: true
+        })
+      })
+    ]);
+    await expect(repository.getAllEventSnapshots()).resolves.toEqual([
+      expect.objectContaining({
+        eventId: "31394",
+        eventTypeId: "128",
+        status: "planned"
+      })
+    ]);
+    await expect(repository.getAllEventVisitFacts()).resolves.toEqual([
+      expect.objectContaining({
+        visitId: "455358",
+        finalStatus: "invited",
+        linkReason: "visit_parent_deal"
+      })
+    ]);
+    await expect(repository.getAllEventVisitStageHistory()).resolves.toEqual([
+      expect.objectContaining({
+        historyId: "147080",
+        stageName: "Приглашен"
+      })
+    ]);
+    await expect(repository.getConversionEventTypeOptions()).resolves.toEqual([
+      expect.objectContaining({
+        id: "128",
+        selectedForPlannedInventory: true
+      })
+    ]);
+    await expect(
+      repository.getModuleEventTypeSettings("attraction")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        eventTypeId: "128",
+        enabled: true
+      })
+    ]);
+
+    await expect(
+      repository.replaceAnalyticsFacts({
+        identityLinks: [],
+        dealStageFacts: [],
+        dealTouchpointFacts: [],
+        eventVisitFacts: []
+      })
+    ).resolves.toEqual({
+      identityLinks: 0,
+      dealStageFacts: 0,
+      dealTouchpointFacts: 0,
+      eventVisitFacts: 0
+    });
+    await expect(repository.getAllIdentityLinks()).resolves.toEqual([]);
+    await expect(repository.getAllDealStageFacts()).resolves.toEqual([]);
+    await expect(repository.getAllDealTouchpointFacts()).resolves.toEqual([]);
+    await expect(repository.getAllEventVisitFacts()).resolves.toEqual([]);
+    await expect(repository.getAllEventSnapshots()).resolves.toEqual([
+      expect.objectContaining({
+        eventId: "31394"
+      })
     ]);
   });
 

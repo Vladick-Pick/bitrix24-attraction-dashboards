@@ -4,6 +4,8 @@ import type {
   ActivitiesWorkloadReport,
   AttractionOntologyResponse,
   CallsWorkloadReport,
+  ConversionEventTypeSettingsData,
+  ConversionEventTypeSettingsInput,
   ConversionEventsReport,
   DashboardData,
   DealPricingRuleInput,
@@ -408,10 +410,17 @@ export interface SceneComponentProps {
   onSalesPlanQuarterChange?: (quarter: { year: number; quarter: number }) => void
   onSalesPlanSave?: (rows: SalesPlanQuarterDraftRow[]) => Promise<void>
   pricingSettings?: DealPricingSettings | undefined
+  conversionEventTypeSettings?: ConversionEventTypeSettingsData | undefined
   pricingSettingsLoading?: boolean
   pricingSettingsSaving?: boolean
   pricingSettingsSaveError?: string | null | undefined
   onPricingSettingsSave?: (rows: DealPricingRuleInput[]) => Promise<void>
+  conversionEventTypeSettingsLoading?: boolean
+  conversionEventTypeSettingsSaving?: boolean
+  conversionEventTypeSettingsSaveError?: string | null | undefined
+  onConversionEventTypeSettingsSave?: (
+    input: ConversionEventTypeSettingsInput,
+  ) => Promise<void>
   onSceneNavigate?: (sceneId: string, blockId?: string) => void
 }
 
@@ -439,6 +448,7 @@ export interface ProtoRuntimeData {
   salesPlanQuarter?: SalesPlanQuarterData
   salesPlanQuarterDashboard?: DashboardData
   pricingSettings?: DealPricingSettings
+  conversionEventTypeSettings?: ConversionEventTypeSettingsData
   activitiesWorkload?: ActivitiesWorkloadReport
   callsWorkload?: CallsWorkloadReport
   activitiesCalls?: ActivitiesCallsSceneData

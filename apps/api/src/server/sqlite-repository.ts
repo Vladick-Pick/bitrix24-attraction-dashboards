@@ -8,12 +8,20 @@ import type {
   ActivitySnapshot,
   CallSnapshot,
   ConversionEventVisitSnapshot,
+  ConversionEventTypeOption,
+  DealStageFactSnapshot,
+  DealTouchpointFactSnapshot,
   DealPricingRule,
   DealPricingRuleInput,
   DealMeetingDateChangeSnapshot,
   DealSnapshot,
+  EventSnapshot,
+  EventVisitFactSnapshot,
+  EventVisitStageHistorySnapshot,
+  IdentityLinkSnapshot,
   LeadSnapshot,
   ManagerDirectoryEntry,
+  ModuleEventTypeSetting,
   SalesPlanDraftRow,
   SalesPlanRow,
   SnapshotStats,
@@ -89,6 +97,19 @@ export interface ReplaceSalesPlanPeriodsInput {
 export interface ReplacePricingRulesInput {
   updatedAt: string;
   rules: DealPricingRuleInput[];
+}
+
+export interface PruneConversionEventSnapshotsInput {
+  scopedDealIds: string[];
+  enabledEventTypeIds: string[];
+}
+
+export interface PruneConversionEventSnapshotsResult {
+  conversionEventVisits: number;
+  eventVisitStageHistory: number;
+  eventVisitFacts: number;
+  dealTouchpointFacts: number;
+  eventSnapshots: number;
 }
 
 export interface ProtoCommentAnchor {
@@ -197,6 +218,11 @@ export interface SqliteRepository {
     activityCreatedFrom?: string | null,
     ownerIds?: string[]
   ): Promise<string[]>;
+  getConversionEventVisitIdsMissingStageHistory(limit?: number): Promise<string[]>;
+  getConversionEventVisitsByIds(
+    visitIds: string[]
+  ): Promise<ConversionEventVisitSnapshot[]>;
+  getConversionEventIdsMissingEventSnapshots(limit?: number): Promise<string[]>;
   replaceStageCatalog(rows: StageCatalogEntry[]): Promise<void>;
   upsertLeads(rows: LeadSnapshot[]): Promise<number>;
   upsertDeals(rows: DealSnapshot[]): Promise<number>;
@@ -211,6 +237,36 @@ export interface SqliteRepository {
   ): Promise<number>;
   upsertConversionEventVisits(
     rows: ConversionEventVisitSnapshot[]
+  ): Promise<number>;
+  pruneConversionEventSnapshots(
+    input: PruneConversionEventSnapshotsInput
+  ): Promise<PruneConversionEventSnapshotsResult>;
+  upsertIdentityLinks(rows: IdentityLinkSnapshot[]): Promise<number>;
+  upsertDealStageFacts(rows: DealStageFactSnapshot[]): Promise<number>;
+  upsertDealTouchpointFacts(rows: DealTouchpointFactSnapshot[]): Promise<number>;
+  replaceAnalyticsFacts(input: {
+    identityLinks: IdentityLinkSnapshot[];
+    dealStageFacts: DealStageFactSnapshot[];
+    dealTouchpointFacts: DealTouchpointFactSnapshot[];
+    eventVisitFacts?: EventVisitFactSnapshot[];
+  }): Promise<{
+    identityLinks: number;
+    dealStageFacts: number;
+    dealTouchpointFacts: number;
+    eventVisitFacts?: number;
+  }>;
+  upsertEventSnapshots(rows: EventSnapshot[]): Promise<number>;
+  upsertEventVisitFacts(rows: EventVisitFactSnapshot[]): Promise<number>;
+  replaceEventVisitFacts(rows: EventVisitFactSnapshot[]): Promise<number>;
+  upsertEventVisitStageHistory(
+    rows: EventVisitStageHistorySnapshot[]
+  ): Promise<number>;
+  replaceModuleEventTypeSettings(input: {
+    moduleKey: string;
+    rows: ModuleEventTypeSetting[];
+  }): Promise<number>;
+  replaceConversionEventTypeOptions(
+    rows: ConversionEventTypeOption[]
   ): Promise<number>;
   upsertCalls(rows: CallSnapshot[]): Promise<number>;
   upsertManagerDirectory(rows: ManagerDirectoryEntry[]): Promise<number>;
@@ -256,6 +312,14 @@ export interface SqliteRepository {
   getAllActivityDeadlineChanges(): Promise<ActivityDeadlineChangeSnapshot[]>;
   getAllDealMeetingDateChanges(): Promise<DealMeetingDateChangeSnapshot[]>;
   getAllConversionEventVisits(): Promise<ConversionEventVisitSnapshot[]>;
+  getAllIdentityLinks(): Promise<IdentityLinkSnapshot[]>;
+  getAllDealStageFacts(): Promise<DealStageFactSnapshot[]>;
+  getAllDealTouchpointFacts(): Promise<DealTouchpointFactSnapshot[]>;
+  getAllEventSnapshots(): Promise<EventSnapshot[]>;
+  getAllEventVisitFacts(): Promise<EventVisitFactSnapshot[]>;
+  getAllEventVisitStageHistory(): Promise<EventVisitStageHistorySnapshot[]>;
+  getModuleEventTypeSettings(moduleKey?: string): Promise<ModuleEventTypeSetting[]>;
+  getConversionEventTypeOptions(): Promise<ConversionEventTypeOption[]>;
   getAllCalls(): Promise<CallSnapshot[]>;
   getManagerDirectory(): Promise<ManagerDirectoryEntry[]>;
   getStageCatalog(): Promise<StageCatalogEntry[]>;
@@ -676,6 +740,7 @@ export function createSqliteRepository(
 
     CREATE TABLE IF NOT EXISTS conversion_event_visit_snapshots (
       id TEXT PRIMARY KEY,
+      event_id TEXT,
       event_name TEXT NOT NULL,
       event_date TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -687,6 +752,130 @@ export function createSqliteRepository(
       source_id TEXT,
       created_time TEXT NOT NULL,
       updated_time TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS identity_links (
+      identity_id TEXT PRIMARY KEY,
+      module_key TEXT NOT NULL,
+      deal_id TEXT,
+      lead_id TEXT,
+      contact_id TEXT,
+      deal_category_id TEXT,
+      lead_category_id TEXT,
+      current_manager_id TEXT,
+      current_stage_id TEXT,
+      source_id TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      link_confidence TEXT NOT NULL,
+      link_reason TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS deal_stage_facts (
+      fact_id TEXT PRIMARY KEY,
+      source_system TEXT NOT NULL,
+      source_entity_id TEXT NOT NULL,
+      deal_id TEXT NOT NULL,
+      contact_id TEXT,
+      lead_id TEXT,
+      category_id TEXT,
+      stage_id TEXT NOT NULL,
+      stage_name TEXT,
+      stage_semantic_id TEXT,
+      entered_at TEXT NOT NULL,
+      left_at TEXT,
+      manager_id TEXT,
+      source_id TEXT,
+      sort_order INTEGER,
+      payload_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS deal_touchpoint_facts (
+      fact_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      source_system TEXT NOT NULL,
+      source_entity_type TEXT NOT NULL,
+      source_entity_id TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      deal_id TEXT,
+      contact_id TEXT,
+      lead_id TEXT,
+      manager_id TEXT,
+      source_id TEXT,
+      stage_id_at_event TEXT,
+      stage_name_at_event TEXT,
+      link_confidence TEXT NOT NULL,
+      link_reason TEXT NOT NULL,
+      payload_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS event_snapshots (
+      event_id TEXT PRIMARY KEY,
+      entity_type_id INTEGER NOT NULL,
+      category_id INTEGER,
+      title TEXT,
+      event_date TEXT NOT NULL,
+      start_at TEXT,
+      end_at TEXT,
+      stage_id TEXT NOT NULL,
+      stage_name TEXT,
+      status TEXT NOT NULL,
+      event_type_id TEXT,
+      event_type_label TEXT,
+      format_id TEXT,
+      created_time TEXT NOT NULL,
+      updated_time TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS event_visit_facts (
+      visit_id TEXT PRIMARY KEY,
+      event_id TEXT,
+      deal_id TEXT,
+      contact_id TEXT,
+      lead_id TEXT,
+      manager_id TEXT,
+      source_id TEXT,
+      current_stage_id TEXT NOT NULL,
+      current_stage_name TEXT,
+      invited_at TEXT,
+      confirmed_at TEXT,
+      attended_at TEXT,
+      refused_at TEXT,
+      final_status TEXT NOT NULL,
+      event_date TEXT,
+      stage_id_at_event TEXT,
+      link_confidence TEXT NOT NULL,
+      link_reason TEXT NOT NULL,
+      payload_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS event_visit_stage_history (
+      history_id TEXT PRIMARY KEY,
+      visit_id TEXT NOT NULL,
+      entity_type_id INTEGER NOT NULL,
+      category_id INTEGER,
+      stage_id TEXT NOT NULL,
+      stage_name TEXT,
+      type_id INTEGER,
+      changed_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS module_event_type_settings (
+      module_key TEXT NOT NULL,
+      event_type_id TEXT NOT NULL,
+      event_type_label TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (module_key, event_type_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS conversion_event_type_options (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      category_id INTEGER,
+      stage_id TEXT,
+      selected_for_planned_inventory INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS call_snapshots (
@@ -771,6 +960,30 @@ export function createSqliteRepository(
       ON conversion_event_visit_snapshots (event_date);
     CREATE INDEX IF NOT EXISTS idx_conversion_event_visits_deal_id
       ON conversion_event_visit_snapshots (deal_id);
+    CREATE INDEX IF NOT EXISTS idx_identity_links_deal_id
+      ON identity_links (deal_id);
+    CREATE INDEX IF NOT EXISTS idx_identity_links_contact_id
+      ON identity_links (contact_id);
+    CREATE INDEX IF NOT EXISTS idx_identity_links_lead_id
+      ON identity_links (lead_id);
+    CREATE INDEX IF NOT EXISTS idx_deal_stage_facts_deal_entered
+      ON deal_stage_facts (deal_id, entered_at);
+    CREATE INDEX IF NOT EXISTS idx_deal_touchpoint_facts_deal_time
+      ON deal_touchpoint_facts (deal_id, occurred_at);
+    CREATE INDEX IF NOT EXISTS idx_deal_touchpoint_facts_contact_time
+      ON deal_touchpoint_facts (contact_id, occurred_at);
+    CREATE INDEX IF NOT EXISTS idx_deal_touchpoint_facts_kind_time
+      ON deal_touchpoint_facts (kind, occurred_at);
+    CREATE INDEX IF NOT EXISTS idx_event_snapshots_event_date
+      ON event_snapshots (event_date);
+    CREATE INDEX IF NOT EXISTS idx_event_visit_facts_event_id
+      ON event_visit_facts (event_id);
+    CREATE INDEX IF NOT EXISTS idx_event_visit_facts_deal_id
+      ON event_visit_facts (deal_id);
+    CREATE INDEX IF NOT EXISTS idx_event_visit_stage_history_visit
+      ON event_visit_stage_history (visit_id, changed_at);
+    CREATE INDEX IF NOT EXISTS idx_module_event_type_settings_module
+      ON module_event_type_settings (module_key, enabled);
     CREATE INDEX IF NOT EXISTS idx_call_crm_activity_id
       ON call_snapshots (crm_activity_id);
     CREATE INDEX IF NOT EXISTS idx_proto_comments_scene_status
@@ -789,6 +1002,7 @@ export function createSqliteRepository(
   ensureColumn(database, "deal_snapshots", "conversion_event_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_detail", "TEXT");
+  ensureColumn(database, "conversion_event_visit_snapshots", "event_id", "TEXT");
   ensureColumn(database, "stage_catalog", "sort_order", "INTEGER");
   ensureColumn(database, "sync_runs", "scope_key", "TEXT");
   ensureColumn(database, "sync_runs", "deal_breakdown_json", "TEXT");
@@ -1097,6 +1311,7 @@ export function createSqliteRepository(
   const upsertConversionEventVisitStatement = database.prepare(`
     INSERT INTO conversion_event_visit_snapshots (
       id,
+      event_id,
       event_name,
       event_date,
       status,
@@ -1110,6 +1325,7 @@ export function createSqliteRepository(
       updated_time
     ) VALUES (
       @id,
+      @eventId,
       @eventName,
       @eventDate,
       @status,
@@ -1123,6 +1339,7 @@ export function createSqliteRepository(
       @updatedTime
     )
     ON CONFLICT(id) DO UPDATE SET
+      event_id = excluded.event_id,
       event_name = excluded.event_name,
       event_date = excluded.event_date,
       status = excluded.status,
@@ -1134,6 +1351,378 @@ export function createSqliteRepository(
       source_id = excluded.source_id,
       created_time = excluded.created_time,
       updated_time = excluded.updated_time
+  `);
+
+  const upsertIdentityLinkStatement = database.prepare(`
+    INSERT INTO identity_links (
+      identity_id,
+      module_key,
+      deal_id,
+      lead_id,
+      contact_id,
+      deal_category_id,
+      lead_category_id,
+      current_manager_id,
+      current_stage_id,
+      source_id,
+      created_at,
+      updated_at,
+      link_confidence,
+      link_reason
+    ) VALUES (
+      @identityId,
+      @moduleKey,
+      @dealId,
+      @leadId,
+      @contactId,
+      @dealCategoryId,
+      @leadCategoryId,
+      @currentManagerId,
+      @currentStageId,
+      @sourceId,
+      @createdAt,
+      @updatedAt,
+      @linkConfidence,
+      @linkReason
+    )
+    ON CONFLICT(identity_id) DO UPDATE SET
+      module_key = excluded.module_key,
+      deal_id = excluded.deal_id,
+      lead_id = excluded.lead_id,
+      contact_id = excluded.contact_id,
+      deal_category_id = excluded.deal_category_id,
+      lead_category_id = excluded.lead_category_id,
+      current_manager_id = excluded.current_manager_id,
+      current_stage_id = excluded.current_stage_id,
+      source_id = excluded.source_id,
+      created_at = excluded.created_at,
+      updated_at = excluded.updated_at,
+      link_confidence = excluded.link_confidence,
+      link_reason = excluded.link_reason
+  `);
+
+  const upsertDealStageFactStatement = database.prepare(`
+    INSERT INTO deal_stage_facts (
+      fact_id,
+      source_system,
+      source_entity_id,
+      deal_id,
+      contact_id,
+      lead_id,
+      category_id,
+      stage_id,
+      stage_name,
+      stage_semantic_id,
+      entered_at,
+      left_at,
+      manager_id,
+      source_id,
+      sort_order,
+      payload_json
+    ) VALUES (
+      @factId,
+      @sourceSystem,
+      @sourceEntityId,
+      @dealId,
+      @contactId,
+      @leadId,
+      @categoryId,
+      @stageId,
+      @stageName,
+      @stageSemanticId,
+      @enteredAt,
+      @leftAt,
+      @managerId,
+      @sourceId,
+      @sortOrder,
+      @payloadJson
+    )
+    ON CONFLICT(fact_id) DO UPDATE SET
+      source_system = excluded.source_system,
+      source_entity_id = excluded.source_entity_id,
+      deal_id = excluded.deal_id,
+      contact_id = excluded.contact_id,
+      lead_id = excluded.lead_id,
+      category_id = excluded.category_id,
+      stage_id = excluded.stage_id,
+      stage_name = excluded.stage_name,
+      stage_semantic_id = excluded.stage_semantic_id,
+      entered_at = excluded.entered_at,
+      left_at = excluded.left_at,
+      manager_id = excluded.manager_id,
+      source_id = excluded.source_id,
+      sort_order = excluded.sort_order,
+      payload_json = excluded.payload_json
+  `);
+
+  const upsertDealTouchpointFactStatement = database.prepare(`
+    INSERT INTO deal_touchpoint_facts (
+      fact_id,
+      kind,
+      source_system,
+      source_entity_type,
+      source_entity_id,
+      occurred_at,
+      deal_id,
+      contact_id,
+      lead_id,
+      manager_id,
+      source_id,
+      stage_id_at_event,
+      stage_name_at_event,
+      link_confidence,
+      link_reason,
+      payload_json
+    ) VALUES (
+      @factId,
+      @kind,
+      @sourceSystem,
+      @sourceEntityType,
+      @sourceEntityId,
+      @occurredAt,
+      @dealId,
+      @contactId,
+      @leadId,
+      @managerId,
+      @sourceId,
+      @stageIdAtEvent,
+      @stageNameAtEvent,
+      @linkConfidence,
+      @linkReason,
+      @payloadJson
+    )
+    ON CONFLICT(fact_id) DO UPDATE SET
+      kind = excluded.kind,
+      source_system = excluded.source_system,
+      source_entity_type = excluded.source_entity_type,
+      source_entity_id = excluded.source_entity_id,
+      occurred_at = excluded.occurred_at,
+      deal_id = excluded.deal_id,
+      contact_id = excluded.contact_id,
+      lead_id = excluded.lead_id,
+      manager_id = excluded.manager_id,
+      source_id = excluded.source_id,
+      stage_id_at_event = excluded.stage_id_at_event,
+      stage_name_at_event = excluded.stage_name_at_event,
+      link_confidence = excluded.link_confidence,
+      link_reason = excluded.link_reason,
+      payload_json = excluded.payload_json
+  `);
+
+  const upsertEventSnapshotStatement = database.prepare(`
+    INSERT INTO event_snapshots (
+      event_id,
+      entity_type_id,
+      category_id,
+      title,
+      event_date,
+      start_at,
+      end_at,
+      stage_id,
+      stage_name,
+      status,
+      event_type_id,
+      event_type_label,
+      format_id,
+      created_time,
+      updated_time
+    ) VALUES (
+      @eventId,
+      @entityTypeId,
+      @categoryId,
+      @title,
+      @eventDate,
+      @startAt,
+      @endAt,
+      @stageId,
+      @stageName,
+      @status,
+      @eventTypeId,
+      @eventTypeLabel,
+      @formatId,
+      @createdTime,
+      @updatedTime
+    )
+    ON CONFLICT(event_id) DO UPDATE SET
+      entity_type_id = excluded.entity_type_id,
+      category_id = excluded.category_id,
+      title = excluded.title,
+      event_date = excluded.event_date,
+      start_at = excluded.start_at,
+      end_at = excluded.end_at,
+      stage_id = excluded.stage_id,
+      stage_name = excluded.stage_name,
+      status = excluded.status,
+      event_type_id = excluded.event_type_id,
+      event_type_label = excluded.event_type_label,
+      format_id = excluded.format_id,
+      created_time = excluded.created_time,
+      updated_time = excluded.updated_time
+  `);
+  const reconcileConversionEventVisitDateStatement = database.prepare(`
+    UPDATE conversion_event_visit_snapshots
+    SET event_date = @eventDate
+    WHERE event_id = @eventId
+      AND event_date <> @eventDate
+  `);
+
+  const upsertEventVisitFactStatement = database.prepare(`
+    INSERT INTO event_visit_facts (
+      visit_id,
+      event_id,
+      deal_id,
+      contact_id,
+      lead_id,
+      manager_id,
+      source_id,
+      current_stage_id,
+      current_stage_name,
+      invited_at,
+      confirmed_at,
+      attended_at,
+      refused_at,
+      final_status,
+      event_date,
+      stage_id_at_event,
+      link_confidence,
+      link_reason,
+      payload_json
+    ) VALUES (
+      @visitId,
+      @eventId,
+      @dealId,
+      @contactId,
+      @leadId,
+      @managerId,
+      @sourceId,
+      @currentStageId,
+      @currentStageName,
+      @invitedAt,
+      @confirmedAt,
+      @attendedAt,
+      @refusedAt,
+      @finalStatus,
+      @eventDate,
+      @stageIdAtEvent,
+      @linkConfidence,
+      @linkReason,
+      @payloadJson
+    )
+    ON CONFLICT(visit_id) DO UPDATE SET
+      event_id = excluded.event_id,
+      deal_id = excluded.deal_id,
+      contact_id = excluded.contact_id,
+      lead_id = excluded.lead_id,
+      manager_id = excluded.manager_id,
+      source_id = excluded.source_id,
+      current_stage_id = excluded.current_stage_id,
+      current_stage_name = excluded.current_stage_name,
+      invited_at = excluded.invited_at,
+      confirmed_at = excluded.confirmed_at,
+      attended_at = excluded.attended_at,
+      refused_at = excluded.refused_at,
+      final_status = excluded.final_status,
+      event_date = excluded.event_date,
+      stage_id_at_event = excluded.stage_id_at_event,
+      link_confidence = excluded.link_confidence,
+      link_reason = excluded.link_reason,
+      payload_json = excluded.payload_json
+  `);
+
+  const upsertEventVisitStageHistoryStatement = database.prepare(`
+    INSERT INTO event_visit_stage_history (
+      history_id,
+      visit_id,
+      entity_type_id,
+      category_id,
+      stage_id,
+      stage_name,
+      type_id,
+      changed_at
+    ) VALUES (
+      @historyId,
+      @visitId,
+      @entityTypeId,
+      @categoryId,
+      @stageId,
+      @stageName,
+      @typeId,
+      @changedAt
+    )
+    ON CONFLICT(history_id) DO UPDATE SET
+      visit_id = excluded.visit_id,
+      entity_type_id = excluded.entity_type_id,
+      category_id = excluded.category_id,
+      stage_id = excluded.stage_id,
+      stage_name = excluded.stage_name,
+      type_id = excluded.type_id,
+      changed_at = excluded.changed_at
+  `);
+
+  const deleteModuleEventTypeSettingsStatement = database.prepare(`
+    DELETE FROM module_event_type_settings
+    WHERE module_key = ?
+  `);
+
+  const upsertModuleEventTypeSettingStatement = database.prepare(`
+    INSERT INTO module_event_type_settings (
+      module_key,
+      event_type_id,
+      event_type_label,
+      enabled,
+      updated_at
+    ) VALUES (
+      @moduleKey,
+      @eventTypeId,
+      @eventTypeLabel,
+      @enabled,
+      @updatedAt
+    )
+    ON CONFLICT(module_key, event_type_id) DO UPDATE SET
+      event_type_label = excluded.event_type_label,
+      enabled = excluded.enabled,
+      updated_at = excluded.updated_at
+  `);
+
+  const deleteConversionEventTypeOptionsStatement = database.prepare(`
+    DELETE FROM conversion_event_type_options
+  `);
+
+  const upsertConversionEventTypeOptionStatement = database.prepare(`
+    INSERT INTO conversion_event_type_options (
+      id,
+      title,
+      category_id,
+      stage_id,
+      selected_for_planned_inventory,
+      updated_at
+    ) VALUES (
+      @id,
+      @title,
+      @categoryId,
+      @stageId,
+      @selectedForPlannedInventory,
+      @updatedAt
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      category_id = excluded.category_id,
+      stage_id = excluded.stage_id,
+      selected_for_planned_inventory = excluded.selected_for_planned_inventory,
+      updated_at = excluded.updated_at
+  `);
+
+  const deleteIdentityLinksStatement = database.prepare(`
+    DELETE FROM identity_links
+  `);
+  const deleteDealStageFactsStatement = database.prepare(`
+    DELETE FROM deal_stage_facts
+  `);
+  const deleteDealTouchpointFactsStatement = database.prepare(`
+    DELETE FROM deal_touchpoint_facts
+  `);
+  const deleteEventVisitFactsStatement = database.prepare(`
+    DELETE FROM event_visit_facts
   `);
 
   const upsertCallStatement = database.prepare(`
@@ -2059,6 +2648,92 @@ export function createSqliteRepository(
       );
     },
 
+    async getConversionEventVisitIdsMissingStageHistory(limit = 5_000) {
+      const safeLimit = Number.isFinite(limit)
+        ? Math.max(0, Math.trunc(limit))
+        : 5_000;
+
+      if (safeLimit === 0) {
+        return [];
+      }
+
+      const rows = database
+        .prepare(
+          `SELECT v.id AS visitId
+          FROM conversion_event_visit_snapshots v
+          LEFT JOIN event_visit_stage_history h ON h.visit_id = v.id
+          WHERE h.visit_id IS NULL
+          ORDER BY CAST(v.id AS INTEGER) ASC, v.id ASC
+          LIMIT ?`
+        )
+        .all(safeLimit) as Array<{ visitId: string }>;
+
+      return rows.map((row) => row.visitId);
+    },
+
+    async getConversionEventVisitsByIds(visitIds) {
+      const ids = Array.from(new Set(visitIds.map(String).filter(Boolean)));
+      if (ids.length === 0) {
+        return [];
+      }
+
+      const rows = chunkValues(ids).flatMap((chunk) => {
+        const placeholders = chunk.map(() => "?").join(", ");
+        return database
+          .prepare(
+            `SELECT
+              id,
+              event_id AS eventId,
+              event_name AS eventName,
+              event_date AS eventDate,
+              status,
+              stage_id AS stageId,
+              stage_name AS stageName,
+              deal_id AS dealId,
+              contact_id AS contactId,
+              manager_id AS managerId,
+              source_id AS sourceId,
+              created_time AS createdTime,
+              updated_time AS updatedTime
+            FROM conversion_event_visit_snapshots
+            WHERE id IN (${placeholders})
+            ORDER BY event_date ASC, id ASC`
+          )
+          .all(...chunk) as ConversionEventVisitSnapshot[];
+      });
+
+      const rowById = new Map(rows.map((row) => [row.id, row]));
+      return ids.flatMap((id) => {
+        const row = rowById.get(id);
+        return row ? [row] : [];
+      });
+    },
+
+    async getConversionEventIdsMissingEventSnapshots(limit = 5_000) {
+      const safeLimit = Number.isFinite(limit)
+        ? Math.max(0, Math.trunc(limit))
+        : 5_000;
+
+      if (safeLimit === 0) {
+        return [];
+      }
+
+      const rows = database
+        .prepare(
+          `SELECT DISTINCT v.event_id AS eventId
+          FROM conversion_event_visit_snapshots v
+          LEFT JOIN event_snapshots e ON e.event_id = v.event_id
+          WHERE v.event_id IS NOT NULL
+            AND v.event_id <> ''
+            AND e.event_id IS NULL
+          ORDER BY CAST(v.event_id AS INTEGER) ASC, v.event_id ASC
+          LIMIT ?`
+        )
+        .all(safeLimit) as Array<{ eventId: string }>;
+
+      return rows.map((row) => row.eventId);
+    },
+
     replaceStageCatalog(rows) {
       const transaction = database.transaction((nextRows: StageCatalogEntry[]) => {
         database.exec("DELETE FROM stage_catalog");
@@ -2175,7 +2850,300 @@ export function createSqliteRepository(
       const transaction = database.transaction(
         (nextRows: ConversionEventVisitSnapshot[]) => {
           for (const row of nextRows) {
-            upsertConversionEventVisitStatement.run(row);
+            upsertConversionEventVisitStatement.run({
+              ...row,
+              eventId: row.eventId ?? null
+            });
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    pruneConversionEventSnapshots(input) {
+      const scopedDealIds = Array.from(
+        new Set(input.scopedDealIds.map(String).filter(Boolean))
+      );
+      const enabledEventTypeIds = Array.from(
+        new Set(input.enabledEventTypeIds.map(String).filter(Boolean))
+      );
+      const transaction = database.transaction(
+        (pruneInput: {
+          scopedDealIds: string[];
+          enabledEventTypeIds: string[];
+        }): PruneConversionEventSnapshotsResult => {
+          const dropPruneTables = () => {
+            database.exec(`
+              DROP TABLE IF EXISTS temp.prune_scoped_deal_ids;
+              DROP TABLE IF EXISTS temp.prune_enabled_event_type_ids;
+            `);
+          };
+
+          dropPruneTables();
+
+          try {
+            database.exec(`
+              CREATE TEMP TABLE prune_scoped_deal_ids (
+                deal_id TEXT PRIMARY KEY
+              );
+              CREATE TEMP TABLE prune_enabled_event_type_ids (
+                event_type_id TEXT PRIMARY KEY
+              );
+            `);
+
+            const insertScopedDeal = database.prepare(
+              `INSERT OR IGNORE INTO prune_scoped_deal_ids (deal_id) VALUES (?)`
+            );
+            const insertEnabledEventType = database.prepare(
+              `INSERT OR IGNORE INTO prune_enabled_event_type_ids (event_type_id)
+              VALUES (?)`
+            );
+
+            for (const dealId of pruneInput.scopedDealIds) {
+              insertScopedDeal.run(dealId);
+            }
+            for (const eventTypeId of pruneInput.enabledEventTypeIds) {
+              insertEnabledEventType.run(eventTypeId);
+            }
+
+            const conversionEventVisits = database
+              .prepare(
+                `DELETE FROM conversion_event_visit_snapshots
+                WHERE deal_id IS NULL
+                  OR deal_id = ''
+                  OR NOT EXISTS (
+                    SELECT 1
+                    FROM prune_scoped_deal_ids scoped
+                    WHERE scoped.deal_id = conversion_event_visit_snapshots.deal_id
+                  )`
+              )
+              .run().changes;
+            const eventVisitStageHistory = database
+              .prepare(
+                `DELETE FROM event_visit_stage_history
+                WHERE NOT EXISTS (
+                  SELECT 1
+                  FROM conversion_event_visit_snapshots visits
+                  WHERE visits.id = event_visit_stage_history.visit_id
+                )`
+              )
+              .run().changes;
+            const eventVisitFacts = database
+              .prepare(
+                `DELETE FROM event_visit_facts
+                WHERE deal_id IS NULL
+                  OR deal_id = ''
+                  OR NOT EXISTS (
+                    SELECT 1
+                    FROM prune_scoped_deal_ids scoped
+                    WHERE scoped.deal_id = event_visit_facts.deal_id
+                  )`
+              )
+              .run().changes;
+            const dealTouchpointFacts = database
+              .prepare(
+                `DELETE FROM deal_touchpoint_facts
+                WHERE kind = 'conversion_event_visit'
+                  AND (
+                    deal_id IS NULL
+                    OR deal_id = ''
+                    OR NOT EXISTS (
+                      SELECT 1
+                      FROM prune_scoped_deal_ids scoped
+                      WHERE scoped.deal_id = deal_touchpoint_facts.deal_id
+                    )
+                  )`
+              )
+              .run().changes;
+            const eventSnapshots =
+              pruneInput.enabledEventTypeIds.length > 0
+                ? database
+                    .prepare(
+                      `DELETE FROM event_snapshots
+                      WHERE event_type_id IS NULL
+                        OR event_type_id = ''
+                        OR NOT EXISTS (
+                          SELECT 1
+                          FROM prune_enabled_event_type_ids enabled
+                          WHERE enabled.event_type_id = event_snapshots.event_type_id
+                        )`
+                    )
+                    .run().changes
+                : 0;
+
+            return {
+              conversionEventVisits,
+              eventVisitStageHistory,
+              eventVisitFacts,
+              dealTouchpointFacts,
+              eventSnapshots
+            };
+          } finally {
+            dropPruneTables();
+          }
+        }
+      );
+
+      return Promise.resolve(
+        transaction({
+          scopedDealIds,
+          enabledEventTypeIds
+        })
+      );
+    },
+
+    upsertIdentityLinks(rows) {
+      const transaction = database.transaction(
+        (nextRows: IdentityLinkSnapshot[]) => {
+          for (const row of nextRows) {
+            upsertIdentityLinkStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    upsertDealStageFacts(rows) {
+      const transaction = database.transaction(
+        (nextRows: DealStageFactSnapshot[]) => {
+          for (const row of nextRows) {
+            upsertDealStageFactStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    upsertDealTouchpointFacts(rows) {
+      const transaction = database.transaction(
+        (nextRows: DealTouchpointFactSnapshot[]) => {
+          for (const row of nextRows) {
+            upsertDealTouchpointFactStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    replaceAnalyticsFacts(factsInput) {
+      const transaction = database.transaction(
+        (payload: {
+          identityLinks: IdentityLinkSnapshot[];
+          dealStageFacts: DealStageFactSnapshot[];
+          dealTouchpointFacts: DealTouchpointFactSnapshot[];
+          eventVisitFacts?: EventVisitFactSnapshot[];
+        }) => {
+          if (payload.eventVisitFacts) {
+            deleteEventVisitFactsStatement.run();
+          }
+          deleteDealTouchpointFactsStatement.run();
+          deleteDealStageFactsStatement.run();
+          deleteIdentityLinksStatement.run();
+
+          for (const row of payload.identityLinks) {
+            upsertIdentityLinkStatement.run(row);
+          }
+          for (const row of payload.dealStageFacts) {
+            upsertDealStageFactStatement.run(row);
+          }
+          for (const row of payload.dealTouchpointFacts) {
+            upsertDealTouchpointFactStatement.run(row);
+          }
+          for (const row of payload.eventVisitFacts ?? []) {
+            upsertEventVisitFactStatement.run(row);
+          }
+        }
+      );
+      transaction(factsInput);
+      return Promise.resolve({
+        identityLinks: factsInput.identityLinks.length,
+        dealStageFacts: factsInput.dealStageFacts.length,
+        dealTouchpointFacts: factsInput.dealTouchpointFacts.length,
+        ...(factsInput.eventVisitFacts
+          ? { eventVisitFacts: factsInput.eventVisitFacts.length }
+          : {})
+      });
+    },
+
+    upsertEventSnapshots(rows) {
+      const transaction = database.transaction((nextRows: EventSnapshot[]) => {
+        for (const row of nextRows) {
+          upsertEventSnapshotStatement.run(row);
+          reconcileConversionEventVisitDateStatement.run(row);
+        }
+      });
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    upsertEventVisitFacts(rows) {
+      const transaction = database.transaction(
+        (nextRows: EventVisitFactSnapshot[]) => {
+          for (const row of nextRows) {
+            upsertEventVisitFactStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    replaceEventVisitFacts(rows) {
+      const transaction = database.transaction(
+        (nextRows: EventVisitFactSnapshot[]) => {
+          deleteEventVisitFactsStatement.run();
+          for (const row of nextRows) {
+            upsertEventVisitFactStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    upsertEventVisitStageHistory(rows) {
+      const transaction = database.transaction(
+        (nextRows: EventVisitStageHistorySnapshot[]) => {
+          for (const row of nextRows) {
+            upsertEventVisitStageHistoryStatement.run(row);
+          }
+        }
+      );
+      transaction(rows);
+      return Promise.resolve(rows.length);
+    },
+
+    replaceModuleEventTypeSettings(inputRow) {
+      const transaction = database.transaction(
+        (nextRows: ModuleEventTypeSetting[]) => {
+          deleteModuleEventTypeSettingsStatement.run(inputRow.moduleKey);
+          for (const row of nextRows) {
+            upsertModuleEventTypeSettingStatement.run({
+              ...row,
+              enabled: row.enabled ? 1 : 0
+            });
+          }
+        }
+      );
+      transaction(inputRow.rows);
+      return Promise.resolve(inputRow.rows.length);
+    },
+
+    replaceConversionEventTypeOptions(rows) {
+      const transaction = database.transaction(
+        (nextRows: ConversionEventTypeOption[]) => {
+          deleteConversionEventTypeOptionsStatement.run();
+          const updatedAt = new Date().toISOString();
+          for (const row of nextRows) {
+            upsertConversionEventTypeOptionStatement.run({
+              ...row,
+              selectedForPlannedInventory: row.selectedForPlannedInventory ? 1 : 0,
+              updatedAt
+            });
           }
         }
       );
@@ -2489,6 +3457,7 @@ export function createSqliteRepository(
         .prepare(
           `SELECT
             id,
+            event_id AS eventId,
             event_name AS eventName,
             event_date AS eventDate,
             status,
@@ -2504,6 +3473,203 @@ export function createSqliteRepository(
           ORDER BY event_date ASC, id ASC`
         )
         .all() as ConversionEventVisitSnapshot[];
+    },
+
+    async getAllIdentityLinks() {
+      return database
+        .prepare(
+          `SELECT
+            identity_id AS identityId,
+            module_key AS moduleKey,
+            deal_id AS dealId,
+            lead_id AS leadId,
+            contact_id AS contactId,
+            deal_category_id AS dealCategoryId,
+            lead_category_id AS leadCategoryId,
+            current_manager_id AS currentManagerId,
+            current_stage_id AS currentStageId,
+            source_id AS sourceId,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            link_confidence AS linkConfidence,
+            link_reason AS linkReason
+          FROM identity_links
+          ORDER BY identity_id ASC`
+        )
+        .all() as IdentityLinkSnapshot[];
+    },
+
+    async getAllDealStageFacts() {
+      return database
+        .prepare(
+          `SELECT
+            fact_id AS factId,
+            source_system AS sourceSystem,
+            source_entity_id AS sourceEntityId,
+            deal_id AS dealId,
+            contact_id AS contactId,
+            lead_id AS leadId,
+            category_id AS categoryId,
+            stage_id AS stageId,
+            stage_name AS stageName,
+            stage_semantic_id AS stageSemanticId,
+            entered_at AS enteredAt,
+            left_at AS leftAt,
+            manager_id AS managerId,
+            source_id AS sourceId,
+            sort_order AS sortOrder,
+            payload_json AS payloadJson
+          FROM deal_stage_facts
+          ORDER BY deal_id ASC, entered_at ASC, fact_id ASC`
+        )
+        .all() as DealStageFactSnapshot[];
+    },
+
+    async getAllDealTouchpointFacts() {
+      return database
+        .prepare(
+          `SELECT
+            fact_id AS factId,
+            kind,
+            source_system AS sourceSystem,
+            source_entity_type AS sourceEntityType,
+            source_entity_id AS sourceEntityId,
+            occurred_at AS occurredAt,
+            deal_id AS dealId,
+            contact_id AS contactId,
+            lead_id AS leadId,
+            manager_id AS managerId,
+            source_id AS sourceId,
+            stage_id_at_event AS stageIdAtEvent,
+            stage_name_at_event AS stageNameAtEvent,
+            link_confidence AS linkConfidence,
+            link_reason AS linkReason,
+            payload_json AS payloadJson
+          FROM deal_touchpoint_facts
+          ORDER BY occurred_at ASC, fact_id ASC`
+        )
+        .all() as DealTouchpointFactSnapshot[];
+    },
+
+    async getAllEventSnapshots() {
+      return database
+        .prepare(
+          `SELECT
+            event_id AS eventId,
+            entity_type_id AS entityTypeId,
+            category_id AS categoryId,
+            title,
+            event_date AS eventDate,
+            start_at AS startAt,
+            end_at AS endAt,
+            stage_id AS stageId,
+            stage_name AS stageName,
+            status,
+            event_type_id AS eventTypeId,
+            event_type_label AS eventTypeLabel,
+            format_id AS formatId,
+            created_time AS createdTime,
+            updated_time AS updatedTime
+          FROM event_snapshots
+          ORDER BY event_date ASC, event_id ASC`
+        )
+        .all() as EventSnapshot[];
+    },
+
+    async getAllEventVisitFacts() {
+      return database
+        .prepare(
+          `SELECT
+            visit_id AS visitId,
+            event_id AS eventId,
+            deal_id AS dealId,
+            contact_id AS contactId,
+            lead_id AS leadId,
+            manager_id AS managerId,
+            source_id AS sourceId,
+            current_stage_id AS currentStageId,
+            current_stage_name AS currentStageName,
+            invited_at AS invitedAt,
+            confirmed_at AS confirmedAt,
+            attended_at AS attendedAt,
+            refused_at AS refusedAt,
+            final_status AS finalStatus,
+            event_date AS eventDate,
+            stage_id_at_event AS stageIdAtEvent,
+            link_confidence AS linkConfidence,
+            link_reason AS linkReason,
+            payload_json AS payloadJson
+          FROM event_visit_facts
+          ORDER BY event_date ASC, visit_id ASC`
+        )
+        .all() as EventVisitFactSnapshot[];
+    },
+
+    async getAllEventVisitStageHistory() {
+      return database
+        .prepare(
+          `SELECT
+            history_id AS historyId,
+            visit_id AS visitId,
+            entity_type_id AS entityTypeId,
+            category_id AS categoryId,
+            stage_id AS stageId,
+            stage_name AS stageName,
+            type_id AS typeId,
+            changed_at AS changedAt
+          FROM event_visit_stage_history
+          ORDER BY visit_id ASC, changed_at ASC, history_id ASC`
+        )
+        .all() as EventVisitStageHistorySnapshot[];
+    },
+
+    async getModuleEventTypeSettings(moduleKey) {
+      const rows = database
+        .prepare(
+          `SELECT
+            module_key AS moduleKey,
+            event_type_id AS eventTypeId,
+            event_type_label AS eventTypeLabel,
+            enabled,
+            updated_at AS updatedAt
+          FROM module_event_type_settings
+          WHERE (? IS NULL OR module_key = ?)
+          ORDER BY module_key ASC, event_type_label ASC, event_type_id ASC`
+        )
+        .all(moduleKey ?? null, moduleKey ?? null) as Array<
+        Omit<ModuleEventTypeSetting, "enabled"> & {
+          enabled: number;
+        }
+      >;
+
+      return rows.map((row) => ({
+        ...row,
+        enabled: Boolean(row.enabled)
+      }));
+    },
+
+    async getConversionEventTypeOptions() {
+      const rows = database
+        .prepare(
+          `SELECT
+            id,
+            title,
+            category_id AS categoryId,
+            stage_id AS stageId,
+            selected_for_planned_inventory AS selectedForPlannedInventory
+          FROM conversion_event_type_options
+          ORDER BY title ASC, id ASC`
+        )
+        .all() as Array<
+        Omit<ConversionEventTypeOption, "selectedForPlannedInventory"> & {
+          selectedForPlannedInventory: number;
+        }
+      >;
+
+      return rows.map((row) => ({
+        ...row,
+        selectedForPlannedInventory: Boolean(row.selectedForPlannedInventory)
+      }));
     },
 
     async getAllCalls() {

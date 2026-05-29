@@ -4657,11 +4657,14 @@ function ActivitiesConversionEventsSection({
     >
       <PanelHeading
         title="Конверсионные мероприятия"
-        description="Агрегация по событию и дате: приглашения, факт посещения, отказы и переход связанной сделки на следующий шаг после события."
+        description="Агрегация по событию и дате: приглашения, подтверждения, факт посещения, отказы и переход связанной сделки на следующий шаг после события."
         right={
           <div className="flex flex-wrap gap-2">
             <span className="badge-chip badge-neutral">
               {formatInteger(report.totalAttendedCount)} / {formatInteger(report.totalInvitedCount)}
+            </span>
+            <span className="badge-chip badge-neutral">
+              {formatInteger(report.totalConfirmedCount)} подтвердили
             </span>
             <span className="badge-chip badge-neutral">
               {formatConversionEventsPercent(report.attendanceRate)} доходимость
@@ -4684,6 +4687,7 @@ function ActivitiesConversionEventsSection({
                 <th className="px-3 py-3">Мероприятие</th>
                 <th className="px-3 py-3">Дата</th>
                 <th className="px-3 py-3 text-right">Приглашено</th>
+                <th className="px-3 py-3 text-right">Подтвердили</th>
                 <th className="px-3 py-3 text-right">Посетило</th>
                 <th className="px-3 py-3 text-right">Не дошло</th>
                 <th className="px-3 py-3 text-right">Отказ</th>
@@ -4700,6 +4704,7 @@ function ActivitiesConversionEventsSection({
                   <td className="px-3 py-3 text-right font-semibold text-slate-900">
                     {formatInteger(row.invitedCount)}
                   </td>
+                  <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.confirmedCount)}</td>
                   <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.attendedCount)}</td>
                   <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.missedCount)}</td>
                   <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.refusedCount)}</td>
@@ -6479,10 +6484,15 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
 
 function PricingSettingsScene({
   pricingSettings,
+  conversionEventTypeSettings,
   pricingSettingsLoading,
   pricingSettingsSaving,
   pricingSettingsSaveError,
+  conversionEventTypeSettingsLoading,
+  conversionEventTypeSettingsSaving,
+  conversionEventTypeSettingsSaveError,
   onPricingSettingsSave,
+  onConversionEventTypeSettingsSave,
 }: SceneComponentProps) {
   const [draftEdits, setDraftEdits] = useState<
     Record<string, Partial<Pick<DealPricingRuleInput, 'attractionRevenueAmount' | 'enabled'>>>
@@ -6500,6 +6510,22 @@ function PricingSettingsScene({
       })),
     [draftEdits, pricingSettings?.rules],
   )
+  const eventTypeOptions = useMemo(
+    () => conversionEventTypeSettings?.options ?? [],
+    [conversionEventTypeSettings?.options],
+  )
+  const selectedEventTypeIdsFromSettings = useMemo(
+    () =>
+      eventTypeOptions
+        .filter((option) => option.selectedForPlannedInventory)
+        .map((option) => option.id),
+    [eventTypeOptions],
+  )
+  const [draftSelectedEventTypeIds, setDraftSelectedEventTypeIds] = useState<
+    string[] | null
+  >(null)
+  const selectedEventTypeIds =
+    draftSelectedEventTypeIds ?? selectedEventTypeIdsFromSettings
 
   const totalEnabledAmount = useMemo(
     () =>
@@ -6520,6 +6546,16 @@ function PricingSettingsScene({
         ...patch,
       },
     }))
+  }
+
+  function toggleEventType(eventTypeId: string) {
+    setDraftSelectedEventTypeIds((current) => {
+      const source = current ?? selectedEventTypeIdsFromSettings
+
+      return source.includes(eventTypeId)
+        ? source.filter((id) => id !== eventTypeId)
+        : [...source, eventTypeId]
+    })
   }
 
   return (
@@ -6609,6 +6645,66 @@ function PricingSettingsScene({
             {pricingSettingsSaving ? 'Сохранение...' : 'Сохранить цены'}
           </button>
         </div>
+      </div>
+
+      <div className="mt-5 rounded-xl border border-slate-200 bg-white/80 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-500">
+              Плановые мероприятия
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Типы мероприятий, которые попадают в плановый отчет даже без приглашенных.
+            </p>
+          </div>
+          <span className="badge-chip badge-neutral">
+            {formatInteger(selectedEventTypeIds.length)} выбрано
+          </span>
+        </div>
+
+        {conversionEventTypeSettingsLoading && eventTypeOptions.length === 0 ? (
+          <div className="mt-4 text-sm text-slate-500">Загружаю типы мероприятий.</div>
+        ) : eventTypeOptions.length === 0 ? (
+          <div className="mt-4 text-sm text-slate-500">Типы мероприятий пока не загружены.</div>
+        ) : (
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {eventTypeOptions.map((option) => (
+              <label
+                key={option.id}
+                className="flex min-h-12 items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={selectedEventTypeIds.includes(option.id)}
+                  onChange={() => toggleEventType(option.id)}
+                />
+                <span className="min-w-0">
+                  <span className="block font-semibold text-slate-900">{option.title}</span>
+                  <span className="block truncate text-xs text-slate-500">{option.id}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {conversionEventTypeSettingsSaveError ? (
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            {conversionEventTypeSettingsSaveError}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-primary mt-4"
+          disabled={conversionEventTypeSettingsSaving}
+          onClick={() =>
+            void onConversionEventTypeSettingsSave?.({
+              eventTypeIds: selectedEventTypeIds,
+            })
+          }
+        >
+          {conversionEventTypeSettingsSaving ? 'Сохранение...' : 'Сохранить мероприятия'}
+        </button>
       </div>
     </section>
   )

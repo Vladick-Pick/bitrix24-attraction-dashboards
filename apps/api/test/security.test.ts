@@ -257,6 +257,7 @@ function createCorsTestApp(config?: {
           to: "2026-04-30T23:59:59.999Z"
         },
         totalInvitedCount: 0,
+        totalConfirmedCount: 0,
         totalAttendedCount: 0,
         totalRefusedCount: 0,
         totalMissedCount: 0,

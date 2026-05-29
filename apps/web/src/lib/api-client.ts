@@ -8,6 +8,8 @@ import type {
   CallsWorkloadReportSnapshot,
   CohortConversionReport,
   CohortConversionReportSnapshot,
+  ConversionEventTypeSettingsData,
+  ConversionEventTypeSettingsInput,
   ConversionEventsReport,
   ConversionEventsReportSnapshot,
   DashboardQuery,
@@ -820,6 +822,37 @@ function normalizePricingSettings(value: unknown): DealPricingSettings {
         enabled: rule.enabled !== false,
         sortOrder: asNumber(rule.sortOrder),
         updatedAt: asNullableString(rule.updatedAt),
+      }
+    }),
+  }
+}
+
+function normalizeConversionEventTypeSettings(
+  value: unknown,
+): ConversionEventTypeSettingsData {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    options: asArray(data.options, (entry) => {
+      const option = isRecord(entry) ? entry : {}
+
+      return {
+        id: asString(option.id),
+        title: asString(option.title, asString(option.id)),
+        categoryId: asNullableNumber(option.categoryId),
+        stageId: asNullableString(option.stageId),
+        selectedForPlannedInventory: option.selectedForPlannedInventory === true,
+      }
+    }),
+    settings: asArray(data.settings, (entry) => {
+      const setting = isRecord(entry) ? entry : {}
+
+      return {
+        moduleKey: asString(setting.moduleKey, 'attraction'),
+        eventTypeId: asString(setting.eventTypeId),
+        eventTypeLabel: asString(setting.eventTypeLabel, asString(setting.eventTypeId)),
+        enabled: setting.enabled !== false,
+        updatedAt: asString(setting.updatedAt),
       }
     }),
   }
@@ -1774,6 +1807,7 @@ function normalizeConversionEventsSnapshot(
   return {
     range: normalizeRange(data.range),
     totalInvitedCount: asNumber(data.totalInvitedCount),
+    totalConfirmedCount: asNumber(data.totalConfirmedCount),
     totalAttendedCount: asNumber(data.totalAttendedCount),
     totalRefusedCount: asNumber(data.totalRefusedCount),
     totalMissedCount: asNumber(data.totalMissedCount),
@@ -1791,6 +1825,7 @@ function normalizeConversionEventsSnapshot(
         eventName: asString(item.eventName),
         eventDate: asString(item.eventDate),
         invitedCount: asNumber(item.invitedCount),
+        confirmedCount: asNumber(item.confirmedCount),
         attendedCount: asNumber(item.attendedCount),
         refusedCount: asNumber(item.refusedCount),
         missedCount: asNumber(item.missedCount),
@@ -2750,6 +2785,23 @@ export const apiClient = {
         body: JSON.stringify(input),
       },
       normalizePricingSettings,
+    )
+  },
+  async getConversionEventTypeSettings() {
+    return requestJson(
+      buildUrl('/api/settings/conversion-event-types'),
+      { method: 'GET' },
+      normalizeConversionEventTypeSettings,
+    )
+  },
+  async saveConversionEventTypeSettings(input: ConversionEventTypeSettingsInput) {
+    return requestJson(
+      buildUrl('/api/settings/conversion-event-types'),
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      normalizeConversionEventTypeSettings,
     )
   },
   async getMeta(moduleId = 'attraction') {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { apiClient } from '@/lib/api-client'
 import type {
+  ConversionEventTypeSettingsInput,
   DealPricingRuleInput,
   ManagerActionOutcomeReport,
   RevenueVelocityReport,
@@ -121,6 +122,28 @@ vi.mock('@/lib/api-client', () => ({
       })),
       updatedAt: '2026-04-10T12:05:00.000Z',
     })),
+    getConversionEventTypeSettings: vi.fn(async () => ({
+      options: [],
+      settings: [],
+    })),
+    saveConversionEventTypeSettings: vi.fn(
+      async (input: ConversionEventTypeSettingsInput) => ({
+        options: input.eventTypeIds.map((id) => ({
+          id,
+          title: id,
+          categoryId: null,
+          stageId: null,
+          selectedForPlannedInventory: true,
+        })),
+        settings: input.eventTypeIds.map((id) => ({
+          moduleKey: 'attraction',
+          eventTypeId: id,
+          eventTypeLabel: id,
+          enabled: true,
+          updatedAt: '2026-04-10T12:05:00.000Z',
+        })),
+      }),
+    ),
     getSalesPlan: vi.fn(async () => ({
       periodStart: '2026-04-01T00:00:00.000+03:00',
       periodEnd: '2026-04-30T23:59:59.999+03:00',
@@ -231,6 +254,7 @@ vi.mock('@/lib/api-client', () => ({
     getConversionEventsReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalInvitedCount: 0,
+      totalConfirmedCount: 0,
       totalAttendedCount: 0,
       totalRefusedCount: 0,
       totalMissedCount: 0,

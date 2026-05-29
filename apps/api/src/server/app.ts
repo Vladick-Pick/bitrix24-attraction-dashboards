@@ -5,6 +5,8 @@ import type {
   CallsWorkloadReport,
   CohortConversionReport,
   ConversionEventsReport,
+  ConversionEventTypeSettingsData,
+  ConversionEventTypeSettingsInput,
   DashboardData,
   DealPricingSettings,
   DealPricingSettingsInput,
@@ -145,6 +147,10 @@ interface AppService {
   getAttractionOntologySourceDocument?(
     sourceId: string
   ): Promise<OntologySourceDocumentResponse>;
+  getConversionEventTypeSettings?(): Promise<ConversionEventTypeSettingsData>;
+  replaceConversionEventTypeSettings?(
+    input: ConversionEventTypeSettingsInput
+  ): Promise<ConversionEventTypeSettingsData>;
   getMeta(): Promise<MetaResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
@@ -577,6 +583,10 @@ const pricingSettingsBodySchema = z.object({
       sortOrder: z.number().int().nonnegative().nullable().optional()
     })
   )
+});
+
+const conversionEventTypeSettingsBodySchema = z.object({
+  eventTypeIds: z.array(z.string().trim().min(1))
 });
 
 const loginBodySchema = z.object({
@@ -1179,8 +1189,10 @@ function createSyncErrorResponse(error: unknown) {
   const diagnostics =
     causeCode.length > 0
       ? [`network=${causeCode}`]
-      : error instanceof Error && error.name === "AbortError"
-        ? ["network=ABORT_TIMEOUT"]
+    : error instanceof Error && error.name === "AbortError"
+        ? error.message
+          ? ["network=ABORT_TIMEOUT", `abort=${error.message}`]
+          : ["network=ABORT_TIMEOUT"]
         : error instanceof Error && error.message.startsWith("Bitrix24 ")
           ? [`bitrix=${error.message}`]
       : ["error=SYNC_FAILED"];
@@ -2869,6 +2881,44 @@ export function createApp(
       next(error);
     }
   });
+
+  app.get("/api/settings/conversion-event-types", async (_request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
+    if (!service.getConversionEventTypeSettings) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      response.json(await service.getConversionEventTypeSettings());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put(
+    "/api/settings/conversion-event-types",
+    async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+        return;
+      }
+
+      if (!service.replaceConversionEventTypeSettings) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      try {
+        const payload = conversionEventTypeSettingsBodySchema.parse(request.body);
+        response.json(await service.replaceConversionEventTypeSettings(payload));
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
 
   app.post("/api/sync", async (request, response, next) => {
     if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {

@@ -2228,4 +2228,82 @@ describe("createReportingService", () => {
       ]
     ]);
   });
+
+  it("marks the sync run failed when analytics fact rebuild fails", async () => {
+    const finishCalls: unknown[] = [];
+    const failCalls: unknown[] = [];
+    const repository = {
+      getLatestSuccessCursor: async () => "2026-05-01T00:00:00.000Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-05-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-05-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      createSyncRun: async () => 69,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async (input: unknown) => {
+        finishCalls.push(input);
+      },
+      failSyncRun: async (input: unknown) => {
+        failCalls.push(input);
+      },
+      getAllDeals: async () => [],
+      getStageCatalog: async () => [],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllCalls: async () => [],
+      getAllConversionEventVisits: async () => [],
+      replaceAnalyticsFacts: async () => {
+        throw new Error("fact rebuild failed");
+      }
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [],
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      repository: repository as never,
+      client: client as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-05-25T12:00:00.000Z")
+    });
+
+    await expect(service.performSync()).rejects.toThrow("fact rebuild failed");
+
+    expect(finishCalls).toEqual([]);
+    expect(failCalls).toEqual([
+      expect.objectContaining({
+        syncRunId: 69,
+        status: "failed",
+        diagnostics: ["SYNC_FAILED", "error=Error"]
+      })
+    ]);
+  });
 });

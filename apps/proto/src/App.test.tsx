@@ -222,10 +222,9 @@ describe('CRM Prototype App', () => {
 
     fireEvent.click(shell, { clientX: 100, clientY: 200 })
 
-    await userEvent.type(
-      screen.getByPlaceholderText(/комментарий к точке интерфейса/i),
-      'Архивный комментарий',
-    )
+    fireEvent.change(screen.getByPlaceholderText(/комментарий к точке интерфейса/i), {
+      target: { value: 'Архивный комментарий' },
+    })
     await userEvent.click(screen.getByRole('button', { name: /^сохранить$/i }))
 
     const pin = await screen.findByRole('button', { name: /^Комментарий 1$/ })

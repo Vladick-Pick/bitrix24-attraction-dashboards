@@ -1240,12 +1240,16 @@ describe("performManualSync", () => {
       listConversionEventVisits: async (input: {
         modifiedAfter: string | null;
         reportYear: number;
+        dealIds?: string[];
+        contactIds?: string[];
         signal?: AbortSignal;
       }) => {
         expect(input).toMatchObject({
           modifiedAfter: "2026-04-07T00:00:00.000Z",
-          reportYear: 2026
+          reportYear: 2026,
+          dealIds: ["D1", "D2"]
         });
+        expect(input.contactIds).toBeUndefined();
         expect(input.signal).toBeInstanceOf(AbortSignal);
         return [
           {
@@ -1264,8 +1268,8 @@ describe("performManualSync", () => {
           }
         ];
       },
-      listStageHistory: async (input: { ownerIds?: string[] }) => {
-        expect(input.ownerIds).toEqual(["D1", "D2"]);
+      listStageHistory: async (input: { categoryIds?: string[] }) => {
+        expect(input.categoryIds).toEqual(["10"]);
         return [
           {
             ID: "H1",
@@ -1621,7 +1625,7 @@ describe("performManualSync", () => {
   });
 
   it("fetches stage history for closed deals during an initial full sync", async () => {
-    let stageHistoryOwnerIds: string[] | undefined;
+    let stageHistoryCategoryIds: string[] | undefined;
     const storedStageHistory: unknown[][] = [];
     const repo = {
       getLatestSuccessCursor: async () => null,
@@ -1634,7 +1638,7 @@ describe("performManualSync", () => {
         calls: 0,
         stageHistory: 0
       }),
-      getDealIdsByCategoryIds: async () => [],
+      getDealIdsByCategoryIds: async () => ["D1"],
       getOpenDealIdsByCategoryIds: async () => [],
       getActivitiesByIds: async () => [],
       replaceStageCatalog: async () => undefined,
@@ -1698,8 +1702,8 @@ describe("performManualSync", () => {
       ],
       listActivities: async () => [],
       listCalls: async () => [],
-      listStageHistory: async (input: { ownerIds?: string[] }) => {
-        stageHistoryOwnerIds = input.ownerIds;
+      listStageHistory: async (input: { categoryIds?: string[] }) => {
+        stageHistoryCategoryIds = input.categoryIds;
         return [
           {
             ID: "H_WON",
@@ -1723,7 +1727,7 @@ describe("performManualSync", () => {
       now: () => "2026-04-09T00:00:00.000Z"
     });
 
-    expect(stageHistoryOwnerIds).toEqual(["D_OPEN", "D_WON"]);
+    expect(stageHistoryCategoryIds).toEqual(["10"]);
     expect(storedStageHistory).toEqual([
       [
         expect.objectContaining({
@@ -1731,6 +1735,110 @@ describe("performManualSync", () => {
           ownerId: "D_WON"
         })
       ]
+    ]);
+  });
+
+  it("uses category stage-history fetch for very large delta deal windows", async () => {
+    let stageHistoryRequest: { categoryIds?: string[]; ownerIds?: string[] } | null =
+      null;
+    const dealRows = Array.from({ length: 501 }, (_, index) => ({
+      ID: `D${index + 1}`,
+      LEAD_ID: null,
+      DATE_CREATE: "2026-04-01T00:00:00.000Z",
+      DATE_MODIFY: "2026-04-08T10:00:00.000Z",
+      DATE_CLOSED: null,
+      CATEGORY_ID: "10",
+      STAGE_ID: "C10:NEW",
+      STAGE_SEMANTIC_ID: "P",
+      OPPORTUNITY: null,
+      ASSIGNED_BY_ID: "78",
+      SOURCE_ID: "WEB",
+      UTM_SOURCE: null,
+      UTM_MEDIUM: null,
+      UTM_CAMPAIGN: null,
+      UTM_CONTENT: null,
+      UTM_TERM: null
+    }));
+    const storedStageHistory: unknown[][] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-08T00:00:00.000Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      getDealIdsByCategoryIds: async () => ["D1"],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async (rows: unknown[]) => {
+        storedStageHistory.push(rows);
+        return rows.length;
+      },
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 73,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => dealRows,
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async (input: {
+        categoryIds?: string[];
+        ownerIds?: string[];
+      }) => {
+        stageHistoryRequest = input;
+        return [
+          {
+            ID: "H1",
+            OWNER_ID: "D501",
+            CATEGORY_ID: "10",
+            STAGE_ID: "C10:NEW",
+            STAGE_SEMANTIC_ID: "P",
+            TYPE_ID: 1,
+            CREATED_TIME: "2026-04-08T10:00:00.000Z"
+          },
+          {
+            ID: "H_OUT_OF_SCOPE",
+            OWNER_ID: "D_OUT_OF_SCOPE",
+            CATEGORY_ID: "10",
+            STAGE_ID: "C10:NEW",
+            STAGE_SEMANTIC_ID: "P",
+            TYPE_ID: 1,
+            CREATED_TIME: "2026-04-08T10:00:00.000Z"
+          }
+        ];
+      },
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-09T00:00:00.000Z"
+    });
+
+    expect(stageHistoryRequest).toMatchObject({ categoryIds: ["10"] });
+    expect(storedStageHistory).toEqual([
+      [expect.objectContaining({ id: "H1", ownerId: "D501" })]
     ]);
   });
 
@@ -1758,7 +1866,7 @@ describe("performManualSync", () => {
       upsertSyncCoverage: async (input: unknown) => {
         coverageWrites.push(input);
       },
-      getDealIdsByCategoryIds: async () => [],
+      getDealIdsByCategoryIds: async () => ["D1"],
       getOpenDealIdsByCategoryIds: async () => [],
       getActivitiesByIds: async () => [],
       replaceStageCatalog: async () => undefined,
@@ -1786,8 +1894,12 @@ describe("performManualSync", () => {
       listConversionEventVisits: async (input: {
         modifiedAfter: string | null;
         reportYear: number;
+        dealIds?: string[];
+        contactIds?: string[];
         signal?: AbortSignal;
       }) => {
+        expect(input.dealIds).toEqual(["D1"]);
+        expect(input.contactIds).toBeUndefined();
         conversionVisitRequests.push({
           modifiedAfter: input.modifiedAfter,
           reportYear: input.reportYear
@@ -1842,6 +1954,416 @@ describe("performManualSync", () => {
     );
   });
 
+  it("treats old conversion-event coverage as stale when event inventory streams are added", async () => {
+    const conversionVisitRequests: Array<{
+      modifiedAfter: string | null;
+      reportYear: number;
+    }> = [];
+    const conversionEventRequests: Array<{
+      modifiedAfter: string | null;
+      eventTypeIds?: string[];
+    }> = [];
+    const coverageChecks: unknown[] = [];
+    const coverageWrites: unknown[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-29T09:56:29.538Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      hasSyncCoverage: async (input: { stream: string; algorithmVersion: string }) => {
+        coverageChecks.push(input);
+        return (
+          input.stream === "conversion_event_visits" &&
+          input.algorithmVersion === "conversion-event-visits-v1"
+        );
+      },
+      upsertSyncCoverage: async (input: unknown) => {
+        coverageWrites.push(input);
+      },
+      getDealIdsByCategoryIds: async () => ["D1"],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getModuleEventTypeSettings: async () => [
+        {
+          moduleKey: "attraction",
+          eventTypeId: "128",
+          eventTypeLabel: "Мероприятие Привлечения",
+          enabled: true,
+          updatedAt: "2026-04-29T00:00:00.000Z"
+        }
+      ],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertConversionEventVisits: async () => 0,
+      upsertEventSnapshots: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 45,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [],
+      listConversionEventVisits: async (input: {
+        modifiedAfter: string | null;
+        reportYear: number;
+      }) => {
+        conversionVisitRequests.push({
+          modifiedAfter: input.modifiedAfter,
+          reportYear: input.reportYear
+        });
+        return [];
+      },
+      listConversionEvents: async (input: {
+        modifiedAfter: string | null;
+        eventTypeIds?: string[];
+      }) => {
+        conversionEventRequests.push({
+          modifiedAfter: input.modifiedAfter,
+          ...(input.eventTypeIds ? { eventTypeIds: input.eventTypeIds } : {})
+        });
+        return [];
+      },
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-30T15:05:00.000Z"
+    });
+
+    expect(coverageChecks).toContainEqual(
+      expect.objectContaining({
+        stream: "conversion_event_visits",
+        algorithmVersion: "conversion-event-visits-v2"
+      })
+    );
+    expect(conversionVisitRequests).toEqual([
+      { modifiedAfter: null, reportYear: 2026 }
+    ]);
+    expect(conversionEventRequests).toEqual([
+      { modifiedAfter: null, eventTypeIds: ["128"] }
+    ]);
+    expect(coverageWrites).toContainEqual(
+      expect.objectContaining({
+        stream: "conversion_event_visits",
+        algorithmVersion: "conversion-event-visits-v2"
+      })
+    );
+  });
+
+  it("hydrates event inventory for referenced conversion visits even without planned type settings", async () => {
+    const conversionEventRequests: Array<{
+      modifiedAfter: string | null;
+      eventIds?: string[];
+      eventTypeIds?: string[];
+    }> = [];
+    const storedEventSnapshots: unknown[][] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-05-25T01:19:32.564Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      hasSyncCoverage: async (input: { stream: string }) =>
+        input.stream !== "conversion_event_visits",
+      upsertSyncCoverage: async () => undefined,
+      getDealIdsByCategoryIds: async () => ["D1"],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getModuleEventTypeSettings: async () => [],
+      getConversionEventIdsMissingEventSnapshots: async () => ["OLD_EVENT"],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertConversionEventVisits: async () => 1,
+      upsertEventSnapshots: async (rows: unknown[]) => {
+        storedEventSnapshots.push(rows);
+        return rows.length;
+      },
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 47,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [],
+      listConversionEventVisits: async () => [
+        {
+          id: "VISIT_NEW_EVENT",
+          eventId: "NEW_EVENT",
+          eventName: "Гостевая встреча 28.05.",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          status: "invited" as const,
+          stageId: "DT162_14:NEW",
+          stageName: "Приглашен",
+          dealId: "D1",
+          contactId: "C1",
+          managerId: "78",
+          sourceId: "WEB",
+          createdTime: "2026-05-25T12:00:00.000Z",
+          updatedTime: "2026-05-25T12:00:00.000Z"
+        }
+      ],
+      listConversionEvents: async (input: {
+        modifiedAfter: string | null;
+        eventIds?: string[];
+        eventTypeIds?: string[];
+      }) => {
+        conversionEventRequests.push({
+          modifiedAfter: input.modifiedAfter,
+          ...(input.eventIds ? { eventIds: input.eventIds } : {}),
+          ...(input.eventTypeIds ? { eventTypeIds: input.eventTypeIds } : {})
+        });
+        return (input.eventIds ?? []).map((eventId) => ({
+          eventId,
+          entityTypeId: 137,
+          categoryId: 12,
+          title: eventId === "NEW_EVENT" ? "Гостевая встреча 28.05." : "Старое мероприятие",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          startAt: "2026-05-28T00:00:00.000Z",
+          endAt: null,
+          stageId: "DT137_12:PLANNED",
+          stageName: "Планируется",
+          status: "planned" as const,
+          eventTypeId: "128",
+          eventTypeLabel: "Мероприятие Привлечения",
+          formatId: null,
+          createdTime: "2026-05-20T12:00:00.000Z",
+          updatedTime: "2026-05-20T12:00:00.000Z"
+        }));
+      },
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-05-27T10:00:00.000Z"
+    });
+
+    expect(conversionEventRequests).toEqual([
+      {
+        modifiedAfter: null,
+        eventIds: ["NEW_EVENT", "OLD_EVENT"]
+      }
+    ]);
+    expect(storedEventSnapshots).toEqual([
+      [
+        expect.objectContaining({ eventId: "NEW_EVENT" }),
+        expect.objectContaining({ eventId: "OLD_EVENT" })
+      ]
+    ]);
+  });
+
+  it("prunes stale conversion-event snapshots to scoped deals and enabled planned event types", async () => {
+    const pruneCalls: unknown[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-29T09:56:29.538Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      hasSyncCoverage: async (input: { stream: string }) =>
+        input.stream !== "conversion_event_visits",
+      upsertSyncCoverage: async () => undefined,
+      getDealIdsByCategoryIds: async () => ["D1"],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getModuleEventTypeSettings: async () => [
+        {
+          moduleKey: "attraction",
+          eventTypeId: "128",
+          eventTypeLabel: "Мероприятие Привлечения",
+          enabled: true,
+          updatedAt: "2026-04-29T00:00:00.000Z"
+        },
+        {
+          moduleKey: "attraction",
+          eventTypeId: "999",
+          eventTypeLabel: "Клубная активность",
+          enabled: false,
+          updatedAt: "2026-04-29T00:00:00.000Z"
+        }
+      ],
+      pruneConversionEventSnapshots: async (input: unknown) => {
+        pruneCalls.push(input);
+        return {
+          conversionEventVisits: 2,
+          eventVisitStageHistory: 2,
+          eventVisitFacts: 2,
+          dealTouchpointFacts: 2,
+          eventSnapshots: 1
+        };
+      },
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertConversionEventVisits: async () => 0,
+      upsertEventSnapshots: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 46,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [],
+      listConversionEventVisits: async (input: {
+        dealIds?: string[];
+        contactIds?: string[];
+      }) => {
+        expect(input.dealIds).toEqual(["D1"]);
+        expect(input.contactIds).toBeUndefined();
+        return [];
+      },
+      listConversionEvents: async (input: { eventTypeIds?: string[] }) => {
+        expect(input.eventTypeIds).toEqual(["128"]);
+        return [];
+      },
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-30T15:05:00.000Z"
+    });
+
+    expect(pruneCalls).toEqual([
+      {
+        scopedDealIds: ["D1"],
+        enabledEventTypeIds: ["128"]
+      }
+    ]);
+  });
+
+  it("preserves conversion event type options when the Bitrix metadata fetch fails", async () => {
+    let finishedDiagnostics: string[] = [];
+    const replacedOptionRows: unknown[][] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-29T09:56:29.538Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      hasSyncCoverage: async () => true,
+      getDealIdsByCategoryIds: async () => ["D1"],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      replaceConversionEventTypeOptions: async (rows: unknown[]) => {
+        replacedOptionRows.push(rows);
+        return rows.length;
+      },
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 46,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async (input: { diagnostics?: string[] }) => {
+        finishedDiagnostics = input.diagnostics ?? [];
+      },
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [],
+      listConversionEventTypeOptions: async () => {
+        throw Object.assign(new Error("ACCESS_DENIED"), {
+          name: "BitrixApiError"
+        });
+      },
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-30T15:05:00.000Z"
+    });
+
+    expect(replacedOptionRows).toEqual([]);
+    expect(finishedDiagnostics).toContain(
+      "conversionEventTypeOptionsError=BitrixApiError"
+    );
+  });
+
   it("keeps the main sync successful when conversion event discovery is access denied", async () => {
     let finishedDiagnostics: string[] = [];
     let failedSync = false;
@@ -1863,7 +2385,7 @@ describe("performManualSync", () => {
       upsertSyncCoverage: async (input: unknown) => {
         coverageWrites.push(input);
       },
-      getDealIdsByCategoryIds: async () => [],
+      getDealIdsByCategoryIds: async () => ["D1"],
       getOpenDealIdsByCategoryIds: async () => [],
       getActivitiesByIds: async () => [],
       replaceStageCatalog: async () => undefined,
@@ -1939,7 +2461,7 @@ describe("performManualSync", () => {
       hasSyncCoverage: async (input: { stream: string }) =>
         input.stream !== "conversion_event_visits",
       upsertSyncCoverage: async () => undefined,
-      getDealIdsByCategoryIds: async () => [],
+      getDealIdsByCategoryIds: async () => ["D1"],
       getOpenDealIdsByCategoryIds: async () => [],
       getActivitiesByIds: async () => [],
       replaceStageCatalog: async () => undefined,
@@ -1994,6 +2516,100 @@ describe("performManualSync", () => {
     expect(conversionEventRequestAborted).toBe(true);
     expect(finishedDiagnostics).toContain(
       "conversionEventVisitsError=AbortError"
+    );
+  });
+
+  it("does not synthesize event visit stage history or mark coverage when the stage-history fetch fails", async () => {
+    let finishedDiagnostics: string[] = [];
+    const coverageWrites: unknown[] = [];
+    const storedEventVisitStageHistory: unknown[][] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-29T09:56:29.538Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () => "2026-04-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 0,
+        stageHistory: 1
+      }),
+      hasSyncCoverage: async (input: { stream: string }) =>
+        input.stream !== "conversion_event_visits",
+      upsertSyncCoverage: async (input: unknown) => {
+        coverageWrites.push(input);
+      },
+      getDealIdsByCategoryIds: async () => ["D1"],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertConversionEventVisits: async () => 1,
+      upsertEventVisitStageHistory: async (rows: unknown[]) => {
+        storedEventVisitStageHistory.push(rows);
+        return rows.length;
+      },
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 62,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async (input: { diagnostics?: string[] }) => {
+        finishedDiagnostics = input.diagnostics ?? [];
+      },
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [],
+      listConversionEventVisits: async () => [
+        {
+          id: "VISIT-STAGE-HISTORY-FAILS",
+          eventName: "Гостевая встреча 28.05.",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          status: "confirmed" as const,
+          stageId: "DT162_14:PREPARATION",
+          stageName: "Пойду",
+          dealId: "D1",
+          contactId: "C1",
+          managerId: "78",
+          sourceId: "WEB",
+          createdTime: "2026-05-18T12:00:00.000Z",
+          updatedTime: "2026-05-20T12:00:00.000Z"
+        }
+      ],
+      listConversionEventVisitStageHistory: async () => {
+        throw new Error("crm.stagehistory.list failed");
+      },
+      listActivities: async () => [],
+      listCalls: async () => [],
+      listStageHistory: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-05-25T12:00:00.000Z"
+    });
+
+    expect(storedEventVisitStageHistory).toEqual([[]]);
+    expect(finishedDiagnostics).toContain(
+      "conversionEventVisitStageHistoryError=Error"
+    );
+    expect(coverageWrites).not.toContainEqual(
+      expect.objectContaining({
+        stream: "conversion_event_visits"
+      })
     );
   });
 
@@ -4015,9 +4631,6 @@ describe("performManualSync", () => {
     expect(activityRequests).toHaveLength(5);
     expect(callRequests).toEqual([
       {
-        activityIds: ["A_OLD_CALL"]
-      },
-      {
         callStartDateFrom: "2025-04-25T00:00:00.000Z",
         callStartDateTo: "2026-04-25T00:00:00.000Z",
         portalUserIds: [
@@ -4507,9 +5120,31 @@ describe("performManualSync", () => {
           ];
         }
 
-        return [
-          {
-            ID: "CALL_SUPPLEMENTAL_DIRECT_DEAL",
+	        return [
+	          {
+	            ID: "CALL_1",
+	            CRM_ACTIVITY_ID: "A_CALL_PARTIAL",
+	            PORTAL_USER_ID: "78",
+	            CALL_TYPE: "1",
+	            CALL_START_DATE: "2026-04-20T10:00:00.000Z",
+	            CALL_DURATION: 60,
+	            CRM_ENTITY_TYPE: "DEAL",
+	            CRM_ENTITY_ID: "D1",
+	            CALL_FAILED_CODE: "200"
+	          },
+	          {
+	            ID: "CALL_2",
+	            CRM_ACTIVITY_ID: "A_CALL_PARTIAL",
+	            PORTAL_USER_ID: "78",
+	            CALL_TYPE: "1",
+	            CALL_START_DATE: "2026-04-20T11:00:00.000Z",
+	            CALL_DURATION: 45,
+	            CRM_ENTITY_TYPE: "DEAL",
+	            CRM_ENTITY_ID: "D1",
+	            CALL_FAILED_CODE: "200"
+	          },
+	          {
+	            ID: "CALL_SUPPLEMENTAL_DIRECT_DEAL",
             CRM_ACTIVITY_ID: null,
             PORTAL_USER_ID: "78",
             CALL_TYPE: "1",
@@ -4577,12 +5212,9 @@ describe("performManualSync", () => {
       now: () => "2026-04-25T00:00:00.000Z"
     });
 
-    expect(requestedCallInputs).toEqual([
-      {
-        activityIds: ["A_CALL_PARTIAL"]
-      },
-      expect.objectContaining({
-        callStartDateFrom: "2025-04-25T00:00:00.000Z",
+	    expect(requestedCallInputs).toEqual([
+	      expect.objectContaining({
+	        callStartDateFrom: "2025-04-25T00:00:00.000Z",
         portalUserIds: expect.arrayContaining([
           "78",
           "11234",
@@ -4904,6 +5536,119 @@ describe("performManualSync", () => {
         }),
         expect.objectContaining({
           key: `${attractionScopeKey}:call_stats:call_start_date`,
+          cursorValue: "2026-04-25T13:00:00.000Z"
+        })
+      ])
+    );
+  });
+
+  it("does not advance the call stats cursor when the optional call fetch fails", async () => {
+    const storedCursors: Array<{ key: string; cursorValue: string }> = [];
+    let finishedDiagnostics: string[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-25T12:00:00.000Z",
+      getSyncCursor: async (key: string) => {
+        if (key === `${attractionScopeKey}:deals:date_modify`) {
+          return "2026-04-25T12:00:00.000Z";
+        }
+
+        if (key === `${attractionScopeKey}:activities:last_updated`) {
+          return "2026-04-25T11:00:00.000Z";
+        }
+
+        if (key === `${attractionScopeKey}:call_stats:call_start_date`) {
+          return "2026-04-25T10:00:00.000Z";
+        }
+
+        return null;
+      },
+      setSyncCursor: async (input: { key: string; cursorValue: string }) => {
+        storedCursors.push(input);
+      },
+      hasSyncCoverage: async () => true,
+      upsertSyncCoverage: async () => undefined,
+      getSnapshotStats: async () => ({
+        deals: 1,
+        activities: 1,
+        calls: 1,
+        stageHistory: 1
+      }),
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getCallActivityHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getMeetingActivityHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getTaskActivityHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getDealCustomFieldsBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getDealIdsByCategoryIds: async () => ["D1"],
+      getOpenDealIdsByCategoryIds: async () => ["D1"],
+      getActivitiesByIds: async () => [],
+      getCallActivityIdsMissingActivities: async () => [],
+      getCallActivityIdsMissingCallStats: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 60,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      markCallActivityHistoryBootstrapped: async () => undefined,
+      markMeetingActivityHistoryBootstrapped: async () => undefined,
+      markTaskActivityHistoryBootstrapped: async () => undefined,
+      markDealCustomFieldsBootstrapped: async () => undefined,
+      finishSyncRun: async (input: { diagnostics?: string[] }) => {
+        finishedDiagnostics = input.diagnostics ?? [];
+      },
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [],
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => {
+        throw new Error("voximplant timeout");
+      },
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-25T13:00:00.000Z"
+    });
+
+    expect(finishedDiagnostics).toContain("callStatsByDateError=Error");
+    expect(finishedDiagnostics).toContain("callStatsCursor=not-updated");
+    expect(storedCursors).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({
+          key: `${attractionScopeKey}:call_stats:call_start_date`
+        })
+      ])
+    );
+    expect(storedCursors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: `${attractionScopeKey}:deals:date_modify`,
+          cursorValue: "2026-04-25T13:00:00.000Z"
+        }),
+        expect.objectContaining({
+          key: `${attractionScopeKey}:activities:last_updated`,
           cursorValue: "2026-04-25T13:00:00.000Z"
         })
       ])
@@ -5304,8 +6049,184 @@ describe("performManualSync", () => {
     ]);
   });
 
-  it("does not persist snapshot data or advance cursors when stage-history fetch fails", async () => {
+  it("continues when optional deal field metadata is unavailable", async () => {
+    const finishedRuns: Array<{ syncRunId: number; diagnostics?: string[] }> = [];
+    const failedRuns: Array<{ syncRunId: number; status: "failed" }> = [];
+    const repo = {
+      getLatestSuccessCursor: async () => null,
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-09T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-04-09T00:00:00.000Z",
+      getCallActivityHistoryBootstrappedAt: async () => "__legacy__",
+      getMeetingActivityHistoryBootstrappedAt: async () => "__legacy__",
+      getTaskActivityHistoryBootstrappedAt: async () => "__legacy__",
+      getDealCustomFieldsBootstrappedAt: async () => "__legacy__",
+      getActivitySnapshotCount: async () => 1,
+      getDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 26,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async (input: {
+        syncRunId: number;
+        diagnostics?: string[];
+      }) => {
+        finishedRuns.push(input);
+      },
+      failSyncRun: async (input: { syncRunId: number; status: "failed" }) => {
+        failedRuns.push(input);
+      }
+    };
+    const metadataError = new Error("Bitrix24 request timed out");
+    metadataError.name = "AbortError";
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => {
+        throw metadataError;
+      },
+      fetchDealFieldValueMap: async () => {
+        throw metadataError;
+      },
+      fetchConversionEventDealFieldName: async () => {
+        throw metadataError;
+      },
+      listDeals: async () => [
+        {
+          ID: "D_OPTIONAL_METADATA",
+          CONTACT_ID: null,
+          LEAD_ID: null,
+          DATE_CREATE: "2026-04-09T00:00:00.000Z",
+          DATE_MODIFY: "2026-04-09T00:00:00.000Z",
+          DATE_CLOSED: null,
+          CATEGORY_ID: "10",
+          STAGE_ID: "C10:NEW",
+          STAGE_SEMANTIC_ID: "P",
+          OPPORTUNITY: 0,
+          ASSIGNED_BY_ID: "78",
+          SOURCE_ID: null,
+          UTM_SOURCE: null,
+          UTM_MEDIUM: null,
+          UTM_CAMPAIGN: null,
+          UTM_CONTENT: null,
+          UTM_TERM: null
+        }
+      ],
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const summary = await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      now: () => "2026-04-09T00:00:00.000Z"
+    });
+
+    expect(summary.syncRunId).toBe(26);
+    expect(summary.dealsSynced).toBe(1);
+    expect(summary.diagnostics).toContain(
+      "conversionEventDealFieldNameError=AbortError"
+    );
+    expect(summary.diagnostics).toContain(
+      "dealFieldValueMapError=UF_CRM_1730380390:AbortError"
+    );
+    expect(finishedRuns).toHaveLength(1);
+    expect(failedRuns).toEqual([]);
+  });
+
+  it("resolves optional deal metadata before starting catalog requests", async () => {
+    const order: string[] = [];
+    let finishedDiagnostics: string[] = [];
+    const failedRuns: Array<{ syncRunId: number; status: "failed" }> = [];
+    const repo = {
+      getLatestSuccessCursor: async () => null,
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-09T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-04-09T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 27,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async (input: { diagnostics?: string[] }) => {
+        finishedDiagnostics = input.diagnostics ?? [];
+      },
+      failSyncRun: async (input: { syncRunId: number; status: "failed" }) => {
+        failedRuns.push(input);
+      }
+    };
+    const client = {
+      fetchConversionEventDealFieldName: async () => {
+        order.push("deal-field");
+        return null;
+      },
+      fetchDealStages: async () => {
+        order.push("stages");
+        throw new Error("stage catalog timeout");
+      },
+      fetchSourceCatalog: async () => {
+        order.push("sources");
+        return [];
+      },
+      fetchDealQualityMap: async () => ({}),
+      listDeals: async () => [],
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await expect(
+      performManualSync({
+        client,
+        repository: repo,
+        categoryIds: ["10"],
+        qualityFieldName: "UF_CRM_1730380390",
+        now: () => "2026-04-09T00:00:00.000Z"
+      })
+    ).resolves.toEqual(expect.objectContaining({ syncRunId: 27 }));
+
+    expect(order.slice(0, 2)).toEqual(["deal-field", "stages"]);
+    expect(finishedDiagnostics).toContain("dealStageCatalogError=Error");
+    expect(failedRuns).toEqual([]);
+  });
+
+  it("keeps the main sync successful when stage-history fetch fails", async () => {
     const writes: string[] = [];
+    let finishedDiagnostics: string[] = [];
     const failedRuns: Array<{ syncRunId: number; status: "failed" }> = [];
     const repo = {
       getLatestSuccessCursor: async () => "2026-04-08T00:00:00.000Z",
@@ -5341,7 +6262,8 @@ describe("performManualSync", () => {
       createSyncRun: async () => 61,
       markOperationalHistoryBootstrapped: async () => undefined,
       markCallHistoryBootstrapped: async () => undefined,
-      finishSyncRun: async () => {
+      finishSyncRun: async (input: { diagnostics?: string[] }) => {
+        finishedDiagnostics = input.diagnostics ?? [];
         writes.push("finish");
       },
       failSyncRun: async (input: { syncRunId: number; status: "failed" }) => {
@@ -5389,14 +6311,19 @@ describe("performManualSync", () => {
         qualityFieldName: "UF_CRM_1730380390",
         now: () => "2026-04-09T00:00:00.000Z"
       })
-    ).rejects.toThrow("stage history unavailable");
+    ).resolves.toEqual(expect.objectContaining({ syncRunId: 61 }));
 
-    expect(writes).toEqual([]);
-    expect(failedRuns).toEqual([
-      expect.objectContaining({
-        syncRunId: 61,
-        status: "failed"
-      })
-    ]);
+    expect(finishedDiagnostics).toContain("stageHistoryError=Error");
+    expect(writes).toEqual(
+      expect.arrayContaining([
+        "stage-catalog",
+        "deals",
+        "stage-history",
+        "activities",
+        "cursor",
+        "finish"
+      ])
+    );
+    expect(failedRuns).toEqual([]);
   });
 });

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '@/lib/api-client'
 import type {
   DashboardData,
+  ConversionEventTypeSettingsInput,
   DealPricingRuleInput,
   MetaResponse,
   SalesPlanData,
@@ -142,6 +143,28 @@ vi.mock('@/lib/api-client', () => ({
       })),
       updatedAt: '2026-04-10T12:05:00.000Z',
     })),
+    getConversionEventTypeSettings: vi.fn(async () => ({
+      options: [],
+      settings: [],
+    })),
+    saveConversionEventTypeSettings: vi.fn(
+      async (input: ConversionEventTypeSettingsInput) => ({
+        options: input.eventTypeIds.map((id) => ({
+          id,
+          title: id,
+          categoryId: null,
+          stageId: null,
+          selectedForPlannedInventory: true,
+        })),
+        settings: input.eventTypeIds.map((id) => ({
+          moduleKey: 'attraction',
+          eventTypeId: id,
+          eventTypeLabel: id,
+          enabled: true,
+          updatedAt: '2026-04-10T12:05:00.000Z',
+        })),
+      }),
+    ),
     getSalesPlan: vi.fn(async () => ({
       periodStart: '2026-04-01T00:00:00.000+03:00',
       periodEnd: '2026-04-30T23:59:59.999+03:00',
@@ -297,6 +320,7 @@ vi.mock('@/lib/api-client', () => ({
     getConversionEventsReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalInvitedCount: 0,
+      totalConfirmedCount: 0,
       totalAttendedCount: 0,
       totalRefusedCount: 0,
       totalMissedCount: 0,
@@ -3727,6 +3751,7 @@ describe('ProtoApp', () => {
     vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
       range: { from: '2026-04-06T00:00:00.000Z', to: '2026-04-12T23:59:59.999Z' },
       totalInvitedCount: 5,
+      totalConfirmedCount: 0,
       totalAttendedCount: 2,
       totalRefusedCount: 1,
       totalMissedCount: 3,
@@ -3741,6 +3766,7 @@ describe('ProtoApp', () => {
           eventName: 'Знакомство с клубом 29.04.',
           eventDate: '2026-04-29T00:00:00.000Z',
           invitedCount: 5,
+          confirmedCount: 0,
           attendedCount: 2,
           refusedCount: 1,
           missedCount: 3,
@@ -3792,6 +3818,7 @@ describe('ProtoApp', () => {
     vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalInvitedCount: 10,
+      totalConfirmedCount: 0,
       totalAttendedCount: 6,
       totalRefusedCount: 2,
       totalMissedCount: 4,
@@ -3806,6 +3833,7 @@ describe('ProtoApp', () => {
           eventName: 'Знакомство с клубом 29.04.',
           eventDate: '2026-04-29T00:00:00.000Z',
           invitedCount: 10,
+          confirmedCount: 0,
           attendedCount: 6,
           refusedCount: 2,
           missedCount: 4,
@@ -3848,6 +3876,7 @@ describe('ProtoApp', () => {
     vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalInvitedCount: 0,
+      totalConfirmedCount: 0,
       totalAttendedCount: 0,
       totalRefusedCount: 0,
       totalMissedCount: 0,

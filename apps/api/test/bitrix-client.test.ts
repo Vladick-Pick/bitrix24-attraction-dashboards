@@ -120,6 +120,68 @@ describe("BitrixClient pagination", () => {
     });
   });
 
+  it("uses ID-based pagination for modified deal syncs", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: Array.from({ length: 50 }, (_, index) => ({
+            ID: String(index + 1)
+          }))
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: [{ ID: "51" }]
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    const rows = await client.listDeals({
+      modifiedAfter: "2026-04-08T10:00:00.000Z",
+      assignedByIds: ["78", "11234"]
+    });
+
+    expect(rows).toHaveLength(51);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      select: ALLOWED_DEAL_FIELDS,
+      filter: {
+        ">ID": "0",
+        ">=DATE_MODIFY": "2026-04-08T10:00:00.000Z",
+        CATEGORY_ID: "10",
+        "@ASSIGNED_BY_ID": ["78", "11234"]
+      },
+      order: {
+        ID: "ASC"
+      },
+      start: -1
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      select: ALLOWED_DEAL_FIELDS,
+      filter: {
+        ">ID": "50",
+        ">=DATE_MODIFY": "2026-04-08T10:00:00.000Z",
+        CATEGORY_ID: "10",
+        "@ASSIGNED_BY_ID": ["78", "11234"]
+      },
+      order: {
+        ID: "ASC"
+      },
+      start: -1
+    });
+  });
+
   it("retries transient network failures from Bitrix", async () => {
     const timeoutError = new TypeError("fetch failed", {
       cause: Object.assign(new Error("connect timeout"), {
@@ -479,18 +541,6 @@ describe("BitrixClient pagination", () => {
       .mockResolvedValueOnce(
         createResponse({
           result: {
-            types: [
-              {
-                entityTypeId: 177,
-                title: "Посещения мероприятий"
-              }
-            ]
-          }
-        })
-      )
-      .mockResolvedValueOnce(
-        createResponse({
-          result: {
             fields: {
               ufCrmEventName: {
                 title: "Мероприятие"
@@ -517,15 +567,6 @@ describe("BitrixClient pagination", () => {
                 ]
               }
             ]
-          }
-        })
-      )
-      .mockResolvedValueOnce(
-        createResponse({
-          result: {
-            UF_CRM_EVENT_OF: {
-              title: "Мероприятие ОФ"
-            }
           }
         })
       )
@@ -572,6 +613,7 @@ describe("BitrixClient pagination", () => {
     ).resolves.toEqual([
       {
         id: "1",
+        eventId: null,
         eventName: "Знакомство с клубом 29.04.",
         eventDate: "2026-04-29T00:00:00.000Z",
         status: "attended",
@@ -586,8 +628,8 @@ describe("BitrixClient pagination", () => {
       }
     ]);
 
-    expect(JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body))).toMatchObject({
-      entityTypeId: 177,
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({
+      entityTypeId: 162,
       select: expect.arrayContaining([
         "id",
         "title",
@@ -600,6 +642,541 @@ describe("BitrixClient pagination", () => {
       filter: {
         ">=updatedTime": "2026-04-01T00:00:00.000Z"
       }
+    });
+  });
+
+  it("uses known visit smart-process metadata and parentId event links", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            fields: {
+              parentId137: {
+                title: "Мероприятия",
+                type: "crm_entity",
+                settings: {
+                  parentEntityTypeId: 137
+                }
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            categories: [
+              {
+                id: 14,
+                stages: [
+                  {
+                    id: "DT162_14:NEW",
+                    name: "Приглашен"
+                  }
+                ]
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            items: [
+              {
+                id: 455358,
+                title:
+                  "Посещение участника в МСК Networking-сессия CF EXPERIENCE 21.05.26 оффлайн",
+                stageId: "DT162_14:NEW",
+                categoryId: 14,
+                parentId137: 29402,
+                parentId2: 156562,
+                contactId: 9001,
+                assignedById: 78,
+                sourceId: "WEB",
+                createdTime: "2026-05-18T15:41:58.000Z",
+                updatedTime: "2026-05-18T15:41:58.000Z"
+              }
+            ]
+          }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.listConversionEventVisits({
+        modifiedAfter: null,
+        reportYear: 2026
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "455358",
+        eventId: "29402",
+        eventName: "МСК Networking-сессия CF EXPERIENCE 21.05.26 оффлайн",
+        eventDate: "2026-05-21T00:00:00.000Z",
+        status: "invited",
+        dealId: "156562",
+        contactId: "9001"
+      })
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      entityTypeId: 162
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({
+      entityTypeId: 162,
+      select: expect.arrayContaining(["parentId137", "parentId2", "contactId"])
+    });
+  });
+
+  it("loads smart-process visit stage names through crm.status.list when categories omit stages", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            fields: {
+              parentId137: {
+                title: "Мероприятия",
+                settings: {
+                  parentEntityTypeId: 137
+                }
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            categories: [{ id: 14, stages: [] }]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: [
+            {
+              STATUS_ID: "DT162_14:SUCCESS",
+              NAME: "На мероприятии"
+            }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            items: [
+              {
+                id: 455358,
+                title: "Посещение участника в Гостевая встреча 21.05.",
+                stageId: "DT162_14:SUCCESS",
+                categoryId: 14,
+                parentId137: 29402,
+                parentId2: 156562,
+                contactId: 9001,
+                createdTime: "2026-05-18T15:41:58.000Z",
+                updatedTime: "2026-05-21T19:00:00.000Z"
+              }
+            ]
+          }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.listConversionEventVisits({
+        modifiedAfter: null,
+        reportYear: 2026
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        stageName: "На мероприятии",
+        status: "attended"
+      })
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      filter: {
+        ENTITY_ID: "DYNAMIC_162_STAGE_14"
+      }
+    });
+  });
+
+  it("scopes conversion event visits by deal and contact ids", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            fields: {
+              parentId137: {
+                title: "Мероприятия",
+                settings: {
+                  parentEntityTypeId: 137
+                }
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            categories: [
+              {
+                id: 14,
+                stages: [{ id: "DT162_14:NEW", name: "Приглашен" }]
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            items: [
+              {
+                id: 1,
+                title: "Посещение участника в Событие 01.06.",
+                stageId: "DT162_14:NEW",
+                parentId137: 100,
+                parentId2: 156562,
+                contactId: 9001,
+                createdTime: "2026-05-18T15:41:58.000Z",
+                updatedTime: "2026-05-18T15:41:58.000Z"
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            items: [
+              {
+                id: 1,
+                title: "Посещение участника в Событие 01.06.",
+                stageId: "DT162_14:NEW",
+                parentId137: 100,
+                parentId2: 156562,
+                contactId: 9001,
+                createdTime: "2026-05-18T15:41:58.000Z",
+                updatedTime: "2026-05-18T15:41:58.000Z"
+              }
+            ]
+          }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.listConversionEventVisits({
+        modifiedAfter: null,
+        reportYear: 2026,
+        dealIds: ["156562"],
+        contactIds: ["9001"]
+      })
+    ).resolves.toHaveLength(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({
+      filter: {
+        parentId2: "156562"
+      }
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toMatchObject({
+      filter: {
+        contactId: "9001"
+      }
+    });
+  });
+
+  it("discovers linked conversion event items for planned inventory", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            fields: {
+              ufCrmEvent: {
+                title: "Мероприятие",
+                settings: {
+                  DYNAMIC_137: "Y"
+                }
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            categories: [
+              {
+                id: 14,
+                stages: [{ id: "DT162_14:NEW", name: "Приглашен" }]
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            fields: {
+              ufCrmEventDate: {
+                title: "Дата мероприятия",
+                type: "date"
+              },
+              ufCrmEventType: {
+                title: "Тип мероприятия",
+                items: [{ ID: "128", VALUE: "Мероприятие привлечения" }]
+              },
+              ufCrmFormat: {
+                title: "Формат",
+                items: [{ ID: "2788", VALUE: "Оффлайн" }]
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            categories: [
+              {
+                id: 12,
+                stages: [
+                  {
+                    id: "DT137_12:PLANNED",
+                    name: "Планируется"
+                  }
+                ]
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            items: [
+              {
+                id: 31394,
+                title: "Гостевая встреча 28.05.",
+                stageId: "DT137_12:PLANNED",
+                categoryId: 12,
+                createdTime: "2026-05-14T08:18:44.000Z",
+                updatedTime: "2026-05-19T20:57:57.000Z",
+                ufCrmEventDate: "2026-05-28",
+                ufCrmEventType: "128",
+                ufCrmFormat: "2788"
+              }
+            ]
+          }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.listConversionEvents({
+        modifiedAfter: null
+      })
+    ).resolves.toEqual([
+      {
+        eventId: "31394",
+        entityTypeId: 137,
+        categoryId: 12,
+        title: "Гостевая встреча 28.05.",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        startAt: "2026-05-28T00:00:00.000Z",
+        endAt: null,
+        stageId: "DT137_12:PLANNED",
+        stageName: "Планируется",
+        status: "planned",
+        eventTypeId: "128",
+        eventTypeLabel: "Мероприятие привлечения",
+        formatId: "2788",
+        createdTime: "2026-05-14T08:18:44.000Z",
+        updatedTime: "2026-05-19T20:57:57.000Z"
+      }
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body))).toMatchObject({
+      entityTypeId: 137,
+      select: expect.arrayContaining([
+        "id",
+        "title",
+        "stageId",
+        "ufCrmEventDate",
+        "ufCrmEventType",
+        "ufCrmFormat"
+      ])
+    });
+  });
+
+  it("loads planned event type labels from linked parentId156 items", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            fields: {
+              parentId137: {
+                title: "Мероприятия",
+                settings: {
+                  parentEntityTypeId: 137
+                }
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            categories: [
+              {
+                id: 14,
+                stages: [{ id: "DT162_14:NEW", name: "Приглашен" }]
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            fields: {
+              ufCrmEventDate: {
+                title: "Дата мероприятия",
+                type: "date"
+              },
+              parentId156: {
+                title: "Виды мероприятий",
+                type: "crm_entity",
+                settings: {
+                  parentEntityTypeId: 156
+                }
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            categories: [
+              {
+                id: 12,
+                stages: [
+                  {
+                    id: "DT137_12:PLANNED",
+                    name: "Планируется"
+                  }
+                ]
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            items: [
+              {
+                id: 128,
+                title: "Мероприятие Привлечения"
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            items: [
+              {
+                id: 31394,
+                title: "Гостевая встреча 28.05.",
+                stageId: "DT137_12:PLANNED",
+                categoryId: 12,
+                createdTime: "2026-05-14T08:18:44.000Z",
+                updatedTime: "2026-05-19T20:57:57.000Z",
+                ufCrmEventDate: "2026-05-28",
+                parentId156: 128
+              }
+            ]
+          }
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.listConversionEvents({
+        modifiedAfter: null
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        eventId: "31394",
+        eventTypeId: "128",
+        eventTypeLabel: "Мероприятие Привлечения"
+      })
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body))).toMatchObject({
+      entityTypeId: 156,
+      select: ["id", "title"]
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[5]?.[1]?.body))).toMatchObject({
+      entityTypeId: 137,
+      select: expect.arrayContaining(["parentId156"])
     });
   });
 

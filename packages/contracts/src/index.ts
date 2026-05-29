@@ -144,12 +144,14 @@ export interface DealMeetingDateChangeSnapshot {
 
 export type ConversionEventStatus =
   | "invited"
+  | "confirmed"
   | "attended"
   | "refused"
   | "unknown";
 
 export interface ConversionEventVisitSnapshot {
   id: string;
+  eventId?: string | null;
   eventName: string;
   eventDate: string;
   status: ConversionEventStatus;
@@ -187,6 +189,149 @@ export interface ConversionEventSnapshot {
   businessClubValue?: string | null;
   sourceKey?: string | null;
   participantsCount?: number | null;
+}
+
+export type AnalyticsLinkConfidence = "high" | "medium" | "low";
+
+export interface IdentityLinkSnapshot {
+  identityId: string;
+  moduleKey: string;
+  dealId: string | null;
+  leadId: string | null;
+  contactId: string | null;
+  dealCategoryId: string | null;
+  leadCategoryId: string | null;
+  currentManagerId: string | null;
+  currentStageId: string | null;
+  sourceId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  linkConfidence: AnalyticsLinkConfidence;
+  linkReason: string;
+}
+
+export interface DealStageFactSnapshot {
+  factId: string;
+  sourceSystem: string;
+  sourceEntityId: string;
+  dealId: string;
+  contactId: string | null;
+  leadId: string | null;
+  categoryId: string | null;
+  stageId: string;
+  stageName: string | null;
+  stageSemanticId: string | null;
+  enteredAt: string;
+  leftAt: string | null;
+  managerId: string | null;
+  sourceId: string | null;
+  sortOrder: number | null;
+  payloadJson: string | null;
+}
+
+export type DealTouchpointKind =
+  | "call"
+  | "task_created"
+  | "task_completed"
+  | "meeting"
+  | "meeting_date_changed"
+  | "conversion_event_visit"
+  | "message_count"
+  | "comment_quality_signal";
+
+export interface DealTouchpointFactSnapshot {
+  factId: string;
+  kind: DealTouchpointKind;
+  sourceSystem: string;
+  sourceEntityType: string;
+  sourceEntityId: string;
+  occurredAt: string;
+  dealId: string | null;
+  contactId: string | null;
+  leadId: string | null;
+  managerId: string | null;
+  sourceId: string | null;
+  stageIdAtEvent: string | null;
+  stageNameAtEvent: string | null;
+  linkConfidence: AnalyticsLinkConfidence;
+  linkReason: string;
+  payloadJson: string | null;
+}
+
+export interface EventSnapshot {
+  eventId: string;
+  entityTypeId: number;
+  categoryId: number | null;
+  title: string | null;
+  eventDate: string;
+  startAt: string | null;
+  endAt: string | null;
+  stageId: string;
+  stageName: string | null;
+  status: "draft" | "preannounce" | "planned" | "completed" | "canceled" | "unknown";
+  eventTypeId: string | null;
+  eventTypeLabel: string | null;
+  formatId: string | null;
+  createdTime: string;
+  updatedTime: string;
+}
+
+export interface EventVisitFactSnapshot {
+  visitId: string;
+  eventId: string | null;
+  dealId: string | null;
+  contactId: string | null;
+  leadId: string | null;
+  managerId: string | null;
+  sourceId: string | null;
+  currentStageId: string;
+  currentStageName: string | null;
+  invitedAt: string | null;
+  confirmedAt: string | null;
+  attendedAt: string | null;
+  refusedAt: string | null;
+  finalStatus: "invited" | "confirmed" | "attended" | "refused" | "missed" | "unknown";
+  eventDate: string | null;
+  stageIdAtEvent: string | null;
+  linkConfidence: AnalyticsLinkConfidence;
+  linkReason: string;
+  payloadJson: string | null;
+}
+
+export interface EventVisitStageHistorySnapshot {
+  historyId: string;
+  visitId: string;
+  entityTypeId: number;
+  categoryId: number | null;
+  stageId: string;
+  stageName: string | null;
+  typeId: number | null;
+  changedAt: string;
+}
+
+export interface ModuleEventTypeSetting {
+  moduleKey: string;
+  eventTypeId: string;
+  eventTypeLabel: string;
+  enabled: boolean;
+  updatedAt: string;
+}
+
+export interface ConversionEventTypeOption {
+  id: string;
+  title: string;
+  categoryId: number | null;
+  stageId: string | null;
+  selectedForPlannedInventory: boolean;
+}
+
+export interface ConversionEventTypeSettingsData {
+  options: ConversionEventTypeOption[];
+  settings: ModuleEventTypeSetting[];
+}
+
+export interface ConversionEventTypeSettingsInput {
+  eventTypeIds: string[];
 }
 
 export interface ManagerDirectoryEntry {
@@ -630,6 +775,7 @@ export interface ConversionEventRow {
   eventName: string;
   eventDate: string;
   invitedCount: number;
+  confirmedCount: number;
   attendedCount: number;
   refusedCount: number;
   missedCount: number;
@@ -647,6 +793,7 @@ export interface ConversionEventRow {
 export interface ConversionEventsReportSnapshot {
   range: ReportRange;
   totalInvitedCount: number;
+  totalConfirmedCount: number;
   totalAttendedCount: number;
   totalRefusedCount: number;
   totalMissedCount: number;

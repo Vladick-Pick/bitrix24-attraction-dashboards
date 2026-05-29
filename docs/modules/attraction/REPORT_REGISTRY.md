@@ -2,6 +2,15 @@
 
 ## activities-calls
 
+### Message metrics research
+
+- Current research note: [MESSAGE_METRICS_RESEARCH.md](./MESSAGE_METRICS_RESEARCH.md).
+- Bitrix-only implementation can count non-system Open Lines messages through
+  `imopenlines.session.history.get` without persisting message text.
+- Exact `sent` / `received` split is not confirmed from Bitrix-only data because
+  external Wazzup/OLChat messages may be recorded as `imconnector` messages even
+  when sent outside Bitrix.
+
 ### Stage/loss-reason table
 
 - Module: `attraction`.

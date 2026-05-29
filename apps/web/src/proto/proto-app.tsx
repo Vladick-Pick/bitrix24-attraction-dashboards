@@ -23,6 +23,7 @@ import { apiClient } from '@/lib/api-client'
 import type {
   ActivitiesWorkloadReport,
   CallsWorkloadReport,
+  ConversionEventTypeSettingsInput,
   DashboardQuery,
   DealPricingRuleInput,
   LastSyncSummary,
@@ -1171,6 +1172,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [pricingSettingsLoading, setPricingSettingsLoading] = useState(false)
   const [pricingSettingsSaving, setPricingSettingsSaving] = useState(false)
   const [pricingSettingsSaveError, setPricingSettingsSaveError] = useState<string | null>(null)
+  const [conversionEventTypeSettingsLoading, setConversionEventTypeSettingsLoading] = useState(false)
+  const [conversionEventTypeSettingsSaving, setConversionEventTypeSettingsSaving] = useState(false)
+  const [conversionEventTypeSettingsSaveError, setConversionEventTypeSettingsSaveError] = useState<string | null>(null)
   const [commentNotifications, setCommentNotifications] = useState<CommentNotification[]>([])
   const [readCommentNotificationKeys, setReadCommentNotificationKeys] = useState<Set<string>>(
     () => readStoredCommentNotificationKeys(),
@@ -1523,6 +1527,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           setLeadgenReportError(null)
           setLeadgenWorkload(null)
           setPricingSettingsLoading(false)
+          setConversionEventTypeSettingsLoading(false)
 
           const [meta, report, activities, calls] = await Promise.all([
             apiClient.getMeta(activeModuleId),
@@ -1567,14 +1572,17 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setLeadgenReportStatus('idle')
         setLeadgenReportError(null)
         setPricingSettingsLoading(true)
-        const [meta, pricingSettings] = await Promise.all([
+        setConversionEventTypeSettingsLoading(true)
+        const [meta, pricingSettings, conversionEventTypeSettings] = await Promise.all([
           apiClient.getMeta(activeModuleId),
           apiClient.getPricingSettings(),
+          apiClient.getConversionEventTypeSettings(),
         ])
         if (cancelled || runtimeRequestRef.current !== requestId) {
           return
         }
         setPricingSettingsLoading(false)
+        setConversionEventTypeSettingsLoading(false)
 
         const managerPickerOptions = normalizeManagerPickerOptions(meta.managerCatalog)
         const sourcePickerOptions = meta.sourceCatalog.map((entry) => ({
@@ -1710,6 +1718,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           ...(current.salesPlanMonth ? { salesPlanMonth: current.salesPlanMonth } : {}),
           ...(current.salesPlanQuarter ? { salesPlanQuarter: current.salesPlanQuarter } : {}),
           pricingSettings,
+          conversionEventTypeSettings,
           salesDashboard: dashboard,
           salesPlanMonthDashboard: monthDashboard,
           salesPlanQuarterDashboard: quarterDashboard,
@@ -1749,6 +1758,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           )
         }
         setPricingSettingsLoading(false)
+        setConversionEventTypeSettingsLoading(false)
       }
     }
 
@@ -1986,6 +1996,34 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       )
     } finally {
       setPricingSettingsSaving(false)
+    }
+  }
+
+  async function handleSaveConversionEventTypeSettings(
+    input: ConversionEventTypeSettingsInput,
+  ) {
+    if (conversionEventTypeSettingsLoading) {
+      return
+    }
+
+    setConversionEventTypeSettingsSaving(true)
+    setConversionEventTypeSettingsSaveError(null)
+
+    try {
+      const saved = await apiClient.saveConversionEventTypeSettings(input)
+      setRuntimeData((current) => ({
+        ...current,
+        conversionEventTypeSettings: saved,
+      }))
+      setAppliedFilters((current) => cloneFilters(current))
+    } catch (error) {
+      setConversionEventTypeSettingsSaveError(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось сохранить типы мероприятий',
+      )
+    } finally {
+      setConversionEventTypeSettingsSaving(false)
     }
   }
 
@@ -3270,6 +3308,11 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               pricingSettingsSaving={pricingSettingsSaving}
               pricingSettingsSaveError={pricingSettingsSaveError}
               onPricingSettingsSave={handleSavePricingSettings}
+              conversionEventTypeSettings={runtimeData.conversionEventTypeSettings}
+              conversionEventTypeSettingsLoading={conversionEventTypeSettingsLoading}
+              conversionEventTypeSettingsSaving={conversionEventTypeSettingsSaving}
+              conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
+              onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
             />
           </>
         )}

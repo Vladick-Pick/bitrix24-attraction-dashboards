@@ -1,12 +1,16 @@
 import type {
+  ConversionEventTypeOption,
   ConversionEventVisitSnapshot,
+  EventSnapshot,
+  EventVisitStageHistorySnapshot,
   StageCatalogEntry
 } from "@bitrix24-reporting/contracts";
 
 import {
+  buildConversionEventListParams,
   buildConversionEventItemListParams,
   buildDealBackfillParams,
-  buildDealListParams
+  buildSmartProcessStageHistoryListParams
 } from "./selectors.js";
 import {
   assertAllowedBitrixMethod,
@@ -28,6 +32,12 @@ interface BitrixClientConfig {
   timeoutMs: number;
   requestIntervalMs: number;
 }
+
+const CONVERSION_EVENT_ENTITY_TYPE_ID = 137;
+const CONVERSION_EVENT_TYPE_ENTITY_TYPE_ID = 156;
+const CONVERSION_EVENT_VISIT_ENTITY_TYPE_ID = 162;
+const CONVERSION_EVENT_VISIT_TYPE_TITLE = "Посещения мероприятий";
+const BITRIX_REQUEST_MAX_ATTEMPTS = 8;
 
 interface BitrixResponse<T> {
   result?: T;
@@ -162,6 +172,13 @@ interface SmartProcessTypeListResult {
 interface SmartProcessFieldMetadata {
   title?: string | null;
   type?: string | null;
+  settings?: Record<string, string | null>;
+  items?: Array<{
+    ID?: string | number;
+    VALUE?: string;
+    id?: string | number;
+    value?: string;
+  }>;
 }
 
 interface SmartProcessFieldsResult {
@@ -171,6 +188,8 @@ interface SmartProcessFieldsResult {
 interface SmartProcessCategoryResult {
   categories?: Array<{
     id: string | number;
+    name?: string | null;
+    title?: string | null;
     stages?: Array<{
       id?: string | number;
       statusId?: string | number;
@@ -192,6 +211,25 @@ interface ConversionEventItemRow {
   createdTime?: string | null;
   updatedTime?: string | null;
   [key: string]: unknown;
+}
+
+interface ConversionEventRow {
+  id: string | number;
+  title?: string | null;
+  stageId?: string | number | null;
+  categoryId?: string | number | null;
+  createdTime?: string | null;
+  updatedTime?: string | null;
+  [key: string]: unknown;
+}
+
+interface SmartProcessStageHistoryRow {
+  ID: string | number;
+  OWNER_ID: string | number;
+  CATEGORY_ID?: string | number | null;
+  STAGE_ID: string;
+  TYPE_ID?: number | null;
+  CREATED_TIME: string;
 }
 
 function buildDealStageEntityId(categoryId: string) {
@@ -252,7 +290,13 @@ function describeBitrixError(error: unknown) {
   }
 
   const causeCode = getErrorCauseCode(error);
-  return causeCode ? `${error.name}:${causeCode}` : error.name;
+  if (causeCode) {
+    return `${error.name}:${causeCode}`;
+  }
+
+  return error.name === "AbortError" && error.message
+    ? `${error.name}:${error.message}`
+    : error.name;
 }
 
 function createAbortError(message: string) {
@@ -385,6 +429,79 @@ function findConversionEventDateField(
   );
 }
 
+function findConversionEventTypeField(
+  fields: Record<string, SmartProcessFieldMetadata>
+) {
+  return (
+    findFieldByExactTitle(fields, "Тип мероприятия") ??
+    findFieldByExactTitle(fields, "Виды мероприятий") ??
+    (fields.parentId156 ? "parentId156" : null) ??
+    Object.entries(fields).find(([, field]) => {
+      const title = normalizeFieldTitle(field.title);
+      return (
+        (title.includes("тип") || title.includes("вид")) &&
+        title.includes("мероприят")
+      );
+    })?.[0] ??
+    null
+  );
+}
+
+function findConversionEventFormatField(
+  fields: Record<string, SmartProcessFieldMetadata>
+) {
+  return (
+    findFieldByExactTitle(fields, "Формат") ??
+    Object.entries(fields).find(([, field]) => {
+      const title = normalizeFieldTitle(field.title);
+      return title.includes("формат");
+    })?.[0] ??
+    null
+  );
+}
+
+function fieldItemsToValueMap(field: SmartProcessFieldMetadata | undefined) {
+  if (!field?.items || field.items.length === 0) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    field.items.flatMap((item) => {
+      const id = item.ID ?? item.id;
+      const value = item.VALUE ?? item.value;
+
+      return id !== undefined && value ? [[String(id), value]] : [];
+    })
+  ) as Record<string, string>;
+}
+
+function extractDynamicEntityTypeId(field: SmartProcessFieldMetadata | undefined) {
+  const parentEntityTypeId = Number(field?.settings?.parentEntityTypeId);
+  if (Number.isFinite(parentEntityTypeId)) {
+    return parentEntityTypeId;
+  }
+
+  const dynamicEntityKey = Object.entries(field?.settings ?? {}).find(
+    ([key, value]) => key.startsWith("DYNAMIC_") && value === "Y"
+  )?.[0];
+  if (!dynamicEntityKey) {
+    return null;
+  }
+
+  const entityTypeId = Number(dynamicEntityKey.replace("DYNAMIC_", ""));
+  return Number.isFinite(entityTypeId) ? entityTypeId : null;
+}
+
+function isNetworkDiscoveryError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      error.message.includes("fetch failed") ||
+      error.message.includes("UND_ERR_CONNECT_TIMEOUT") ||
+      error.message.includes("timed out"))
+  );
+}
+
 function normalizeDateValue(value: string | null) {
   if (!value) {
     return null;
@@ -392,6 +509,45 @@ function normalizeDateValue(value: string | null) {
 
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function normalizeEventStatus(stageName: string | null | undefined): EventSnapshot["status"] {
+  const label = normalizeFieldTitle(stageName);
+  const stageCode = label.split(":").pop() ?? label;
+
+  if (label.includes("отмен")) {
+    return "canceled";
+  }
+
+  if (stageCode === "fail") {
+    return "canceled";
+  }
+
+  if (label.includes("заверш") || label.includes("проведен") || label.includes("прош")) {
+    return "completed";
+  }
+
+  if (stageCode === "success") {
+    return "completed";
+  }
+
+  if (label.includes("план")) {
+    return "planned";
+  }
+
+  if (label.includes("преданонс")) {
+    return "preannounce";
+  }
+
+  if (label.includes("чернов")) {
+    return "draft";
+  }
+
+  if (stageCode === "new") {
+    return "draft";
+  }
+
+  return "unknown";
 }
 
 function buildActivityOwnerFilter(ownerIds: string[]) {
@@ -467,7 +623,7 @@ export class BitrixClient {
     const url = `${this.baseUrl}/${method}`;
 
     return this.withRequestSlot(async () => {
-      const maxAttempts = 4;
+      const maxAttempts = BITRIX_REQUEST_MAX_ATTEMPTS;
 
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const controller = new AbortController();
@@ -475,7 +631,7 @@ export class BitrixClient {
         let timeout: ReturnType<typeof setTimeout> | null = null;
         const timeoutPromise = new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
-            const error = createAbortError("Bitrix24 request timed out");
+            const error = createAbortError(`Bitrix24 ${method} request timed out`);
             controller.abort(error);
             reject(error);
           }, this.config.timeoutMs);
@@ -767,40 +923,24 @@ export class BitrixClient {
     return rows;
   }
 
-  async fetchConversionEventDealFieldName() {
-    const fields = await this.fetchDealFieldsMetadata();
-    return findFieldByExactTitle(fields, "Мероприятие ОФ") ?? null;
-  }
-
-  private async discoverConversionEventMetadata() {
-    const typeResponse = await this.call<SmartProcessTypeListResult>(
-      "crm.type.list",
-      {}
-    );
-    const type = typeResponse.result?.types?.find(
-      (candidate) =>
-        normalizeFieldTitle(candidate.title) ===
-        normalizeFieldTitle("Посещения мероприятий")
-    );
-    const entityTypeId = Number(type?.entityTypeId);
-    if (!Number.isFinite(entityTypeId)) {
-      return null;
-    }
-
-    const [fieldResponse, categoryResponse, dealFieldName] = await Promise.all([
-      this.call<SmartProcessFieldsResult>("crm.item.fields", {
-        entityTypeId
-      }),
-      this.call<SmartProcessCategoryResult>("crm.category.list", {
-        entityTypeId
-      }),
-      this.fetchConversionEventDealFieldName()
-    ]);
-    const fields = fieldResponse.result?.fields ?? {};
+  private async fetchSmartProcessStageNames(
+    entityTypeId: number,
+    categories: NonNullable<SmartProcessCategoryResult["categories"]>
+  ) {
     const stageNames = new Map<string, string>();
+    const categoriesMissingStages: string[] = [];
 
-    for (const category of categoryResponse.result?.categories ?? []) {
-      for (const stage of category.stages ?? []) {
+    for (const category of categories) {
+      const stages = category.stages ?? [];
+      if (stages.length === 0) {
+        const categoryId = normalizeOptionalString(category.id);
+        if (categoryId) {
+          categoriesMissingStages.push(categoryId);
+        }
+        continue;
+      }
+
+      for (const stage of stages) {
         const stageId = normalizeOptionalString(stage.id ?? stage.statusId);
         if (stageId) {
           stageNames.set(stageId, stage.name ?? stage.title ?? stageId);
@@ -808,11 +948,148 @@ export class BitrixClient {
       }
     }
 
+    for (const categoryId of categoriesMissingStages) {
+      try {
+        const response = await this.call<StatusRow[]>("crm.status.list", {
+          filter: {
+            ENTITY_ID: `DYNAMIC_${entityTypeId}_STAGE_${categoryId}`
+          }
+        });
+
+        for (const row of this.extractItems(response)) {
+          const stageId = normalizeOptionalString(row.STATUS_ID);
+          if (stageId) {
+            stageNames.set(stageId, row.NAME ?? stageId);
+          }
+        }
+      } catch (error) {
+        if (!isNetworkDiscoveryError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    return stageNames;
+  }
+
+  async fetchConversionEventDealFieldName() {
+    const fields = await this.fetchDealFieldsMetadata();
+    return findFieldByExactTitle(fields, "Мероприятие ОФ") ?? null;
+  }
+
+  private async loadConversionEventMetadata(entityTypeId: number) {
+    const [fieldResponse, categoryResponse] = await Promise.all([
+      this.call<SmartProcessFieldsResult>("crm.item.fields", {
+        entityTypeId
+      }),
+      this.call<SmartProcessCategoryResult>("crm.category.list", {
+        entityTypeId
+      })
+    ]);
+    const fields = fieldResponse.result?.fields ?? {};
+    const stageNames = await this.fetchSmartProcessStageNames(
+      entityTypeId,
+      categoryResponse.result?.categories ?? []
+    );
+
     return {
       entityTypeId,
       eventNameFieldName: findConversionEventNameField(fields),
       eventDateFieldName: findConversionEventDateField(fields),
-      dealConversionEventFieldName: dealFieldName,
+      eventEntityTypeId: extractDynamicEntityTypeId(
+        fields[findConversionEventNameField(fields) ?? ""]
+      ) ?? CONVERSION_EVENT_ENTITY_TYPE_ID,
+      stageNames
+    };
+  }
+
+  private async discoverConversionEventVisitEntityTypeId() {
+    const typeResponse = await this.call<SmartProcessTypeListResult>(
+      "crm.type.list",
+      {}
+    );
+    const type = typeResponse.result?.types?.find(
+      (candidate) =>
+        normalizeFieldTitle(candidate.title) ===
+        normalizeFieldTitle(CONVERSION_EVENT_VISIT_TYPE_TITLE)
+    );
+    const entityTypeId = Number(type?.entityTypeId);
+    return Number.isFinite(entityTypeId) ? entityTypeId : null;
+  }
+
+  private async discoverConversionEventMetadata() {
+    try {
+      return await this.loadConversionEventMetadata(
+        CONVERSION_EVENT_VISIT_ENTITY_TYPE_ID
+      );
+    } catch (knownEntityError) {
+      let discoveredEntityTypeId: number | null = null;
+
+      try {
+        discoveredEntityTypeId =
+          await this.discoverConversionEventVisitEntityTypeId();
+      } catch (discoveryError) {
+        if (!isNetworkDiscoveryError(discoveryError)) {
+          throw discoveryError;
+        }
+      }
+
+      if (
+        discoveredEntityTypeId &&
+        discoveredEntityTypeId !== CONVERSION_EVENT_VISIT_ENTITY_TYPE_ID
+      ) {
+        return this.loadConversionEventMetadata(discoveredEntityTypeId);
+      }
+
+      if (isNetworkDiscoveryError(knownEntityError)) {
+        return null;
+      }
+
+      throw knownEntityError;
+    }
+  }
+
+  private async discoverConversionEventItemMetadata() {
+    const visitMetadata = await this.discoverConversionEventMetadata();
+    if (!visitMetadata?.eventEntityTypeId) {
+      return null;
+    }
+
+    const entityTypeId = visitMetadata.eventEntityTypeId;
+    const [fieldResponse, categoryResponse] = await Promise.all([
+      this.call<SmartProcessFieldsResult>("crm.item.fields", {
+        entityTypeId
+      }),
+      this.call<SmartProcessCategoryResult>("crm.category.list", {
+        entityTypeId
+      })
+    ]);
+    const fields = fieldResponse.result?.fields ?? {};
+    const eventDateFieldName = findConversionEventDateField(fields);
+    const eventTypeFieldName = findConversionEventTypeField(fields);
+    const eventFormatFieldName = findConversionEventFormatField(fields);
+    const eventTypeEntityTypeId =
+      extractDynamicEntityTypeId(
+        eventTypeFieldName ? fields[eventTypeFieldName] : undefined
+      ) ?? CONVERSION_EVENT_TYPE_ENTITY_TYPE_ID;
+    const eventTypeMap =
+      eventTypeFieldName && fields[eventTypeFieldName]?.items
+        ? fieldItemsToValueMap(fields[eventTypeFieldName])
+        : await this.fetchDynamicItemTitleMap(eventTypeEntityTypeId);
+    const stageNames = await this.fetchSmartProcessStageNames(
+      entityTypeId,
+      categoryResponse.result?.categories ?? []
+    );
+
+    return {
+      entityTypeId,
+      eventDateFieldName,
+      eventTypeFieldName,
+      eventTypeMap,
+      eventFormatFieldName,
+      eventFormatMap: fieldItemsToValueMap(
+        eventFormatFieldName ? fields[eventFormatFieldName] : undefined
+      ),
       stageNames
     };
   }
@@ -820,6 +1097,8 @@ export class BitrixClient {
   async listConversionEventVisits(input: {
     modifiedAfter: string | null;
     reportYear: number;
+    dealIds?: string[];
+    contactIds?: string[];
     signal?: AbortSignal;
   }): Promise<ConversionEventVisitSnapshot[]> {
     const metadata = await this.discoverConversionEventMetadata();
@@ -831,28 +1110,92 @@ export class BitrixClient {
       metadata.eventNameFieldName,
       metadata.eventDateFieldName
     ].filter((value): value is string => Boolean(value));
-    const rows = await this.collectPagedList<ConversionEventItemRow>(
-      "crm.item.list",
-      (start) =>
-        buildConversionEventItemListParams({
-          entityTypeId: metadata.entityTypeId,
-          modifiedAfter: input.modifiedAfter,
-          start,
-          eventNameFieldName: metadata.eventNameFieldName,
-          eventDateFieldName: metadata.eventDateFieldName
-        }),
-      {
-        allowedCustomFields,
-        ...(input.signal ? { signal: input.signal } : {})
-      }
-    );
+    const baseOptions = {
+      entityTypeId: metadata.entityTypeId,
+      modifiedAfter: input.modifiedAfter,
+      eventNameFieldName: metadata.eventNameFieldName,
+      eventDateFieldName: metadata.eventDateFieldName
+    };
+    const scopedRows: ConversionEventItemRow[][] = [];
+
+    if (input.dealIds && input.dealIds.length > 0) {
+      scopedRows.push(
+        await this.collectChunked(
+          input.dealIds,
+          (chunk) =>
+            this.collectPagedList<ConversionEventItemRow>(
+              "crm.item.list",
+              (start) =>
+                buildConversionEventItemListParams({
+                  ...baseOptions,
+                  start,
+                  dealIds: chunk
+                }),
+              {
+                allowedCustomFields,
+                ...(input.signal ? { signal: input.signal } : {})
+              }
+            ),
+          50
+        )
+      );
+    }
+
+    if (input.contactIds && input.contactIds.length > 0) {
+      scopedRows.push(
+        await this.collectChunked(
+          input.contactIds,
+          (chunk) =>
+            this.collectPagedList<ConversionEventItemRow>(
+              "crm.item.list",
+              (start) =>
+                buildConversionEventItemListParams({
+                  ...baseOptions,
+                  start,
+                  contactIds: chunk
+                }),
+              {
+                allowedCustomFields,
+                ...(input.signal ? { signal: input.signal } : {})
+              }
+            ),
+          50
+        )
+      );
+    }
+
+    const rows =
+      scopedRows.length > 0
+        ? Array.from(
+            new Map(
+              scopedRows.flat().map((row) => [String(row.id), row])
+            ).values()
+          )
+        : await this.collectPagedList<ConversionEventItemRow>(
+            "crm.item.list",
+            (start) =>
+              buildConversionEventItemListParams({
+                ...baseOptions,
+                start
+              }),
+            {
+              allowedCustomFields,
+              ...(input.signal ? { signal: input.signal } : {})
+            }
+          );
 
     return rows.map((row) => {
       const stageId = normalizeOptionalString(row.stageId) ?? "";
       const stageName = metadata.stageNames.get(stageId) ?? stageId;
+      const eventId = metadata.eventNameFieldName
+        ? extractLinkedId(row[metadata.eventNameFieldName])
+        : null;
+      const rawEventName = metadata.eventNameFieldName
+        ? normalizeOptionalString(row[metadata.eventNameFieldName])
+        : null;
       const eventName = resolveConversionEventName(
-        metadata.eventNameFieldName
-          ? normalizeOptionalString(row[metadata.eventNameFieldName])
+        rawEventName && rawEventName !== eventId && !/^\d+$/.test(rawEventName)
+          ? rawEventName
           : null,
         row.title ?? null
       );
@@ -864,6 +1207,7 @@ export class BitrixClient {
 
       return {
         id: String(row.id),
+        eventId,
         eventName,
         eventDate,
         status: resolveConversionEventStatus(stageName),
@@ -875,6 +1219,151 @@ export class BitrixClient {
         sourceId: normalizeOptionalString(row.sourceId),
         createdTime: row.createdTime ?? "",
         updatedTime: row.updatedTime ?? row.createdTime ?? ""
+      };
+    });
+  }
+
+  async listConversionEvents(input: {
+    modifiedAfter: string | null;
+    eventTypeIds?: string[];
+    eventIds?: string[];
+    signal?: AbortSignal;
+  }): Promise<EventSnapshot[]> {
+    const metadata = await this.discoverConversionEventItemMetadata();
+    if (!metadata) {
+      return [];
+    }
+
+    const allowedCustomFields = [
+      metadata.eventDateFieldName,
+      metadata.eventTypeFieldName,
+      metadata.eventFormatFieldName
+    ].filter((value): value is string => Boolean(value));
+    const buildListParams = (start: number, eventIds?: string[]) =>
+      buildConversionEventListParams({
+        entityTypeId: metadata.entityTypeId,
+        modifiedAfter: input.modifiedAfter,
+        start,
+        eventDateFieldName: metadata.eventDateFieldName,
+        eventTypeFieldName: metadata.eventTypeFieldName,
+        ...(input.eventTypeIds ? { eventTypeIds: input.eventTypeIds } : {}),
+        ...(eventIds ? { eventIds } : {}),
+        eventFormatFieldName: metadata.eventFormatFieldName
+      });
+    const rows =
+      input.eventIds && input.eventIds.length > 0
+        ? await this.collectChunked(
+            input.eventIds,
+            (chunk) =>
+              this.collectPagedList<ConversionEventRow>(
+                "crm.item.list",
+                (start) => buildListParams(start, chunk),
+                {
+                  allowedCustomFields,
+                  ...(input.signal ? { signal: input.signal } : {})
+                }
+              ),
+            50
+          )
+        : await this.collectPagedList<ConversionEventRow>(
+            "crm.item.list",
+            (start) => buildListParams(start),
+            {
+              allowedCustomFields,
+              ...(input.signal ? { signal: input.signal } : {})
+            }
+          );
+
+    return rows.map((row) => {
+      const stageId = normalizeOptionalString(row.stageId) ?? "";
+      const eventTypeId = metadata.eventTypeFieldName
+        ? extractLinkedId(row[metadata.eventTypeFieldName])
+        : null;
+      const formatId = metadata.eventFormatFieldName
+        ? extractLinkedId(row[metadata.eventFormatFieldName])
+        : null;
+      const eventDate = metadata.eventDateFieldName
+        ? normalizeDateValue(normalizeOptionalString(row[metadata.eventDateFieldName]))
+        : null;
+
+      return {
+        eventId: String(row.id),
+        entityTypeId: metadata.entityTypeId,
+        categoryId:
+          row.categoryId === null || row.categoryId === undefined
+            ? null
+            : Number(row.categoryId),
+        title: row.title ?? null,
+        eventDate: eventDate ?? row.createdTime ?? "",
+        startAt: eventDate,
+        endAt: null,
+        stageId,
+        stageName: metadata.stageNames.get(stageId) ?? stageId,
+        status: normalizeEventStatus(metadata.stageNames.get(stageId) ?? stageId),
+        eventTypeId,
+        eventTypeLabel: eventTypeId ? metadata.eventTypeMap[eventTypeId] ?? eventTypeId : null,
+        formatId,
+        createdTime: row.createdTime ?? "",
+        updatedTime: row.updatedTime ?? row.createdTime ?? ""
+      };
+    });
+  }
+
+  async listConversionEventTypeOptions(): Promise<ConversionEventTypeOption[]> {
+    const metadata = await this.discoverConversionEventItemMetadata();
+    if (!metadata) {
+      return [];
+    }
+
+    return Object.entries(metadata.eventTypeMap).map(([id, title]) => ({
+      id,
+      title,
+      categoryId: null,
+      stageId: null,
+      selectedForPlannedInventory: false
+    }));
+  }
+
+  async listConversionEventVisitStageHistory(input: {
+    visitIds: string[];
+    signal?: AbortSignal;
+  }): Promise<EventVisitStageHistorySnapshot[]> {
+    const metadata = await this.discoverConversionEventMetadata();
+    if (!metadata || input.visitIds.length === 0) {
+      return [];
+    }
+
+    const rows = await this.collectChunked(
+      input.visitIds,
+      (chunk) =>
+        this.collectPagedList<SmartProcessStageHistoryRow>(
+          "crm.stagehistory.list",
+          (start) =>
+            buildSmartProcessStageHistoryListParams({
+              entityTypeId: metadata.entityTypeId,
+              ownerIds: chunk,
+              start
+            }),
+          input.signal ? { signal: input.signal } : undefined
+        ),
+      100
+    );
+
+    return rows.map((row) => {
+      const stageId = normalizeOptionalString(row.STAGE_ID) ?? "";
+
+      return {
+        historyId: String(row.ID),
+        visitId: String(row.OWNER_ID),
+        entityTypeId: metadata.entityTypeId,
+        categoryId:
+          row.CATEGORY_ID === null || row.CATEGORY_ID === undefined
+            ? null
+            : Number(row.CATEGORY_ID),
+        stageId,
+        stageName: metadata.stageNames.get(stageId) ?? stageId,
+        typeId: row.TYPE_ID ?? null,
+        changedAt: row.CREATED_TIME
       };
     });
   }
@@ -915,18 +1404,18 @@ export class BitrixClient {
       );
     }
 
-    const modifiedAfter = cursor.modifiedAfter;
-
-    return this.collectPagedList<DealListRow>(
+    return this.collectByAscendingId<DealListRow>(
       "crm.deal.list",
-      (start) =>
-        buildDealListParams({
+      (afterId) =>
+        buildDealBackfillParams({
+          afterId,
           categoryIds,
           ...(cursor.assignedByIds
             ? { assignedByIds: cursor.assignedByIds }
             : {}),
-          modifiedAfter,
-          start,
+          ...(cursor.modifiedAfter
+            ? { modifiedAfter: cursor.modifiedAfter }
+            : {}),
           customFieldNames
         }),
       {
@@ -1096,7 +1585,11 @@ export class BitrixClient {
     ) as Record<string, string>;
   }
 
-  async listStageHistory(input: { ownerIds?: string[]; categoryIds?: string[] }) {
+  async listStageHistory(input: {
+    ownerIds?: string[];
+    categoryIds?: string[];
+    signal?: AbortSignal;
+  }) {
     if (input.categoryIds && input.categoryIds.length > 0) {
       return (
         await Promise.all(
@@ -1121,7 +1614,8 @@ export class BitrixClient {
                   ID: "ASC" as const
                 },
                 start
-              })
+              }),
+              input.signal ? { signal: input.signal } : undefined
             )
           )
         )
@@ -1136,25 +1630,29 @@ export class BitrixClient {
     return this.collectChunked(
       ownerIds,
       (chunk) =>
-      this.collectPagedList<StageHistoryRow>("crm.stagehistory.list", (start) => ({
-        entityTypeId: 2,
-        filter: {
-          "@OWNER_ID": toStringArray(chunk)
-        },
-        select: [
-          "ID",
-          "OWNER_ID",
-          "CATEGORY_ID",
-          "STAGE_ID",
-          "STAGE_SEMANTIC_ID",
-          "TYPE_ID",
-          "CREATED_TIME"
-        ],
-        order: {
-          ID: "ASC" as const
-        },
-        start
-      })),
+        this.collectPagedList<StageHistoryRow>(
+          "crm.stagehistory.list",
+          (start) => ({
+            entityTypeId: 2,
+            filter: {
+              "@OWNER_ID": toStringArray(chunk)
+            },
+            select: [
+              "ID",
+              "OWNER_ID",
+              "CATEGORY_ID",
+              "STAGE_ID",
+              "STAGE_SEMANTIC_ID",
+              "TYPE_ID",
+              "CREATED_TIME"
+            ],
+            order: {
+              ID: "ASC" as const
+            },
+            start
+          }),
+          input.signal ? { signal: input.signal } : undefined
+        ),
       20
     );
   }

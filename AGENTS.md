@@ -18,6 +18,20 @@ This repository contains Bitrix24 attraction dashboards: local API, SQLite-backe
 - Convert prototype comments from `.codex/proto-comments/comments.json` into GitHub issues or `docs/backlog.md` items before implementation.
 - Use the Context7 MCP server frequently when library/framework/API documentation may affect implementation details or when current docs are needed.
 
+## Code Review Graph
+- This repository is graph-aware via `code-review-graph`. At the start of code review, debugging, architecture, refactor, or blast-radius work, use the Code Review Graph MCP tools before broad file reads when the graph is available.
+- Mandatory CRG gate: for any code-facing task, first call `get_minimal_context_tool` with `repo_root="/Users/vladislavbogdan/Documents/Вайб-проекты/Модуль \"Привлечение\"/Дашборды Привлечения"` and a task-specific description before broad `rg`, file reads, production reasoning, or implementation work.
+- Code-facing tasks include code review, debugging, architecture review, refactor, implementation, production incident analysis, Bitrix/reporting data correctness, sync/import behavior, module UI changes, Paperclip implementation follow-up, and test coverage work.
+- Module ontology, backlog, and Paperclip planning tasks still require the CRG gate when they make claims about source behavior, data pipelines, API boundaries, dashboard screens, or production impact. Pure prose-only planning may skip CRG only with an explicit reason.
+- If changed files or branch risk matter, follow the gate with `detect_changes_tool` or `get_impact_radius_tool` before manual diff/file review.
+- If ownership or call relationships are unclear, use `semantic_search_nodes_tool` or `query_graph_tool` before broad repository search unless the exact file path is already known.
+- Prefer `get_review_context_tool`, `get_minimal_context_tool`, `get_impact_radius_tool`, `detect_changes_tool`, `semantic_search_nodes_tool`, `query_graph_tool`, `list_flows_tool`, `list_communities_tool`, and `get_architecture_overview_tool` to gather focused context.
+- Full CRG tool access is enabled for this project. Use write/refactor tools only when the current task explicitly calls for code changes, then verify the resulting diff and tests normally.
+- Treat graph output as retrieval context, not authority. Source files, git diff, local instructions, tests, and production data rules win over graph summaries.
+- If a CRG tool cannot infer the current repository, pass `repo_root="/Users/vladislavbogdan/Documents/Вайб-проекты/Модуль \"Привлечение\"/Дашборды Привлечения"`.
+- Skip CRG only for purely administrative, git-only, or prose-only tasks. If skipped, say `CRG skipped: <reason>` in the first progress update and in the final report.
+- Final reports for code-facing tasks must include `CRG: <tools used>` or `CRG skipped: <reason>`. Do not claim deep review, architecture analysis, debugging, data correctness, production impact, or blast-radius work is complete without that line.
+
 ## Session Currency Gate
 - Before code edits, run `git status --short`, `git branch --show-current`, and `git remote -v`, then run `pnpm session:preflight`.
 - `pnpm session:preflight` must pass before ordinary implementation, delegation, review-ready claims, PR creation, merge, or deploy work. It fails when the worktree is dirty, the branch is `main` or detached, `origin/main` cannot be fetched, or the branch is behind the latest fetched base.

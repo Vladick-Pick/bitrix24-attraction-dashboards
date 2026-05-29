@@ -63,6 +63,7 @@ interface BackfillSelectorOptions {
   afterId: string;
   categoryIds: string[];
   assignedByIds?: string[];
+  modifiedAfter?: string;
   qualityFieldName?: string;
   customFieldNames?: string[];
 }
@@ -141,6 +142,7 @@ export function buildDealBackfillParams(options: BackfillSelectorOptions) {
     select: buildDealSelectFields(options),
     filter: {
       ...buildDealScopeFilter(options),
+      ...(options.modifiedAfter ? { ">=DATE_MODIFY": options.modifiedAfter } : {}),
       ">ID": options.afterId
     },
     order: {
@@ -182,7 +184,27 @@ export function buildConversionEventItemListParams(options: {
   start?: number;
   eventNameFieldName?: string | null;
   eventDateFieldName?: string | null;
+  dealIds?: string[];
+  contactIds?: string[];
 }) {
+  const filter = {
+    ...(options.modifiedAfter
+      ? {
+          ">=updatedTime": options.modifiedAfter
+        }
+      : {}),
+    ...(options.dealIds && options.dealIds.length > 0
+      ? options.dealIds.length === 1
+        ? { parentId2: options.dealIds[0] }
+        : { "@parentId2": options.dealIds }
+      : {}),
+    ...(options.contactIds && options.contactIds.length > 0
+      ? options.contactIds.length === 1
+        ? { contactId: options.contactIds[0] }
+        : { "@contactId": options.contactIds }
+      : {})
+  };
+
   return {
     entityTypeId: options.entityTypeId,
     select: [
@@ -199,13 +221,84 @@ export function buildConversionEventItemListParams(options: {
       ...(options.eventNameFieldName ? [options.eventNameFieldName] : []),
       ...(options.eventDateFieldName ? [options.eventDateFieldName] : [])
     ],
-    filter: options.modifiedAfter
-      ? {
-          ">=updatedTime": options.modifiedAfter
-        }
-      : {},
+    filter,
     order: {
       id: "ASC" as const
+    },
+    start: options.start ?? 0
+  };
+}
+
+export function buildConversionEventListParams(options: {
+  entityTypeId: number;
+  modifiedAfter: string | null;
+  start?: number;
+  eventDateFieldName?: string | null;
+  eventTypeFieldName?: string | null;
+  eventTypeIds?: string[];
+  eventIds?: string[];
+  eventFormatFieldName?: string | null;
+}) {
+  const eventTypeFilter =
+    options.eventTypeFieldName && options.eventTypeIds && options.eventTypeIds.length > 0
+      ? options.eventTypeIds.length === 1
+        ? { [options.eventTypeFieldName]: options.eventTypeIds[0] }
+        : { [`@${options.eventTypeFieldName}`]: options.eventTypeIds }
+      : {};
+  const eventIdFilter =
+    options.eventIds && options.eventIds.length > 0
+      ? options.eventIds.length === 1
+        ? { id: options.eventIds[0] }
+        : { "@id": options.eventIds }
+      : {};
+
+  return {
+    entityTypeId: options.entityTypeId,
+    select: [
+      "id",
+      "title",
+      "stageId",
+      "categoryId",
+      "createdTime",
+      "updatedTime",
+      ...(options.eventDateFieldName ? [options.eventDateFieldName] : []),
+      ...(options.eventTypeFieldName ? [options.eventTypeFieldName] : []),
+      ...(options.eventFormatFieldName ? [options.eventFormatFieldName] : [])
+    ],
+    filter: {
+      ...(options.modifiedAfter
+        ? {
+            ">=updatedTime": options.modifiedAfter
+          }
+        : {}),
+      ...eventIdFilter,
+      ...eventTypeFilter
+    },
+    order: {
+      id: "ASC" as const
+    },
+    start: options.start ?? 0
+  };
+}
+
+export function buildSmartProcessStageHistoryListParams(options: {
+  entityTypeId: number;
+  ownerIds: string[];
+  start?: number;
+}) {
+  return {
+    entityTypeId: options.entityTypeId,
+    filter:
+      options.ownerIds.length === 1
+        ? {
+            OWNER_ID: options.ownerIds[0]
+          }
+        : {
+            "@OWNER_ID": options.ownerIds
+          },
+    select: ["ID", "OWNER_ID", "CATEGORY_ID", "STAGE_ID", "TYPE_ID", "CREATED_TIME"],
+    order: {
+      ID: "ASC" as const
     },
     start: options.start ?? 0
   };

@@ -91,13 +91,32 @@ describe("conversion events report", () => {
     expect(parseConversionEventDate("Знакомство с клубом 29.04.", 2026)).toBe(
       "2026-04-29T00:00:00.000Z"
     );
+    expect(
+      parseConversionEventDate(
+        "МСК Гость Клуба: Александр Аузан 17.10.23 Александр Аузан оффлайн",
+        2026
+      )
+    ).toBe("2023-10-17T00:00:00.000Z");
+    expect(
+      parseConversionEventDate(
+        "МСК Networking-сессия CF EXPERIENCE 21.05.26 оффлайн",
+        2025
+      )
+    ).toBe("2026-05-21T00:00:00.000Z");
   });
 
   it("maps Bitrix event stages into report statuses", () => {
     expect(resolveConversionEventStatus("На мероприятии")).toBe("attended");
     expect(resolveConversionEventStatus("Посетил")).toBe("attended");
+    expect(resolveConversionEventStatus("Пойду")).toBe("confirmed");
     expect(resolveConversionEventStatus("Отказ")).toBe("refused");
     expect(resolveConversionEventStatus("Приглашен")).toBe("invited");
+    expect(resolveConversionEventStatus("DT162_14:NEW")).toBe("invited");
+    expect(resolveConversionEventStatus("DT162_14:PREPARATION")).toBe(
+      "confirmed"
+    );
+    expect(resolveConversionEventStatus("DT162_14:SUCCESS")).toBe("attended");
+    expect(resolveConversionEventStatus("DT162_14:FAIL")).toBe("refused");
     expect(resolveConversionEventStatus("Черновик")).toBe("unknown");
   });
 
@@ -241,30 +260,26 @@ describe("conversion events report", () => {
     expect(report.rows).toHaveLength(1);
     expect(report.rows[0]).toMatchObject({
       eventName: "Знакомство с клубом 29.04.",
-      invitedCount: 5,
+      invitedCount: 4,
+      confirmedCount: 0,
       attendedCount: 2,
       refusedCount: 1,
-      missedCount: 3,
-      attendanceRate: 40,
+      missedCount: 2,
+      attendanceRate: 50,
       nextStepEligibleCount: 2,
       nextStepCount: 1,
       nextStepRate: 50,
-      unlinkedCount: 1,
-      unknownStatusCount: 1
+      unlinkedCount: 0,
+      unknownStatusCount: 0
     });
     expect(report.rows[0]?.managerBreakdown).toEqual([
-      { key: "78", label: "Егоров Андрей", count: 4 },
+      { key: "78", label: "Егоров Андрей", count: 3 },
       { key: "79", label: "Ромашова Ольга", count: 1 }
     ]);
-    expect(report.warnings).toContain(
-      'Conversion event visit V5 has unknown status "Черновик".'
-    );
-    expect(report.warnings).toContain(
-      "Conversion event visit V5 is not linked to an attraction deal."
-    );
+    expect(report.warnings).toEqual([]);
   });
 
-  it("links visits by contact and prefers deals with matching conversion event value", () => {
+  it("ignores contact-only raw visits instead of linking them to attraction deals", () => {
     const report = buildConversionEventsReport({
       range: {
         from: "2026-04-01T00:00:00.000Z",
@@ -327,15 +342,412 @@ describe("conversion events report", () => {
       ])
     });
 
+    expect(report.rows).toEqual([]);
+    expect(report.warnings).toEqual([]);
+  });
+
+  it("includes planned attraction events with zero visits when event type is enabled", () => {
+    const report = buildConversionEventsReport({
+      range: {
+        from: "2026-05-25T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      visits: [],
+      events: [
+        {
+          eventId: "31394",
+          entityTypeId: 137,
+          categoryId: 12,
+          title: "Гостевая встреча 28.05.",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          startAt: "2026-05-28T10:00:00.000Z",
+          endAt: null,
+          stageId: "DT137_12:PLANNED",
+          stageName: "Планируется",
+          status: "planned",
+          eventTypeId: "128",
+          eventTypeLabel: "Мероприятие привлечения",
+          formatId: null,
+          createdTime: "2026-05-14T08:18:44.000Z",
+          updatedTime: "2026-05-19T20:57:57.000Z"
+        },
+        {
+          eventId: "99999",
+          entityTypeId: 137,
+          categoryId: 12,
+          title: "Внутреннее мероприятие",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          startAt: null,
+          endAt: null,
+          stageId: "DT137_12:PLANNED",
+          stageName: "Планируется",
+          status: "planned",
+          eventTypeId: "999",
+          eventTypeLabel: "Не привлечение",
+          formatId: null,
+          createdTime: "2026-05-14T08:18:44.000Z",
+          updatedTime: "2026-05-19T20:57:57.000Z"
+        }
+      ],
+      eventTypeSettings: [
+        {
+          moduleKey: "attraction",
+          eventTypeId: "128",
+          eventTypeLabel: "Мероприятие привлечения",
+          enabled: true,
+          updatedAt: "2026-05-24T12:00:00.000Z"
+        }
+      ],
+      deals: [],
+      stageCatalog,
+      stageHistory: [],
+      managerDirectory: [],
+      sourceLabels: new Map()
+    });
+
+    expect(report.rows).toEqual([
+      expect.objectContaining({
+        eventName: "Гостевая встреча 28.05.",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        invitedCount: 0,
+        confirmedCount: 0,
+        attendedCount: 0,
+        missedCount: 0
+      })
+    ]);
+  });
+
+  it("does not include planned zero-visit events until their event type is enabled", () => {
+    const report = buildConversionEventsReport({
+      range: {
+        from: "2026-05-25T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      visits: [],
+      events: [
+        {
+          eventId: "31394",
+          entityTypeId: 137,
+          categoryId: 12,
+          title: "Гостевая встреча 28.05.",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          startAt: "2026-05-28T10:00:00.000Z",
+          endAt: null,
+          stageId: "DT137_12:PLANNED",
+          stageName: "Планируется",
+          status: "planned",
+          eventTypeId: "128",
+          eventTypeLabel: "Мероприятие привлечения",
+          formatId: null,
+          createdTime: "2026-05-14T08:18:44.000Z",
+          updatedTime: "2026-05-19T20:57:57.000Z"
+        }
+      ],
+      eventTypeSettings: [],
+      deals: [],
+      stageCatalog,
+      stageHistory: [],
+      managerDirectory: [],
+      sourceLabels: new Map()
+    });
+
+    expect(report.rows).toEqual([]);
+  });
+
+  it("keeps raw visits that are missing from a stale fact layer", () => {
+    const report = buildConversionEventsReport({
+      range: {
+        from: "2026-05-25T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      eventVisitFacts: [
+        {
+          visitId: "V_FACT",
+          eventId: null,
+          dealId: "D1",
+          contactId: "C1",
+          leadId: null,
+          managerId: "78",
+          sourceId: "WEB",
+          currentStageId: "DT:INVITED",
+          currentStageName: "Приглашен",
+          invitedAt: "2026-05-18T12:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: null,
+          refusedAt: null,
+          finalStatus: "invited",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: null,
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName: "Гостевая встреча 28.05.",
+            visitUpdatedTime: "2026-05-18T12:00:00.000Z"
+          })
+        }
+      ],
+      visits: [
+        {
+          id: "V_FACT",
+          eventName: "Гостевая встреча 28.05.",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          status: "invited",
+          stageId: "DT:INVITED",
+          stageName: "Приглашен",
+          dealId: "D1",
+          contactId: "C1",
+          managerId: "78",
+          sourceId: "WEB",
+          createdTime: "2026-05-18T12:00:00.000Z",
+          updatedTime: "2026-05-18T12:00:00.000Z"
+        },
+        {
+          id: "V_RAW_ONLY",
+          eventName: "Гостевая встреча 28.05.",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          status: "confirmed",
+          stageId: "DT:CONFIRMED",
+          stageName: "Пойду",
+          dealId: "D2",
+          contactId: "C2",
+          managerId: "79",
+          sourceId: "PARTNER",
+          createdTime: "2026-05-19T12:00:00.000Z",
+          updatedTime: "2026-05-20T12:00:00.000Z"
+        }
+      ],
+      deals: [
+        deal({ id: "D1", contactId: "C1", assignedById: "78", sourceId: "WEB" }),
+        deal({
+          id: "D2",
+          contactId: "C2",
+          assignedById: "79",
+          sourceId: "PARTNER"
+        })
+      ],
+      stageCatalog,
+      stageHistory: [],
+      managerDirectory: [
+        { id: "78", name: "Егоров Андрей" },
+        { id: "79", name: "Ромашова Ольга" }
+      ],
+      sourceLabels: new Map([
+        ["WEB", "Веб"],
+        ["PARTNER", "Партнеры"]
+      ])
+    });
+
     expect(report.rows[0]).toMatchObject({
-      attendedCount: 1,
-      nextStepEligibleCount: 1,
-      nextStepCount: 1,
-      unlinkedCount: 0
+      eventName: "Гостевая встреча 28.05.",
+      invitedCount: 2,
+      confirmedCount: 1
     });
     expect(report.rows[0]?.managerBreakdown).toEqual([
+      { key: "78", label: "Егоров Андрей", count: 1 },
       { key: "79", label: "Ромашова Ольга", count: 1 }
     ]);
+  });
+
+  it("counts fact invitations and confirmations by their status timestamps", () => {
+    const report = buildConversionEventsReport({
+      range: {
+        from: "2026-05-18T00:00:00.000Z",
+        to: "2026-05-18T23:59:59.999Z"
+      },
+      eventVisitFacts: [
+        {
+          visitId: "V_INVITED_IN_RANGE",
+          eventId: null,
+          dealId: "D1",
+          contactId: "C1",
+          leadId: null,
+          managerId: "78",
+          sourceId: "WEB",
+          currentStageId: "DT:CONFIRMED",
+          currentStageName: "Пойду",
+          invitedAt: "2026-05-18T12:00:00.000Z",
+          confirmedAt: "2026-05-20T12:00:00.000Z",
+          attendedAt: null,
+          refusedAt: null,
+          finalStatus: "confirmed",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: null,
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName: "Гостевая встреча 28.05."
+          })
+        },
+        {
+          visitId: "V_CONFIRMED_IN_RANGE",
+          eventId: null,
+          dealId: "D2",
+          contactId: "C2",
+          leadId: null,
+          managerId: "79",
+          sourceId: "PARTNER",
+          currentStageId: "DT:CONFIRMED",
+          currentStageName: "Пойду",
+          invitedAt: "2026-05-10T12:00:00.000Z",
+          confirmedAt: "2026-05-18T13:00:00.000Z",
+          attendedAt: null,
+          refusedAt: null,
+          finalStatus: "confirmed",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: null,
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName: "Гостевая встреча 28.05."
+          })
+        }
+      ],
+      visits: [],
+      deals: [
+        deal({ id: "D1", contactId: "C1", assignedById: "78", sourceId: "WEB" }),
+        deal({
+          id: "D2",
+          contactId: "C2",
+          assignedById: "79",
+          sourceId: "PARTNER"
+        })
+      ],
+      stageCatalog,
+      stageHistory: [],
+      managerDirectory: [
+        { id: "78", name: "Егоров Андрей" },
+        { id: "79", name: "Ромашова Ольга" }
+      ],
+      sourceLabels: new Map([
+        ["WEB", "Веб"],
+        ["PARTNER", "Партнеры"]
+      ]),
+      asOf: "2026-05-25T12:00:00.000Z"
+    });
+
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]).toMatchObject({
+      eventName: "Гостевая встреча 28.05.",
+      eventDate: "2026-05-28T00:00:00.000Z",
+      invitedCount: 1,
+      confirmedCount: 1,
+      attendedCount: 0,
+      missedCount: 0
+    });
+  });
+
+  it("deduplicates multiple visit rows for the same event and deal in report counts", () => {
+    const report = buildConversionEventsReport({
+      range: {
+        from: "2026-03-18T00:00:00.000Z",
+        to: "2026-03-18T23:59:59.999Z"
+      },
+      eventVisitFacts: [
+        {
+          visitId: "V_REFUSED",
+          eventId: "E1",
+          dealId: "D1",
+          contactId: "C1",
+          leadId: null,
+          managerId: "78",
+          sourceId: "WEB",
+          currentStageId: "DT:REFUSED",
+          currentStageName: "Отказ",
+          invitedAt: "2026-03-18T10:40:53.000Z",
+          confirmedAt: null,
+          attendedAt: null,
+          refusedAt: "2026-03-19T00:00:12.000Z",
+          finalStatus: "refused",
+          eventDate: "2026-03-18T00:00:00.000Z",
+          stageIdAtEvent: null,
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName: "ЕКБ Networking-сессия в Екатеринбурге 18.03.26 оффлайн"
+          })
+        },
+        {
+          visitId: "V_ATTENDED",
+          eventId: "E1",
+          dealId: "D1",
+          contactId: "C1",
+          leadId: null,
+          managerId: "78",
+          sourceId: "WEB",
+          currentStageId: "DT:ATTENDED",
+          currentStageName: "На мероприятии",
+          invitedAt: "2026-03-23T11:22:23.000Z",
+          confirmedAt: null,
+          attendedAt: "2026-03-23T11:22:29.000Z",
+          refusedAt: null,
+          finalStatus: "attended",
+          eventDate: "2026-03-18T00:00:00.000Z",
+          stageIdAtEvent: null,
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName: "ЕКБ Networking-сессия в Екатеринбурге 18.03.26 оффлайн"
+          })
+        }
+      ],
+      visits: [],
+      deals: [deal({ id: "D1", contactId: "C1", assignedById: "78", sourceId: "WEB" })],
+      stageCatalog,
+      stageHistory: [],
+      managerDirectory: [{ id: "78", name: "Егоров Андрей" }],
+      sourceLabels: new Map([["WEB", "Веб"]]),
+      asOf: "2026-03-24T12:00:00.000Z"
+    });
+
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]).toMatchObject({
+      invitedCount: 1,
+      attendedCount: 1,
+      refusedCount: 0,
+      missedCount: 0
+    });
+    expect(report.warnings).toContain(
+      "Duplicate conversion event visits were deduplicated for 1 event/deal pair."
+    );
+  });
+
+  it("ignores contact-only visits even when an attraction deal exists for that contact", () => {
+    const report = buildConversionEventsReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      visits: [
+        {
+          id: "V_FUTURE_DEAL",
+          eventName: "Знакомство с клубом 29.04.",
+          eventDate: "2026-04-29T00:00:00.000Z",
+          status: "attended",
+          stageId: "DT:ATTENDED",
+          stageName: "На мероприятии",
+          dealId: null,
+          contactId: "C_FUTURE",
+          managerId: null,
+          sourceId: null,
+          createdTime: "2026-04-20T10:00:00.000Z",
+          updatedTime: "2026-04-29T14:00:00.000Z"
+        }
+      ],
+      deals: [
+        deal({
+          id: "D_FUTURE",
+          contactId: "C_FUTURE",
+          dateCreate: "2026-05-01T09:00:00.000Z",
+          dateModify: "2026-05-01T09:00:00.000Z"
+        })
+      ],
+      stageCatalog,
+      stageHistory: [],
+      managerDirectory: [],
+      sourceLabels: new Map()
+    });
+
+    expect(report.rows).toEqual([]);
     expect(report.warnings).toEqual([]);
   });
 });

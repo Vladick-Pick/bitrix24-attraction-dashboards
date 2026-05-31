@@ -35,13 +35,13 @@ This is close to the right raw layer, but not yet a canonical analytics layer:
 
 Use three levels:
 
-1. **Raw snapshots**  
+1. **Raw snapshots**
    Existing tables stay. They are the cached Bitrix source layer.
 
-2. **Canonical analytics layer**  
+2. **Canonical analytics layer**
    New identity and fact tables. These are built from snapshots and later directly maintained by sync.
 
-3. **Report projections**  
+3. **Report projections**
    Reports read canonical facts. Existing reports stay on snapshots until parity is proven.
 
 ## Canonical Tables
@@ -255,7 +255,7 @@ Purpose:
 
 - module leaders choose which Bitrix event types count as planned attraction events;
 - selected types affect only planning and zero-invitation monitoring;
-- post-analysis still works from real deal/contact links.
+- post-analysis still works from real direct deal links.
 
 ### Future `message_count_facts`
 
@@ -326,7 +326,7 @@ Planning scope:
 
 Post-analysis scope:
 
-- any event linked to an attraction deal/contact through a visit can be analyzed, even if its type is not selected for planning.
+- any event linked to an attraction deal through a direct visit relation can be analyzed, even if its type is not selected for planning.
 - this covers demo-stage events where managers can select arbitrary events.
 
 ## Implementation Tasks
@@ -392,7 +392,7 @@ Post-analysis scope:
   - `meeting:{activityId}`;
   - `meeting-date:{dealId}:{changeId}`.
 - [ ] Store `stage_id_at_event` on touchpoints.
-- [ ] Add tests for direct deal link, contact fallback, and missing-stage fallback.
+- [ ] Add tests for direct deal link, contact-only exclusion, and missing-stage fallback.
 
 ### Task 4: Backfill Orchestration
 
@@ -425,7 +425,7 @@ Post-analysis scope:
 - [ ] Compare old deal timeline vs facts for selected deal ids.
 - [ ] Output explainable diffs:
   - direct deal link;
-  - contact fallback;
+  - contact-only exclusion;
   - activity binding fallback;
   - missing link.
 - [ ] Do not switch reports until diffs are understood.
@@ -459,7 +459,7 @@ Post-analysis scope:
 - [ ] Allow mutation only for module leader/super admin.
 - [ ] Add multiselect in `Личный кабинет -> Настройки модуля`.
 - [ ] Selected types affect only planned zero-invitation inventory.
-- [ ] Linked participant analytics ignores this setting and follows real deal/contact links.
+- [ ] Linked participant analytics ignores this setting and follows real direct deal links.
 
 ### Task 8: Event Fact Builder
 
@@ -581,4 +581,3 @@ Production smoke after deploy:
 - No raw messages.
 - No AI transcript ingestion.
 - No change to attraction manager whitelist.
-

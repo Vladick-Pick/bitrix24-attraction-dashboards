@@ -146,6 +146,7 @@ function createCorsTestApp(config?: {
         totalClosedCount: 0,
         totalMeetingCount: 0,
         warnings: [],
+        conversionEventRows: [],
         managerRows: [],
         comparisons: []
       }),

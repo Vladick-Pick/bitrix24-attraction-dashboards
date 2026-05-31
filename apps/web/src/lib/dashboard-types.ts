@@ -444,6 +444,23 @@ export interface ManagerActivitiesWorkloadRow {
   stageBreakdown: StageWorkloadMetric[]
 }
 
+export interface ActivityConversionEventStageBreakdown {
+  stageId: string
+  stageName: string
+  invitedCount: number
+}
+
+export interface ActivityConversionEventRow {
+  eventKey: string
+  eventName: string
+  eventDate: string
+  invitedCount: number
+  attendedCount: number
+  refusedCount: number
+  waitingCount: number
+  stageBreakdown: ActivityConversionEventStageBreakdown[]
+}
+
 export interface ActivitiesWorkloadReportSnapshot {
   range: ReportRange
   totalDealCount: number
@@ -453,6 +470,7 @@ export interface ActivitiesWorkloadReportSnapshot {
   totalMeetingCount: number
   warnings: string[]
   managerRows: ManagerActivitiesWorkloadRow[]
+  conversionEventRows: ActivityConversionEventRow[]
 }
 
 export interface ActivitiesWorkloadReport extends ActivitiesWorkloadReportSnapshot {

@@ -1872,6 +1872,8 @@ export async function performManualSync(
     );
     const historicalActivityOwnerIds = callStatsOwnerIds;
     const callStatsOwnerIdSet = new Set(callStatsOwnerIds);
+    const isScopedConversionEventVisit = (visit: ConversionEventVisitSnapshot) =>
+      Boolean(visit.dealId && callStatsOwnerIdSet.has(visit.dealId));
     emitSyncProgress(
       input,
       buildProgressEvent({
@@ -2277,7 +2279,7 @@ export async function performManualSync(
           })
         : [];
     const conversionEventVisits = rawConversionEventVisits.filter(
-      (visit) => visit.dealId && callStatsOwnerIdSet.has(visit.dealId)
+      isScopedConversionEventVisit
     );
     const droppedConversionEventVisits =
       rawConversionEventVisits.length - conversionEventVisits.length;
@@ -2378,7 +2380,7 @@ export async function performManualSync(
           ...conversionEventVisits,
           ...persistedConversionEventVisitsForStageHistory
         ]
-          .filter((visit) => visit.dealId && callStatsOwnerIdSet.has(visit.dealId))
+          .filter(isScopedConversionEventVisit)
           .map((visit) => [visit.id, visit])
       ).values()
     ).slice(0, EVENT_VISIT_STAGE_HISTORY_BACKFILL_LIMIT);

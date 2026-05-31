@@ -55,6 +55,7 @@ describe('live-reporting', () => {
       totalClosedCount: 60,
       totalMeetingCount: 0,
       warnings: ['Перенос дедлайна пока отключен'],
+      conversionEventRows: [],
       managerRows: [
         {
           managerId: '7',
@@ -104,6 +105,7 @@ describe('live-reporting', () => {
             totalClosedCount: 48,
             totalMeetingCount: 0,
             warnings: [],
+            conversionEventRows: [],
             managerRows: [
               {
                 managerId: '7',
@@ -312,6 +314,7 @@ describe('live-reporting', () => {
       totalClosedCount: 0,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: [],
     }
@@ -359,6 +362,7 @@ describe('live-reporting', () => {
       totalClosedCount: 6,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: [
         {
@@ -378,6 +382,7 @@ describe('live-reporting', () => {
             totalClosedCount: 0,
             totalMeetingCount: 0,
             warnings: [],
+            conversionEventRows: [],
             managerRows: [],
           },
         },

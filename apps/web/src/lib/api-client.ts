@@ -1347,6 +1347,26 @@ function normalizeActivitiesWorkloadSnapshot(
     totalClosedCount: asNumber(data.totalClosedCount),
     totalMeetingCount: asNumber(data.totalMeetingCount),
     warnings: asArray(data.warnings, (entry) => asString(entry)).filter(Boolean),
+    conversionEventRows: asArray(data.conversionEventRows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        eventKey: asString(item.eventKey),
+        eventName: asString(item.eventName, asString(item.eventKey)),
+        eventDate: asString(item.eventDate),
+        invitedCount: asNumber(item.invitedCount),
+        attendedCount: asNumber(item.attendedCount),
+        refusedCount: asNumber(item.refusedCount),
+        waitingCount: asNumber(item.waitingCount),
+        stageBreakdown: asArray(item.stageBreakdown, (stage) => {
+          const row = isRecord(stage) ? stage : {}
+          return {
+            stageId: asString(row.stageId),
+            stageName: asString(row.stageName, asString(row.stageId)),
+            invitedCount: asNumber(row.invitedCount),
+          }
+        }),
+      }
+    }),
     managerRows: asArray(data.managerRows, (entry) => {
       const item = isRecord(entry) ? entry : {}
       return {

@@ -2916,7 +2916,8 @@ export function createSqliteRepository(
                     SELECT 1
                     FROM prune_scoped_deal_ids scoped
                     WHERE scoped.deal_id = conversion_event_visit_snapshots.deal_id
-                  )`
+                  )
+                `
               )
               .run().changes;
             const eventVisitStageHistory = database
@@ -2932,13 +2933,15 @@ export function createSqliteRepository(
             const eventVisitFacts = database
               .prepare(
                 `DELETE FROM event_visit_facts
-                WHERE deal_id IS NULL
+                WHERE link_reason = 'contact_single_deal_fallback'
+                  OR deal_id IS NULL
                   OR deal_id = ''
                   OR NOT EXISTS (
                     SELECT 1
                     FROM prune_scoped_deal_ids scoped
                     WHERE scoped.deal_id = event_visit_facts.deal_id
-                  )`
+                  )
+                `
               )
               .run().changes;
             const dealTouchpointFacts = database
@@ -2946,7 +2949,8 @@ export function createSqliteRepository(
                 `DELETE FROM deal_touchpoint_facts
                 WHERE kind = 'conversion_event_visit'
                   AND (
-                    deal_id IS NULL
+                    link_reason = 'contact_single_deal_fallback'
+                    OR deal_id IS NULL
                     OR deal_id = ''
                     OR NOT EXISTS (
                       SELECT 1
@@ -2961,13 +2965,27 @@ export function createSqliteRepository(
                 ? database
                     .prepare(
                       `DELETE FROM event_snapshots
-                      WHERE event_type_id IS NULL
-                        OR event_type_id = ''
-                        OR NOT EXISTS (
+                      WHERE NOT (
+                        (
+                          event_type_id IS NOT NULL
+                          AND event_type_id <> ''
+                          AND EXISTS (
+                            SELECT 1
+                            FROM prune_enabled_event_type_ids enabled
+                            WHERE enabled.event_type_id = event_snapshots.event_type_id
+                          )
+                        )
+                        OR EXISTS (
                           SELECT 1
-                          FROM prune_enabled_event_type_ids enabled
-                          WHERE enabled.event_type_id = event_snapshots.event_type_id
-                        )`
+                          FROM conversion_event_visit_snapshots visits
+                          WHERE visits.event_id = event_snapshots.event_id
+                        )
+                        OR EXISTS (
+                          SELECT 1
+                          FROM event_visit_facts facts
+                          WHERE facts.event_id = event_snapshots.event_id
+                        )
+                      )`
                     )
                     .run().changes
                 : 0;

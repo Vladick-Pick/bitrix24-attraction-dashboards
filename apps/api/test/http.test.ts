@@ -390,6 +390,7 @@ function createTestApp(
       totalClosedCount: 0,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: []
     }),
@@ -918,6 +919,7 @@ describe("createApp", () => {
       totalClosedCount: 2,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: [
         {
@@ -937,6 +939,7 @@ describe("createApp", () => {
             totalClosedCount: 1,
             totalMeetingCount: 0,
             warnings: [],
+            conversionEventRows: [],
             managerRows: []
           }
         }
@@ -1980,6 +1983,7 @@ describe("createApp", () => {
         totalClosedCount: 0,
         totalMeetingCount: 0,
         warnings: [],
+        conversionEventRows: [],
         managerRows: [],
         comparisons: []
       }),
@@ -2286,6 +2290,7 @@ describe("createApp", () => {
         totalClosedCount: 0,
         totalMeetingCount: 0,
         warnings: [],
+        conversionEventRows: [],
         managerRows: []
       }),
       getCallsWorkloadReport: async () => ({
@@ -2601,6 +2606,7 @@ describe("createApp", () => {
           totalClosedCount: 0,
           totalMeetingCount: 0,
           warnings: [],
+          conversionEventRows: [],
           managerRows: [],
           comparisons: []
         };

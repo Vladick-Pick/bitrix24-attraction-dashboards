@@ -1265,6 +1265,20 @@ describe("performManualSync", () => {
             sourceId: "WEB",
             createdTime: "2026-04-20T10:00:00.000Z",
             updatedTime: "2026-04-29T13:56:00.000Z"
+          },
+          {
+            id: "VISIT-CONTACT-ONLY",
+            eventName: "Клубная встреча 30.04.",
+            eventDate: "2026-04-30T00:00:00.000Z",
+            status: "invited" as const,
+            stageId: "DT:NEW",
+            stageName: "Приглашен",
+            dealId: null,
+            contactId: "9001",
+            managerId: "78",
+            sourceId: "WEB",
+            createdTime: "2026-04-20T11:00:00.000Z",
+            updatedTime: "2026-04-20T11:00:00.000Z"
           }
         ];
       },

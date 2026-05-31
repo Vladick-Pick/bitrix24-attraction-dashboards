@@ -1010,12 +1010,15 @@ export function createReportingService(
     >;
   }) => {
     const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
-    const [stageFacts, touchpointFacts] = await Promise.all([
+    const [stageFacts, touchpointFacts, eventVisitFacts] = await Promise.all([
       typeof repositoryWithFacts.getAllDealStageFacts === "function"
         ? repositoryWithFacts.getAllDealStageFacts()
         : Promise.resolve([]),
       typeof repositoryWithFacts.getAllDealTouchpointFacts === "function"
         ? repositoryWithFacts.getAllDealTouchpointFacts()
+        : Promise.resolve([]),
+      typeof repositoryWithFacts.getAllEventVisitFacts === "function"
+        ? repositoryWithFacts.getAllEventVisitFacts()
         : Promise.resolve([])
     ]);
     const hasStageFacts = stageFacts.length > 0;
@@ -1036,7 +1039,9 @@ export function createReportingService(
       meetingDateChanges:
         hasTouchpointFacts && fallback.meetingDateChanges
           ? touchpointFactsToMeetingDateChanges(touchpointFacts)
-          : fallback.meetingDateChanges
+          : fallback.meetingDateChanges,
+      eventVisitFacts,
+      dealTouchpointFacts: touchpointFacts
     };
   };
 
@@ -1850,6 +1855,7 @@ export function createReportingService(
             )
           : allScopedDeals;
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+      const scopedDealById = new Map(scopedDeals.map((deal) => [deal.id, deal]));
       const managerIds = new Set(scopedFilters.managerIds ?? []);
       const scopedActivities = reportActivities.filter(
         (activity) =>
@@ -1898,8 +1904,30 @@ export function createReportingService(
               managerIds,
               call.portalUserId ?? activity.responsibleId
             )
-        );
+          );
       });
+      const scopedEventVisitFacts = canonical.eventVisitFacts.filter((fact) => {
+        if (!fact.dealId || !scopedDealIds.has(fact.dealId)) {
+          return false;
+        }
+
+        const deal = scopedDealById.get(fact.dealId);
+        return isManagerInScope(managerIds, deal?.assignedById ?? fact.managerId);
+      });
+      const scopedDealTouchpointFacts = canonical.dealTouchpointFacts.filter(
+        (fact) => {
+          if (
+            fact.kind !== "conversion_event_visit" ||
+            !fact.dealId ||
+            !scopedDealIds.has(fact.dealId)
+          ) {
+            return false;
+          }
+
+          const deal = scopedDealById.get(fact.dealId);
+          return isManagerInScope(managerIds, deal?.assignedById ?? fact.managerId);
+        }
+      );
       const slaAsOf = nowFactory().toISOString();
       const buildSnapshot = (
         targetRange: ReportRange
@@ -1914,6 +1942,8 @@ export function createReportingService(
           deadlineChanges: scopedDeadlineChanges,
           meetingDateChanges: reportMeetingDateChanges,
           calls: scopedCalls,
+          eventVisitFacts: scopedEventVisitFacts,
+          dealTouchpointFacts: scopedDealTouchpointFacts,
           managerDirectory
         });
 

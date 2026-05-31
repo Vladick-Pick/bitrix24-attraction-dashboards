@@ -556,6 +556,25 @@ describe('apiClient', () => {
               totalClosedCount: 2,
               totalMeetingCount: 1,
               warnings: ['reschedule disabled'],
+              conversionEventRows: [
+                {
+                  eventKey: 'E1',
+                  eventName: 'Бизнес-диалог: Виктор Найшуллер, 28.05',
+                  eventDate: '2026-05-28T00:00:00.000Z',
+                  invitedCount: 8,
+                  attendedCount: 0,
+                  refusedCount: 8,
+                  waitingCount: 0,
+                  stageBreakdown: [
+                    { stageId: 'C10:UC_61CBCU', stageName: 'Активация', invitedCount: 5 },
+                    {
+                      stageId: 'C10:UC_9E0XYG',
+                      stageName: 'Встреча-знакомство',
+                      invitedCount: 1,
+                    },
+                  ],
+                },
+              ],
               managerRows: [],
               comparisons: [
           {
@@ -575,6 +594,7 @@ describe('apiClient', () => {
               totalClosedCount: 1,
               totalMeetingCount: 0,
               warnings: [],
+              conversionEventRows: [],
               managerRows: [],
             },
           },
@@ -613,6 +633,25 @@ describe('apiClient', () => {
     )
 
     expect(report.warnings).toEqual(['reschedule disabled'])
+    expect(report.conversionEventRows).toEqual([
+      {
+        eventKey: 'E1',
+        eventName: 'Бизнес-диалог: Виктор Найшуллер, 28.05',
+        eventDate: '2026-05-28T00:00:00.000Z',
+        invitedCount: 8,
+        attendedCount: 0,
+        refusedCount: 8,
+        waitingCount: 0,
+        stageBreakdown: [
+          { stageId: 'C10:UC_61CBCU', stageName: 'Активация', invitedCount: 5 },
+          {
+            stageId: 'C10:UC_9E0XYG',
+            stageName: 'Встреча-знакомство',
+            invitedCount: 1,
+          },
+        ],
+      },
+    ])
     expect(report.comparisons).toEqual([
       {
         compareIndex: 1,
@@ -631,6 +670,7 @@ describe('apiClient', () => {
             totalClosedCount: 1,
             totalMeetingCount: 0,
             warnings: [],
+            conversionEventRows: [],
             managerRows: [],
           },
       },

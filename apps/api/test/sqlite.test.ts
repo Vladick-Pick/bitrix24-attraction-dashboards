@@ -114,7 +114,7 @@ describe("createSqliteRepository", () => {
     ]);
   });
 
-  it("prunes conversion event snapshots outside the scoped deals and planned event types", async () => {
+  it("prunes conversion event snapshots outside scoped participants while preserving referenced participant events", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);
 
@@ -266,7 +266,7 @@ describe("createSqliteRepository", () => {
       {
         visitId: "VISIT-CONTACT-ONLY",
         eventId: "EVENT-CLUB",
-        dealId: null,
+        dealId: "D1",
         contactId: "C1",
         leadId: null,
         managerId: "78",
@@ -279,9 +279,9 @@ describe("createSqliteRepository", () => {
         refusedAt: null,
         finalStatus: "invited",
         eventDate: "2026-06-01T00:00:00.000Z",
-        stageIdAtEvent: null,
-        linkConfidence: "low",
-        linkReason: "event_visit_without_direct_deal",
+        stageIdAtEvent: "C10:NEW",
+        linkConfidence: "medium",
+        linkReason: "contact_single_deal_fallback",
         payloadJson: null
       },
       {
@@ -333,15 +333,15 @@ describe("createSqliteRepository", () => {
         sourceEntityType: "conversion_event_visit",
         sourceEntityId: "VISIT-CONTACT-ONLY",
         occurredAt: "2026-05-20T11:00:00.000Z",
-        dealId: null,
+        dealId: "D1",
         contactId: "C1",
         leadId: null,
         managerId: "78",
         sourceId: "WEB",
-        stageIdAtEvent: null,
-        stageNameAtEvent: null,
-        linkConfidence: "low",
-        linkReason: "event_visit_without_direct_deal",
+        stageIdAtEvent: "C10:NEW",
+        stageNameAtEvent: "Новая",
+        linkConfidence: "medium",
+        linkReason: "contact_single_deal_fallback",
         payloadJson: null
       },
       {

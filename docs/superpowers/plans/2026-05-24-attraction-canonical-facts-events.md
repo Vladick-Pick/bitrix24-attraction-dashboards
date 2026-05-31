@@ -33,17 +33,16 @@
 - The report scope is attraction-funnel events only, not the full Bitrix event catalog, but it has two sub-scopes:
   - `planned_event_inventory`: planned attraction events by event date, even when no one has been invited yet;
   - `participant_event_metrics`: events that have visits linked to attraction deals/contacts and can produce invitation/attendance/conversion counts.
-- An event is in `participant_event_metrics` when it is connected to attraction through at least one scoped visit/deal/contact relation:
+- An event is in `participant_event_metrics` when it is connected to attraction through at least one scoped visit/deal relation:
   - primary: `Посещения мероприятий.parentId2` points to an attraction deal in the configured attraction categories and manager whitelist;
-  - fallback: visit `contactId` resolves to an attraction deal for the same contact when the visit is not linked to the deal or is linked incorrectly;
   - fallback: an attraction deal has the existing conversion-event field value and can be matched to an event safely;
   - participant counts use only visits that pass the same attraction scope rule.
 - An event is in `planned_event_inventory` when it belongs to the attraction event configuration, even if it has zero visits. This scope is needed to catch operational gaps like `Гостевая встреча 28.05.` with no invitations.
 - Planned inventory must be filtered by module settings, not hardcoded guesses. In the module account/settings UI, the leader selects which Bitrix event types from `parentId156`/`Виды мероприятий` count as planned attraction events.
 - The primary planned-event classifier is the selected `parentId156` event-type allowlist from settings, not title matching. Seed the dropdown with Bitrix event-type options, but only selected options drive planned zero-invitation tracking.
-- Participant post-analysis does not require the event type to be selected in settings. If a demo-stage deal is linked to any event through a visit/deal/contact relation, it can be counted in `participant_event_metrics` because the real attraction/deal link proves relevance.
+- Participant post-analysis does not require the event type to be selected in settings. If a demo-stage deal is linked to any event through a direct visit/deal relation, it can be counted in `participant_event_metrics` because the real attraction/deal link proves relevance.
 - Event snapshots are persisted for:
-  - event ids discovered through scoped participant visits or safe scoped fallbacks;
+  - event ids discovered through scoped participant visits or safe scoped deal fallbacks;
   - planned future/past events matching the selected module event-type settings.
 - Do not sync or report all `Мероприятия` globally.
 - `Гостевая встреча 28.05.` is a valid planned attraction event if it matches the attraction event configuration. With `0` linked scoped visits it must appear in the upcoming/planned section with zero invited/confirmed and a `no invitations yet` operational flag, but it must not inflate participant conversion counts.
@@ -61,47 +60,47 @@
 
 ## Files To Modify
 
-- `packages/contracts/src/index.ts`  
+- `packages/contracts/src/index.ts`
   Add canonical snapshot and report contract types.
-- `apps/api/src/bitrix/selectors.ts`  
+- `apps/api/src/bitrix/selectors.ts`
   Add safe selector builders for event items, visit items, and smart-process stage histories.
-- `apps/api/src/bitrix/client.ts`  
+- `apps/api/src/bitrix/client.ts`
   Add Bitrix read methods for conversion events, event-type options, visits, smart-process stages, and visit stage history.
-- `apps/api/src/domain/sync.ts`  
+- `apps/api/src/domain/sync.ts`
   Extend sync client/repository interfaces and orchestrate additive backfill/delta writes.
-- `apps/api/src/domain/conversion-events.ts`  
+- `apps/api/src/domain/conversion-events.ts`
   Keep public report builder, but move lifecycle-specific logic into a focused helper.
-- `apps/api/src/domain/conversion-event-lifecycle.ts`  
+- `apps/api/src/domain/conversion-event-lifecycle.ts`
   New file. Normalize visit history into invited/confirmed/attended/no-show/future counts.
-- `apps/api/src/domain/conversion-event-scope.ts`  
+- `apps/api/src/domain/conversion-event-scope.ts`
   New file. Resolve whether event type/category/format belongs to attraction planned inventory or only to participant metrics.
-- `apps/api/src/domain/timeline-facts.ts`  
+- `apps/api/src/domain/timeline-facts.ts`
   New file. Build report-safe timeline facts from existing calls/tasks/meetings and new event facts.
-- `apps/api/src/server/sqlite-repository.ts`  
+- `apps/api/src/server/sqlite-repository.ts`
   Add tables, indexes, upserts, getters, and migration compatibility checks.
-- `apps/api/src/server/service.ts`  
+- `apps/api/src/server/service.ts`
   Wire the conversion event report and deal timelines to canonical getters while preserving old fallbacks during rollout.
-- `apps/api/src/server/app.ts`  
+- `apps/api/src/server/app.ts`
   Extend `/api/reports/conversion-events` response only after contract types are in place and add settings endpoints for selected event types.
-- `apps/web/src/lib/api-client.ts`  
+- `apps/web/src/lib/api-client.ts`
   Normalize new conversion-event fields, timeline facts, and event-type settings.
-- `apps/web/src/proto/types.ts`  
+- `apps/web/src/proto/types.ts`
   Add UI-side report fields.
-- `apps/web/src/proto/proto-app.tsx`  
+- `apps/web/src/proto/proto-app.tsx`
   Update the conversion events card, timeline labels, and module account settings multiselect.
-- `apps/api/test/conversion-events.test.ts`  
+- `apps/api/test/conversion-events.test.ts`
   Add lifecycle tests for invitation, confirmation, attendance, no-show, and future events.
-- `apps/api/test/bitrix-client.test.ts`  
+- `apps/api/test/bitrix-client.test.ts`
   Add selector/client tests without raw PII.
-- `apps/api/test/sync.test.ts`  
+- `apps/api/test/sync.test.ts`
   Add sync coverage tests for events and visit stage history.
-- `apps/api/test/sqlite.test.ts`  
+- `apps/api/test/sqlite.test.ts`
   Add persistence tests for new tables.
-- `apps/api/test/service.test.ts`  
+- `apps/api/test/service.test.ts`
   Add warning/fallback tests.
-- `apps/web/src/lib/api-client.test.ts` and `apps/web/src/proto/proto-app.test.tsx`  
+- `apps/web/src/lib/api-client.test.ts` and `apps/web/src/proto/proto-app.test.tsx`
   Add normalization/rendering coverage for new fields.
-- `docs/modules/attraction/REPORT_REGISTRY.md`  
+- `docs/modules/attraction/REPORT_REGISTRY.md`
   Link the final event analytics contract after implementation.
 
 ---
@@ -629,7 +628,7 @@ During sync:
 1. Fetch stage catalogs.
 2. Fetch deals/stage history/activities/calls as today.
 3. Fetch conversion visits from smart process `162`.
-4. Keep only visits linked to scoped attraction deals by `parentId2`, or linked through `contactId` to scoped attraction deals when direct deal linkage is missing/wrong.
+4. Keep only visits linked to scoped attraction deals by `parentId2`; do not pull participant metrics through `contactId` fallback.
 5. Build a unique scoped event id set from `parentId137`.
 6. Fetch conversion events from smart process `137` for the scoped participant event ids.
 7. Fetch planned inventory events from smart process `137` by event date and explicit attraction event criteria, so planned events with zero visits are visible.
@@ -659,7 +658,7 @@ Add tests for:
 - includes planned attraction events with zero visits when they match the attraction event configuration and date window;
 - excludes planned non-attraction events with zero visits;
 - keeps visits linked to attraction deals by `parentId2`;
-- keeps visits linked through `contactId` when direct deal linkage is missing;
+- drops visits that only match attraction through `contactId` fallback;
 - drops visits linked only to non-attraction deals;
 - backfills visit history when `conversion_event_visit_stage_history` coverage is missing;
 - does not mark coverage when history fetch fails;

@@ -192,6 +192,14 @@ function formatDateTime(value: string) {
   return date.toLocaleString('ru-RU', { hour12: false })
 }
 
+async function loadAttractionOntologySafely() {
+  try {
+    return await apiClient.getAttractionOntology()
+  } catch {
+    return null
+  }
+}
+
 function DevelopmentReadyReport({
   report,
   status,
@@ -300,6 +308,20 @@ function writeProtoRoute(route: ProtoRoute) {
   if (window.location.pathname !== nextPath) {
     window.history.pushState({}, '', nextPath)
   }
+}
+
+function findDashboardBlockTarget(blockId: string) {
+  if (typeof document === 'undefined') {
+    return null
+  }
+
+  return (
+    document.getElementById(blockId) ??
+    Array.from(document.querySelectorAll('[data-comment-block-id]')).find(
+      (element) => element.getAttribute('data-comment-block-id') === blockId,
+    ) ??
+    null
+  )
 }
 
 function formatCount(value: number) {
@@ -1126,6 +1148,7 @@ function LeadgenDashboard({
 export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [route, setRoute] = useState<ProtoRoute>(() => readProtoRoute())
   const [activeSceneId, setActiveSceneId] = useState(scenes[0]?.id ?? 'sales')
+  const [pendingScrollTarget, setPendingScrollTarget] = useState<string | null>(null)
   const [commentMode, setCommentMode] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [accountUser, setAccountUser] = useState<AuthUser | null>(currentUser ?? null)
@@ -1423,6 +1446,36 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     setRoute('dashboard')
   }
 
+  const handleSceneNavigate = useCallback((sceneId: string, blockId?: string) => {
+    const targetScene = scenes.find((scene) => scene.id === sceneId)
+    if (!targetScene) {
+      return
+    }
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', blockId ? `/#${blockId}` : '/')
+    } else {
+      writeProtoRoute('dashboard')
+    }
+    setRoute('dashboard')
+    setActiveSceneId(targetScene.id)
+    setPendingScrollTarget(blockId ?? null)
+  }, [])
+
+  useEffect(() => {
+    if (!pendingScrollTarget) {
+      return
+    }
+
+    const target = findDashboardBlockTarget(pendingScrollTarget)
+    if (!target) {
+      return
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setPendingScrollTarget(null)
+  }, [activeSceneId, pendingScrollTarget, runtimeData.operationalStatus])
+
   const refreshCommentNotifications = useCallback(async () => {
     try {
       const response = await apiClient.getCommentNotifications(activeModuleId)
@@ -1544,8 +1597,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           setLastSync(meta.lastSync)
           setSyncWarning(resolveSyncHealthWarning(meta))
           setLeadgenReportStatus('idle')
-          setRuntimeData((current) => ({
-            ...current,
+          setRuntimeData({
             managerOptions: report.managerRows.map((row) => ({
               id: row.managerId,
               label: row.managerName,
@@ -1558,7 +1610,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             })),
             operationalStatus: 'ready',
             operationalError: null,
-          }))
+          })
           return
         }
 
@@ -1606,6 +1658,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           conversionEvents,
           cohort,
           toc,
+          ontology,
         ] = await Promise.all([
           apiClient.getDashboard(query),
           apiClient.getDashboard(monthQuery),
@@ -1618,6 +1671,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           apiClient.getConversionEventsReport(query),
           apiClient.getCohortConversionReport(query),
           apiClient.getTocFlowReport(query),
+          loadAttractionOntologySafely(),
         ])
 
         if (cancelled || runtimeRequestRef.current !== requestId) {
@@ -1720,6 +1774,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           targetGroupConversion,
           managerActionOutcomes,
           conversionEvents,
+          ...(ontology ? { attractionOntology: ontology } : {}),
           ...(current.revenueVelocity ? { revenueVelocity: current.revenueVelocity } : {}),
           cohorts: mapCohortSceneData({
             report: cohort,
@@ -3204,7 +3259,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               {scenes.map((scene) => (
                 <button
                   key={scene.id}
-                  onClick={() => setActiveSceneId(scene.id)}
+                  onClick={() => handleSceneNavigate(scene.id)}
                   className={cn('tab-chip', {
                     'tab-chip-active': activeScene.id === scene.id,
                   })}
@@ -3270,6 +3325,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               pricingSettingsSaving={pricingSettingsSaving}
               pricingSettingsSaveError={pricingSettingsSaveError}
               onPricingSettingsSave={handleSavePricingSettings}
+              onSceneNavigate={handleSceneNavigate}
             />
           </>
         )}

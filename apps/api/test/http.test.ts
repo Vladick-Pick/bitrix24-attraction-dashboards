@@ -1,6 +1,7 @@
 import type {
   AcquisitionOutcomesReport,
   ActivitiesWorkloadReport,
+  AttractionOntologyResponse,
   CallsWorkloadReport,
   CohortConversionReport,
   ConversionEventsReport,
@@ -60,6 +61,33 @@ const emptySyncChanges = {
   calls: 0,
   stageHistory: 0,
   managers: 0
+};
+
+const emptyAttractionOntology: AttractionOntologyResponse = {
+  moduleKey: "attraction",
+  title: "Онтология Привлечения",
+  governance: {
+    decisionRole: "Технолог бизнес-процессов",
+    decisionUnit: "Центр Технологизации"
+  },
+  lastReviewedAt: "2026-05-29",
+  sources: [],
+  concepts: [],
+  transitions: [],
+  reportBindings: [],
+  drift: []
+};
+
+const emptyAttractionOntologySourceDocument = {
+  moduleKey: "attraction" as const,
+  source: {
+    id: "module_ontology",
+    label: "MODULE_ONTOLOGY.md",
+    kind: "markdown" as const,
+    href: "docs/modules/attraction/MODULE_ONTOLOGY.md",
+    canonicality: "canonical" as const
+  },
+  content: "# Онтология модуля «Привлечение»"
 };
 
 function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
@@ -488,6 +516,9 @@ function createTestApp(
       })),
       updatedAt: "2026-04-29T10:00:00.000Z"
     }),
+    getAttractionOntology: async () => emptyAttractionOntology,
+    getAttractionOntologySourceDocument: async () =>
+      emptyAttractionOntologySourceDocument,
     getMeta: async () => ({
       stageCatalog: [],
       managerCatalog: [],
@@ -1031,6 +1062,9 @@ describe("createApp", () => {
         rules: [],
         updatedAt: "2026-04-10T12:00:00.000Z"
       }),
+      getAttractionOntology: async () => emptyAttractionOntology,
+      getAttractionOntologySourceDocument: async () =>
+        emptyAttractionOntologySourceDocument,
       getMeta: async () => ({
         stageCatalog,
         managerCatalog: [],
@@ -1293,6 +1327,54 @@ describe("createApp", () => {
           calls: 7,
           stageHistory: 18
         });
+      });
+
+    await request(app)
+      .get("/api/ontology")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.moduleKey).toBe("attraction");
+        expect(body.title).toBe("Онтология Привлечения");
+      });
+
+    await request(app)
+      .get("/api/modules/attraction/ontology")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.moduleKey).toBe("attraction");
+      });
+
+    await request(app)
+      .get("/api/ontology/sources/module_ontology")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.moduleKey).toBe("attraction");
+        expect(body.source.id).toBe("module_ontology");
+        expect(body.content).toContain("Онтология модуля");
+      });
+
+    await request(app)
+      .get("/api/modules/attraction/ontology/sources/module_ontology")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.moduleKey).toBe("attraction");
+        expect(body.source.href).toBe(
+          "docs/modules/attraction/MODULE_ONTOLOGY.md"
+        );
+      });
+
+    await request(app)
+      .get("/api/modules/leadgen/ontology")
+      .expect(404)
+      .expect(({ body }) => {
+        expect(body.code).toBe("NOT_FOUND");
+      });
+
+    await request(app)
+      .get("/api/modules/leadgen/ontology/sources/module_ontology")
+      .expect(404)
+      .expect(({ body }) => {
+        expect(body.code).toBe("NOT_FOUND");
       });
 
     await request(app)

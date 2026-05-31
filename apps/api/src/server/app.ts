@@ -1,6 +1,7 @@
 import type {
   AcquisitionOutcomesReport,
   ActivitiesWorkloadReport,
+  AttractionOntologyResponse,
   CallsWorkloadReport,
   CohortConversionReport,
   ConversionEventsReport,
@@ -11,6 +12,7 @@ import type {
   ManagerActionOutcomeReport,
   ManagerDirectoryEntry,
   ManualSyncSummary,
+  OntologySourceDocumentResponse,
   RevenueVelocityDimension,
   RevenueVelocityReport,
   RevenueVelocityView,
@@ -139,6 +141,10 @@ interface AppService {
   }): Promise<SalesPlanData>;
   getPricingSettings(): Promise<DealPricingSettings>;
   replacePricingSettings(input: DealPricingSettingsInput): Promise<DealPricingSettings>;
+  getAttractionOntology?(): Promise<AttractionOntologyResponse>;
+  getAttractionOntologySourceDocument?(
+    sourceId: string
+  ): Promise<OntologySourceDocumentResponse>;
   getMeta(): Promise<MetaResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
@@ -152,6 +158,10 @@ interface ModuleService {
     input: RangeRequest
   ): Promise<ActivitiesWorkloadReport>;
   getCallsWorkloadReport?(input: RangeRequest): Promise<CallsWorkloadReport>;
+  getAttractionOntology?(): Promise<AttractionOntologyResponse>;
+  getAttractionOntologySourceDocument?(
+    sourceId: string
+  ): Promise<OntologySourceDocumentResponse>;
   getMeta?(): Promise<MetaResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
@@ -654,6 +664,17 @@ function createErrorResponse(code: string, details?: unknown) {
     code,
     ...(details === undefined ? {} : { details })
   };
+}
+
+function isOntologySourceLookupError(error: unknown) {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    ((error as { code?: unknown }).code === "SOURCE_NOT_FOUND" ||
+      (error as { code?: unknown }).code === "SOURCE_NOT_READABLE" ||
+      (error as { code?: unknown }).code === "SOURCE_OUTSIDE_ALLOWLIST")
+  );
 }
 
 function normalizeProfileField(value: string | null | undefined) {
@@ -2609,6 +2630,109 @@ export function createApp(
       next(error);
     }
   });
+
+  app.get("/api/ontology", async (_request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
+    if (!service.getAttractionOntology) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      response.json(await service.getAttractionOntology());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/ontology/sources/:sourceId", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
+    if (!service.getAttractionOntologySourceDocument) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      response.json(
+        await service.getAttractionOntologySourceDocument(
+          requestRouteParam(request, "sourceId")
+        )
+      );
+    } catch (error) {
+      if (isOntologySourceLookupError(error)) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      next(error);
+    }
+  });
+
+  app.get("/api/modules/:moduleId/ontology", async (request, response, next) => {
+    const moduleId = requestModuleId(request);
+    if (moduleId !== "attraction") {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return;
+    }
+
+    if (!service.getAttractionOntology) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      response.json(await service.getAttractionOntology());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get(
+    "/api/modules/:moduleId/ontology/sources/:sourceId",
+    async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "attraction") {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      if (!service.getAttractionOntologySourceDocument) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      try {
+        response.json(
+          await service.getAttractionOntologySourceDocument(
+            requestRouteParam(request, "sourceId")
+          )
+        );
+      } catch (error) {
+        if (isOntologySourceLookupError(error)) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
+
+        next(error);
+      }
+    }
+  );
 
   app.get("/api/modules/:moduleId/meta", async (request, response, next) => {
     const moduleId = requestModuleId(request);

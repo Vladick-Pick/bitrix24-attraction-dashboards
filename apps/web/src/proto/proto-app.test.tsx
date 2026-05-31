@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/lib/api-client'
 import type {
+  AttractionOntologyResponse,
   DashboardData,
   DealPricingRuleInput,
   MetaResponse,
@@ -415,6 +416,20 @@ vi.mock('@/lib/api-client', () => ({
       bottleneck: null,
       comparisons: [],
     })),
+    getAttractionOntology: vi.fn(async () => ({
+      moduleKey: 'attraction' as const,
+      title: 'Онтология Привлечения',
+      governance: {
+        decisionRole: 'Технолог бизнес-процессов',
+        decisionUnit: 'Центр Технологизации',
+      },
+      lastReviewedAt: '2026-05-29',
+      sources: [],
+      concepts: [],
+      transitions: [],
+      reportBindings: [],
+      drift: [],
+    })),
     getRevenueVelocityReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       asOf: '2026-04-30T23:59:59.999Z',
@@ -730,6 +745,26 @@ function createSalesDashboard(salesCount: number): DashboardData {
   }
 }
 
+function createAttractionOntology(
+  overrides: Partial<AttractionOntologyResponse> = {},
+): AttractionOntologyResponse {
+  return {
+    moduleKey: 'attraction',
+    title: 'Онтология Привлечения',
+    governance: {
+      decisionRole: 'Технолог бизнес-процессов',
+      decisionUnit: 'Центр Технологизации',
+    },
+    lastReviewedAt: '2026-05-29',
+    sources: [],
+    concepts: [],
+    transitions: [],
+    reportBindings: [],
+    drift: [],
+    ...overrides,
+  }
+}
+
 function createSalesPlan(plannedDeals: number): SalesPlanData {
   return {
     periodStart: '2026-04-01T00:00:00.000+03:00',
@@ -755,6 +790,10 @@ describe('ProtoApp', () => {
   beforeEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
+    vi.mocked(apiClient.getCommentNotifications).mockReset()
+    vi.mocked(apiClient.getCommentNotifications).mockResolvedValue({
+      notifications: [],
+    })
     window.localStorage.clear()
     window.history.pushState({}, '', '/')
     vi.stubGlobal(
@@ -788,6 +827,37 @@ describe('ProtoApp', () => {
       screen.getByRole('button', { name: /^comment mode$/i }),
     ).toBeInTheDocument()
     expect(screen.getByText(/фильтры периода и среза/i)).toBeInTheDocument()
+  })
+
+  it('navigates from ontology report bindings to the owning dashboard scene', async () => {
+    window.history.pushState({}, '', '/docs/modules/attraction/MODULE_ONTOLOGY.md#stale')
+    vi.mocked(apiClient.getAttractionOntology).mockResolvedValueOnce(
+      createAttractionOntology({
+        reportBindings: [
+          {
+            id: 'attraction-funnel-flow',
+            label: 'Поток стадий Привлечения',
+            sceneId: 'funnel-flow',
+            blockId: 'attraction-funnel-flow',
+            href: '#attraction-funnel-flow',
+          },
+        ],
+      }),
+    )
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^онтология$/i }))
+    const reportLinks = await screen.findByTestId('ontology-report-links')
+    await userEvent.click(
+      within(reportLinks).getByRole('link', { name: /поток стадий привлечения/i }),
+    )
+
+    expect(screen.getByRole('button', { name: /^движение по воронке$/i })).toHaveClass(
+      'tab-chip-active',
+    )
+    expect(window.location.pathname).toBe('/')
+    expect(window.location.hash).toBe('#attraction-funnel-flow')
   })
 
   it('renders development team status notifications without requiring issue links', async () => {
@@ -847,7 +917,7 @@ describe('ProtoApp', () => {
   })
 
   it('clears the unread development notification badge after opening notifications', async () => {
-    vi.mocked(apiClient.getCommentNotifications).mockResolvedValueOnce({
+    vi.mocked(apiClient.getCommentNotifications).mockResolvedValue({
       notifications: [
         {
           id: 'comment-1',
@@ -1425,9 +1495,11 @@ describe('ProtoApp', () => {
     expect(leadgenModuleButton).toHaveClass('tab-chip')
     expect(screen.queryByText(/дизайна из лидогенерации/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^отчет активности$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^онтология$/i })).toBeInTheDocument()
 
     vi.mocked(apiClient.getActivitiesWorkloadReport).mockClear()
     vi.mocked(apiClient.getCallsWorkloadReport).mockClear()
+    vi.mocked(apiClient.getAttractionOntology).mockClear()
     await userEvent.click(leadgenModuleButton)
 
     expect(
@@ -1452,6 +1524,7 @@ describe('ProtoApp', () => {
     })
     expect(leadgenSalesReportButton).toHaveClass('tab-chip', 'tab-chip-active')
     expect(leadgenActivityReportButton).toHaveClass('tab-chip')
+    expect(screen.queryByRole('button', { name: /^онтология$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /^воронка лидген ус$/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/сводка по отдельной воронке/i)).not.toBeInTheDocument()
     expect(screen.getByText('Всего сделок')).toBeInTheDocument()
@@ -1512,6 +1585,7 @@ describe('ProtoApp', () => {
       )
       expect(apiClient.getActivitiesWorkloadReport).not.toHaveBeenCalled()
       expect(apiClient.getCallsWorkloadReport).not.toHaveBeenCalled()
+      expect(apiClient.getAttractionOntology).not.toHaveBeenCalled()
     })
   })
 

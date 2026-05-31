@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.9.0",
   "scripts": {
     "prepare:local": "node ./scripts/prepare-local-dev.mjs",
+    "ontology:validate": "node ./scripts/validate-attraction-ontology.mjs docs/modules/attraction/ontology/registry/attraction-ontology.json",
     "session:preflight": "node ./scripts/session-preflight.mjs",
     "test:session-preflight": "node --test ./scripts/session-preflight.test.mjs",
     "check:paperclip-runtime": "node ./scripts/check-paperclip-runtime.mjs",

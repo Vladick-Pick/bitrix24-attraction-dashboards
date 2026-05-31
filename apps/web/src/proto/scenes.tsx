@@ -31,6 +31,7 @@ import {
 } from '@/lib/formatters'
 import { revenueVelocityTooltips } from '@/lib/revenue-velocity-tooltips'
 import { buildDashboardQueryFromProtoFilters } from '@/proto/live-reporting'
+import { OntologyHubScene } from '@/proto/ontology-hub'
 import type {
   ActivityMatrixRow,
   ActivityMatrixStageRow,
@@ -746,7 +747,13 @@ function FunnelTocChart({
     y: lineY(stage.queueEnd),
   }))
   return (
-    <section className="panel relative p-4" onMouseLeave={() => setHovered(null)}>
+    <section
+      className="panel relative p-4"
+      data-comment-block-id="attraction-funnel-flow"
+      data-comment-block-label="Привлечение: поток стадий"
+      id="attraction-funnel-flow"
+      onMouseLeave={() => setHovered(null)}
+    >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">
@@ -4195,7 +4202,12 @@ function AcquisitionOutcomesSection({
   }))
 
   return (
-    <section className="panel p-5">
+    <section
+      className="panel p-5"
+      data-comment-block-id="attraction-acquisition-outcomes"
+      data-comment-block-label="Привлечение: проигрыши и исходы"
+      id="attraction-acquisition-outcomes"
+    >
       <PanelHeading
         title="Сделки и потери"
         description="Новые сделки собраны по менеджерам, источникам и качеству, а потери разложены по этапам и причинам."
@@ -4637,7 +4649,12 @@ function ActivitiesConversionEventsSection({
   }
 
   return (
-    <section className="panel p-5">
+    <section
+      className="panel p-5"
+      data-comment-block-id="attraction-conversion-events"
+      data-comment-block-label="Привлечение: конверсионные мероприятия"
+      id="attraction-conversion-events"
+    >
       <PanelHeading
         title="Конверсионные мероприятия"
         description="Агрегация по событию и дате: приглашения, факт посещения, отказы и переход связанной сделки на следующий шаг после события."
@@ -4734,7 +4751,12 @@ function ActivitiesSlaSection({
   const rows = report.managerRows.filter((row) => row.slaMetrics.length > 0)
 
   return (
-    <section className="panel p-5">
+    <section
+      className="panel p-5"
+      data-comment-block-id="attraction-activities-sla"
+      data-comment-block-label="Привлечение: SLA и активность"
+      id="attraction-activities-sla"
+    >
       <PanelHeading
         title="SLA"
         description="SLA считается только для новых сделок источника «Лидген УС» с итоговым качеством «Готов ко встрече». SLA1 — перевод из базы входящей в «Звонок-знакомство», SLA2 — первый звонок, SLA3 — два звонка и переход дальше за 3 рабочих дня."
@@ -5673,7 +5695,12 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
 
   if (isUnavailable) {
     return (
-      <section className="panel p-5">
+      <section
+        className="panel p-5"
+        data-comment-block-id="attraction-revenue-velocity"
+        data-comment-block-label="Привлечение: денежная скорость"
+        id="attraction-revenue-velocity"
+      >
         <PanelHeading
           title="Денежная скорость"
           description={
@@ -5770,7 +5797,12 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
 
   return (
     <div className="space-y-6">
-      <section className="panel p-5">
+      <section
+        className="panel p-5"
+        data-comment-block-id="attraction-revenue-velocity"
+        data-comment-block-label="Привлечение: денежная скорость"
+        id="attraction-revenue-velocity"
+      >
         <PanelHeading
           title="Денежная скорость"
           description={activeView?.description ?? ''}
@@ -6612,6 +6644,14 @@ export const scenes: ProtoScene[] = [
     focus: 'Цены / тарифы',
     kpis: [],
     component: PricingSettingsScene,
+  },
+  {
+    id: 'ontology',
+    label: 'Онтология',
+    description: 'Карта процесса, источники, статусы актуальности и связанные отчеты.',
+    focus: 'Смыслы / источники / расхождения',
+    kpis: [],
+    component: OntologyHubScene,
   },
   {
     id: 'activities-calls',

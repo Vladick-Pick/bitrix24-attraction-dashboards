@@ -9,6 +9,8 @@ import type {
   CohortConversionReportSnapshot,
   ConversionEventsReport,
   ConversionEventsReportSnapshot,
+  AttractionOntologyResponse,
+  OntologySourceDocumentResponse,
   DashboardData,
   DashboardSnapshot,
   DealPricingSettings,
@@ -62,6 +64,10 @@ import {
 import { buildTocFlowReport } from "../domain/toc-report.js";
 import { buildRevenueVelocityReport } from "../domain/revenue-velocity.js";
 import { buildConversionEventsReport } from "../domain/conversion-events.js";
+import {
+  loadAttractionOntology,
+  loadAttractionOntologySourceDocument
+} from "../domain/attraction-ontology.js";
 import { DEFAULT_PRICING_RULES } from "../domain/deal-economics.js";
 import {
   buildSourceLabelMap,
@@ -208,6 +214,10 @@ export interface ReportingService {
   }): Promise<SalesPlanData>;
   getPricingSettings(): Promise<DealPricingSettings>;
   replacePricingSettings(input: DealPricingSettingsInput): Promise<DealPricingSettings>;
+  getAttractionOntology(): Promise<AttractionOntologyResponse>;
+  getAttractionOntologySourceDocument(
+    sourceId: string
+  ): Promise<OntologySourceDocumentResponse>;
   getMeta(): Promise<{
     stageCatalog: StageCatalogEntry[];
     managerCatalog: ManagerDirectoryEntry[];
@@ -2196,6 +2206,16 @@ export function createReportingService(
         compareRanges,
         buildSnapshot
       ) as RevenueVelocityReport;
+    },
+
+    async getAttractionOntology() {
+      return loadAttractionOntology({
+        stageCatalog: await getScopedStageCatalog(true)
+      });
+    },
+
+    async getAttractionOntologySourceDocument(sourceId) {
+      return loadAttractionOntologySourceDocument({ sourceId });
     },
 
     async getMeta() {

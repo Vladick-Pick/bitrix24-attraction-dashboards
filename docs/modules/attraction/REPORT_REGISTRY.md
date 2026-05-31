@@ -1,5 +1,27 @@
 # Attraction Report Registry
 
+## ontology-hub
+
+- Module: `attraction`.
+- Registry contract: [attraction-ontology.json](./ontology/registry/attraction-ontology.json).
+- Validation: `pnpm ontology:validate`.
+- Source hierarchy: Bitrix shows the factual process configuration; regulations
+  and sheets are evidence; ontology registry records the canonical
+  interpretation; drift is classified by the governance role/unit.
+- Update registry and this report registry when Bitrix stages, enum reasons,
+  fields, SLA rules, report logic, or the conversion event catalog changes.
+- Review drift before deploy.
+- Do not add the separate Лидген УС contour to this registry or dashboard scene.
+
+Stable dashboard anchors used by ontology report bindings:
+
+- `attraction-funnel-flow`
+- `attraction-acquisition-outcomes`
+- `attraction-conversion-events`
+- `attraction-activities-sla`
+- `attraction-revenue-velocity`
+- `attraction-ontology-drift`
+
 ## activities-calls
 
 ### Stage/loss-reason table

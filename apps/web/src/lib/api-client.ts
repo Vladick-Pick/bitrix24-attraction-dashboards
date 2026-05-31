@@ -3,6 +3,7 @@ import type {
   AcquisitionOutcomesReportSnapshot,
   ActivitiesWorkloadReport,
   ActivitiesWorkloadReportSnapshot,
+  AttractionOntologyResponse,
   CallsWorkloadReport,
   CallsWorkloadReportSnapshot,
   CohortConversionReport,
@@ -19,6 +20,13 @@ import type {
   ManagerActionOutcomeReport,
   ManagerActionOutcomeReportSnapshot,
   MetaResponse,
+  OntologyConcept,
+  OntologyDriftItem,
+  OntologyReportBinding,
+  OntologySourceRef,
+  OntologySourceDocumentResponse,
+  OntologyStatus,
+  OntologyTransition,
   ReportComparison,
   ReportRange,
   RevenueVelocityActionSummary,
@@ -939,6 +947,192 @@ function normalizeMeta(value: unknown): MetaResponse {
         : null,
     snapshotStats: normalizeSnapshotStats(data.snapshotStats),
     syncHealth: normalizeSyncHealth(data.syncHealth),
+  }
+}
+
+function normalizeOntologyStatus(value: unknown): OntologyStatus {
+  return value === 'needs-sync' ||
+    value === 'draft' ||
+    value === 'deprecated' ||
+    value === 'unclassified'
+    ? value
+    : 'confirmed'
+}
+
+function normalizeOntologySource(value: unknown): OntologySourceRef {
+  const data = isRecord(value) ? value : {}
+  const kind: OntologySourceRef['kind'] =
+    data.kind === 'google-doc' ||
+    data.kind === 'google-sheet' ||
+    data.kind === 'markdown' ||
+    data.kind === 'bitrix' ||
+    data.kind === 'dashboard' ||
+    data.kind === 'decision'
+      ? data.kind
+      : 'decision'
+  const canonicality: OntologySourceRef['canonicality'] =
+    data.canonicality === 'canonical' ||
+    data.canonicality === 'supporting' ||
+    data.canonicality === 'implementation' ||
+    data.canonicality === 'decision'
+      ? data.canonicality
+      : 'supporting'
+
+  return {
+    id: asString(data.id),
+    label: asString(data.label, asString(data.id)),
+    kind,
+    href: asString(data.href),
+    canonicality,
+  }
+}
+
+function normalizeOntologyConcept(value: unknown): OntologyConcept {
+  const data = isRecord(value) ? value : {}
+  const bitrix = isRecord(data.bitrix) ? data.bitrix : null
+  const type: OntologyConcept['type'] =
+    data.type === 'transition' ||
+    data.type === 'outcome' ||
+    data.type === 'delivery_quality' ||
+    data.type === 'format' ||
+    data.type === 'source'
+      ? data.type
+      : 'stage'
+
+  const concept: OntologyConcept = {
+    id: asString(data.id),
+    type,
+    label: asString(data.label, asString(data.id)),
+    status: normalizeOntologyStatus(data.status),
+    definition: asString(data.definition),
+    not: asArray(data.not, (entry) => asString(entry)).filter(Boolean),
+    sourceIds: asArray(data.sourceIds, (entry) => asString(entry)).filter(Boolean),
+    reportBindingIds: asArray(data.reportBindingIds, (entry) =>
+      asString(entry),
+    ).filter(Boolean),
+  }
+
+  if (bitrix) {
+    const normalizedBitrix: NonNullable<OntologyConcept['bitrix']> = {
+      categoryId: asString(bitrix.categoryId),
+    }
+    const stageId = asString(bitrix.stageId)
+    const fieldCode = asString(bitrix.fieldCode)
+    const enumValue = asString(bitrix.enumValue)
+
+    if (stageId) {
+      normalizedBitrix.stageId = stageId
+    }
+    if (fieldCode) {
+      normalizedBitrix.fieldCode = fieldCode
+    }
+    if (enumValue) {
+      normalizedBitrix.enumValue = enumValue
+    }
+
+    concept.bitrix = normalizedBitrix
+  }
+
+  return concept
+}
+
+function normalizeOntologyTransition(value: unknown): OntologyTransition {
+  const data = isRecord(value) ? value : {}
+
+  const transition: OntologyTransition = {
+    id: asString(data.id),
+    label: asString(data.label, asString(data.id)),
+    status: normalizeOntologyStatus(data.status),
+    fromConceptId: asString(data.fromConceptId),
+    toConceptId: asString(data.toConceptId),
+    definition: asString(data.definition),
+    sourceIds: asArray(data.sourceIds, (entry) => asString(entry)).filter(Boolean),
+    reportBindingIds: asArray(data.reportBindingIds, (entry) =>
+      asString(entry),
+    ).filter(Boolean),
+  }
+
+  const trigger = asString(data.trigger)
+  if (trigger) {
+    transition.trigger = trigger
+  }
+
+  return transition
+}
+
+function normalizeOntologyReportBinding(value: unknown): OntologyReportBinding {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    id: asString(data.id),
+    label: asString(data.label, asString(data.id)),
+    sceneId: asString(data.sceneId),
+    blockId: asString(data.blockId),
+    href: asString(data.href),
+  }
+}
+
+function normalizeOntologyDriftItem(value: unknown): OntologyDriftItem {
+  const data = isRecord(value) ? value : {}
+  const kind: OntologyDriftItem['kind'] =
+    data.kind === 'source' ||
+    data.kind === 'reason' ||
+    data.kind === 'report_binding'
+      ? data.kind
+      : 'stage'
+  const severity: OntologyDriftItem['severity'] =
+    data.severity === 'blocking' || data.severity === 'warning'
+      ? data.severity
+      : 'info'
+
+  return {
+    kind,
+    severity,
+    label: asString(data.label),
+    message: asString(data.message),
+  }
+}
+
+function normalizeAttractionOntology(value: unknown): AttractionOntologyResponse {
+  const data = isRecord(value) ? value : {}
+  const governance = isRecord(data.governance) ? data.governance : {}
+
+  return {
+    moduleKey: 'attraction',
+    title: asString(data.title, 'Онтология Привлечения'),
+    governance: {
+      decisionRole: asString(governance.decisionRole),
+      decisionUnit: asString(governance.decisionUnit),
+    },
+    lastReviewedAt: asString(data.lastReviewedAt),
+    sources: asArray(data.sources, normalizeOntologySource).filter(
+      (source) => source.id,
+    ),
+    concepts: asArray(data.concepts, normalizeOntologyConcept).filter(
+      (concept) => concept.id,
+    ),
+    transitions: asArray(data.transitions, normalizeOntologyTransition).filter(
+      (transition) => transition.id,
+    ),
+    reportBindings: asArray(
+      data.reportBindings,
+      normalizeOntologyReportBinding,
+    ).filter((binding) => binding.id),
+    drift: asArray(data.drift, normalizeOntologyDriftItem).filter(
+      (item) => item.message,
+    ),
+  }
+}
+
+function normalizeOntologySourceDocument(
+  value: unknown,
+): OntologySourceDocumentResponse {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    moduleKey: 'attraction',
+    source: normalizeOntologySource(data.source),
+    content: asString(data.content),
   }
 }
 
@@ -2563,6 +2757,25 @@ export const apiClient = {
       buildUrl(buildModulePath(moduleId, '/api/meta')),
       { method: 'GET' },
       normalizeMeta,
+    )
+  },
+  async getAttractionOntology(moduleId = 'attraction') {
+    return requestJson(
+      buildUrl(buildModulePath(moduleId, '/api/ontology')),
+      { method: 'GET' },
+      normalizeAttractionOntology,
+    )
+  },
+  async getAttractionOntologySourceDocument(sourceId: string, moduleId = 'attraction') {
+    return requestJson(
+      buildUrl(
+        buildModulePath(
+          moduleId,
+          `/api/ontology/sources/${encodeURIComponent(sourceId)}`,
+        ),
+      ),
+      { method: 'GET' },
+      normalizeOntologySourceDocument,
     )
   },
   async getSourceQualityConversionReport(query: DashboardQuery) {

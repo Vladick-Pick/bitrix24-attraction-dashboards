@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import type {
   AcquisitionOutcomesReport,
   ActivitiesWorkloadReport,
+  AttractionOntologyResponse,
   CallsWorkloadReport,
   ConversionEventsReport,
   DashboardData,
@@ -411,6 +412,7 @@ export interface SceneComponentProps {
   pricingSettingsSaving?: boolean
   pricingSettingsSaveError?: string | null | undefined
   onPricingSettingsSave?: (rows: DealPricingRuleInput[]) => Promise<void>
+  onSceneNavigate?: (sceneId: string, blockId?: string) => void
 }
 
 export interface ProtoScene {
@@ -447,6 +449,7 @@ export interface ProtoRuntimeData {
   managerActionOutcomes?: ManagerActionOutcomeReport
   conversionEvents?: ConversionEventsReport
   revenueVelocity?: RevenueVelocityReport
+  attractionOntology?: AttractionOntologyResponse
   cohorts?: CohortSceneData
   tocFlow?: TocFlowSceneData
   operationalStatus: 'idle' | 'loading' | 'ready' | 'error'

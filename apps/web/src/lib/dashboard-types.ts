@@ -1094,6 +1094,86 @@ export interface StageCatalogEntry {
   semanticId: string | null
 }
 
+export type OntologyStatus =
+  | 'confirmed'
+  | 'needs-sync'
+  | 'draft'
+  | 'deprecated'
+  | 'unclassified'
+
+export interface OntologySourceRef {
+  id: string
+  label: string
+  kind: 'google-doc' | 'google-sheet' | 'markdown' | 'bitrix' | 'dashboard' | 'decision'
+  href: string
+  canonicality: 'canonical' | 'supporting' | 'implementation' | 'decision'
+}
+
+export interface OntologyConcept {
+  id: string
+  type: 'stage' | 'transition' | 'outcome' | 'delivery_quality' | 'format' | 'source'
+  label: string
+  status: OntologyStatus
+  definition: string
+  not: string[]
+  bitrix?: {
+    categoryId: string
+    stageId?: string
+    fieldCode?: string
+    enumValue?: string
+  }
+  sourceIds: string[]
+  reportBindingIds: string[]
+}
+
+export interface OntologyTransition {
+  id: string
+  label: string
+  status: OntologyStatus
+  fromConceptId: string
+  toConceptId: string
+  definition: string
+  trigger?: string
+  sourceIds: string[]
+  reportBindingIds: string[]
+}
+
+export interface OntologyReportBinding {
+  id: string
+  label: string
+  sceneId: string
+  blockId: string
+  href: string
+}
+
+export interface OntologyDriftItem {
+  kind: 'stage' | 'source' | 'reason' | 'report_binding'
+  severity: 'info' | 'warning' | 'blocking'
+  label: string
+  message: string
+}
+
+export interface AttractionOntologyResponse {
+  moduleKey: 'attraction'
+  title: string
+  governance: {
+    decisionRole: string
+    decisionUnit: string
+  }
+  lastReviewedAt: string
+  sources: OntologySourceRef[]
+  concepts: OntologyConcept[]
+  transitions: OntologyTransition[]
+  reportBindings: OntologyReportBinding[]
+  drift: OntologyDriftItem[]
+}
+
+export interface OntologySourceDocumentResponse {
+  moduleKey: 'attraction'
+  source: OntologySourceRef
+  content: string
+}
+
 export interface LastSyncSummary {
   finishedAt: string
   leadsSynced: number

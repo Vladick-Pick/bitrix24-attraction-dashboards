@@ -866,6 +866,178 @@ describe('apiClient', () => {
     })
   })
 
+  it('loads and normalizes attraction ontology data', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        moduleKey: 'attraction',
+        title: 'Онтология Привлечения',
+        governance: {
+          decisionRole: 'Технолог бизнес-процессов',
+          decisionUnit: 'Центр Технологизации',
+        },
+        lastReviewedAt: '2026-05-29',
+        sources: [
+          {
+            id: 'regulation_incoming_leads',
+            label: 'Регламент обработки входящих лидов',
+            kind: 'google-doc',
+            href: 'https://docs.google.com/document/d/example/edit',
+            canonicality: 'supporting',
+          },
+        ],
+        concepts: [
+          {
+            id: 'incoming_base',
+            type: 'stage',
+            label: 'База входящая',
+            status: 'needs-sync',
+            definition: 'Входящий этап.',
+            not: ['факт покупки'],
+            bitrix: {
+              categoryId: '10',
+              stageId: 'C10:NEW',
+            },
+            sourceIds: ['regulation_incoming_leads'],
+            reportBindingIds: ['attraction-funnel-flow'],
+          },
+        ],
+        transitions: [
+          {
+            id: 'incoming_to_intro_call_manual',
+            label: 'База входящая -> Звонок-знакомство',
+            status: 'confirmed',
+            fromConceptId: 'incoming_base',
+            toConceptId: 'intro_call',
+            definition: 'Ручное принятие.',
+            trigger: 'Перевод этапа.',
+            sourceIds: ['regulation_incoming_leads'],
+            reportBindingIds: ['attraction-funnel-flow'],
+          },
+        ],
+        reportBindings: [
+          {
+            id: 'attraction-funnel-flow',
+            label: 'Поток стадий',
+            sceneId: 'sales',
+            blockId: 'attraction-funnel-flow',
+            href: '#attraction-funnel-flow',
+          },
+        ],
+        drift: [
+          {
+            kind: 'stage',
+            severity: 'warning',
+            label: 'Новый этап',
+            message: 'Стадии нет в онтологии.',
+          },
+        ],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const ontology = await apiClient.getAttractionOntology()
+
+    const [requestUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(new URL(requestUrl, window.location.origin).pathname).toBe('/api/ontology')
+    expect(ontology).toMatchObject({
+      moduleKey: 'attraction',
+      governance: {
+        decisionRole: 'Технолог бизнес-процессов',
+        decisionUnit: 'Центр Технологизации',
+      },
+      sources: [
+        {
+          id: 'regulation_incoming_leads',
+          kind: 'google-doc',
+        },
+      ],
+      concepts: [
+        {
+          id: 'incoming_base',
+          status: 'needs-sync',
+          bitrix: {
+            categoryId: '10',
+            stageId: 'C10:NEW',
+          },
+        },
+      ],
+      drift: [
+        {
+          severity: 'warning',
+          label: 'Новый этап',
+        },
+      ],
+    })
+  })
+
+  it('uses module-aware ontology paths outside attraction', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        title: 'Онтология Привлечения',
+        governance: {},
+        sources: [],
+        concepts: [],
+        transitions: [],
+        reportBindings: [],
+        drift: [],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiClient.getAttractionOntology('leadgen')
+
+    const [requestUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(new URL(requestUrl, window.location.origin).pathname).toBe(
+      '/api/modules/leadgen/ontology',
+    )
+  })
+
+  it('loads and normalizes an attraction ontology source document', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        moduleKey: 'attraction',
+        source: {
+          id: 'module_ontology',
+          label: 'MODULE_ONTOLOGY.md',
+          kind: 'markdown',
+          href: 'docs/modules/attraction/MODULE_ONTOLOGY.md',
+          canonicality: 'canonical',
+        },
+        content: '# Онтология модуля «Привлечение»',
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const document = await (
+      apiClient as typeof apiClient & {
+        getAttractionOntologySourceDocument(sourceId: string): Promise<{
+          moduleKey: 'attraction'
+          source: { id: string; href: string }
+          content: string
+        }>
+      }
+    ).getAttractionOntologySourceDocument('module_ontology')
+
+    const [requestUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(new URL(requestUrl, window.location.origin).pathname).toBe(
+      '/api/ontology/sources/module_ontology',
+    )
+    expect(document).toMatchObject({
+      moduleKey: 'attraction',
+      source: {
+        id: 'module_ontology',
+        href: 'docs/modules/attraction/MODULE_ONTOLOGY.md',
+      },
+      content: '# Онтология модуля «Привлечение»',
+    })
+  })
+
   it('normalizes sync summary counters and snapshot stats', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

@@ -1,0 +1,460 @@
+{
+  "moduleKey": "attraction",
+  "title": "Онтология Привлечения",
+  "governance": {
+    "decisionRole": "Технолог бизнес-процессов",
+    "decisionUnit": "Центр Технологизации"
+  },
+  "lastReviewedAt": "2026-05-29",
+  "sources": [
+    {
+      "id": "ontology_review_2026_05_29",
+      "label": "Пользовательская синхронизация онтологии от 2026-05-29",
+      "kind": "decision",
+      "href": "docs/modules/attraction/ontology/CHANGELOG.md",
+      "canonicality": "decision"
+    },
+    {
+      "id": "module_ontology",
+      "label": "MODULE_ONTOLOGY.md",
+      "kind": "markdown",
+      "href": "docs/modules/attraction/MODULE_ONTOLOGY.md",
+      "canonicality": "canonical"
+    },
+    {
+      "id": "ontology_state_machine",
+      "label": "04. Состояния и переходы",
+      "kind": "markdown",
+      "href": "docs/modules/attraction/ontology/04-state-machine.md",
+      "canonicality": "canonical"
+    },
+    {
+      "id": "ontology_outcomes",
+      "label": "06. Проигрыши, возвраты и причины",
+      "kind": "markdown",
+      "href": "docs/modules/attraction/ontology/06-outcomes-losses.md",
+      "canonicality": "canonical"
+    },
+    {
+      "id": "ontology_lidgen_us_interface",
+      "label": "03. Интерфейс с Лидген УС",
+      "kind": "markdown",
+      "href": "docs/modules/attraction/ontology/03-lidgen-us-interface.md",
+      "canonicality": "canonical"
+    },
+    {
+      "id": "bitrix_stage_10",
+      "label": "Bitrix24 stage catalog: категория 10, Привлечение",
+      "kind": "bitrix",
+      "href": "bitrix24://crm.deal.category/10",
+      "canonicality": "implementation"
+    },
+    {
+      "id": "regulation_incoming_leads",
+      "label": "Регламент обработки входящих лидов",
+      "kind": "google-doc",
+      "href": "https://docs.google.com/document/d/1uZ41NlU2LLSL7vdbH_IncHHvv6Jb9UJ111dTdZ5iKsQ/edit",
+      "canonicality": "supporting"
+    },
+    {
+      "id": "regulation_deal_tasks",
+      "label": "Регламент работы с задачи в сделках",
+      "kind": "google-doc",
+      "href": "https://docs.google.com/document/d/1Tr-aTuKLDMJCpwvnv50hQF7Fii-sZPsiGJ6XheVnec8/edit",
+      "canonicality": "supporting"
+    },
+    {
+      "id": "regulation_loss_rules",
+      "label": "Правила проигрыша сделки",
+      "kind": "google-doc",
+      "href": "https://docs.google.com/document/d/1ZJ03WnokbmhCxxO2ajaCZ_MtrvMLEXL-txQjGc0pRoA/edit",
+      "canonicality": "supporting"
+    },
+    {
+      "id": "conversion_events_sheet",
+      "label": "Конверсионные события",
+      "kind": "google-sheet",
+      "href": "https://docs.google.com/spreadsheets/d/1-ejzdoeo9FXON-BE1Rdc_yUnuJFmrgvBOF3ilOqBzz4/edit",
+      "canonicality": "canonical"
+    },
+    {
+      "id": "report_registry",
+      "label": "Реестр отчетов Привлечения",
+      "kind": "markdown",
+      "href": "docs/modules/attraction/REPORT_REGISTRY.md",
+      "canonicality": "implementation"
+    },
+    {
+      "id": "dashboard_report_anchors",
+      "label": "Блоки отчетов в дашборде",
+      "kind": "dashboard",
+      "href": "#attraction-ontology-report-links",
+      "canonicality": "implementation"
+    }
+  ],
+  "concepts": [
+    {
+      "id": "incoming_base",
+      "type": "stage",
+      "label": "База входящая",
+      "status": "confirmed",
+      "definition": "Входящий этап, где создается новая сделка, фиксируется источник и назначается ответственный комьюнити-интегратор.",
+      "not": ["доказательство квалификации", "факт принятой покупки"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:NEW"
+      },
+      "sourceIds": ["module_ontology", "ontology_state_machine", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-activities-sla"]
+    },
+    {
+      "id": "intro_call",
+      "type": "stage",
+      "label": "Звонок-знакомство",
+      "status": "confirmed",
+      "definition": "Этап ручного взятия сделки в работу: КИ проводит звонок, подтверждает итоговое качество и готовность к встрече.",
+      "not": ["автопокупка", "проведенная встреча"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:PREPARATION"
+      },
+      "sourceIds": ["module_ontology", "ontology_state_machine", "ontology_lidgen_us_interface", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-activities-sla"]
+    },
+    {
+      "id": "intro_meeting",
+      "type": "stage",
+      "label": "Встреча-знакомство",
+      "status": "confirmed",
+      "definition": "Этап организации и проведения встречи знакомства; сам stage не доказывает, что встреча уже состоялась.",
+      "not": ["только факт прихода", "обычная презентация ценности через менеджера"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_9E0XYG"
+      },
+      "sourceIds": ["module_ontology", "ontology_state_machine", "ontology_lidgen_us_interface", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-conversion-events"]
+    },
+    {
+      "id": "activation",
+      "type": "stage",
+      "label": "Активация",
+      "status": "confirmed",
+      "definition": "Участник получил первый значимый опыт взаимодействия и интерес к среде клуба.",
+      "not": ["финальная готовность вступать"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_61CBCU"
+      },
+      "sourceIds": ["module_ontology", "bitrix_stage_10", "conversion_events_sheet"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-conversion-events"]
+    },
+    {
+      "id": "demonstration",
+      "type": "stage",
+      "label": "Демонстрация",
+      "status": "confirmed",
+      "definition": "Участник увидел, как работает клуб, форматы и люди внутри.",
+      "not": ["коммерческое оформление"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_A249EJ"
+      },
+      "sourceIds": ["module_ontology", "bitrix_stage_10", "conversion_events_sheet"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-conversion-events"]
+    },
+    {
+      "id": "problematization",
+      "type": "stage",
+      "label": "Проблематизация",
+      "status": "confirmed",
+      "definition": "Участник связал клуб со своей задачей, болью или ценой бездействия.",
+      "not": ["просто интерес к мероприятию"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_CPR91Y"
+      },
+      "sourceIds": ["module_ontology", "bitrix_stage_10", "conversion_events_sheet"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-conversion-events"]
+    },
+    {
+      "id": "admission",
+      "type": "stage",
+      "label": "Адмиссия",
+      "status": "confirmed",
+      "definition": "Возникло взаимное ощущение соответствия: участник подходит клубу, клуб подходит участнику.",
+      "not": ["юридически оформленный контракт"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_5KZT6Y"
+      },
+      "sourceIds": ["module_ontology", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-funnel-flow"]
+    },
+    {
+      "id": "contract",
+      "type": "stage",
+      "label": "Контракт",
+      "status": "confirmed",
+      "definition": "Началось коммерческое оформление участия.",
+      "not": ["передача в клубный контур"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_M1M5WM"
+      },
+      "sourceIds": ["module_ontology", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-revenue-velocity"]
+    },
+    {
+      "id": "handoff",
+      "type": "stage",
+      "label": "На передаче",
+      "status": "confirmed",
+      "definition": "Карточка с информацией о потенциальном участнике отправлена в клубный контур на приемку.",
+      "not": ["уже принято клубом", "отказ клиента"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_7CLBFT"
+      },
+      "sourceIds": ["module_ontology", "ontology_state_machine", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-acquisition-outcomes"]
+    },
+    {
+      "id": "handoff_rejected_by_club",
+      "type": "outcome",
+      "label": "Отклонено потребителем",
+      "status": "confirmed",
+      "definition": "Клуб не принял участника или карточку на этапе \"На передаче\".",
+      "not": ["отказ клиента", "корзина"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_XEEP0A"
+      },
+      "sourceIds": ["module_ontology", "ontology_state_machine", "ontology_outcomes", "bitrix_stage_10", "ontology_review_2026_05_29"],
+      "reportBindingIds": ["attraction-acquisition-outcomes", "attraction-funnel-flow"]
+    },
+    {
+      "id": "transferred_to_club",
+      "type": "outcome",
+      "label": "Передано в клуб",
+      "status": "confirmed",
+      "definition": "Клуб принял участника, и Привлечение успешно завершило передачу в клубный контур.",
+      "not": ["только оплата", "только стадия На передаче"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:WON"
+      },
+      "sourceIds": ["module_ontology", "ontology_state_machine", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-revenue-velocity"]
+    },
+    {
+      "id": "basket",
+      "type": "outcome",
+      "label": "Корзина",
+      "status": "confirmed",
+      "definition": "Текущий проигрыш сделки после работы КИ, когда клиенту сейчас не ценно, он отказался или нет основания планировать повторную работу.",
+      "not": ["возврат поставщику", "отказ принимающего клуба", "финальная потеря человека навсегда"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:LOSE"
+      },
+      "sourceIds": ["module_ontology", "ontology_outcomes", "regulation_loss_rules", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-acquisition-outcomes", "attraction-funnel-flow"]
+    },
+    {
+      "id": "warming",
+      "type": "outcome",
+      "label": "Прогрев",
+      "status": "needs-sync",
+      "definition": "Повторный маршрут для потенциально релевантного человека, который сейчас не готов; нужен срок, задача возврата и контекст предыдущей попытки.",
+      "not": ["обычная корзина без следующего шага", "новая первичная поставка"],
+      "bitrix": {
+        "categoryId": "10"
+      },
+      "sourceIds": ["ontology_outcomes", "regulation_loss_rules", "ontology_review_2026_05_29"],
+      "reportBindingIds": ["attraction-acquisition-outcomes"]
+    },
+    {
+      "id": "return_to_lidgen_unqualified",
+      "type": "outcome",
+      "label": "Возврат в Лидген(неквал)",
+      "status": "confirmed",
+      "definition": "Возврат поставщику или вывод из поставки из-за неквалификации, неготовности или невозможности связаться до принятой покупки.",
+      "not": ["корзина после работы КИ", "отказ клуба на передаче"],
+      "bitrix": {
+        "categoryId": "10",
+        "stageId": "C10:UC_EA3R76"
+      },
+      "sourceIds": ["module_ontology", "ontology_lidgen_us_interface", "ontology_outcomes", "bitrix_stage_10"],
+      "reportBindingIds": ["attraction-acquisition-outcomes", "attraction-funnel-flow"]
+    },
+    {
+      "id": "source_lidgen_us",
+      "type": "source",
+      "label": "Лидген УС",
+      "status": "confirmed",
+      "definition": "Внешний для Привлечения модуль-поставщик квалифицированных лидов и мероприятий; его внутренняя онтология не входит в эту онтологию.",
+      "not": ["часть онтологии Привлечения", "источник прямой ценности клуба"],
+      "bitrix": {
+        "categoryId": "10",
+        "fieldCode": "SOURCE_ID"
+      },
+      "sourceIds": ["ontology_lidgen_us_interface", "regulation_incoming_leads"],
+      "reportBindingIds": ["attraction-activities-sla", "attraction-funnel-flow"]
+    },
+    {
+      "id": "delivery_ready_for_meeting",
+      "type": "delivery_quality",
+      "label": "Готов ко встрече",
+      "status": "confirmed",
+      "definition": "Человек квалифицирован под критерии одного из клубов в контракте и подтвердил готовность к встрече в горизонте примерно двух недель.",
+      "not": ["пришел на встречу", "готов к мероприятию"],
+      "bitrix": {
+        "categoryId": "10"
+      },
+      "sourceIds": ["ontology_lidgen_us_interface", "regulation_incoming_leads", "ontology_review_2026_05_29"],
+      "reportBindingIds": ["attraction-activities-sla", "attraction-funnel-flow"]
+    },
+    {
+      "id": "delivery_ready_for_event",
+      "type": "delivery_quality",
+      "label": "Готов к мероприятию",
+      "status": "confirmed",
+      "definition": "Человек квалифицирован под клуб и готов прийти на партнерское лидогенерационное мероприятие, которое организует Лидген УС.",
+      "not": ["конверсионное событие Привлечения само по себе"],
+      "bitrix": {
+        "categoryId": "10"
+      },
+      "sourceIds": ["ontology_lidgen_us_interface", "regulation_incoming_leads"],
+      "reportBindingIds": ["attraction-funnel-flow"]
+    },
+    {
+      "id": "delivery_attended_meeting",
+      "type": "delivery_quality",
+      "label": "Пришел на встречу",
+      "status": "confirmed",
+      "definition": "Лидген УС полностью организовал встречу и поставляет факт прихода; для Привлечения штрих сейчас не поставляется.",
+      "not": ["текущий поставляемый сценарий Привлечения штрих"],
+      "bitrix": {
+        "categoryId": "10"
+      },
+      "sourceIds": ["ontology_lidgen_us_interface", "regulation_incoming_leads", "ontology_review_2026_05_29"],
+      "reportBindingIds": ["attraction-funnel-flow"]
+    },
+    {
+      "id": "conversion_event",
+      "type": "format",
+      "label": "Конверсионное событие",
+      "status": "confirmed",
+      "definition": "Основной ценностный двигатель Привлечения штрих: формат, через который участник проживает ценность клуба и может двигаться к передаче.",
+      "not": ["просто лидогенерационное мероприятие", "замена работы КИ"],
+      "bitrix": {
+        "categoryId": "10",
+        "fieldCode": "conversion_event"
+      },
+      "sourceIds": ["conversion_events_sheet", "module_ontology"],
+      "reportBindingIds": ["attraction-conversion-events", "attraction-funnel-flow"]
+    }
+  ],
+  "transitions": [
+    {
+      "id": "incoming_to_intro_call_manual",
+      "label": "База входящая -> Звонок-знакомство",
+      "status": "confirmed",
+      "fromConceptId": "incoming_base",
+      "toConceptId": "intro_call",
+      "definition": "Ручное принятие сделки в работу.",
+      "trigger": "КИ перевел сделку на этап Звонок-знакомство.",
+      "sourceIds": ["ontology_lidgen_us_interface", "regulation_incoming_leads", "ontology_review_2026_05_29"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-activities-sla"]
+    },
+    {
+      "id": "incoming_to_intro_meeting_auto_purchase",
+      "label": "База входящая -> Встреча-знакомство",
+      "status": "confirmed",
+      "fromConceptId": "incoming_base",
+      "toConceptId": "intro_meeting",
+      "definition": "Автопокупка при нарушении SLA-1 для поставки качества \"Готов ко встрече\".",
+      "trigger": "В течение 24 рабочих часов сделка не переведена на Звонок-знакомство.",
+      "sourceIds": ["ontology_lidgen_us_interface", "regulation_incoming_leads", "ontology_review_2026_05_29"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-activities-sla"]
+    },
+    {
+      "id": "intro_call_to_intro_meeting",
+      "label": "Звонок-знакомство -> Встреча-знакомство",
+      "status": "confirmed",
+      "fromConceptId": "intro_call",
+      "toConceptId": "intro_meeting",
+      "definition": "Контакт успешен, итоговое качество подтверждено, человек готов к встрече.",
+      "trigger": "Подтвержден контакт и следующий шаг встречи.",
+      "sourceIds": ["ontology_state_machine", "ontology_lidgen_us_interface", "ontology_review_2026_05_29"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-activities-sla"]
+    },
+    {
+      "id": "handoff_to_won",
+      "label": "На передаче -> Передано в клуб",
+      "status": "confirmed",
+      "fromConceptId": "handoff",
+      "toConceptId": "transferred_to_club",
+      "definition": "Клуб принял участника, Привлечение завершило передачу.",
+      "trigger": "Принимающий клуб принял карточку/участника.",
+      "sourceIds": ["ontology_state_machine", "module_ontology"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-revenue-velocity"]
+    },
+    {
+      "id": "handoff_to_rejected_by_club",
+      "label": "На передаче -> Отклонено потребителем",
+      "status": "confirmed",
+      "fromConceptId": "handoff",
+      "toConceptId": "handoff_rejected_by_club",
+      "definition": "Принимающий клуб не принял участника или карточку.",
+      "trigger": "Клуб отклонил приемку на этапе На передаче.",
+      "sourceIds": ["ontology_state_machine", "ontology_outcomes", "ontology_review_2026_05_29"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-acquisition-outcomes"]
+    }
+  ],
+  "reportBindings": [
+    {
+      "id": "attraction-funnel-flow",
+      "label": "Поток стадий Привлечения",
+      "sceneId": "funnel-flow",
+      "blockId": "attraction-funnel-flow",
+      "href": "#attraction-funnel-flow"
+    },
+    {
+      "id": "attraction-acquisition-outcomes",
+      "label": "Проигрыши и исходы Привлечения",
+      "sceneId": "activities-calls",
+      "blockId": "attraction-acquisition-outcomes",
+      "href": "#attraction-acquisition-outcomes"
+    },
+    {
+      "id": "attraction-conversion-events",
+      "label": "Конверсионные события",
+      "sceneId": "activities-calls",
+      "blockId": "attraction-conversion-events",
+      "href": "#attraction-conversion-events"
+    },
+    {
+      "id": "attraction-activities-sla",
+      "label": "SLA и активность КИ",
+      "sceneId": "activities-calls",
+      "blockId": "attraction-activities-sla",
+      "href": "#attraction-activities-sla"
+    },
+    {
+      "id": "attraction-revenue-velocity",
+      "label": "Доход и скорость передачи",
+      "sceneId": "revenue-velocity",
+      "blockId": "attraction-revenue-velocity",
+      "href": "#attraction-revenue-velocity"
+    },
+    {
+      "id": "attraction-ontology-drift",
+      "label": "Drift онтологии",
+      "sceneId": "ontology",
+      "blockId": "attraction-ontology-drift",
+      "href": "#attraction-ontology-drift"
+    }
+  ]
+}

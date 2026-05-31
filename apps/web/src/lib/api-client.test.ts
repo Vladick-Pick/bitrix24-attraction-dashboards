@@ -556,6 +556,25 @@ describe('apiClient', () => {
               totalClosedCount: 2,
               totalMeetingCount: 1,
               warnings: ['reschedule disabled'],
+              conversionEventRows: [
+                {
+                  eventKey: 'E1',
+                  eventName: 'Бизнес-диалог: Виктор Найшуллер, 28.05',
+                  eventDate: '2026-05-28T00:00:00.000Z',
+                  invitedCount: 8,
+                  attendedCount: 0,
+                  refusedCount: 8,
+                  waitingCount: 0,
+                  stageBreakdown: [
+                    { stageId: 'C10:UC_61CBCU', stageName: 'Активация', invitedCount: 5 },
+                    {
+                      stageId: 'C10:UC_9E0XYG',
+                      stageName: 'Встреча-знакомство',
+                      invitedCount: 1,
+                    },
+                  ],
+                },
+              ],
               managerRows: [],
               comparisons: [
           {
@@ -575,6 +594,7 @@ describe('apiClient', () => {
               totalClosedCount: 1,
               totalMeetingCount: 0,
               warnings: [],
+              conversionEventRows: [],
               managerRows: [],
             },
           },
@@ -613,6 +633,25 @@ describe('apiClient', () => {
     )
 
     expect(report.warnings).toEqual(['reschedule disabled'])
+    expect(report.conversionEventRows).toEqual([
+      {
+        eventKey: 'E1',
+        eventName: 'Бизнес-диалог: Виктор Найшуллер, 28.05',
+        eventDate: '2026-05-28T00:00:00.000Z',
+        invitedCount: 8,
+        attendedCount: 0,
+        refusedCount: 8,
+        waitingCount: 0,
+        stageBreakdown: [
+          { stageId: 'C10:UC_61CBCU', stageName: 'Активация', invitedCount: 5 },
+          {
+            stageId: 'C10:UC_9E0XYG',
+            stageName: 'Встреча-знакомство',
+            invitedCount: 1,
+          },
+        ],
+      },
+    ])
     expect(report.comparisons).toEqual([
       {
         compareIndex: 1,
@@ -631,6 +670,7 @@ describe('apiClient', () => {
             totalClosedCount: 1,
             totalMeetingCount: 0,
             warnings: [],
+            conversionEventRows: [],
             managerRows: [],
           },
       },
@@ -646,6 +686,7 @@ describe('apiClient', () => {
           to: '2026-04-30T23:59:59.999Z',
         },
         totalInvitedCount: 10,
+        totalConfirmedCount: 0,
         totalAttendedCount: 6,
         totalRefusedCount: 2,
         totalMissedCount: 4,
@@ -660,6 +701,7 @@ describe('apiClient', () => {
             eventName: 'Знакомство с клубом 29.04.',
             eventDate: '2026-04-29T00:00:00.000Z',
             invitedCount: 10,
+            confirmedCount: 0,
             attendedCount: 6,
             refusedCount: 2,
             missedCount: 4,
@@ -698,6 +740,91 @@ describe('apiClient', () => {
       attendanceRate: 60,
       nextStepRate: 50,
       managerBreakdown: [{ key: '78', label: 'Егоров Андрей', count: 6 }],
+    })
+  })
+
+  it('loads and saves conversion event type settings', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          options: [
+            {
+              id: '128',
+              title: 'Гостевая встреча',
+              categoryId: 34,
+              stageId: null,
+              selectedForPlannedInventory: true,
+            },
+          ],
+          settings: [
+            {
+              moduleKey: 'attraction',
+              eventTypeId: '128',
+              eventTypeLabel: 'Гостевая встреча',
+              enabled: true,
+              updatedAt: '2026-05-24T10:00:00.000Z',
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          options: [
+            {
+              id: '128',
+              title: 'Гостевая встреча',
+              categoryId: 34,
+              stageId: null,
+              selectedForPlannedInventory: true,
+            },
+          ],
+          settings: [
+            {
+              moduleKey: 'attraction',
+              eventTypeId: '128',
+              eventTypeLabel: 'Гостевая встреча',
+              enabled: true,
+              updatedAt: '2026-05-24T10:05:00.000Z',
+            },
+          ],
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const settings = await apiClient.getConversionEventTypeSettings()
+    const saved = await apiClient.saveConversionEventTypeSettings({
+      eventTypeIds: ['128'],
+    })
+
+    const [getUrl, getInit] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const [saveUrl, saveInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+
+    expect(new URL(getUrl, window.location.origin).pathname).toBe(
+      '/api/settings/conversion-event-types',
+    )
+    expect(getInit.method).toBe('GET')
+    expect(new URL(saveUrl, window.location.origin).pathname).toBe(
+      '/api/settings/conversion-event-types',
+    )
+    expect(saveInit.method).toBe('PUT')
+    expect(JSON.parse(String(saveInit.body))).toEqual({
+      eventTypeIds: ['128'],
+    })
+    expect(settings.options[0]).toMatchObject({
+      id: '128',
+      title: 'Гостевая встреча',
+      categoryId: 34,
+      selectedForPlannedInventory: true,
+    })
+    expect(saved.settings[0]).toMatchObject({
+      moduleKey: 'attraction',
+      eventTypeId: '128',
+      eventTypeLabel: 'Гостевая встреча',
+      enabled: true,
     })
   })
 

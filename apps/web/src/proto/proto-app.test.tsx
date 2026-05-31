@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client'
 import type {
   AttractionOntologyResponse,
   DashboardData,
+  ConversionEventTypeSettingsInput,
   DealPricingRuleInput,
   MetaResponse,
   SalesPlanData,
@@ -143,6 +144,28 @@ vi.mock('@/lib/api-client', () => ({
       })),
       updatedAt: '2026-04-10T12:05:00.000Z',
     })),
+    getConversionEventTypeSettings: vi.fn(async () => ({
+      options: [],
+      settings: [],
+    })),
+    saveConversionEventTypeSettings: vi.fn(
+      async (input: ConversionEventTypeSettingsInput) => ({
+        options: input.eventTypeIds.map((id) => ({
+          id,
+          title: id,
+          categoryId: null,
+          stageId: null,
+          selectedForPlannedInventory: true,
+        })),
+        settings: input.eventTypeIds.map((id) => ({
+          moduleKey: 'attraction',
+          eventTypeId: id,
+          eventTypeLabel: id,
+          enabled: true,
+          updatedAt: '2026-04-10T12:05:00.000Z',
+        })),
+      }),
+    ),
     getSalesPlan: vi.fn(async () => ({
       periodStart: '2026-04-01T00:00:00.000+03:00',
       periodEnd: '2026-04-30T23:59:59.999+03:00',
@@ -251,6 +274,7 @@ vi.mock('@/lib/api-client', () => ({
       totalClosedCount: 0,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: [],
     })),
@@ -262,6 +286,7 @@ vi.mock('@/lib/api-client', () => ({
       totalClosedCount: 9,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [
         {
           managerId: '501',
@@ -298,6 +323,7 @@ vi.mock('@/lib/api-client', () => ({
     getConversionEventsReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalInvitedCount: 0,
+      totalConfirmedCount: 0,
       totalAttendedCount: 0,
       totalRefusedCount: 0,
       totalMissedCount: 0,
@@ -3410,6 +3436,7 @@ describe('ProtoApp', () => {
       warnings: [
         'Deadline reschedule counts are disabled until a trustworthy Bitrix history source is available.',
       ],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: [],
     })
@@ -3458,6 +3485,50 @@ describe('ProtoApp', () => {
     const [query] = vi.mocked(apiClient.getDashboard).mock.calls.at(-1)!
     expect(query.preset).toBe('custom')
     expect('from' in query ? query.from : '').not.toContain('2026-01-01')
+  })
+
+  it('shows filter apply loading state and applies the visible date field values', async () => {
+    render(<ProtoApp />)
+
+    const applyButton = await screen.findByRole('button', { name: /^применить фильтры$/i })
+    await waitFor(() => expect(applyButton).not.toBeDisabled())
+    vi.mocked(apiClient.getDashboard).mockClear()
+
+    let resolveDashboard: (value: DashboardData) => void = () => {}
+    const pendingDashboard = new Promise<DashboardData>((resolve) => {
+      resolveDashboard = resolve
+    })
+    vi.mocked(apiClient.getDashboard).mockImplementationOnce(async () => pendingDashboard)
+
+    const startInput = screen.getByLabelText(
+      'Дата начала основного диапазона',
+    ) as HTMLInputElement
+    const endInput = screen.getByLabelText(
+      'Дата конца основного диапазона',
+    ) as HTMLInputElement
+    startInput.value = '2026-05-25'
+    endInput.value = '2026-05-31'
+
+    await userEvent.click(applyButton)
+
+    await waitFor(() => {
+      expect(apiClient.getDashboard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preset: 'custom',
+          from: '2026-05-25T00:00:00.000+03:00',
+          to: '2026-05-31T23:59:59.999+03:00',
+        }),
+      )
+    })
+    expect(screen.getByRole('button', { name: /^загружаю$/i })).toBeDisabled()
+    expect(
+      screen.getByText('Загружаю данные за 25.05.2026..31.05.2026'),
+    ).toBeInTheDocument()
+
+    resolveDashboard(createSalesDashboard(3))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^применить фильтры$/i })).not.toBeDisabled()
+    })
   })
 
   it('uses the active leadgen module when refreshing data', async () => {
@@ -3755,6 +3826,21 @@ describe('ProtoApp', () => {
       totalClosedCount: 3,
       totalMeetingCount: 2,
       warnings: [],
+      conversionEventRows: [
+        {
+          eventKey: 'club-2026-04-29',
+          eventName: 'Знакомство с клубом 29.04.',
+          eventDate: '2026-04-29T00:00:00.000Z',
+          invitedCount: 5,
+          attendedCount: 2,
+          refusedCount: 1,
+          waitingCount: 2,
+          stageBreakdown: [
+            { stageId: 'C10:UC_61CBCU', stageName: 'Активация', invitedCount: 3 },
+            { stageId: 'C10:UC_9E0XYG', stageName: 'Встреча-знакомство', invitedCount: 2 },
+          ],
+        },
+      ],
       managerRows: [
         {
           managerId: '78',
@@ -3801,6 +3887,7 @@ describe('ProtoApp', () => {
     vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
       range: { from: '2026-04-06T00:00:00.000Z', to: '2026-04-12T23:59:59.999Z' },
       totalInvitedCount: 5,
+      totalConfirmedCount: 0,
       totalAttendedCount: 2,
       totalRefusedCount: 1,
       totalMissedCount: 3,
@@ -3815,6 +3902,7 @@ describe('ProtoApp', () => {
           eventName: 'Знакомство с клубом 29.04.',
           eventDate: '2026-04-29T00:00:00.000Z',
           invitedCount: 5,
+          confirmedCount: 0,
           attendedCount: 2,
           refusedCount: 1,
           missedCount: 3,
@@ -3849,9 +3937,8 @@ describe('ProtoApp', () => {
 
     expect(conversionSection).not.toBeNull()
     expect(within(conversionSection as HTMLElement).getByText('Знакомство с клубом 29.04.')).toBeInTheDocument()
-    expect(within(conversionSection as HTMLElement).getByRole('columnheader', { name: /доходимость/i })).toBeInTheDocument()
-    expect(within(conversionSection as HTMLElement).getByText('40%')).toBeInTheDocument()
-    expect(within(conversionSection as HTMLElement).getByText('50%')).toBeInTheDocument()
+    expect(within(conversionSection as HTMLElement).getByRole('columnheader', { name: /с каких этапов звали/i })).toBeInTheDocument()
+    expect(within(conversionSection as HTMLElement).getByText('3 Активация, 2 Встреча-знакомство')).toBeInTheDocument()
     expect(screen.queryByText('Данные появятся после настройки.')).not.toBeInTheDocument()
     expect(screen.getByText(/8 сделок в SLA/i)).toBeInTheDocument()
     expect(screen.queryByText(/64 сделок в работе/i)).not.toBeInTheDocument()
@@ -3862,19 +3949,16 @@ describe('ProtoApp', () => {
     expect(zeroLateBadge).toHaveClass('text-slate-700')
   })
 
-  it('renders conversion events table in the activity scene without client names', async () => {
-    vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
+  it('renders conversion events table in the activity report without client names', async () => {
+    vi.mocked(apiClient.getActivitiesWorkloadReport).mockResolvedValueOnce({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
-      totalInvitedCount: 10,
-      totalAttendedCount: 6,
-      totalRefusedCount: 2,
-      totalMissedCount: 4,
-      attendanceRate: 60,
-      nextStepEligibleCount: 6,
-      nextStepCount: 3,
-      nextStepRate: 50,
+      totalDealCount: 0,
+      totalCreatedCount: 0,
+      totalRescheduledCount: 0,
+      totalClosedCount: 0,
+      totalMeetingCount: 0,
       warnings: [],
-      rows: [
+      conversionEventRows: [
         {
           eventKey: '2026-04-29::Знакомство с клубом 29.04.',
           eventName: 'Знакомство с клубом 29.04.',
@@ -3882,18 +3966,20 @@ describe('ProtoApp', () => {
           invitedCount: 10,
           attendedCount: 6,
           refusedCount: 2,
-          missedCount: 4,
-          attendanceRate: 60,
-          nextStepEligibleCount: 6,
-          nextStepCount: 3,
-          nextStepRate: 50,
-          unlinkedCount: 0,
-          unknownStatusCount: 0,
-          managerBreakdown: [{ key: '78', label: 'Егоров Андрей', count: 6 }],
-          sourceBreakdown: [{ key: 'WEB', label: 'Веб', count: 6 }],
-          businessClubBreakdown: [{ key: 'ClubOne', label: 'ClubOne', count: 6 }],
+          waitingCount: 2,
+          stageBreakdown: [
+            { stageId: 'C10:UC_61CBCU', stageName: 'Активация', invitedCount: 5 },
+            {
+              stageId: 'C10:UC_9E0XYG',
+              stageName: 'Встреча-знакомство',
+              invitedCount: 1,
+            },
+            { stageId: 'C10:UC_A249EJ', stageName: 'Демонстрация', invitedCount: 1 },
+            { stageId: 'C10:PREPARATION', stageName: 'Звонок-знакомство', invitedCount: 1 },
+          ],
         },
       ],
+      managerRows: [],
       comparisons: [],
     })
 
@@ -3906,15 +3992,17 @@ describe('ProtoApp', () => {
     })
     expect(section).toBeInTheDocument()
     expect(screen.getByText('Знакомство с клубом 29.04.')).toBeInTheDocument()
-    expect(screen.getByText('60%')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Мероприятие' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Пригласили' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Дошли' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Отказ' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Еще ждут' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'С каких этапов звали' })).toBeInTheDocument()
     expect(
-      screen.getByText((_, element) => element?.textContent === '3 / 6 · 50%'),
+      screen.getByText(
+        '5 Активация, 1 Встреча-знакомство, 1 Демонстрация, 1 Звонок-знакомство',
+      ),
     ).toBeInTheDocument()
-
-    await userEvent.click(screen.getByRole('button', { name: /детали мероприятия/i }))
-    expect(screen.getByText('Егоров Андрей')).toBeInTheDocument()
-    expect(screen.getByText('Веб')).toBeInTheDocument()
-    expect(screen.getByText('ClubOne')).toBeInTheDocument()
     expect(screen.queryByText(/Омаров/i)).not.toBeInTheDocument()
   })
 
@@ -3922,6 +4010,7 @@ describe('ProtoApp', () => {
     vi.mocked(apiClient.getConversionEventsReport).mockResolvedValueOnce({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalInvitedCount: 0,
+      totalConfirmedCount: 0,
       totalAttendedCount: 0,
       totalRefusedCount: 0,
       totalMissedCount: 0,
@@ -4117,6 +4206,7 @@ describe('ProtoApp', () => {
       totalClosedCount: 0,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: [],
     })
@@ -4156,6 +4246,7 @@ describe('ProtoApp', () => {
       totalClosedCount: 5,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [
         {
           managerId: '78',
@@ -4249,6 +4340,7 @@ describe('ProtoApp', () => {
       totalClosedCount: 10,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [
         {
           managerId: '78',
@@ -4309,6 +4401,7 @@ describe('ProtoApp', () => {
             totalClosedCount: 8,
             totalMeetingCount: 0,
             warnings: [],
+            conversionEventRows: [],
             managerRows: [
               {
                 managerId: '78',
@@ -4341,6 +4434,7 @@ describe('ProtoApp', () => {
             totalClosedCount: 5,
             totalMeetingCount: 0,
             warnings: [],
+            conversionEventRows: [],
             managerRows: [
               {
                 managerId: '78',

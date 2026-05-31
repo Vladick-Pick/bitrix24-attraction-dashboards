@@ -24,6 +24,35 @@ Stable dashboard anchors used by ontology report bindings:
 
 ## activities-calls
 
+### Conversion event stage table
+
+- Module: `attraction`.
+- Report scene: `activities-calls` / `Отчет активности`.
+- Dashboard block: `attraction-conversion-events`.
+- Ontology binding: `docs/modules/attraction/ontology/05-meetings-events-formats.md`
+  and `docs/modules/attraction/ontology/07-reporting-and-guardrails.md`.
+- Backend contract: `ActivitiesWorkloadReport.conversionEventRows`.
+- Data source: cached canonical `event_visit_facts` joined with
+  `deal_touchpoint_facts.kind = conversion_event_visit`.
+- Link rule: include only direct attraction deal links with
+  `linkReason = event_visit_deal`; do not use contact fallback links.
+- Manager scope: use the attraction deal owner, not the smart-process visit
+  responsible user, because visit records can be owned by a technical Bitrix
+  user.
+- Business columns: `Мероприятие`, `Пригласили`, `Дошли`, `Отказ`, `Еще ждут`,
+  `С каких этапов звали`.
+- Stage breakdown uses the canonical stage name at invitation time, so one
+  event can be valid for different attraction stages in the same period.
+
+### Message metrics research
+
+- Current research note: [MESSAGE_METRICS_RESEARCH.md](./MESSAGE_METRICS_RESEARCH.md).
+- Bitrix-only implementation can count non-system Open Lines messages through
+  `imopenlines.session.history.get` without persisting message text.
+- Exact `sent` / `received` split is not confirmed from Bitrix-only data because
+  external Wazzup/OLChat messages may be recorded as `imconnector` messages even
+  when sent outside Bitrix.
+
 ### Stage/loss-reason table
 
 - Module: `attraction`.

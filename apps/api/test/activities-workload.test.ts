@@ -231,6 +231,7 @@ describe("buildActivitiesWorkloadReport", () => {
       warnings: [
         "Deadline reschedule counts are disabled until a trustworthy Bitrix history source is available."
       ],
+      conversionEventRows: [],
       managerRows: [
         {
           managerId: "7",
@@ -992,5 +993,367 @@ describe("buildActivitiesWorkloadReport", () => {
       noTouchCount: 0,
       medianHours: 60
     });
+  });
+
+  it("adds conversion event rows with invitation statuses and stage breakdown", () => {
+    const result = buildActivitiesWorkloadReport({
+      range: {
+        from: "2026-05-25T00:00:00.000Z",
+        to: "2026-06-01T00:00:00.000Z"
+      },
+      deals: [
+        {
+          id: "D1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:UC_61CBCU",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          dateCreate: "2026-05-20T09:00:00.000Z",
+          dateModify: "2026-05-28T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "D2",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          dateCreate: "2026-05-20T09:00:00.000Z",
+          dateModify: "2026-05-28T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "D3",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:UC_61CBCU",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          dateCreate: "2026-05-20T09:00:00.000Z",
+          dateModify: "2026-05-28T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "OUT_OF_SCOPE",
+          leadId: null,
+          categoryId: "20",
+          stageId: "C20:NEW",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: null,
+          dateCreate: "2026-05-20T09:00:00.000Z",
+          dateModify: "2026-05-28T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:UC_61CBCU",
+          name: "Активация",
+          semanticId: "P",
+          sortOrder: 50
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:UC_A249EJ",
+          name: "Демонстрация",
+          semanticId: "P",
+          sortOrder: 60
+        }
+      ],
+      stageHistory: [],
+      activities: [],
+      deadlineChanges: [],
+      eventVisitFacts: [
+        {
+          visitId: "V1",
+          eventId: "E1",
+          dealId: "D1",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          currentStageId: "C10:UC_61CBCU",
+          currentStageName: "Активация",
+          invitedAt: "2026-05-28T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: null,
+          refusedAt: "2026-05-28T12:00:00.000Z",
+          finalStatus: "refused",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: "C10:UC_61CBCU",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName:
+              "МСК Бизнес-диалог: Виктор Найшуллер 28.05.26 Виктор Найшуллер оффлайн"
+          })
+        },
+        {
+          visitId: "V2",
+          eventId: "E1",
+          dealId: "D2",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          currentStageId: "C10:PREPARATION",
+          currentStageName: "Звонок-знакомство",
+          invitedAt: "2026-05-28T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: "2026-05-28T13:00:00.000Z",
+          refusedAt: null,
+          finalStatus: "attended",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: "C10:PREPARATION",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName:
+              "МСК Бизнес-диалог: Виктор Найшуллер 28.05.26 Виктор Найшуллер оффлайн"
+          })
+        },
+        {
+          visitId: "V3",
+          eventId: "E1",
+          dealId: "D3",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          currentStageId: "C10:UC_61CBCU",
+          currentStageName: "Активация",
+          invitedAt: "2026-05-28T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: null,
+          refusedAt: null,
+          finalStatus: "invited",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: "C10:UC_61CBCU",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName:
+              "МСК Бизнес-диалог: Виктор Найшуллер 28.05.26 Виктор Найшуллер оффлайн"
+          })
+        },
+        {
+          visitId: "V4",
+          eventId: "E2",
+          dealId: "D3",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          currentStageId: "C10:UC_A249EJ",
+          currentStageName: "Демонстрация",
+          invitedAt: "2026-05-27T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: null,
+          refusedAt: "2026-05-27T12:00:00.000Z",
+          finalStatus: "refused",
+          eventDate: "2026-05-27T00:00:00.000Z",
+          stageIdAtEvent: "C10:UC_A249EJ",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName:
+              "МСК НЕрандом кофе: Личный бренд 27.05.26 Артем Колесников, Евгения Першина оффлайн"
+          })
+        },
+        {
+          visitId: "V5",
+          eventId: "E3",
+          dealId: "OUT_OF_SCOPE",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          currentStageId: "C20:NEW",
+          currentStageName: "Новая",
+          invitedAt: "2026-05-28T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: "2026-05-28T13:00:00.000Z",
+          refusedAt: null,
+          finalStatus: "attended",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: "C20:NEW",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({ eventName: "Не из привлечения" })
+        }
+      ],
+      dealTouchpointFacts: [
+        {
+          factId: "TP1",
+          kind: "conversion_event_visit",
+          sourceSystem: "bitrix24",
+          sourceEntityType: "event_visit_fact",
+          sourceEntityId: "V1",
+          occurredAt: "2026-05-28T00:00:00.000Z",
+          dealId: "D1",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          stageIdAtEvent: "C10:UC_61CBCU",
+          stageNameAtEvent: "Активация (Встреча проведена)",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: null
+        },
+        {
+          factId: "TP2",
+          kind: "conversion_event_visit",
+          sourceSystem: "bitrix24",
+          sourceEntityType: "event_visit_fact",
+          sourceEntityId: "V2",
+          occurredAt: "2026-05-28T00:00:00.000Z",
+          dealId: "D2",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          stageIdAtEvent: "C10:PREPARATION",
+          stageNameAtEvent: "Звонок-знакомство",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: null
+        },
+        {
+          factId: "TP3",
+          kind: "conversion_event_visit",
+          sourceSystem: "bitrix24",
+          sourceEntityType: "event_visit_fact",
+          sourceEntityId: "V3",
+          occurredAt: "2026-05-28T00:00:00.000Z",
+          dealId: "D3",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          stageIdAtEvent: "C10:UC_61CBCU",
+          stageNameAtEvent: "Активация (Встреча проведена)",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: null
+        },
+        {
+          factId: "TP4",
+          kind: "conversion_event_visit",
+          sourceSystem: "bitrix24",
+          sourceEntityType: "event_visit_fact",
+          sourceEntityId: "V4",
+          occurredAt: "2026-05-27T00:00:00.000Z",
+          dealId: "D3",
+          contactId: null,
+          leadId: null,
+          managerId: "7",
+          sourceId: "WEB",
+          stageIdAtEvent: "C10:UC_A249EJ",
+          stageNameAtEvent: "Демонстрация (Event)",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: null
+        }
+      ],
+      managerDirectory: []
+    });
+
+    expect(result.conversionEventRows).toEqual([
+      {
+        eventKey: "E1",
+        eventName: "Бизнес-диалог: Виктор Найшуллер, 28.05",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        invitedCount: 3,
+        attendedCount: 1,
+        refusedCount: 1,
+        waitingCount: 1,
+        stageBreakdown: [
+          {
+            stageId: "C10:UC_61CBCU",
+            stageName: "Активация",
+            invitedCount: 2
+          },
+          {
+            stageId: "C10:PREPARATION",
+            stageName: "Звонок-знакомство",
+            invitedCount: 1
+          }
+        ]
+      },
+      {
+        eventKey: "E2",
+        eventName: "НЕрандом кофе: Личный бренд, 27.05",
+        eventDate: "2026-05-27T00:00:00.000Z",
+        invitedCount: 1,
+        attendedCount: 0,
+        refusedCount: 1,
+        waitingCount: 0,
+        stageBreakdown: [
+          {
+            stageId: "C10:UC_A249EJ",
+            stageName: "Демонстрация",
+            invitedCount: 1
+          }
+        ]
+      }
+    ]);
   });
 });

@@ -16,3 +16,5 @@ backups/*.bundle
 .codex/proto-comments
 .paperclip/tasks/
 .docker-source-revision
+# Added by code-review-graph
+.code-review-graph/

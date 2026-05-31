@@ -4,7 +4,6 @@ import type {
   ActivitiesWorkloadReport,
   AcquisitionOutcomesReport,
   ConversionEventsReport,
-  ConversionEventBreakdownRow,
   DashboardData,
   DealStageTimelineEntry,
   DealPricingRuleInput,
@@ -4570,83 +4569,35 @@ function buildMeetingBusinessClubGroups(row: ActivitiesWorkloadReport['managerRo
   return Array.from(grouped.values())
 }
 
-function formatConversionEventsPercent(value: number | null) {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? `${formatPercent(value)}%`
-    : '—'
-}
-
-function renderConversionEventBreakdown(rows: ConversionEventBreakdownRow[]) {
-  if (rows.length === 0) {
-    return <span className="text-xs text-slate-400">—</span>
+function formatActivityConversionEventStages(
+  row: ActivitiesWorkloadReport['conversionEventRows'][number],
+) {
+  if (row.stageBreakdown.length === 0) {
+    return '—'
   }
 
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {rows.map((row) => (
-        <span
-          key={row.key}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
-        >
-          <span>{row.label}</span>
-          <span className="text-slate-400">{formatInteger(row.count)}</span>
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function ConversionEventDetailsCell({
-  row,
-}: {
-  row: ConversionEventsReport['rows'][number]
-}) {
-  const [expanded, setExpanded] = useState(false)
-
-  return (
-    <div>
-      <button
-        type="button"
-        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        Детали мероприятия
-      </button>
-      {expanded ? (
-        <div className="mt-3 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <div>
-            <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Менеджеры
-            </div>
-            {renderConversionEventBreakdown(row.managerBreakdown)}
-          </div>
-          <div>
-            <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Источники
-            </div>
-            {renderConversionEventBreakdown(row.sourceBreakdown)}
-          </div>
-          <div>
-            <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Клубы
-            </div>
-            {renderConversionEventBreakdown(row.businessClubBreakdown)}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
+  return row.stageBreakdown
+    .map((stage) => `${formatInteger(stage.invitedCount)} ${stage.stageName}`)
+    .join(', ')
 }
 
 function ActivitiesConversionEventsSection({
   report,
+  conversionEvents,
 }: {
-  report: ConversionEventsReport | undefined
+  report: ActivitiesWorkloadReport | undefined
+  conversionEvents: ConversionEventsReport | undefined
 }) {
   if (!report) {
     return null
   }
+
+  const rows = report.conversionEventRows ?? []
+  const invitedCount = rows.reduce((total, row) => total + row.invitedCount, 0)
+  const attendedCount = rows.reduce((total, row) => total + row.attendedCount, 0)
+  const refusedCount = rows.reduce((total, row) => total + row.refusedCount, 0)
+  const waitingCount = rows.reduce((total, row) => total + row.waitingCount, 0)
+  const warnings = rows.length === 0 ? (conversionEvents?.warnings ?? []) : []
 
   return (
     <section
@@ -4657,64 +4608,53 @@ function ActivitiesConversionEventsSection({
     >
       <PanelHeading
         title="Конверсионные мероприятия"
-        description="Агрегация по событию и дате: приглашения, факт посещения, отказы и переход связанной сделки на следующий шаг после события."
+        description="Срез отчета активности: кого звали на мероприятия привлечения, кто дошел, кто отказался и с каких этапов онтологии звали."
         right={
           <div className="flex flex-wrap gap-2">
             <span className="badge-chip badge-neutral">
-              {formatInteger(report.totalAttendedCount)} / {formatInteger(report.totalInvitedCount)}
+              {formatInteger(rows.length)} мероприятий
             </span>
             <span className="badge-chip badge-neutral">
-              {formatConversionEventsPercent(report.attendanceRate)} доходимость
+              {formatInteger(attendedCount)} / {formatInteger(invitedCount)} дошли
+            </span>
+            <span className="badge-chip badge-neutral">
+              {formatInteger(refusedCount)} отказ · {formatInteger(waitingCount)} ждут
             </span>
           </div>
         }
       />
 
-      {report.warnings.length > 0 ? (
+      {warnings.length > 0 ? (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {report.warnings.length} warnings: {report.warnings.slice(0, 3).join(' · ')}
+          {warnings.length} warnings: {warnings.slice(0, 3).join(' · ')}
         </div>
       ) : null}
 
-      {report.rows.length > 0 ? (
+      {rows.length > 0 ? (
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
                 <th className="px-3 py-3">Мероприятие</th>
-                <th className="px-3 py-3">Дата</th>
-                <th className="px-3 py-3 text-right">Приглашено</th>
-                <th className="px-3 py-3 text-right">Посетило</th>
-                <th className="px-3 py-3 text-right">Не дошло</th>
+                <th className="px-3 py-3 text-right">Пригласили</th>
+                <th className="px-3 py-3 text-right">Дошли</th>
                 <th className="px-3 py-3 text-right">Отказ</th>
-                <th className="px-3 py-3 text-right">Доходимость</th>
-                <th className="px-3 py-3 text-right">Следующий шаг</th>
-                <th className="px-3 py-3">Детали</th>
+                <th className="px-3 py-3 text-right">Еще ждут</th>
+                <th className="px-3 py-3">С каких этапов звали</th>
               </tr>
             </thead>
             <tbody>
-              {report.rows.map((row) => (
+              {rows.map((row) => (
                 <tr key={row.eventKey} className="border-b border-slate-100 align-top last:border-b-0">
                   <td className="px-3 py-3 font-semibold text-slate-900">{row.eventName}</td>
-                  <td className="px-3 py-3 text-slate-700">{formatShortDate(row.eventDate)}</td>
                   <td className="px-3 py-3 text-right font-semibold text-slate-900">
                     {formatInteger(row.invitedCount)}
                   </td>
                   <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.attendedCount)}</td>
-                  <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.missedCount)}</td>
                   <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.refusedCount)}</td>
-                  <td className="px-3 py-3 text-right font-semibold text-slate-900">
-                    {formatConversionEventsPercent(row.attendanceRate)}
-                  </td>
-                  <td className="px-3 py-3 text-right font-semibold text-slate-900">
-                    <span>
-                      {formatInteger(row.nextStepCount)} / {formatInteger(row.nextStepEligibleCount)}
-                    </span>
-                    <span className="px-1 text-slate-400"> · </span>
-                    <span>{formatConversionEventsPercent(row.nextStepRate)}</span>
-                  </td>
-                  <td className="min-w-[260px] px-3 py-3">
-                    <ConversionEventDetailsCell row={row} />
+                  <td className="px-3 py-3 text-right text-slate-700">{formatInteger(row.waitingCount)}</td>
+                  <td className="min-w-[320px] px-3 py-3 text-slate-700">
+                    {formatActivityConversionEventStages(row)}
                   </td>
                 </tr>
               ))}
@@ -4724,7 +4664,7 @@ function ActivitiesConversionEventsSection({
       ) : (
         <OutcomeEmptyState
           message={
-            report.warnings.length > 0
+            warnings.length > 0
               ? 'Snapshot конверсионных мероприятий не загружен. Проверьте доступ webhook к smart-process и запустите sync.'
               : 'В выбранном периоде конверсионные мероприятия не найдены.'
           }
@@ -5131,7 +5071,10 @@ export function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
       {activitiesWorkload ? (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
           <ActivitiesMeetingsSection report={activitiesWorkload} filters={filters} />
-          <ActivitiesConversionEventsSection report={runtimeData?.conversionEvents} />
+          <ActivitiesConversionEventsSection
+            report={activitiesWorkload}
+            conversionEvents={runtimeData?.conversionEvents}
+          />
         </div>
       ) : null}
 
@@ -6479,10 +6422,15 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
 
 function PricingSettingsScene({
   pricingSettings,
+  conversionEventTypeSettings,
   pricingSettingsLoading,
   pricingSettingsSaving,
   pricingSettingsSaveError,
+  conversionEventTypeSettingsLoading,
+  conversionEventTypeSettingsSaving,
+  conversionEventTypeSettingsSaveError,
   onPricingSettingsSave,
+  onConversionEventTypeSettingsSave,
 }: SceneComponentProps) {
   const [draftEdits, setDraftEdits] = useState<
     Record<string, Partial<Pick<DealPricingRuleInput, 'attractionRevenueAmount' | 'enabled'>>>
@@ -6500,6 +6448,22 @@ function PricingSettingsScene({
       })),
     [draftEdits, pricingSettings?.rules],
   )
+  const eventTypeOptions = useMemo(
+    () => conversionEventTypeSettings?.options ?? [],
+    [conversionEventTypeSettings?.options],
+  )
+  const selectedEventTypeIdsFromSettings = useMemo(
+    () =>
+      eventTypeOptions
+        .filter((option) => option.selectedForPlannedInventory)
+        .map((option) => option.id),
+    [eventTypeOptions],
+  )
+  const [draftSelectedEventTypeIds, setDraftSelectedEventTypeIds] = useState<
+    string[] | null
+  >(null)
+  const selectedEventTypeIds =
+    draftSelectedEventTypeIds ?? selectedEventTypeIdsFromSettings
 
   const totalEnabledAmount = useMemo(
     () =>
@@ -6520,6 +6484,16 @@ function PricingSettingsScene({
         ...patch,
       },
     }))
+  }
+
+  function toggleEventType(eventTypeId: string) {
+    setDraftSelectedEventTypeIds((current) => {
+      const source = current ?? selectedEventTypeIdsFromSettings
+
+      return source.includes(eventTypeId)
+        ? source.filter((id) => id !== eventTypeId)
+        : [...source, eventTypeId]
+    })
   }
 
   return (
@@ -6609,6 +6583,66 @@ function PricingSettingsScene({
             {pricingSettingsSaving ? 'Сохранение...' : 'Сохранить цены'}
           </button>
         </div>
+      </div>
+
+      <div className="mt-5 rounded-xl border border-slate-200 bg-white/80 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-slate-500">
+              Плановые мероприятия
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Типы мероприятий, которые попадают в плановый отчет даже без приглашенных.
+            </p>
+          </div>
+          <span className="badge-chip badge-neutral">
+            {formatInteger(selectedEventTypeIds.length)} выбрано
+          </span>
+        </div>
+
+        {conversionEventTypeSettingsLoading && eventTypeOptions.length === 0 ? (
+          <div className="mt-4 text-sm text-slate-500">Загружаю типы мероприятий.</div>
+        ) : eventTypeOptions.length === 0 ? (
+          <div className="mt-4 text-sm text-slate-500">Типы мероприятий пока не загружены.</div>
+        ) : (
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {eventTypeOptions.map((option) => (
+              <label
+                key={option.id}
+                className="flex min-h-12 items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={selectedEventTypeIds.includes(option.id)}
+                  onChange={() => toggleEventType(option.id)}
+                />
+                <span className="min-w-0">
+                  <span className="block font-semibold text-slate-900">{option.title}</span>
+                  <span className="block truncate text-xs text-slate-500">{option.id}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {conversionEventTypeSettingsSaveError ? (
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            {conversionEventTypeSettingsSaveError}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-primary mt-4"
+          disabled={conversionEventTypeSettingsSaving}
+          onClick={() =>
+            void onConversionEventTypeSettingsSave?.({
+              eventTypeIds: selectedEventTypeIds,
+            })
+          }
+        >
+          {conversionEventTypeSettingsSaving ? 'Сохранение...' : 'Сохранить мероприятия'}
+        </button>
       </div>
     </section>
   )

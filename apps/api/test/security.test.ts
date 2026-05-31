@@ -146,6 +146,7 @@ function createCorsTestApp(config?: {
         totalClosedCount: 0,
         totalMeetingCount: 0,
         warnings: [],
+        conversionEventRows: [],
         managerRows: [],
         comparisons: []
       }),
@@ -257,6 +258,7 @@ function createCorsTestApp(config?: {
           to: "2026-04-30T23:59:59.999Z"
         },
         totalInvitedCount: 0,
+        totalConfirmedCount: 0,
         totalAttendedCount: 0,
         totalRefusedCount: 0,
         totalMissedCount: 0,

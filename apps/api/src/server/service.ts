@@ -11,6 +11,8 @@ import type {
   ConversionEventsReportSnapshot,
   AttractionOntologyResponse,
   OntologySourceDocumentResponse,
+  ConversionEventTypeSettingsData,
+  ConversionEventTypeSettingsInput,
   DashboardData,
   DashboardSnapshot,
   DealPricingSettings,
@@ -78,6 +80,19 @@ import {
   UNASSIGNED_MANAGER_NAME
 } from "../domain/report-dimensions.js";
 import { buildDashboard } from "../domain/reporting.js";
+import {
+  buildConversionEventTouchpointFacts,
+  buildDealStageFacts,
+  buildDealTouchpointFacts,
+  buildEventVisitFacts,
+  buildIdentityLinks
+} from "../domain/analytics-facts.js";
+import {
+  stageFactsToStageHistory,
+  touchpointFactsToActivities,
+  touchpointFactsToCalls,
+  touchpointFactsToMeetingDateChanges
+} from "../domain/fact-report-adapters.js";
 import {
   ACTIVITY_HISTORY_COVERAGE_VERSION,
   CALL_STATS_COVERAGE_PROVIDER,
@@ -218,6 +233,10 @@ export interface ReportingService {
   getAttractionOntologySourceDocument(
     sourceId: string
   ): Promise<OntologySourceDocumentResponse>;
+  getConversionEventTypeSettings(): Promise<ConversionEventTypeSettingsData>;
+  replaceConversionEventTypeSettings(
+    input: ConversionEventTypeSettingsInput
+  ): Promise<ConversionEventTypeSettingsData>;
   getMeta(): Promise<{
     stageCatalog: StageCatalogEntry[];
     managerCatalog: ManagerDirectoryEntry[];
@@ -237,7 +256,15 @@ export interface ReportingService {
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
   }): Promise<ManualSyncSummary>;
+  rebuildAnalyticsFacts(): Promise<AnalyticsFactsBuildSummary | null>;
   updateWonStages(stageIds: string[]): Promise<{ wonStageIds: string[] }>;
+}
+
+export interface AnalyticsFactsBuildSummary {
+  identityLinks: number;
+  dealStageFacts: number;
+  dealTouchpointFacts: number;
+  eventVisitFacts: number;
 }
 
 function createRange(periodDays: number, now: Date) {
@@ -883,6 +910,141 @@ export function createReportingService(
 
     return sortSources(Array.from(rows.values()));
   };
+
+  const rebuildAnalyticsFacts = async (): Promise<AnalyticsFactsBuildSummary | null> => {
+    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
+    if (typeof repositoryWithFacts.replaceAnalyticsFacts !== "function") {
+      return null;
+    }
+
+    const [
+      deals,
+      stageCatalog,
+      stageHistory,
+      activities,
+      activityBindings,
+      calls,
+      meetingDateChanges,
+      conversionEventVisits,
+      conversionEvents,
+      conversionEventVisitStageHistory
+    ] = await Promise.all([
+      input.repository.getAllDeals(),
+      input.repository.getStageCatalog(),
+      input.repository.getAllStageHistory(),
+      input.repository.getAllActivities(),
+      typeof repositoryWithFacts.getAllActivityBindings === "function"
+        ? repositoryWithFacts.getAllActivityBindings()
+        : Promise.resolve([]),
+      input.repository.getAllCalls(),
+      typeof repositoryWithFacts.getAllDealMeetingDateChanges === "function"
+        ? repositoryWithFacts.getAllDealMeetingDateChanges()
+        : Promise.resolve([]),
+      input.repository.getAllConversionEventVisits(),
+      typeof repositoryWithFacts.getAllEventSnapshots === "function"
+        ? repositoryWithFacts.getAllEventSnapshots()
+        : Promise.resolve([]),
+      typeof repositoryWithFacts.getAllEventVisitStageHistory === "function"
+        ? repositoryWithFacts.getAllEventVisitStageHistory()
+        : Promise.resolve([])
+    ]);
+    const scopedDeals = filterDealsByFilters(
+      deals,
+      stageCatalog,
+      normalizeAttractionManagerFilters(undefined)
+    );
+    const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+    const scopedStageHistory = stageHistory.filter((row) =>
+      scopedDealIds.has(row.ownerId)
+    );
+    const stageFacts = buildDealStageFacts({
+      deals: scopedDeals,
+      stageHistory: scopedStageHistory,
+      stageCatalog
+    });
+    const identityLinks = buildIdentityLinks({
+      moduleKey: "attraction",
+      deals: scopedDeals
+    });
+    const eventVisitFacts = buildEventVisitFacts({
+      visits: conversionEventVisits,
+      events: conversionEvents,
+      visitStageHistory: conversionEventVisitStageHistory,
+      deals: scopedDeals,
+      stageFacts
+    });
+    const touchpointFacts = [
+      ...buildDealTouchpointFacts({
+        deals: scopedDeals,
+        stageFacts,
+        activities,
+        activityBindings,
+        calls,
+        meetingDateChanges
+      }),
+      ...buildConversionEventTouchpointFacts({
+        eventVisitFacts,
+        stageFacts
+      })
+    ];
+
+    const baseCounts = await repositoryWithFacts.replaceAnalyticsFacts({
+      identityLinks,
+      dealStageFacts: stageFacts,
+      dealTouchpointFacts: touchpointFacts,
+      eventVisitFacts
+    });
+
+    return {
+      ...baseCounts,
+      eventVisitFacts: baseCounts.eventVisitFacts ?? 0
+    };
+  };
+
+  const loadCanonicalReportInputs = async (fallback: {
+    stageHistory: Awaited<ReturnType<SqliteRepository["getAllStageHistory"]>>;
+    activities?: Awaited<ReturnType<SqliteRepository["getAllActivities"]>>;
+    calls?: Awaited<ReturnType<SqliteRepository["getAllCalls"]>>;
+    meetingDateChanges?: Awaited<
+      ReturnType<NonNullable<SqliteRepository["getAllDealMeetingDateChanges"]>>
+    >;
+  }) => {
+    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
+    const [stageFacts, touchpointFacts, eventVisitFacts] = await Promise.all([
+      typeof repositoryWithFacts.getAllDealStageFacts === "function"
+        ? repositoryWithFacts.getAllDealStageFacts()
+        : Promise.resolve([]),
+      typeof repositoryWithFacts.getAllDealTouchpointFacts === "function"
+        ? repositoryWithFacts.getAllDealTouchpointFacts()
+        : Promise.resolve([]),
+      typeof repositoryWithFacts.getAllEventVisitFacts === "function"
+        ? repositoryWithFacts.getAllEventVisitFacts()
+        : Promise.resolve([])
+    ]);
+    const hasStageFacts = stageFacts.length > 0;
+    const hasTouchpointFacts = touchpointFacts.length > 0;
+
+    return {
+      stageHistory: hasStageFacts
+        ? stageFactsToStageHistory(stageFacts)
+        : fallback.stageHistory,
+      activities:
+        hasTouchpointFacts && fallback.activities
+          ? touchpointFactsToActivities(touchpointFacts)
+          : fallback.activities,
+      calls:
+        hasTouchpointFacts && fallback.calls
+          ? touchpointFactsToCalls(touchpointFacts)
+          : fallback.calls,
+      meetingDateChanges:
+        hasTouchpointFacts && fallback.meetingDateChanges
+          ? touchpointFactsToMeetingDateChanges(touchpointFacts)
+          : fallback.meetingDateChanges,
+      eventVisitFacts,
+      dealTouchpointFacts: touchpointFacts
+    };
+  };
+
   const normalizeLeadgenWorkloadFilters = (filters: ReportFilters | undefined) => {
     const requestedManagerIds = filters?.managerIds ?? [];
     const allowedManagers = new Set(leadgenManagerIds);
@@ -1448,6 +1610,71 @@ export function createReportingService(
       };
     },
 
+    async getConversionEventTypeSettings() {
+      const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
+      const [options, settings] = await Promise.all([
+        typeof repositoryWithEvents.getConversionEventTypeOptions === "function"
+          ? repositoryWithEvents.getConversionEventTypeOptions()
+          : Promise.resolve([]),
+        typeof repositoryWithEvents.getModuleEventTypeSettings === "function"
+          ? repositoryWithEvents.getModuleEventTypeSettings("attraction")
+          : Promise.resolve([])
+      ]);
+      const enabledTypeIds = new Set(
+        settings.filter((setting) => setting.enabled).map((setting) => setting.eventTypeId)
+      );
+
+      return {
+        options: options.map((option) => ({
+          ...option,
+          selectedForPlannedInventory: enabledTypeIds.has(option.id)
+        })),
+        settings
+      };
+    },
+
+    async replaceConversionEventTypeSettings(settingsInput) {
+      const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
+      if (typeof repositoryWithEvents.replaceModuleEventTypeSettings !== "function") {
+        return {
+          options: [],
+          settings: []
+        };
+      }
+
+      const options =
+        typeof repositoryWithEvents.getConversionEventTypeOptions === "function"
+          ? await repositoryWithEvents.getConversionEventTypeOptions()
+          : [];
+      const optionById = new Map(options.map((option) => [option.id, option]));
+      const selectedIds = Array.from(new Set(settingsInput.eventTypeIds.map(String)));
+      const updatedAt = nowFactory().toISOString();
+      const rows = selectedIds.map((eventTypeId) => {
+        const option = optionById.get(eventTypeId);
+
+        return {
+          moduleKey: "attraction",
+          eventTypeId,
+          eventTypeLabel: option?.title ?? eventTypeId,
+          enabled: true,
+          updatedAt
+        };
+      });
+
+      await repositoryWithEvents.replaceModuleEventTypeSettings({
+        moduleKey: "attraction",
+        rows
+      });
+
+      return {
+        options: options.map((option) => ({
+          ...option,
+          selectedForPlannedInventory: selectedIds.includes(option.id)
+        })),
+        settings: rows
+      };
+    },
+
     async getDashboard({ periodDays, range, compareRanges, filters }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
       const [
@@ -1468,19 +1695,27 @@ export function createReportingService(
           input.repository.getAllCalls(),
           getPricingRules()
         ]);
+      const canonical = await loadCanonicalReportInputs({
+        stageHistory,
+        activities,
+        calls
+      });
+      const reportStageHistory = canonical.stageHistory;
+      const reportActivities = canonical.activities ?? activities;
+      const reportCalls = canonical.calls ?? calls;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
-      const scopedActivities = activities.filter(
+      const scopedActivities = reportActivities.filter(
         (activity) =>
           isDealOwnerType(activity.ownerTypeId) && scopedDealIds.has(activity.ownerId)
       );
       const activityById = new Map(
         scopedActivities.map((activity) => [activity.id, activity])
       );
-      const scopedCalls = calls.filter((call) => {
+      const scopedCalls = reportCalls.filter((call) => {
         if (
           isDealCallEntity(call.crmEntityType) &&
           call.crmEntityId &&
@@ -1536,9 +1771,11 @@ export function createReportingService(
         input.repository.getAllStageHistory(),
         input.repository.getWonStageIds()
       ]);
+      const canonical = await loadCanonicalReportInputs({ stageHistory });
+      const reportStageHistory = canonical.stageHistory;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const buildSnapshot = (
@@ -1593,6 +1830,17 @@ export function createReportingService(
             : Promise.resolve([]),
           input.repository.getAllCalls()
         ]);
+      const canonical = await loadCanonicalReportInputs({
+        stageHistory,
+        activities,
+        calls,
+        meetingDateChanges
+      });
+      const reportStageHistory = canonical.stageHistory;
+      const reportActivities = canonical.activities ?? activities;
+      const reportCalls = canonical.calls ?? calls;
+      const reportMeetingDateChanges =
+        canonical.meetingDateChanges ?? meetingDateChanges;
       const resolvedRange = resolveRange(
         periodDays,
         range,
@@ -1607,8 +1855,9 @@ export function createReportingService(
             )
           : allScopedDeals;
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+      const scopedDealById = new Map(scopedDeals.map((deal) => [deal.id, deal]));
       const managerIds = new Set(scopedFilters.managerIds ?? []);
-      const scopedActivities = activities.filter(
+      const scopedActivities = reportActivities.filter(
         (activity) =>
           scopedDealIds.has(activity.ownerId) &&
           isManagerInScope(managerIds, activity.responsibleId)
@@ -1628,13 +1877,13 @@ export function createReportingService(
         ]),
         { attractionOrder: workloadScope !== "leadgen" }
       );
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const activityById = new Map(
         scopedActivities.map((activity) => [activity.id, activity])
       );
-      const scopedCalls = calls.filter((call) => {
+      const scopedCalls = reportCalls.filter((call) => {
         const activity = call.crmActivityId
           ? activityById.get(call.crmActivityId)
           : null;
@@ -1655,8 +1904,30 @@ export function createReportingService(
               managerIds,
               call.portalUserId ?? activity.responsibleId
             )
-        );
+          );
       });
+      const scopedEventVisitFacts = canonical.eventVisitFacts.filter((fact) => {
+        if (!fact.dealId || !scopedDealIds.has(fact.dealId)) {
+          return false;
+        }
+
+        const deal = scopedDealById.get(fact.dealId);
+        return isManagerInScope(managerIds, deal?.assignedById ?? fact.managerId);
+      });
+      const scopedDealTouchpointFacts = canonical.dealTouchpointFacts.filter(
+        (fact) => {
+          if (
+            fact.kind !== "conversion_event_visit" ||
+            !fact.dealId ||
+            !scopedDealIds.has(fact.dealId)
+          ) {
+            return false;
+          }
+
+          const deal = scopedDealById.get(fact.dealId);
+          return isManagerInScope(managerIds, deal?.assignedById ?? fact.managerId);
+        }
+      );
       const slaAsOf = nowFactory().toISOString();
       const buildSnapshot = (
         targetRange: ReportRange
@@ -1669,8 +1940,10 @@ export function createReportingService(
           stageHistory: scopedStageHistory,
           activities: scopedActivities,
           deadlineChanges: scopedDeadlineChanges,
-          meetingDateChanges,
+          meetingDateChanges: reportMeetingDateChanges,
           calls: scopedCalls,
+          eventVisitFacts: scopedEventVisitFacts,
+          dealTouchpointFacts: scopedDealTouchpointFacts,
           managerDirectory
         });
 
@@ -1698,9 +1971,11 @@ export function createReportingService(
         getScopedStageCatalog(true),
         input.repository.getAllStageHistory()
       ]);
+      const canonical = await loadCanonicalReportInputs({ stageHistory });
+      const reportStageHistory = canonical.stageHistory;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const managerDirectory = await ensureManagerDirectory(
@@ -1745,9 +2020,11 @@ export function createReportingService(
         input.repository.getAllStageHistory(),
         getPricingRules()
       ]);
+      const canonical = await loadCanonicalReportInputs({ stageHistory });
+      const reportStageHistory = canonical.stageHistory;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const buildSnapshot = (
@@ -1786,16 +2063,24 @@ export function createReportingService(
           input.repository.getAllCalls(),
           input.repository.getWonStageIds()
         ]);
+      const canonical = await loadCanonicalReportInputs({
+        stageHistory,
+        activities,
+        calls
+      });
+      const reportStageHistory = canonical.stageHistory;
+      const reportActivities = canonical.activities ?? activities;
+      const reportCalls = canonical.calls ?? calls;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
       const managerIds = new Set(scopedFilters.managerIds ?? []);
-      const dealScopedActivities = activities.filter((activity) =>
+      const dealScopedActivities = reportActivities.filter((activity) =>
         scopedDealIds.has(activity.ownerId)
       );
       const activityById = new Map(
         dealScopedActivities.map((activity) => [activity.id, activity])
       );
-      const dealScopedCalls = calls.filter((call) => {
+      const dealScopedCalls = reportCalls.filter((call) => {
         const activity = call.crmActivityId
           ? activityById.get(call.crmActivityId)
           : null;
@@ -1829,7 +2114,7 @@ export function createReportingService(
           ...managerScopedCalls.map((call) => call.portalUserId)
         ])
       );
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const pricingRules = await getPricingRules();
@@ -1883,13 +2168,21 @@ export function createReportingService(
             : Promise.resolve([]),
           input.repository.getAllCalls()
         ]);
+      const canonical = await loadCanonicalReportInputs({
+        stageHistory,
+        activities,
+        calls
+      });
+      const reportStageHistory = canonical.stageHistory;
+      const reportActivities = canonical.activities ?? activities;
+      const reportCalls = canonical.calls ?? calls;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters, {
         includeManagerFilter: workloadScope === "leadgen"
       });
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const activityById = new Map(activities.map((activity) => [activity.id, activity]));
+      const activityById = new Map(reportActivities.map((activity) => [activity.id, activity]));
       const managerIds = new Set(scopedFilters.managerIds ?? []);
-      const managerScopedCalls = calls.filter((call) => {
+      const managerScopedCalls = reportCalls.filter((call) => {
         const activity = call.crmActivityId ? activityById.get(call.crmActivityId) : null;
         const managerId =
           call.portalUserId ?? activity?.responsibleId ?? UNASSIGNED_MANAGER_ID;
@@ -1913,7 +2206,7 @@ export function createReportingService(
         ]),
         { attractionOrder: workloadScope !== "leadgen" }
       );
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const buildSnapshot = (targetRange: ReportRange): CallsWorkloadReportSnapshot =>
@@ -1922,7 +2215,7 @@ export function createReportingService(
           deals: scopedDeals,
           stageCatalog,
           stageHistory: scopedStageHistory,
-          activities,
+          activities: reportActivities,
           activityBindings,
           calls: managerScopedCalls,
           managerDirectory
@@ -1953,12 +2246,33 @@ export function createReportingService(
       filters
     }) {
       const scopedFilters = normalizeAttractionManagerFilters(filters);
-      const [deals, stageCatalog, stageHistory, visits] = await Promise.all([
+      const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
+      const [
+        deals,
+        stageCatalog,
+        stageHistory,
+        visits,
+        eventVisitFacts,
+        events,
+        eventTypeSettings
+      ] =
+        await Promise.all([
         input.repository.getAllDeals(),
         getScopedStageCatalog(true),
         input.repository.getAllStageHistory(),
-        input.repository.getAllConversionEventVisits()
+        input.repository.getAllConversionEventVisits(),
+        typeof repositoryWithEvents.getAllEventVisitFacts === "function"
+          ? repositoryWithEvents.getAllEventVisitFacts()
+          : Promise.resolve([]),
+        typeof repositoryWithEvents.getAllEventSnapshots === "function"
+          ? repositoryWithEvents.getAllEventSnapshots()
+          : Promise.resolve([]),
+        typeof repositoryWithEvents.getModuleEventTypeSettings === "function"
+          ? repositoryWithEvents.getModuleEventTypeSettings("attraction")
+          : Promise.resolve([])
       ]);
+      const canonical = await loadCanonicalReportInputs({ stageHistory });
+      const reportStageHistory = canonical.stageHistory;
       const sourceLabels = buildSourceLabelMap(stageCatalog);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
@@ -1986,7 +2300,28 @@ export function createReportingService(
 
         return true;
       });
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedEventVisitFacts = eventVisitFacts.filter((fact) => {
+        const deal = fact.dealId ? dealsById.get(fact.dealId) : undefined;
+
+        if (fact.dealId && !deal) {
+          return false;
+        }
+
+        const managerId =
+          fact.managerId ?? deal?.assignedById ?? UNASSIGNED_MANAGER_ID;
+        if (managerIds.size > 0 && !managerIds.has(managerId)) {
+          return false;
+        }
+
+        const sourceKey =
+          fact.sourceId ?? deal?.sourceId ?? UNATTRIBUTED_SOURCE_KEY;
+        if (sourceKeys.size > 0 && !sourceKeys.has(sourceKey)) {
+          return false;
+        }
+
+        return true;
+      });
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const conversionEventsCoverageConfirmed =
@@ -2005,7 +2340,8 @@ export function createReportingService(
       const managerDirectory = await ensureManagerDirectory(
         uniqueStrings([
           ...scopedDeals.map((deal) => deal.assignedById),
-          ...scopedVisits.map((visit) => visit.managerId)
+          ...scopedVisits.map((visit) => visit.managerId),
+          ...scopedEventVisitFacts.map((fact) => fact.managerId)
         ])
       );
       const buildSnapshot = (
@@ -2014,11 +2350,15 @@ export function createReportingService(
         const snapshot = buildConversionEventsReport({
           range: targetRange,
           visits: scopedVisits,
+          eventVisitFacts: scopedEventVisitFacts,
+          events,
+          eventTypeSettings,
           deals: scopedDeals,
           stageCatalog,
           stageHistory: scopedStageHistory,
           managerDirectory,
-          sourceLabels
+          sourceLabels,
+          asOf: nowFactory().toISOString()
         });
 
         if (conversionEventsCoverageConfirmed) {
@@ -2059,9 +2399,11 @@ export function createReportingService(
         input.repository.getAllStageHistory()
       ]);
       const stageCatalog = await getScopedStageCatalog(true);
+      const canonical = await loadCanonicalReportInputs({ stageHistory });
+      const reportStageHistory = canonical.stageHistory;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const buildSnapshot = (
@@ -2084,9 +2426,11 @@ export function createReportingService(
         getScopedStageCatalog(),
         input.repository.getAllStageHistory()
       ]);
+      const canonical = await loadCanonicalReportInputs({ stageHistory });
+      const reportStageHistory = canonical.stageHistory;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
       const buildSnapshot = (targetRange: ReportRange): TocFlowReportSnapshot =>
@@ -2142,19 +2486,27 @@ export function createReportingService(
           input.repository.getWonStageIds(),
           getPricingRules()
         ]);
+      const canonical = await loadCanonicalReportInputs({
+        stageHistory,
+        activities,
+        calls
+      });
+      const reportStageHistory = canonical.stageHistory;
+      const reportActivities = canonical.activities ?? activities;
+      const reportCalls = canonical.calls ?? calls;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
-      const scopedStageHistory = stageHistory.filter((row) =>
+      const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
       );
-      const scopedActivities = activities.filter(
+      const scopedActivities = reportActivities.filter(
         (activity) =>
           isDealOwnerType(activity.ownerTypeId) && scopedDealIds.has(activity.ownerId)
       );
       const activityById = new Map(
         scopedActivities.map((activity) => [activity.id, activity])
       );
-      const scopedCalls = calls.filter((call) => {
+      const scopedCalls = reportCalls.filter((call) => {
         if (
           isDealCallEntity(call.crmEntityType) &&
           call.crmEntityId &&
@@ -2268,7 +2620,7 @@ export function createReportingService(
     },
 
     async performSync(syncInput) {
-      return performManualSync({
+      const summary = await performManualSync({
         categoryIds: input.dealCategoryIds,
         qualityFieldName: input.qualityFieldName,
         client: input.client,
@@ -2300,9 +2652,17 @@ export function createReportingService(
           ? {
               legacyContactTargetGroupFieldName:
                 input.legacyContactTargetGroupFieldName
-            }
-          : {})
+          }
+          : {}),
+        afterPersist: async () => {
+          await rebuildAnalyticsFacts();
+        }
       });
+      return summary;
+    },
+
+    rebuildAnalyticsFacts() {
+      return rebuildAnalyticsFacts();
     },
 
     async updateWonStages(stageIds) {

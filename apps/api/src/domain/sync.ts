@@ -3,11 +3,15 @@ import type {
   ActivityDeadlineChangeSnapshot,
   ActivitySnapshot,
   CallSnapshot,
+  ConversionEventTypeOption,
   ConversionEventVisitSnapshot,
   DealMeetingDateChangeSnapshot,
   DealSnapshot,
+  EventSnapshot,
+  EventVisitStageHistorySnapshot,
   ManagerDirectoryEntry,
   ManualSyncSummary,
+  ModuleEventTypeSetting,
   SnapshotStats,
   StageCatalogEntry,
   StageHistorySnapshot,
@@ -111,8 +115,21 @@ export interface SyncClient {
   listConversionEventVisits?(input: {
     modifiedAfter: string | null;
     reportYear: number;
+    dealIds?: string[];
+    contactIds?: string[];
     signal?: AbortSignal;
   }): Promise<ConversionEventVisitSnapshot[]>;
+  listConversionEvents?(input: {
+    modifiedAfter: string | null;
+    eventTypeIds?: string[];
+    eventIds?: string[];
+    signal?: AbortSignal;
+  }): Promise<EventSnapshot[]>;
+  listConversionEventTypeOptions?(): Promise<ConversionEventTypeOption[]>;
+  listConversionEventVisitStageHistory?(input: {
+    visitIds: string[];
+    signal?: AbortSignal;
+  }): Promise<EventVisitStageHistorySnapshot[]>;
   listContacts?(input: {
     ids: string[];
     customFieldNames?: string[];
@@ -120,6 +137,7 @@ export interface SyncClient {
   listStageHistory(input: {
     ownerIds?: string[];
     categoryIds?: string[];
+    signal?: AbortSignal;
   }): Promise<StageHistoryRow[]>;
   listActivities(input: {
     ownerIds: string[];
@@ -212,6 +230,13 @@ export interface SyncRepository {
     activityCreatedFrom?: string | null,
     ownerIds?: string[]
   ): Promise<string[]>;
+  getConversionEventVisitIdsMissingStageHistory?(
+    limit?: number
+  ): Promise<string[]>;
+  getConversionEventVisitsByIds?(
+    visitIds: string[]
+  ): Promise<ConversionEventVisitSnapshot[]>;
+  getConversionEventIdsMissingEventSnapshots?(limit?: number): Promise<string[]>;
   replaceStageCatalog(rows: StageCatalogEntry[]): Promise<void>;
   upsertDeals(rows: DealSnapshot[]): Promise<number>;
   upsertStageHistory(rows: StageHistorySnapshot[]): Promise<number>;
@@ -226,6 +251,26 @@ export interface SyncRepository {
   upsertConversionEventVisits?(
     rows: ConversionEventVisitSnapshot[]
   ): Promise<number>;
+  pruneConversionEventSnapshots?(input: {
+    scopedDealIds: string[];
+    enabledEventTypeIds: string[];
+  }): Promise<{
+    conversionEventVisits: number;
+    eventVisitStageHistory: number;
+    eventVisitFacts: number;
+    dealTouchpointFacts: number;
+    eventSnapshots: number;
+  }>;
+  upsertEventSnapshots?(rows: EventSnapshot[]): Promise<number>;
+  upsertEventVisitStageHistory?(
+    rows: EventVisitStageHistorySnapshot[]
+  ): Promise<number>;
+  replaceConversionEventTypeOptions?(
+    rows: ConversionEventTypeOption[]
+  ): Promise<number>;
+  getModuleEventTypeSettings?(
+    moduleKey?: string
+  ): Promise<ModuleEventTypeSetting[]>;
   upsertCalls(rows: CallSnapshot[]): Promise<number>;
   upsertManagerDirectory(rows: ManagerDirectoryEntry[]): Promise<number>;
   markOperationalHistoryBootstrapped(timestamp: string): Promise<void>;
@@ -275,6 +320,8 @@ interface PerformManualSyncInput {
   bootstrapLookbackDays?: number;
   onProgress?: (event: SyncProgressEvent) => void;
   conversionEventVisitsTimeoutMs?: number;
+  stageHistoryTimeoutMs?: number;
+  afterPersist?: () => Promise<void>;
 }
 
 export interface SnapshotStatsScope {
@@ -295,7 +342,11 @@ const TASK_ACTIVITY_PROVIDER_IDS = ["CRM_TODO", "CRM_TASKS_TASK"] as const;
 const MISSING_CALL_ACTIVITY_BACKFILL_LIMIT = 20_000;
 const MISSING_CALL_STATS_BACKFILL_LIMIT = 20_000;
 const CALL_STATS_REFRESH_LIMIT = 20_000;
-const DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS = 45_000;
+const EVENT_VISIT_STAGE_HISTORY_BACKFILL_LIMIT = 5_000;
+const EVENT_SNAPSHOT_BACKFILL_LIMIT = 5_000;
+const STAGE_HISTORY_CATEGORY_FETCH_OWNER_LIMIT = 500;
+const DEFAULT_STAGE_HISTORY_TIMEOUT_MS = 300_000;
+const DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS = 1_800_000;
 export const ACTIVITY_HISTORY_COVERAGE_VERSION = "activity-bindings-v2";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_STREAM = "deal_custom_fields";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER = "all";
@@ -310,7 +361,7 @@ export const CONVERSION_EVENT_VISITS_COVERAGE_STREAM =
   "conversion_event_visits";
 export const CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER = "smart_process";
 export const CONVERSION_EVENT_VISITS_COVERAGE_VERSION =
-  "conversion-event-visits-v1";
+  "conversion-event-visits-v2";
 export const FULL_COVERAGE_FROM = "0000-01-01T00:00:00.000Z";
 const EMPTY_SNAPSHOT_STATS: SnapshotStats = {
   deals: 0,
@@ -950,6 +1001,8 @@ async function fetchConversionEventVisitsWithTimeout(input: {
   client: SyncClient;
   modifiedAfter: string | null;
   reportYear: number;
+  dealIds?: string[];
+  contactIds?: string[];
   timeoutMs: number;
 }) {
   if (!input.client.listConversionEventVisits) {
@@ -965,11 +1018,125 @@ async function fetchConversionEventVisitsWithTimeout(input: {
     return await input.client.listConversionEventVisits({
       modifiedAfter: input.modifiedAfter,
       reportYear: input.reportYear,
+      ...(input.dealIds ? { dealIds: input.dealIds } : {}),
+      ...(input.contactIds ? { contactIds: input.contactIds } : {}),
       signal: controller.signal
     });
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchConversionEventsWithTimeout(input: {
+  client: SyncClient;
+  modifiedAfter: string | null;
+  eventTypeIds?: string[];
+  eventIds?: string[];
+  timeoutMs: number;
+}) {
+  if (!input.client.listConversionEvents) {
+    return [];
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(createAbortError("conversion events timed out"));
+  }, input.timeoutMs);
+
+  try {
+    return await input.client.listConversionEvents({
+      modifiedAfter: input.modifiedAfter,
+      ...(input.eventTypeIds ? { eventTypeIds: input.eventTypeIds } : {}),
+      ...(input.eventIds ? { eventIds: input.eventIds } : {}),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchStageHistoryWithTimeout(input: {
+  client: SyncClient;
+  request: {
+    ownerIds?: string[];
+    categoryIds?: string[];
+  };
+  timeoutMs: number;
+}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(createAbortError("stage history timed out"));
+  }, input.timeoutMs);
+
+  try {
+    return await input.client.listStageHistory({
+      ...input.request,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchConversionEventVisitStageHistoryWithTimeout(input: {
+  client: SyncClient;
+  visitIds: string[];
+  timeoutMs: number;
+}) {
+  if (!input.client.listConversionEventVisitStageHistory || input.visitIds.length === 0) {
+    return [];
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(
+      createAbortError("conversion event visit stage history timed out")
+    );
+  }, input.timeoutMs);
+
+  try {
+    return await input.client.listConversionEventVisitStageHistory({
+      visitIds: input.visitIds,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildSyntheticEventVisitStageHistory(input: {
+  requestedVisitIds: string[];
+  historyRows: EventVisitStageHistorySnapshot[];
+  visits: ConversionEventVisitSnapshot[];
+}) {
+  const visitsById = new Map(input.visits.map((visit) => [visit.id, visit]));
+  const visitsWithHistory = new Set(
+    input.historyRows.map((row) => String(row.visitId))
+  );
+
+  return input.requestedVisitIds.flatMap((visitId) => {
+    if (visitsWithHistory.has(visitId)) {
+      return [];
+    }
+
+    const visit = visitsById.get(visitId);
+    if (!visit) {
+      return [];
+    }
+
+    return [
+      {
+        historyId: `snapshot:${visit.id}:${visit.stageId}`,
+        visitId: visit.id,
+        entityTypeId: 162,
+        categoryId: null,
+        stageId: visit.stageId,
+        stageName: visit.stageName,
+        typeId: null,
+        changedAt: visit.updatedTime || visit.createdTime
+      } satisfies EventVisitStageHistorySnapshot
+    ];
+  });
 }
 
 function buildSyncFailureDiagnostics(error: unknown) {
@@ -983,7 +1150,9 @@ function buildSyncFailureDiagnostics(error: unknown) {
   }
 
   if (error.name === "AbortError") {
-    return ["SYNC_FAILED", "network=ABORT_TIMEOUT"];
+    return error.message
+      ? ["SYNC_FAILED", "network=ABORT_TIMEOUT", `abort=${error.message}`]
+      : ["SYNC_FAILED", "network=ABORT_TIMEOUT"];
   }
 
   if (error.message.startsWith("Bitrix24 ")) {
@@ -1003,6 +1172,39 @@ function logSyncFailure(input: {
   }
 
   console.error("sync.failed", JSON.stringify(input));
+}
+
+function logNonFatalSyncDependencyError(input: {
+  dependency: string;
+  reason: string;
+}) {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
+  console.warn("sync.optional_dependency_failed", JSON.stringify(input));
+}
+
+async function fetchOptionalSyncDependency<T>(input: {
+  dependency: string;
+  diagnostics: string[];
+  diagnostic?: (reason: string) => string;
+  fallback: T;
+  task: () => Promise<T>;
+}) {
+  try {
+    return await input.task();
+  } catch (error) {
+    const reason = describeSyncError(error);
+    input.diagnostics.push(
+      input.diagnostic ? input.diagnostic(reason) : `${input.dependency}=${reason}`
+    );
+    logNonFatalSyncDependencyError({
+      dependency: input.dependency,
+      reason
+    });
+    return input.fallback;
+  }
 }
 
 async function resolveSyncCursor(
@@ -1295,7 +1497,13 @@ export async function performManualSync(
   const conversionEventModifiedAfter = shouldBootstrapConversionEventVisits
     ? null
     : dealModifiedAfter;
+  const dealFieldDiagnostics: string[] = [];
+  const catalogDiagnostics: string[] = [];
+  const callDiagnostics: string[] = [];
+  const activityBindingDiagnostics: string[] = [];
+  const stageHistoryDiagnostics: string[] = [];
   const conversionEventDiagnostics: string[] = [];
+  const conversionEventStageHistoryDiagnostics: string[] = [];
   const syncRunId = await input.repository.createSyncRun({
     startedAt,
     mode,
@@ -1343,52 +1551,73 @@ export async function performManualSync(
               : entry.entityType === entityType
           )
         : [];
-    const fetchDealStages = input.client
-      .fetchDealStages(dealStageCategoryIds)
-      .catch(async (error: unknown) => {
-        const cachedStages = await getCachedCatalog("deal");
-        if (cachedStages.length === 0) {
-          throw error;
-        }
-
-        if (process.env.NODE_ENV !== "test") {
-          console.warn(
-            "sync.catalog_fallback",
-            JSON.stringify({
-              catalog: "deal_stages",
-              rows: cachedStages.length,
-              reason: describeSyncError(error)
-            })
-          );
-        }
-
-        return cachedStages;
-      });
-    const fetchSourceCatalog = input.client
-      .fetchSourceCatalog()
-      .catch(async (error: unknown) => {
-        const cachedSources = await getCachedCatalog("source");
-        if (cachedSources.length === 0) {
-          throw error;
-        }
-
-        if (process.env.NODE_ENV !== "test") {
-          console.warn(
-            "sync.catalog_fallback",
-            JSON.stringify({
-              catalog: "source",
-              rows: cachedSources.length,
-              reason: describeSyncError(error)
-            })
-          );
-        }
-
-        return cachedSources;
-      });
     const conversionEventDealFieldName =
       input.client.fetchConversionEventDealFieldName
-        ? (await input.client.fetchConversionEventDealFieldName()) ?? undefined
+        ? (await fetchOptionalSyncDependency<string | null>({
+            dependency: "conversionEventDealFieldNameError",
+            diagnostics: dealFieldDiagnostics,
+            fallback: null,
+            task: () =>
+              input.client.fetchConversionEventDealFieldName?.() ??
+              Promise.resolve(null)
+          })) ?? undefined
         : undefined;
+    const fetchDealStages = fetchOptionalSyncDependency<StageCatalogEntry[]>({
+      dependency: "dealStageCatalogError",
+      diagnostics: catalogDiagnostics,
+      fallback: [],
+      task: async () => {
+        try {
+          return await input.client.fetchDealStages(dealStageCategoryIds);
+        } catch (error) {
+          const cachedStages = await getCachedCatalog("deal");
+          if (cachedStages.length === 0) {
+            throw error;
+          }
+
+          if (process.env.NODE_ENV !== "test") {
+            console.warn(
+              "sync.catalog_fallback",
+              JSON.stringify({
+                catalog: "deal_stages",
+                rows: cachedStages.length,
+                reason: describeSyncError(error)
+              })
+            );
+          }
+
+          return cachedStages;
+        }
+      }
+    });
+    const fetchSourceCatalog = fetchOptionalSyncDependency<StageCatalogEntry[]>({
+      dependency: "sourceCatalogError",
+      diagnostics: catalogDiagnostics,
+      fallback: [],
+      task: async () => {
+        try {
+          return await input.client.fetchSourceCatalog();
+        } catch (error) {
+          const cachedSources = await getCachedCatalog("source");
+          if (cachedSources.length === 0) {
+            throw error;
+          }
+
+          if (process.env.NODE_ENV !== "test") {
+            console.warn(
+              "sync.catalog_fallback",
+              JSON.stringify({
+                catalog: "source",
+                rows: cachedSources.length,
+                reason: describeSyncError(error)
+              })
+            );
+          }
+
+          return cachedSources;
+        }
+      }
+    });
     const dealCustomFieldNames = [
       input.qualityFieldName,
       ...(input.tariffFieldName ? [input.tariffFieldName] : []),
@@ -1441,6 +1670,22 @@ export async function performManualSync(
       return Boolean(assignedById && assignedByIdSet.has(assignedById));
     });
     const shouldMapDealRows = dealRows.length > 0;
+    const fetchDealFieldValueMap = (
+      fieldName: string | undefined,
+      loader: ((fieldName: string) => Promise<Record<string, string>>) | undefined
+    ) => {
+      if (!shouldMapDealRows || !fieldName || !loader) {
+        return Promise.resolve({});
+      }
+
+      return fetchOptionalSyncDependency<Record<string, string>>({
+        dependency: "dealFieldValueMapError",
+        diagnostics: dealFieldDiagnostics,
+        diagnostic: (reason) => `dealFieldValueMapError=${fieldName}:${reason}`,
+        fallback: {},
+        task: () => loader(fieldName)
+      });
+    };
     const [
       qualityMap,
       tariffMap,
@@ -1453,50 +1698,46 @@ export async function performManualSync(
       attractionReturnReasonMap,
       attractionBasketReasonMap
     ] = await Promise.all([
-      shouldMapDealRows
-        ? input.client.fetchDealQualityMap(input.qualityFieldName)
-        : Promise.resolve({}),
-      shouldMapDealRows &&
-      input.tariffFieldName &&
-      input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(input.tariffFieldName)
-        : Promise.resolve({}),
-      shouldMapDealRows &&
-      input.businessClubFieldName &&
-      input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(input.businessClubFieldName)
-        : Promise.resolve({}),
-      shouldMapDealRows &&
-      input.targetGroupFieldName &&
-      input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(input.targetGroupFieldName)
-        : Promise.resolve({}),
-      shouldMapDealRows &&
-      input.meetingTypeFieldName &&
-      input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(input.meetingTypeFieldName)
-        : Promise.resolve({}),
-      shouldMapDealRows &&
-      conversionEventDealFieldName &&
-      input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(conversionEventDealFieldName)
-        : Promise.resolve({}),
-      shouldMapDealRows &&
-      input.legacyContactTargetGroupFieldName &&
-      input.client.fetchContactFieldValueMap
-        ? input.client.fetchContactFieldValueMap(
-            input.legacyContactTargetGroupFieldName
-          )
-        : Promise.resolve({}),
-      shouldMapDealRows && input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(ATTRACTION_REFUSAL_REASON_FIELD_NAME)
-        : Promise.resolve({}),
-      shouldMapDealRows && input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(ATTRACTION_RETURN_REASON_FIELD_NAME)
-        : Promise.resolve({}),
-      shouldMapDealRows && input.client.fetchDealFieldValueMap
-        ? input.client.fetchDealFieldValueMap(ATTRACTION_BASKET_REASON_FIELD_NAME)
-        : Promise.resolve({})
+      fetchDealFieldValueMap(
+        input.qualityFieldName,
+        input.client.fetchDealQualityMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        input.tariffFieldName,
+        input.client.fetchDealFieldValueMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        input.businessClubFieldName,
+        input.client.fetchDealFieldValueMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        input.targetGroupFieldName,
+        input.client.fetchDealFieldValueMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        input.meetingTypeFieldName,
+        input.client.fetchDealFieldValueMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        conversionEventDealFieldName,
+        input.client.fetchDealFieldValueMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        input.legacyContactTargetGroupFieldName,
+        input.client.fetchContactFieldValueMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        ATTRACTION_REFUSAL_REASON_FIELD_NAME,
+        input.client.fetchDealFieldValueMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        ATTRACTION_RETURN_REASON_FIELD_NAME,
+        input.client.fetchDealFieldValueMap?.bind(input.client)
+      ),
+      fetchDealFieldValueMap(
+        ATTRACTION_BASKET_REASON_FIELD_NAME,
+        input.client.fetchDealFieldValueMap?.bind(input.client)
+      )
     ]);
 
     const contactIds = Array.from(
@@ -1631,6 +1872,8 @@ export async function performManualSync(
     );
     const historicalActivityOwnerIds = callStatsOwnerIds;
     const callStatsOwnerIdSet = new Set(callStatsOwnerIds);
+    const isScopedConversionEventVisit = (visit: ConversionEventVisitSnapshot) =>
+      Boolean(visit.dealId && callStatsOwnerIdSet.has(visit.dealId));
     emitSyncProgress(
       input,
       buildProgressEvent({
@@ -1817,25 +2060,45 @@ export async function performManualSync(
         ]
       )
     );
+    const shouldFetchCallsByActivityIds =
+      initialCallActivityIds.length > 0 && !shouldRefreshCallStatsCoverage;
     const callRowsByActivity =
-      initialCallActivityIds.length > 0
-        ? await input.client.listCalls({
-            activityIds: initialCallActivityIds
+      shouldFetchCallsByActivityIds
+        ? await fetchOptionalSyncDependency<CallRow[]>({
+            dependency: "callStatsByActivityError",
+            diagnostics: callDiagnostics,
+            fallback: [],
+            task: () =>
+              input.client.listCalls({
+                activityIds: initialCallActivityIds
+              })
           })
         : [];
     const deltaSupplementalCallRows = callStatsCursor
-      ? await input.client.listCalls({
-          callStartDateFrom: callStatsCursor,
-          callStartDateTo: startedAt,
-          portalUserIds: ATTRACTION_MANAGER_IDS
+      ? await fetchOptionalSyncDependency<CallRow[]>({
+          dependency: "callStatsByDateError",
+          diagnostics: callDiagnostics,
+          fallback: [],
+          task: () =>
+            input.client.listCalls({
+              callStartDateFrom: callStatsCursor,
+              callStartDateTo: startedAt,
+              portalUserIds: ATTRACTION_MANAGER_IDS
+            })
         })
       : [];
     const scopeExpansionSupplementalCallRows =
       scopeExpansionAssignedByIds.length > 0
-        ? await input.client.listCalls({
-            callStartDateFrom: bootstrapModifiedAfter ?? FULL_COVERAGE_FROM,
-            callStartDateTo: startedAt,
-            portalUserIds: scopeExpansionAssignedByIds
+        ? await fetchOptionalSyncDependency<CallRow[]>({
+            dependency: "callStatsScopeExpansionError",
+            diagnostics: callDiagnostics,
+            fallback: [],
+            task: () =>
+              input.client.listCalls({
+                callStartDateFrom: bootstrapModifiedAfter ?? FULL_COVERAGE_FROM,
+                callStartDateTo: startedAt,
+                portalUserIds: scopeExpansionAssignedByIds
+              })
           })
         : [];
     const supplementalCallRows = Array.from(
@@ -1896,14 +2159,30 @@ export async function performManualSync(
       ).values()
     );
     const activityIds = activities.map((activity) => activity.id);
-    const callActivityIdsForBindings = activities
-      .filter((activity) => activity.providerId === "VOXIMPLANT_CALL")
-      .map((activity) => activity.id);
+    const callActivityIdsForBindings = Array.from(
+      new Set(
+        [...callRowsByActivity, ...supplementalCallRows]
+          .map((row) => normalizeString(row.CRM_ACTIVITY_ID))
+          .filter((activityId): activityId is string => Boolean(activityId))
+      )
+    );
+    const shouldFetchActivityBindings =
+      Boolean(input.client.listActivityBindings) &&
+      callActivityIdsForBindings.length > 0 &&
+      callDiagnostics.length === 0 &&
+      (callRowsByActivity.length > 0 || supplementalCallRows.length > 0);
     const activityBindings =
-      input.client.listActivityBindings && callActivityIdsForBindings.length > 0
-        ? (await input.client.listActivityBindings(callActivityIdsForBindings)).map(
-            mapActivityBindingRow
-          )
+      shouldFetchActivityBindings && input.client.listActivityBindings
+        ? (
+            await fetchOptionalSyncDependency<ActivityBindingRow[]>({
+              dependency: "activityBindingError",
+              diagnostics: activityBindingDiagnostics,
+              fallback: [],
+              task: () =>
+                input.client.listActivityBindings?.(callActivityIdsForBindings) ??
+                Promise.resolve([])
+            })
+          ).map(mapActivityBindingRow)
         : [];
     const previousActivities =
       activityIds.length > 0
@@ -1952,31 +2231,189 @@ export async function performManualSync(
     );
 
     const managerDirectory = await fetchManagerDirectory(input.client, managerIds);
-    const stageHistoryOwnerIds =
-      runModifiedAfter === null || snapshotBefore.stageHistory === 0
-        ? callStatsOwnerIds
-        : deals.map((deal) => deal.id);
+    const shouldFetchStageHistoryByCategory =
+      runModifiedAfter === null ||
+      snapshotBefore.stageHistory === 0 ||
+      deals.length > STAGE_HISTORY_CATEGORY_FETCH_OWNER_LIMIT;
+    const stageHistoryOwnerIds = shouldFetchStageHistoryByCategory
+      ? callStatsOwnerIds
+      : deals.map((deal) => deal.id);
+    const stageHistoryOwnerIdSet = new Set(stageHistoryOwnerIds);
     const stageHistoryRows =
       stageHistoryOwnerIds.length > 0
-        ? await input.client.listStageHistory({
-            ownerIds: stageHistoryOwnerIds
+        ? await fetchOptionalSyncDependency<StageHistoryRow[]>({
+            dependency: "stageHistoryError",
+            diagnostics: stageHistoryDiagnostics,
+            fallback: [],
+            task: async () => {
+              const rows = await fetchStageHistoryWithTimeout({
+                client: input.client,
+                request: shouldFetchStageHistoryByCategory
+                  ? { categoryIds: input.categoryIds }
+                  : { ownerIds: stageHistoryOwnerIds },
+                timeoutMs:
+                  input.stageHistoryTimeoutMs ?? DEFAULT_STAGE_HISTORY_TIMEOUT_MS
+              });
+
+              return shouldFetchStageHistoryByCategory
+                ? rows.filter((row) => stageHistoryOwnerIdSet.has(String(row.OWNER_ID)))
+                : rows;
+            }
           })
         : [];
-    const conversionEventVisits = input.client.listConversionEventVisits
-      ? await fetchConversionEventVisitsWithTimeout({
-          client: input.client,
-          modifiedAfter: conversionEventModifiedAfter,
-          reportYear: new Date(Date.parse(startedAt)).getUTCFullYear(),
-          timeoutMs:
-            input.conversionEventVisitsTimeoutMs ??
-            DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS
-        }).catch((error: unknown) => {
-          conversionEventDiagnostics.push(
-            `conversionEventVisitsError=${describeSyncError(error)}`
-          );
-          return [];
-        })
-      : [];
+    const rawConversionEventVisits =
+      input.client.listConversionEventVisits && callStatsOwnerIds.length > 0
+        ? await fetchConversionEventVisitsWithTimeout({
+            client: input.client,
+            modifiedAfter: conversionEventModifiedAfter,
+            reportYear: new Date(Date.parse(startedAt)).getUTCFullYear(),
+            dealIds: callStatsOwnerIds,
+            timeoutMs:
+              input.conversionEventVisitsTimeoutMs ??
+              DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS
+          }).catch((error: unknown) => {
+            conversionEventDiagnostics.push(
+              `conversionEventVisitsError=${describeSyncError(error)}`
+            );
+            return [];
+          })
+        : [];
+    const conversionEventVisits = rawConversionEventVisits.filter(
+      isScopedConversionEventVisit
+    );
+    const droppedConversionEventVisits =
+      rawConversionEventVisits.length - conversionEventVisits.length;
+    const moduleEventTypeSettings =
+      input.repository.getModuleEventTypeSettings
+        ? await input.repository.getModuleEventTypeSettings("attraction")
+        : [];
+    const plannedInventoryEventTypeIds = Array.from(
+      new Set(
+        moduleEventTypeSettings
+          .filter((setting) => setting.enabled)
+          .map((setting) => setting.eventTypeId)
+          .filter((eventTypeId) => eventTypeId.length > 0)
+      )
+    );
+    const plannedConversionEvents =
+      input.client.listConversionEvents && plannedInventoryEventTypeIds.length > 0
+        ? await fetchConversionEventsWithTimeout({
+            client: input.client,
+            modifiedAfter: conversionEventModifiedAfter,
+            eventTypeIds: plannedInventoryEventTypeIds,
+            timeoutMs:
+              input.conversionEventVisitsTimeoutMs ??
+              DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS
+          }).catch((error: unknown) => {
+            conversionEventDiagnostics.push(
+              `conversionEventsError=${describeSyncError(error)}`
+            );
+            return [];
+          })
+        : [];
+    const persistedConversionEventIdsMissingSnapshots =
+      input.repository.getConversionEventIdsMissingEventSnapshots
+        ? await input.repository.getConversionEventIdsMissingEventSnapshots(
+            EVENT_SNAPSHOT_BACKFILL_LIMIT
+          )
+        : [];
+    const referencedConversionEventIds = Array.from(
+      new Set(
+        [
+          ...conversionEventVisits.map((visit) => visit.eventId),
+          ...persistedConversionEventIdsMissingSnapshots
+        ]
+          .map((eventId) => eventId?.trim())
+          .filter((eventId): eventId is string => Boolean(eventId))
+      )
+    ).slice(0, EVENT_SNAPSHOT_BACKFILL_LIMIT);
+    const referencedConversionEvents =
+      input.client.listConversionEvents && referencedConversionEventIds.length > 0
+        ? await fetchConversionEventsWithTimeout({
+            client: input.client,
+            modifiedAfter: null,
+            eventIds: referencedConversionEventIds,
+            timeoutMs:
+              input.conversionEventVisitsTimeoutMs ??
+              DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS
+          }).catch((error: unknown) => {
+            conversionEventDiagnostics.push(
+              `conversionEventsByIdError=${describeSyncError(error)}`
+            );
+            return [];
+          })
+        : [];
+    const conversionEvents = Array.from(
+      new Map(
+        [...plannedConversionEvents, ...referencedConversionEvents].map((event) => [
+          event.eventId,
+          event
+        ])
+      ).values()
+    );
+    const conversionEventTypeOptions = input.client.listConversionEventTypeOptions
+      ? await input.client
+          .listConversionEventTypeOptions()
+          .catch((error: unknown) => {
+            conversionEventDiagnostics.push(
+              `conversionEventTypeOptionsError=${describeSyncError(error)}`
+            );
+            return null;
+          })
+      : null;
+    const persistedConversionEventVisitIdsMissingStageHistory =
+      input.repository.getConversionEventVisitIdsMissingStageHistory
+        ? await input.repository.getConversionEventVisitIdsMissingStageHistory(
+            EVENT_VISIT_STAGE_HISTORY_BACKFILL_LIMIT
+          )
+        : [];
+    const persistedConversionEventVisitsForStageHistory =
+      input.repository.getConversionEventVisitsByIds &&
+      persistedConversionEventVisitIdsMissingStageHistory.length > 0
+        ? await input.repository.getConversionEventVisitsByIds(
+            persistedConversionEventVisitIdsMissingStageHistory
+          )
+        : [];
+    const conversionEventVisitsForStageHistory = Array.from(
+      new Map(
+        [
+          ...conversionEventVisits,
+          ...persistedConversionEventVisitsForStageHistory
+        ]
+          .filter(isScopedConversionEventVisit)
+          .map((visit) => [visit.id, visit])
+      ).values()
+    ).slice(0, EVENT_VISIT_STAGE_HISTORY_BACKFILL_LIMIT);
+    const conversionEventVisitIdsForStageHistory =
+      conversionEventVisitsForStageHistory.map((visit) => visit.id);
+    let conversionEventVisitStageHistoryFetchFailed = false;
+    const conversionEventVisitStageHistoryFromBitrix =
+      input.client.listConversionEventVisitStageHistory &&
+      conversionEventVisitIdsForStageHistory.length > 0
+        ? await fetchConversionEventVisitStageHistoryWithTimeout({
+            client: input.client,
+            visitIds: conversionEventVisitIdsForStageHistory,
+            timeoutMs:
+              input.conversionEventVisitsTimeoutMs ??
+              DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS
+          }).catch((error: unknown) => {
+            conversionEventStageHistoryDiagnostics.push(
+              `conversionEventVisitStageHistoryError=${describeSyncError(error)}`
+            );
+            conversionEventVisitStageHistoryFetchFailed = true;
+            return [];
+          })
+        : [];
+    const conversionEventVisitStageHistory = [
+      ...conversionEventVisitStageHistoryFromBitrix,
+      ...(conversionEventVisitStageHistoryFetchFailed
+        ? []
+        : buildSyntheticEventVisitStageHistory({
+            requestedVisitIds: conversionEventVisitIdsForStageHistory,
+            historyRows: conversionEventVisitStageHistoryFromBitrix,
+            visits: conversionEventVisitsForStageHistory
+          }))
+    ];
     const stageHistory = stageHistoryRows.map(mapStageHistoryRow);
     const calls = callRows.map(mapCallRow);
     const changes: SyncChangeSummary = {
@@ -1997,11 +2434,14 @@ export async function performManualSync(
       deltaActivityRows.map((row) => row.LAST_UPDATED),
       startedAt
     );
-    const nextCallStatsCursor = advanceCursorThroughWindow(
-      callStatsCursor,
-      supplementalCallRows.map((row) => row.CALL_START_DATE),
-      startedAt
-    );
+    const nextCallStatsCursor =
+      callDiagnostics.length === 0
+        ? advanceCursorThroughWindow(
+            callStatsCursor,
+            supplementalCallRows.map((row) => row.CALL_START_DATE),
+            startedAt
+          )
+        : null;
     const diagnostics = [
       `dealCursor=${nextDealCursor ?? "not-updated"}`,
       `activityCursor=${nextActivityCursor ?? "not-updated"}`,
@@ -2010,12 +2450,31 @@ export async function performManualSync(
       `scopeExpansionManagers=${scopeExpansionAssignedByIds.length}`,
       `scopeExpansionDeals=${scopeExpansionDealIds.length}`,
       `conversionEventVisits=${conversionEventVisits.length}`,
+      `conversionEventVisitsDroppedOutOfScope=${droppedConversionEventVisits}`,
+      `conversionEvents=${conversionEvents.length}`,
+      `conversionEventsById=${referencedConversionEvents.length}`,
+      `conversionEventReferencedIds=${referencedConversionEventIds.length}`,
+      `conversionEventPlannedTypeIds=${plannedInventoryEventTypeIds.length}`,
+      `conversionEventVisitStageHistory=${conversionEventVisitStageHistory.length}`,
+      `conversionEventVisitStageHistoryBitrix=${conversionEventVisitStageHistoryFromBitrix.length}`,
+      `conversionEventVisitStageHistorySynthetic=${
+        conversionEventVisitStageHistory.length -
+        conversionEventVisitStageHistoryFromBitrix.length
+      }`,
+      `conversionEventVisitStageHistoryRequested=${conversionEventVisitIdsForStageHistory.length}`,
+      `conversionEventVisitStageHistoryMissingPersisted=${persistedConversionEventVisitIdsMissingStageHistory.length}`,
       `conversionEventVisitsCoverage=${
         shouldBootstrapConversionEventVisits ? "backfill" : "delta"
       }`,
       `supplementalCallsSeen=${supplementalCallRows.length}`,
       `callsPersisted=${calls.length}`,
-      ...conversionEventDiagnostics
+      ...dealFieldDiagnostics,
+      ...catalogDiagnostics,
+      ...callDiagnostics,
+      ...activityBindingDiagnostics,
+      ...stageHistoryDiagnostics,
+      ...conversionEventDiagnostics,
+      ...conversionEventStageHistoryDiagnostics
     ];
 
     emitSyncProgress(
@@ -2033,7 +2492,6 @@ export async function performManualSync(
       })
     );
 
-    const finishedAt = input.now();
     const persistedAt = input.now();
 
     emitSyncProgress(
@@ -2056,7 +2514,9 @@ export async function performManualSync(
       void input.repository.upsertDeals(dealsToPersist);
 
       if (!callHistoryBootstrappedAt) {
-        void input.repository.markCallHistoryBootstrapped(persistedAt);
+        if (callDiagnostics.length === 0) {
+          void input.repository.markCallHistoryBootstrapped(persistedAt);
+        }
       }
 
       void input.repository.upsertActivities(activities);
@@ -2069,6 +2529,28 @@ export async function performManualSync(
       }
       if (input.repository.upsertConversionEventVisits) {
         void input.repository.upsertConversionEventVisits(conversionEventVisits);
+      }
+      if (input.repository.upsertEventSnapshots) {
+        void input.repository.upsertEventSnapshots(conversionEvents);
+      }
+      if (input.repository.upsertEventVisitStageHistory) {
+        void input.repository.upsertEventVisitStageHistory(
+          conversionEventVisitStageHistory
+        );
+      }
+      if (input.repository.pruneConversionEventSnapshots) {
+        void input.repository.pruneConversionEventSnapshots({
+          scopedDealIds: callStatsOwnerIds,
+          enabledEventTypeIds: plannedInventoryEventTypeIds
+        });
+      }
+      if (
+        conversionEventTypeOptions &&
+        input.repository.replaceConversionEventTypeOptions
+      ) {
+        void input.repository.replaceConversionEventTypeOptions(
+          conversionEventTypeOptions
+        );
       }
       void input.repository.upsertCalls(calls);
       void input.repository.upsertManagerDirectory(managerDirectory);
@@ -2118,7 +2600,8 @@ export async function performManualSync(
 
       if (
         input.repository.upsertSyncCoverage &&
-        shouldBootstrapDealCustomFields
+        shouldBootstrapDealCustomFields &&
+        dealFieldDiagnostics.length === 0
       ) {
         void input.repository.upsertSyncCoverage({
           scopeKey,
@@ -2150,7 +2633,8 @@ export async function performManualSync(
       if (
         input.repository.upsertSyncCoverage &&
         bootstrapModifiedAfter &&
-        shouldRefreshCallStatsCoverage
+        shouldRefreshCallStatsCoverage &&
+        callDiagnostics.length === 0
       ) {
         void input.repository.upsertSyncCoverage({
           scopeKey,
@@ -2166,7 +2650,8 @@ export async function performManualSync(
       if (
         input.repository.upsertSyncCoverage &&
         shouldBootstrapConversionEventVisits &&
-        conversionEventDiagnostics.length === 0
+        conversionEventDiagnostics.length === 0 &&
+        conversionEventStageHistoryDiagnostics.length === 0
       ) {
         void input.repository.upsertSyncCoverage({
           scopeKey,
@@ -2216,19 +2701,24 @@ export async function performManualSync(
 
       void input.repository.upsertStageHistory(stageHistory);
 
-      void input.repository.finishSyncRun({
-        syncRunId,
-        finishedAt,
-        status: "success",
-        leadsSynced: 0,
-        dealsSynced,
-        dealBreakdown,
-        diagnostics,
-        modifiedAfter: runModifiedAfter
-      });
     });
 
     const snapshotAfter = await getSnapshotStats(input.repository, snapshotScope);
+    if (input.afterPersist) {
+      await input.afterPersist();
+    }
+    const finishedAt = input.now();
+
+    await input.repository.finishSyncRun({
+      syncRunId,
+      finishedAt,
+      status: "success",
+      leadsSynced: 0,
+      dealsSynced,
+      dealBreakdown,
+      diagnostics,
+      modifiedAfter: runModifiedAfter
+    });
 
     emitSyncProgress(
       input,

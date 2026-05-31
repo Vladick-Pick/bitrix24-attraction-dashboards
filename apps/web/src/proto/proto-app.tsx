@@ -23,6 +23,7 @@ import { apiClient } from '@/lib/api-client'
 import type {
   ActivitiesWorkloadReport,
   CallsWorkloadReport,
+  ConversionEventTypeSettingsInput,
   DashboardQuery,
   DealPricingRuleInput,
   LastSyncSummary,
@@ -1194,6 +1195,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [pricingSettingsLoading, setPricingSettingsLoading] = useState(false)
   const [pricingSettingsSaving, setPricingSettingsSaving] = useState(false)
   const [pricingSettingsSaveError, setPricingSettingsSaveError] = useState<string | null>(null)
+  const [conversionEventTypeSettingsLoading, setConversionEventTypeSettingsLoading] = useState(false)
+  const [conversionEventTypeSettingsSaving, setConversionEventTypeSettingsSaving] = useState(false)
+  const [conversionEventTypeSettingsSaveError, setConversionEventTypeSettingsSaveError] = useState<string | null>(null)
   const [commentNotifications, setCommentNotifications] = useState<CommentNotification[]>([])
   const [readCommentNotificationKeys, setReadCommentNotificationKeys] = useState<Set<string>>(
     () => readStoredCommentNotificationKeys(),
@@ -1233,6 +1237,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
   const shellRef = useRef<HTMLDivElement>(null)
   const commentPanelRef = useRef<HTMLElement>(null)
+  const rangeStartInputRef = useRef<HTMLInputElement>(null)
+  const rangeEndInputRef = useRef<HTMLInputElement>(null)
   const runtimeRequestRef = useRef(0)
   const commentSaveInFlightRef = useRef(false)
   const commentReworkInFlightRef = useRef(false)
@@ -1432,6 +1438,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     runtimeData.managerOptions.length > 0 ? runtimeData.managerOptions : managerOptions
   const availableSourceOptions =
     runtimeData.sourceOptions.length > 0 ? runtimeData.sourceOptions : sourceOptions
+  const isReportLoading = isLeadgenModule
+    ? leadgenReportStatus === 'loading'
+    : runtimeData.operationalStatus === 'loading'
 
   function navigateToAccount() {
     writeProtoRoute('account')
@@ -1576,6 +1585,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           setLeadgenReportError(null)
           setLeadgenWorkload(null)
           setPricingSettingsLoading(false)
+          setConversionEventTypeSettingsLoading(false)
 
           const [meta, report, activities, calls] = await Promise.all([
             apiClient.getMeta(activeModuleId),
@@ -1619,14 +1629,17 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setLeadgenReportStatus('idle')
         setLeadgenReportError(null)
         setPricingSettingsLoading(true)
-        const [meta, pricingSettings] = await Promise.all([
+        setConversionEventTypeSettingsLoading(true)
+        const [meta, pricingSettings, conversionEventTypeSettings] = await Promise.all([
           apiClient.getMeta(activeModuleId),
           apiClient.getPricingSettings(),
+          apiClient.getConversionEventTypeSettings(),
         ])
         if (cancelled || runtimeRequestRef.current !== requestId) {
           return
         }
         setPricingSettingsLoading(false)
+        setConversionEventTypeSettingsLoading(false)
 
         const managerPickerOptions = normalizeManagerPickerOptions(meta.managerCatalog)
         const sourcePickerOptions = meta.sourceCatalog.map((entry) => ({
@@ -1764,6 +1777,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           ...(current.salesPlanMonth ? { salesPlanMonth: current.salesPlanMonth } : {}),
           ...(current.salesPlanQuarter ? { salesPlanQuarter: current.salesPlanQuarter } : {}),
           pricingSettings,
+          conversionEventTypeSettings,
           salesDashboard: dashboard,
           salesPlanMonthDashboard: monthDashboard,
           salesPlanQuarterDashboard: quarterDashboard,
@@ -1804,6 +1818,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           )
         }
         setPricingSettingsLoading(false)
+        setConversionEventTypeSettingsLoading(false)
       }
     }
 
@@ -2044,6 +2059,34 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     }
   }
 
+  async function handleSaveConversionEventTypeSettings(
+    input: ConversionEventTypeSettingsInput,
+  ) {
+    if (conversionEventTypeSettingsLoading) {
+      return
+    }
+
+    setConversionEventTypeSettingsSaving(true)
+    setConversionEventTypeSettingsSaveError(null)
+
+    try {
+      const saved = await apiClient.saveConversionEventTypeSettings(input)
+      setRuntimeData((current) => ({
+        ...current,
+        conversionEventTypeSettings: saved,
+      }))
+      setAppliedFilters((current) => cloneFilters(current))
+    } catch (error) {
+      setConversionEventTypeSettingsSaveError(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось сохранить типы мероприятий',
+      )
+    } finally {
+      setConversionEventTypeSettingsSaving(false)
+    }
+  }
+
   function patchFilters(next: Partial<ProtoFilterState>) {
     setFilters((current) => ({ ...current, ...next }))
   }
@@ -2084,6 +2127,18 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       ...current,
       compareRanges: current.compareRanges.filter((range) => range.id !== id),
     }))
+  }
+
+  function applyFilters() {
+    const nextFilters = cloneFilters({
+      ...filters,
+      rangeStart: rangeStartInputRef.current?.value ?? filters.rangeStart,
+      rangeEnd: rangeEndInputRef.current?.value ?? filters.rangeEnd,
+    })
+    setFilters(nextFilters)
+    setAppliedFilters(nextFilters)
+    setSalesPlanQuarter(resolveSalesPlanQuarter(nextFilters))
+    setLastFiltersApply(new Date().toISOString())
   }
 
   function openNewComment(x: number, y: number, anchor: ProtoCommentAnchor) {
@@ -3136,15 +3191,21 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 <label className="subtle-label">Основной диапазон</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input
+                    ref={rangeStartInputRef}
                     type="date"
+                    aria-label="Дата начала основного диапазона"
                     value={filters.rangeStart}
                     onChange={(event) => patchFilters({ rangeStart: event.target.value })}
+                    onInput={(event) => patchFilters({ rangeStart: event.currentTarget.value })}
                     className="field"
                   />
                   <input
+                    ref={rangeEndInputRef}
                     type="date"
+                    aria-label="Дата конца основного диапазона"
                     value={filters.rangeEnd}
                     onChange={(event) => patchFilters({ rangeEnd: event.target.value })}
+                    onInput={(event) => patchFilters({ rangeEnd: event.currentTarget.value })}
                     className="field"
                   />
                 </div>
@@ -3176,15 +3237,22 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 </button>
                 <button
                   type="button"
-                  className="btn btn-primary h-[42px] whitespace-nowrap px-5"
-                  onClick={() => {
-                    const nextFilters = cloneFilters(filters)
-                    setAppliedFilters(nextFilters)
-                    setSalesPlanQuarter(resolveSalesPlanQuarter(nextFilters))
-                    setLastFiltersApply(new Date().toISOString())
-                  }}
+                  className={cn(
+                    'btn btn-primary h-[42px] min-w-[168px] whitespace-nowrap px-5',
+                    isReportLoading && 'btn-loading',
+                  )}
+                  onClick={applyFilters}
+                  disabled={isReportLoading}
+                  aria-busy={isReportLoading}
                 >
-                  Применить фильтры
+                  {isReportLoading ? (
+                    <>
+                      <span className="btn-spinner" aria-hidden="true" />
+                      <span>Загружаю</span>
+                    </>
+                  ) : (
+                    'Применить фильтры'
+                  )}
                 </button>
               </div>
             </div>
@@ -3241,6 +3309,18 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               {summarizeSelection(filters.managers, availableManagerOptions, 'все')} | Источники:{' '}
               {summarizeSelection(filters.sources, availableSourceOptions, 'все')}
             </p>
+            {isReportLoading ? (
+              <div
+                className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600"
+                role="status"
+                aria-live="polite"
+              >
+                <span className="btn-spinner" aria-hidden="true" />
+                <span>
+                  Загружаю данные за {formatRangeLabel(appliedFilters.rangeStart, appliedFilters.rangeEnd)}
+                </span>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -3326,6 +3406,11 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               pricingSettingsSaveError={pricingSettingsSaveError}
               onPricingSettingsSave={handleSavePricingSettings}
               onSceneNavigate={handleSceneNavigate}
+              conversionEventTypeSettings={runtimeData.conversionEventTypeSettings}
+              conversionEventTypeSettingsLoading={conversionEventTypeSettingsLoading}
+              conversionEventTypeSettingsSaving={conversionEventTypeSettingsSaving}
+              conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
+              onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
             />
           </>
         )}

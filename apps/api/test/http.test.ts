@@ -390,6 +390,7 @@ function createTestApp(
       totalClosedCount: 0,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: []
     }),
@@ -399,6 +400,7 @@ function createTestApp(
         to: "2026-04-30T23:59:59.999Z"
       },
       totalInvitedCount: 0,
+      totalConfirmedCount: 0,
       totalAttendedCount: 0,
       totalRefusedCount: 0,
       totalMissedCount: 0,
@@ -519,6 +521,42 @@ function createTestApp(
     getAttractionOntology: async () => emptyAttractionOntology,
     getAttractionOntologySourceDocument: async () =>
       emptyAttractionOntologySourceDocument,
+    getConversionEventTypeSettings: async () => ({
+      options: [
+        {
+          id: "128",
+          title: "Гостевая встреча",
+          categoryId: null,
+          stageId: null,
+          selectedForPlannedInventory: true
+        }
+      ],
+      settings: [
+        {
+          moduleKey: "attraction",
+          eventTypeId: "128",
+          eventTypeLabel: "Гостевая встреча",
+          enabled: true,
+          updatedAt: "2026-04-29T10:00:00.000Z"
+        }
+      ]
+    }),
+    replaceConversionEventTypeSettings: async (input) => ({
+      options: input.eventTypeIds.map((id) => ({
+        id,
+        title: id,
+        categoryId: null,
+        stageId: null,
+        selectedForPlannedInventory: true
+      })),
+      settings: input.eventTypeIds.map((id) => ({
+        moduleKey: "attraction",
+        eventTypeId: id,
+        eventTypeLabel: id,
+        enabled: true,
+        updatedAt: "2026-04-29T10:00:00.000Z"
+      }))
+    }),
     getMeta: async () => ({
       stageCatalog: [],
       managerCatalog: [],
@@ -672,6 +710,7 @@ describe("createApp", () => {
           to: "2026-04-30T23:59:59.999Z"
         },
         totalInvitedCount: 5,
+        totalConfirmedCount: 0,
         totalAttendedCount: 2,
         totalRefusedCount: 1,
         totalMissedCount: 3,
@@ -686,6 +725,7 @@ describe("createApp", () => {
             eventName: "Знакомство с клубом 29.04.",
             eventDate: "2026-04-29T00:00:00.000Z",
             invitedCount: 5,
+            confirmedCount: 0,
             attendedCount: 2,
             refusedCount: 1,
             missedCount: 3,
@@ -713,6 +753,7 @@ describe("createApp", () => {
     ).resolves.toMatchObject({
       body: {
         totalInvitedCount: 5,
+        totalConfirmedCount: 0,
         rows: [
           {
             eventName: "Знакомство с клубом 29.04.",
@@ -770,6 +811,63 @@ describe("createApp", () => {
     });
   });
 
+  it("reads and saves conversion event type settings", async () => {
+    const app = createTestApp();
+
+    await expect(
+      request(app).get("/api/settings/conversion-event-types").expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        options: [
+          {
+            id: "128",
+            title: "Гостевая встреча",
+            selectedForPlannedInventory: true
+          }
+        ],
+        settings: [
+          {
+            moduleKey: "attraction",
+            eventTypeId: "128",
+            enabled: true
+          }
+        ]
+      }
+    });
+
+    await expect(
+      request(app)
+        .put("/api/settings/conversion-event-types")
+        .send({
+          eventTypeIds: ["128", "256"]
+        })
+        .expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        options: [
+          {
+            id: "128",
+            selectedForPlannedInventory: true
+          },
+          {
+            id: "256",
+            selectedForPlannedInventory: true
+          }
+        ],
+        settings: [
+          {
+            eventTypeId: "128",
+            enabled: true
+          },
+          {
+            eventTypeId: "256",
+            enabled: true
+          }
+        ]
+      }
+    });
+  });
+
   it("returns dashboard data, settings and sync status from the local API", async () => {
     let receivedActivitiesInput: unknown = null;
     let receivedRevenueVelocityInput: unknown = null;
@@ -821,6 +919,7 @@ describe("createApp", () => {
       totalClosedCount: 2,
       totalMeetingCount: 0,
       warnings: [],
+      conversionEventRows: [],
       managerRows: [],
       comparisons: [
         {
@@ -840,6 +939,7 @@ describe("createApp", () => {
             totalClosedCount: 1,
             totalMeetingCount: 0,
             warnings: [],
+            conversionEventRows: [],
             managerRows: []
           }
         }
@@ -1016,6 +1116,7 @@ describe("createApp", () => {
           to: "2026-04-30T23:59:59.999Z"
         },
         totalInvitedCount: 0,
+        totalConfirmedCount: 0,
         totalAttendedCount: 0,
         totalRefusedCount: 0,
         totalMissedCount: 0,
@@ -1475,6 +1576,7 @@ describe("createApp", () => {
         to: "2026-04-30T23:59:59.999Z"
       },
       totalInvitedCount: 5,
+      totalConfirmedCount: 0,
       totalAttendedCount: 2,
       totalRefusedCount: 1,
       totalMissedCount: 3,
@@ -1489,6 +1591,7 @@ describe("createApp", () => {
           eventName: "Знакомство с клубом 29.04.",
           eventDate: "2026-04-29T00:00:00.000Z",
           invitedCount: 5,
+          confirmedCount: 0,
           attendedCount: 2,
           refusedCount: 1,
           missedCount: 3,
@@ -1880,6 +1983,7 @@ describe("createApp", () => {
         totalClosedCount: 0,
         totalMeetingCount: 0,
         warnings: [],
+        conversionEventRows: [],
         managerRows: [],
         comparisons: []
       }),
@@ -1968,6 +2072,7 @@ describe("createApp", () => {
           to: "2026-04-30T23:59:59.999Z"
         },
         totalInvitedCount: 0,
+        totalConfirmedCount: 0,
         totalAttendedCount: 0,
         totalRefusedCount: 0,
         totalMissedCount: 0,
@@ -2185,6 +2290,7 @@ describe("createApp", () => {
         totalClosedCount: 0,
         totalMeetingCount: 0,
         warnings: [],
+        conversionEventRows: [],
         managerRows: []
       }),
       getCallsWorkloadReport: async () => ({
@@ -2269,6 +2375,7 @@ describe("createApp", () => {
           to: "2026-04-30T23:59:59.999Z"
         },
         totalInvitedCount: 0,
+        totalConfirmedCount: 0,
         totalAttendedCount: 0,
         totalRefusedCount: 0,
         totalMissedCount: 0,
@@ -2499,6 +2606,7 @@ describe("createApp", () => {
           totalClosedCount: 0,
           totalMeetingCount: 0,
           warnings: [],
+          conversionEventRows: [],
           managerRows: [],
           comparisons: []
         };

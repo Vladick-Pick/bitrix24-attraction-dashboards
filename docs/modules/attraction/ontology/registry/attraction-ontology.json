@@ -43,6 +43,20 @@
       "canonicality": "canonical"
     },
     {
+      "id": "ontology_meetings_events_formats",
+      "label": "05. Встречи, события и форматы",
+      "kind": "markdown",
+      "href": "docs/modules/attraction/ontology/05-meetings-events-formats.md",
+      "canonicality": "canonical"
+    },
+    {
+      "id": "ontology_reporting_guardrails",
+      "label": "07. Отчетность и ограничения",
+      "kind": "markdown",
+      "href": "docs/modules/attraction/ontology/07-reporting-and-guardrails.md",
+      "canonicality": "canonical"
+    },
+    {
       "id": "bitrix_stage_10",
       "label": "Bitrix24 stage catalog: категория 10, Привлечение",
       "kind": "bitrix",
@@ -352,7 +366,7 @@
         "categoryId": "10",
         "fieldCode": "conversion_event"
       },
-      "sourceIds": ["conversion_events_sheet", "module_ontology"],
+      "sourceIds": ["conversion_events_sheet", "module_ontology", "ontology_meetings_events_formats", "ontology_reporting_guardrails"],
       "reportBindingIds": ["attraction-conversion-events", "attraction-funnel-flow"]
     }
   ],
@@ -430,7 +444,7 @@
     },
     {
       "id": "attraction-conversion-events",
-      "label": "Конверсионные события",
+      "label": "Конверсионные мероприятия в отчете активности",
       "sceneId": "activities-calls",
       "blockId": "attraction-conversion-events",
       "href": "#attraction-conversion-events"

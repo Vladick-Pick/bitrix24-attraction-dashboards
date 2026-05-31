@@ -444,6 +444,23 @@ export interface ManagerActivitiesWorkloadRow {
   stageBreakdown: StageWorkloadMetric[]
 }
 
+export interface ActivityConversionEventStageBreakdown {
+  stageId: string
+  stageName: string
+  invitedCount: number
+}
+
+export interface ActivityConversionEventRow {
+  eventKey: string
+  eventName: string
+  eventDate: string
+  invitedCount: number
+  attendedCount: number
+  refusedCount: number
+  waitingCount: number
+  stageBreakdown: ActivityConversionEventStageBreakdown[]
+}
+
 export interface ActivitiesWorkloadReportSnapshot {
   range: ReportRange
   totalDealCount: number
@@ -453,6 +470,7 @@ export interface ActivitiesWorkloadReportSnapshot {
   totalMeetingCount: number
   warnings: string[]
   managerRows: ManagerActivitiesWorkloadRow[]
+  conversionEventRows: ActivityConversionEventRow[]
 }
 
 export interface ActivitiesWorkloadReport extends ActivitiesWorkloadReportSnapshot {
@@ -669,6 +687,7 @@ export interface ConversionEventRow {
   eventName: string
   eventDate: string
   invitedCount: number
+  confirmedCount: number
   attendedCount: number
   refusedCount: number
   missedCount: number
@@ -686,6 +705,7 @@ export interface ConversionEventRow {
 export interface ConversionEventsReportSnapshot {
   range: ReportRange
   totalInvitedCount: number
+  totalConfirmedCount: number
   totalAttendedCount: number
   totalRefusedCount: number
   totalMissedCount: number
@@ -699,6 +719,31 @@ export interface ConversionEventsReportSnapshot {
 
 export interface ConversionEventsReport extends ConversionEventsReportSnapshot {
   comparisons?: Array<ReportComparison<ConversionEventsReportSnapshot>>
+}
+
+export interface ConversionEventTypeOption {
+  id: string
+  title: string
+  categoryId: number | null
+  stageId: string | null
+  selectedForPlannedInventory: boolean
+}
+
+export interface ModuleEventTypeSetting {
+  moduleKey: string
+  eventTypeId: string
+  eventTypeLabel: string
+  enabled: boolean
+  updatedAt: string
+}
+
+export interface ConversionEventTypeSettingsData {
+  options: ConversionEventTypeOption[]
+  settings: ModuleEventTypeSetting[]
+}
+
+export interface ConversionEventTypeSettingsInput {
+  eventTypeIds: string[]
 }
 
 export interface ManagerActionOutcomeRow {

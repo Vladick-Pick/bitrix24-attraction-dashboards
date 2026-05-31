@@ -2,6 +2,7 @@ import type {
   AcquisitionOutcomesReport,
   AcquisitionOutcomeBusinessClubByManagerRow,
   ActivitiesWorkloadReport,
+  ActivityConversionEventRow,
   ActivityBindingSnapshot,
   ActivityDeadlineChangeSnapshot,
   ActivitySnapshot,
@@ -17,6 +18,8 @@ import type {
   DealSnapshot,
   DealStageTimelineEntry,
   DealTaskSummary,
+  DealTouchpointFactSnapshot,
+  EventVisitFactSnapshot,
   LostDealDetailRow,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeDealSla,
@@ -74,6 +77,8 @@ interface ActivitiesWorkloadInput {
   deadlineChanges: ActivityDeadlineChangeSnapshot[];
   meetingDateChanges?: DealMeetingDateChangeSnapshot[];
   calls?: CallSnapshot[];
+  eventVisitFacts?: EventVisitFactSnapshot[];
+  dealTouchpointFacts?: DealTouchpointFactSnapshot[];
   managerDirectory?: ManagerDirectoryEntry[];
 }
 
@@ -1612,6 +1617,188 @@ function buildActivitiesStageBreakdown(
   );
 }
 
+function parseActivityFactPayload(payloadJson: string | null) {
+  if (!payloadJson) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(payloadJson);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function stringFromActivityPayload(payload: Record<string, unknown>, key: string) {
+  const value = payload[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function formatActivityConversionEventName(value: string) {
+  const trimmed = value.trim();
+  const withoutLocation = trimmed.replace(/^(?:МСК|ЕКБ|СПБ)\s+/iu, "");
+
+  if (!/офф?лайн|offline/iu.test(withoutLocation)) {
+    return withoutLocation.replace(/\.$/u, "");
+  }
+
+  const match =
+    /^(?<title>.+?)\s+(?<day>\d{1,2})\.(?<month>\d{1,2})(?:\.(?:\d{2}|\d{4}))?\b/iu.exec(
+      withoutLocation
+    );
+  if (!match?.groups?.title || !match.groups.day || !match.groups.month) {
+    return withoutLocation.replace(/\s+(?:офф?лайн|offline)\s*$/iu, "").trim();
+  }
+
+  let title = match.groups.title
+    .replace(/\s+в\s+20\d{2}\s+году$/iu, "")
+    .trim();
+  if (/^Салонная встреча музыкального клуба:/iu.test(title)) {
+    title = "Салонная встреча музыкального клуба";
+  }
+
+  const day = match.groups.day.padStart(2, "0");
+  const month = match.groups.month.padStart(2, "0");
+
+  return `${title}, ${day}.${month}`;
+}
+
+function formatActivityStageName(value: string) {
+  return value.replace(/\s*\([^)]*\)\s*$/u, "").trim() || value;
+}
+
+function buildActivitiesConversionEventRows(input: {
+  range: ReportRange;
+  deals: DealSnapshot[];
+  eventVisitFacts?: EventVisitFactSnapshot[];
+  dealTouchpointFacts?: DealTouchpointFactSnapshot[];
+  stageLookup: Map<string, { stageName: string; sortOrder: number }>;
+}): ActivityConversionEventRow[] {
+  const fromMs = Date.parse(input.range.from);
+  const toMs = Date.parse(input.range.to);
+  const dealIds = new Set(input.deals.map((deal) => deal.id));
+  const touchpointByVisitId = new Map(
+    (input.dealTouchpointFacts ?? [])
+      .filter((fact) => fact.kind === "conversion_event_visit")
+      .map((fact) => [fact.sourceEntityId, fact])
+  );
+  const groups = new Map<
+    string,
+    {
+      eventKey: string;
+      eventName: string;
+      eventDate: string;
+      invitedCount: number;
+      attendedCount: number;
+      refusedCount: number;
+      waitingCount: number;
+      stageCounts: Map<string, { stageId: string; stageName: string; invitedCount: number }>;
+    }
+  >();
+
+  for (const fact of input.eventVisitFacts ?? []) {
+    const eventDate = fact.eventDate;
+    const eventDateMs = Date.parse(eventDate ?? "");
+
+    if (
+      !eventDate ||
+      !Number.isFinite(eventDateMs) ||
+      eventDateMs < fromMs ||
+      eventDateMs > toMs ||
+      !fact.dealId ||
+      !dealIds.has(fact.dealId) ||
+      fact.linkReason !== "event_visit_deal"
+    ) {
+      continue;
+    }
+
+    const payload = parseActivityFactPayload(fact.payloadJson);
+    const eventName =
+      formatActivityConversionEventName(stringFromActivityPayload(payload, "eventName")) ||
+      fact.eventId ||
+      "Без названия";
+    const eventKey = fact.eventId || `${eventName}::${eventDate}`;
+    const group =
+      groups.get(eventKey) ??
+      {
+        eventKey,
+        eventName,
+        eventDate,
+        invitedCount: 0,
+        attendedCount: 0,
+        refusedCount: 0,
+        waitingCount: 0,
+        stageCounts: new Map<
+          string,
+          { stageId: string; stageName: string; invitedCount: number }
+        >()
+      };
+
+    group.invitedCount += 1;
+    if (fact.finalStatus === "attended") {
+      group.attendedCount += 1;
+    } else if (fact.finalStatus === "refused") {
+      group.refusedCount += 1;
+    } else if (fact.finalStatus === "invited" || fact.finalStatus === "confirmed") {
+      group.waitingCount += 1;
+    }
+
+    const touchpoint = touchpointByVisitId.get(fact.visitId);
+    const stageId =
+      touchpoint?.stageIdAtEvent ?? fact.stageIdAtEvent ?? fact.currentStageId;
+    const stageName =
+      input.stageLookup.get(stageId)?.stageName ??
+      touchpoint?.stageNameAtEvent ??
+      fact.currentStageName ??
+      stageId;
+    const stage =
+      group.stageCounts.get(stageId) ?? {
+        stageId,
+        stageName: formatActivityStageName(stageName),
+        invitedCount: 0
+      };
+
+    stage.invitedCount += 1;
+    group.stageCounts.set(stageId, stage);
+    groups.set(eventKey, group);
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      eventKey: group.eventKey,
+      eventName: group.eventName,
+      eventDate: group.eventDate,
+      invitedCount: group.invitedCount,
+      attendedCount: group.attendedCount,
+      refusedCount: group.refusedCount,
+      waitingCount: group.waitingCount,
+      stageBreakdown: Array.from(group.stageCounts.values()).sort((left, right) => {
+        if (right.invitedCount !== left.invitedCount) {
+          return right.invitedCount - left.invitedCount;
+        }
+
+        return left.stageName.localeCompare(right.stageName, "ru");
+      })
+    }))
+    .sort((left, right) => {
+      if (right.invitedCount !== left.invitedCount) {
+        return right.invitedCount - left.invitedCount;
+      }
+
+      const byDate = left.eventDate.localeCompare(right.eventDate);
+      if (byDate !== 0) {
+        return byDate;
+      }
+
+      if (right.attendedCount !== left.attendedCount) {
+        return right.attendedCount - left.attendedCount;
+      }
+
+      return left.eventName.localeCompare(right.eventName, "ru");
+    });
+}
+
 export function buildActivitiesWorkloadReport(
   input: ActivitiesWorkloadInput
 ): ActivitiesWorkloadReport {
@@ -1631,6 +1818,13 @@ export function buildActivitiesWorkloadReport(
     (activity) => activity.ownerTypeId === "2" && dealMap.has(activity.ownerId)
   );
   const taskActivities = activities.filter(isTaskActivity);
+  const conversionEventRows = buildActivitiesConversionEventRows({
+    range: input.range,
+    deals,
+    eventVisitFacts: input.eventVisitFacts ?? [],
+    dealTouchpointFacts: input.dealTouchpointFacts ?? [],
+    stageLookup
+  });
   const meetingDateEvents = buildDealMeetingDateWorkloadEvents({
     deals,
     meetingDateChanges: input.meetingDateChanges,
@@ -1877,7 +2071,8 @@ export function buildActivitiesWorkloadReport(
       0
     ),
     warnings: [...ACTIVITIES_REPORT_WARNINGS],
-    managerRows: managerRowsResult
+    managerRows: managerRowsResult,
+    conversionEventRows
   };
 }
 

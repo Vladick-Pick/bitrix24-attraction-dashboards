@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALLOWED_DEAL_FIELDS,
   ALLOWED_LEAD_FIELDS,
+  buildConversionEventListParams,
   buildConversionEventItemListParams,
   buildDealBackfillParams,
   buildDealListParams
@@ -80,6 +81,37 @@ describe("Bitrix24 selector whitelist", () => {
         id: "ASC"
       },
       start: 50
+    });
+  });
+
+  it("filters event inventory by configured event type ids", () => {
+    expect(
+      buildConversionEventListParams({
+        entityTypeId: 137,
+        modifiedAfter: null,
+        eventDateFieldName: "ufCrmEventDate",
+        eventTypeFieldName: "parentId156",
+        eventTypeIds: ["128", "512"]
+      })
+    ).toEqual({
+      entityTypeId: 137,
+      select: [
+        "id",
+        "title",
+        "stageId",
+        "categoryId",
+        "createdTime",
+        "updatedTime",
+        "ufCrmEventDate",
+        "parentId156"
+      ],
+      filter: {
+        "@parentId156": ["128", "512"]
+      },
+      order: {
+        id: "ASC"
+      },
+      start: 0
     });
   });
 
@@ -179,6 +211,35 @@ describe("Bitrix24 selector whitelist", () => {
       },
       order: {
         ID: "ASC"
+      },
+      start: 0
+    });
+  });
+
+  it("filters event inventory by referenced event ids", () => {
+    expect(
+      buildConversionEventListParams({
+        entityTypeId: 137,
+        modifiedAfter: null,
+        eventDateFieldName: "ufCrmEventDate",
+        eventIds: ["31394", "29402"]
+      })
+    ).toEqual({
+      entityTypeId: 137,
+      select: [
+        "id",
+        "title",
+        "stageId",
+        "categoryId",
+        "createdTime",
+        "updatedTime",
+        "ufCrmEventDate"
+      ],
+      filter: {
+        "@id": ["31394", "29402"]
+      },
+      order: {
+        id: "ASC"
       },
       start: 0
     });

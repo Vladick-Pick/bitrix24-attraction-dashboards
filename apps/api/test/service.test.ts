@@ -1113,6 +1113,7 @@ describe("createReportingService", () => {
           warnings: [
             "Deadline reschedule counts are disabled until a trustworthy Bitrix history source is available."
           ],
+          conversionEventRows: [],
           managerRows: [
             {
               managerId: "78",
@@ -1152,6 +1153,145 @@ describe("createReportingService", () => {
             }
           ]
         }
+      }
+    ]);
+  });
+
+  it("scopes activity conversion events by deal manager instead of visit owner", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:UC_61CBCU",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-05-20T09:00:00.000Z",
+          dateModify: "2026-05-28T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:UC_61CBCU",
+          name: "Активация (Встреча проведена)",
+          semanticId: "P",
+          sortOrder: 50
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getWonStageIds: async () => ["C10:WON"],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllCalls: async () => [],
+      getAllEventVisitFacts: async () => [
+        {
+          visitId: "457300",
+          eventId: "31148",
+          dealId: "1",
+          contactId: null,
+          leadId: null,
+          managerId: "1",
+          sourceId: "WEB",
+          currentStageId: "C10:UC_61CBCU",
+          currentStageName: "Активация (Встреча проведена)",
+          invitedAt: "2026-05-28T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: null,
+          refusedAt: "2026-05-28T12:00:00.000Z",
+          finalStatus: "refused",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: "C10:UC_61CBCU",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName:
+              "МСК Бизнес-диалог: Виктор Найшуллер 28.05.26 Виктор Найшуллер оффлайн"
+          })
+        }
+      ],
+      getAllDealTouchpointFacts: async () => [
+        {
+          factId: "TP1",
+          kind: "conversion_event_visit",
+          sourceSystem: "bitrix24",
+          sourceEntityType: "event_visit_fact",
+          sourceEntityId: "457300",
+          occurredAt: "2026-05-28T00:00:00.000Z",
+          dealId: "1",
+          contactId: null,
+          leadId: null,
+          managerId: "1",
+          sourceId: "WEB",
+          stageIdAtEvent: "C10:UC_61CBCU",
+          stageNameAtEvent: "Активация (Встреча проведена)",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: null
+        }
+      ],
+      getManagerDirectory: async () => [],
+      upsertManagerDirectory: async () => 1,
+      getLastSyncSummary: async () => null,
+      setWonStageIds: async () => undefined
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-05-31T12:00:00.000Z")
+    });
+
+    const report = await service.getActivitiesWorkloadReport({
+      range: {
+        from: "2026-05-25T00:00:00.000Z",
+        to: "2026-06-01T00:00:00.000Z"
+      },
+      filters: {
+        managerIds: ["78"]
+      }
+    });
+
+    expect(report.conversionEventRows).toEqual([
+      {
+        eventKey: "31148",
+        eventName: "Бизнес-диалог: Виктор Найшуллер, 28.05",
+        eventDate: "2026-05-28T00:00:00.000Z",
+        invitedCount: 1,
+        attendedCount: 0,
+        refusedCount: 1,
+        waitingCount: 0,
+        stageBreakdown: [
+          {
+            stageId: "C10:UC_61CBCU",
+            stageName: "Активация",
+            invitedCount: 1
+          }
+        ]
       }
     ]);
   });
@@ -2226,6 +2366,84 @@ describe("createReportingService", () => {
           categoryId: "10"
         })
       ]
+    ]);
+  });
+
+  it("marks the sync run failed when analytics fact rebuild fails", async () => {
+    const finishCalls: unknown[] = [];
+    const failCalls: unknown[] = [];
+    const repository = {
+      getLatestSuccessCursor: async () => "2026-05-01T00:00:00.000Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-05-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-05-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getSnapshotStats: async () => ({
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      }),
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      getDealIdsByCategoryIds: async () => [],
+      getOpenDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      createSyncRun: async () => 69,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async (input: unknown) => {
+        finishCalls.push(input);
+      },
+      failSyncRun: async (input: unknown) => {
+        failCalls.push(input);
+      },
+      getAllDeals: async () => [],
+      getStageCatalog: async () => [],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllCalls: async () => [],
+      getAllConversionEventVisits: async () => [],
+      replaceAnalyticsFacts: async () => {
+        throw new Error("fact rebuild failed");
+      }
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [],
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      repository: repository as never,
+      client: client as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-05-25T12:00:00.000Z")
+    });
+
+    await expect(service.performSync()).rejects.toThrow("fact rebuild failed");
+
+    expect(finishCalls).toEqual([]);
+    expect(failCalls).toEqual([
+      expect.objectContaining({
+        syncRunId: 69,
+        status: "failed",
+        diagnostics: ["SYNC_FAILED", "error=Error"]
+      })
     ]);
   });
 });

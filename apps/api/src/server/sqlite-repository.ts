@@ -2242,7 +2242,16 @@ export function createSqliteRepository(
             return [];
           }
 
-          if (!isSubset(parsed.assignedByIds, requestedAssignedByIds)) {
+          const parsedCoversRequested = isSubset(
+            requestedAssignedByIds,
+            parsed.assignedByIds
+          );
+          const requestedCoversParsed = isSubset(
+            parsed.assignedByIds,
+            requestedAssignedByIds
+          );
+
+          if (!parsedCoversRequested && !requestedCoversParsed) {
             return [];
           }
         } else if (parsed.assignedByIds.length > 0) {

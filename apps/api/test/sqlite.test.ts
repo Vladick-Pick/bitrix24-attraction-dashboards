@@ -1127,6 +1127,39 @@ describe("createSqliteRepository", () => {
     ).resolves.toBe(null);
   });
 
+  it("finds a successful compatible scope when manager coverage narrows", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    const wideScopeRunId = await repository.createSyncRun({
+      startedAt: "2026-04-26T21:00:00.000Z",
+      mode: "delta",
+      modifiedAfter: "2026-04-26T20:00:00.000Z",
+      scopeKey: "category:10:assigned:72,78,7824"
+    });
+    await repository.finishSyncRun({
+      syncRunId: wideScopeRunId,
+      finishedAt: "2026-04-26T21:00:05.000Z",
+      status: "success",
+      leadsSynced: 0,
+      dealsSynced: 0,
+      modifiedAfter: "2026-04-26T20:00:00.000Z"
+    });
+
+    await expect(
+      repository.getLatestSuccessfulScope(["10"], ["78"])
+    ).resolves.toEqual({
+      scopeKey: "category:10:assigned:72,78,7824",
+      categoryIds: ["10"],
+      assignedByIds: ["72", "78", "7824"]
+    });
+  });
+
   it("rolls back snapshot writes when the transaction callback throws", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

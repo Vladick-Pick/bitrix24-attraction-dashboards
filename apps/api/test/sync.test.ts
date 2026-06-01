@@ -6085,6 +6085,137 @@ describe("performManualSync", () => {
     ]);
   });
 
+  it("reuses historical coverage when the manager whitelist is narrowed", async () => {
+    const previousScopeKey =
+      "category:10:assigned:72,78,7824";
+    const activityRequests: Array<{
+      ownerIds: string[];
+      modifiedAfter: string | null;
+      providerId?: string;
+    }> = [];
+    const repo = {
+      getLatestSuccessCursor: async (
+        _categoryIds: string[],
+        assignedByIds?: string[]
+      ) => {
+        return assignedByIds?.includes("72")
+          ? "2026-04-26T21:31:21.964Z"
+          : null;
+      },
+      getLatestSuccessfulScope: async () => ({
+        scopeKey: previousScopeKey,
+        categoryIds: ["10"],
+        assignedByIds: ["72", "78", "7824"]
+      }),
+      getSyncCursor: async (key: string) =>
+        key.startsWith(previousScopeKey)
+          ? "2026-04-26T21:31:21.964Z"
+          : null,
+      setSyncCursor: async () => undefined,
+      hasSyncCoverage: async (input: { scopeKey: string }) =>
+        input.scopeKey === previousScopeKey,
+      upsertSyncCoverage: async () => undefined,
+      getSnapshotStats: async () => ({
+        deals: 1200,
+        activities: 3000,
+        calls: 1500,
+        stageHistory: 5000
+      }),
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-26T21:31:21.964Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-04-26T21:31:21.964Z",
+      getCallActivityHistoryBootstrappedAt: async () =>
+        "2026-04-26T21:31:21.964Z",
+      getMeetingActivityHistoryBootstrappedAt: async () =>
+        "2026-04-26T21:31:21.964Z",
+      getTaskActivityHistoryBootstrappedAt: async () =>
+        "2026-04-26T21:31:21.964Z",
+      getDealCustomFieldsBootstrappedAt: async () =>
+        "2026-04-26T21:31:21.964Z",
+      getActivitySnapshotCount: async () => 3000,
+      getDealIdsByCategoryIds: async () => ["D_OPEN"],
+      getOpenDealIdsByCategoryIds: async () => ["D_OPEN"],
+      getActivitiesByIds: async () => [],
+      getCallActivityIdsMissingActivities: async () => [],
+      getCallActivityIdsMissingCallStats: async () => [],
+      getCallActivityIdsForCallStatsRefresh: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async (input?: { mode: "full" | "delta" }) => {
+        expect(input?.mode).toBe("delta");
+        return 61;
+      },
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      markCallActivityHistoryBootstrapped: async () => undefined,
+      markMeetingActivityHistoryBootstrapped: async () => undefined,
+      markTaskActivityHistoryBootstrapped: async () => undefined,
+      markDealCustomFieldsBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => [
+        {
+          ID: "D_DELTA",
+          LEAD_ID: null,
+          DATE_CREATE: "2026-04-27T08:00:00+03:00",
+          DATE_MODIFY: "2026-04-27T08:00:00+03:00",
+          DATE_CLOSED: null,
+          CATEGORY_ID: "10",
+          STAGE_ID: "C10:NEW",
+          STAGE_SEMANTIC_ID: "P",
+          OPPORTUNITY: null,
+          ASSIGNED_BY_ID: "78",
+          SOURCE_ID: "WEB",
+          UTM_SOURCE: null,
+          UTM_MEDIUM: null,
+          UTM_CAMPAIGN: null,
+          UTM_CONTENT: null,
+          UTM_TERM: null
+        }
+      ],
+      listStageHistory: async () => [],
+      listActivities: async (input: {
+        ownerIds: string[];
+        modifiedAfter: string | null;
+        providerId?: string;
+      }) => {
+        activityRequests.push(input);
+        return [];
+      },
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      assignedByIds: ["78"],
+      qualityFieldName: "UF_CRM_1730380390",
+      bootstrapLookbackDays: 365,
+      now: () => "2026-04-27T08:00:00+03:00"
+    });
+
+    expect(activityRequests).toEqual([
+      {
+        ownerIds: ["D_OPEN", "D_DELTA"],
+        modifiedAfter: "2026-04-26T21:31:21.964Z"
+      }
+    ]);
+  });
+
   it("marks a sync run as failed when the Bitrix client throws", async () => {
     const failedRuns: Array<{ syncRunId: number; finishedAt: string; status: "failed" }> = [];
     const repo = {

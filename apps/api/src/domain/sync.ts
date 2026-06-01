@@ -871,6 +871,11 @@ function differenceStringValues(values: string[], coveredValues: string[]) {
   return values.filter((value) => !covered.has(String(value)));
 }
 
+function isSubsetStringValues(values: string[], candidateSuperset: string[]) {
+  const candidateValues = new Set(candidateSuperset.map(String));
+  return values.every((value) => candidateValues.has(String(value)));
+}
+
 function buildSyncCursorKey(
   scopeKey: string,
   stream: "deals" | "activities" | "call_stats"
@@ -1394,6 +1399,11 @@ export async function performManualSync(
           compatibleModifiedAfter
         )
       : null;
+  const coverageScopeKey =
+    compatibleScope &&
+    isSubsetStringValues(assignedByIds, compatibleScope.assignedByIds)
+      ? compatibleScope.scopeKey
+      : scopeKey;
   const [dealCursor, activityCursor] = await Promise.all([
     resolveSyncCursor(
       input.repository,
@@ -1450,19 +1460,19 @@ export async function performManualSync(
   ] = await Promise.all([
     hasActivityProviderCoverage({
       repository: input.repository,
-      scopeKey,
+      scopeKey: coverageScopeKey,
       providerId: "VOXIMPLANT_CALL",
       requiredFrom: bootstrapModifiedAfter
     }),
     hasActivityProviderCoverage({
       repository: input.repository,
-      scopeKey,
+      scopeKey: coverageScopeKey,
       providerId: "CRM_MEETING",
       requiredFrom: bootstrapModifiedAfter
     }),
     hasSyncCoverage({
       repository: input.repository,
-      scopeKey,
+      scopeKey: coverageScopeKey,
       stream: DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
       providerId: DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
       requiredFrom: bootstrapModifiedAfter,
@@ -1471,7 +1481,7 @@ export async function performManualSync(
     input.meetingDateFieldName
       ? hasSyncCoverage({
           repository: input.repository,
-          scopeKey,
+          scopeKey: coverageScopeKey,
           stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
           providerId: input.meetingDateFieldName,
           requiredFrom: bootstrapModifiedAfter,
@@ -1480,7 +1490,7 @@ export async function performManualSync(
       : true,
     hasSyncCoverage({
       repository: input.repository,
-      scopeKey,
+      scopeKey: coverageScopeKey,
       stream: CALL_STATS_COVERAGE_STREAM,
       providerId: CALL_STATS_COVERAGE_PROVIDER,
       requiredFrom: bootstrapModifiedAfter,
@@ -1488,7 +1498,7 @@ export async function performManualSync(
     }),
     hasSyncCoverage({
       repository: input.repository,
-      scopeKey,
+      scopeKey: coverageScopeKey,
       stream: CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
       providerId: CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
       requiredFrom: FULL_COVERAGE_FROM,
@@ -1497,7 +1507,7 @@ export async function performManualSync(
     ...TASK_ACTIVITY_PROVIDER_IDS.map((providerId) =>
       hasActivityProviderCoverage({
         repository: input.repository,
-        scopeKey,
+        scopeKey: coverageScopeKey,
         providerId,
         requiredFrom: bootstrapModifiedAfter
       })

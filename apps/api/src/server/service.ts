@@ -21,6 +21,8 @@ import type {
   ManagerActionOutcomeReport,
   ManagerActionOutcomeReportSnapshot,
   ManagerDirectoryEntry,
+  ManagerWhitelistSettingsData,
+  ManagerWhitelistSettingsInput,
   ManualSyncSummary,
   ReportRange,
   ReportFilters,
@@ -237,6 +239,10 @@ export interface ReportingService {
   replaceConversionEventTypeSettings(
     input: ConversionEventTypeSettingsInput
   ): Promise<ConversionEventTypeSettingsData>;
+  getManagerWhitelistSettings(): Promise<ManagerWhitelistSettingsData>;
+  replaceManagerWhitelistSettings(
+    input: ManagerWhitelistSettingsInput
+  ): Promise<ManagerWhitelistSettingsData>;
   getMeta(): Promise<{
     stageCatalog: StageCatalogEntry[];
     managerCatalog: ManagerDirectoryEntry[];
@@ -893,6 +899,60 @@ export function createReportingService(
       : sortAttractionManagers(sortedRows);
   };
 
+  const getAttractionManagerScope = async () => {
+    const repositoryWithSettings = input.repository as Partial<SqliteRepository>;
+    if (typeof repositoryWithSettings.getManagerWhitelistSettings === "function") {
+      const settings = await repositoryWithSettings.getManagerWhitelistSettings(
+        "attraction"
+      );
+      return settings
+        .filter((setting) => setting.enabled)
+        .map((setting) => setting.managerId);
+    }
+
+    return ATTRACTION_MANAGER_IDS;
+  };
+
+  const normalizeAttractionReportFilters = async (
+    filters: ReportFilters | undefined
+  ) => normalizeAttractionManagerFilters(filters, await getAttractionManagerScope());
+
+  const buildManagerWhitelistSettingsData =
+    async (): Promise<ManagerWhitelistSettingsData> => {
+      const repositoryWithSettings = input.repository as Partial<SqliteRepository>;
+      const settings =
+        typeof repositoryWithSettings.getManagerWhitelistSettings === "function"
+          ? await repositoryWithSettings.getManagerWhitelistSettings("attraction")
+          : ATTRACTION_MANAGER_CATALOG.map((manager, index) => ({
+              moduleKey: "attraction",
+              managerId: manager.id,
+              managerName: manager.name,
+              enabled: true,
+              sortOrder: index * 10,
+              updatedAt: new Date(0).toISOString()
+            }));
+      const existing = await input.repository.getManagerDirectory();
+      const optionsById = new Map<string, ManagerDirectoryEntry>();
+
+      for (const manager of ATTRACTION_MANAGER_CATALOG) {
+        optionsById.set(manager.id, manager);
+      }
+      for (const manager of existing) {
+        optionsById.set(manager.id, manager);
+      }
+      for (const setting of settings) {
+        optionsById.set(setting.managerId, {
+          id: setting.managerId,
+          name: setting.managerName
+        });
+      }
+
+      return {
+        options: sortAttractionManagers(sortManagers(Array.from(optionsById.values()))),
+        settings
+      };
+    };
+
   const buildSourceCatalog = (
     deals: Awaited<ReturnType<SqliteRepository["getAllDeals"]>>,
     stageCatalog: StageCatalogEntry[]
@@ -948,10 +1008,11 @@ export function createReportingService(
         ? repositoryWithFacts.getAllEventVisitStageHistory()
         : Promise.resolve([])
     ]);
+    const scopedFilters = await normalizeAttractionReportFilters(undefined);
     const scopedDeals = filterDealsByFilters(
       deals,
       stageCatalog,
-      normalizeAttractionManagerFilters(undefined)
+      scopedFilters
     );
     const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
     const scopedStageHistory = stageHistory.filter((row) =>
@@ -1067,11 +1128,11 @@ export function createReportingService(
           : []
     };
   };
-  const normalizeWorkloadFilters = (filters: ReportFilters | undefined) =>
+  const normalizeWorkloadFilters = async (filters: ReportFilters | undefined) =>
     workloadScope === "leadgen"
       ? normalizeLeadgenWorkloadFilters(filters)
       : {
-          filters: normalizeAttractionManagerFilters(filters),
+          filters: await normalizeAttractionReportFilters(filters),
           warnings: [] as string[]
         };
 
@@ -1675,8 +1736,46 @@ export function createReportingService(
       };
     },
 
+    getManagerWhitelistSettings() {
+      return buildManagerWhitelistSettingsData();
+    },
+
+    async replaceManagerWhitelistSettings(settingsInput) {
+      const repositoryWithSettings = input.repository as Partial<SqliteRepository>;
+      const selectedIds = Array.from(
+        new Set(settingsInput.managerIds.map(String).map((id) => id.trim()).filter(Boolean))
+      );
+
+      if (typeof repositoryWithSettings.replaceManagerWhitelistSettings !== "function") {
+        return {
+          ...(await buildManagerWhitelistSettingsData()),
+          settings: selectedIds.map((managerId, index) => {
+            const catalogEntry = ATTRACTION_MANAGER_CATALOG.find(
+              (manager) => manager.id === managerId
+            );
+            return {
+              moduleKey: "attraction",
+              managerId,
+              managerName: catalogEntry?.name ?? managerId,
+              enabled: true,
+              sortOrder: index * 10,
+              updatedAt: new Date(0).toISOString()
+            };
+          })
+        };
+      }
+
+      await repositoryWithSettings.replaceManagerWhitelistSettings({
+        moduleKey: "attraction",
+        managerIds: selectedIds,
+        updatedAt: nowFactory().toISOString()
+      });
+
+      return buildManagerWhitelistSettingsData();
+    },
+
     async getDashboard({ periodDays, range, compareRanges, filters }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
       const [
         deals,
         stageCatalog,
@@ -1764,7 +1863,7 @@ export function createReportingService(
       compareRanges,
       filters
     }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
       const [deals, stageCatalog, stageHistory, wonStageIds] = await Promise.all([
         input.repository.getAllDeals(),
         getScopedStageCatalog(true),
@@ -1808,7 +1907,7 @@ export function createReportingService(
       compareRanges,
       filters
     }) {
-      const workloadFilters = normalizeWorkloadFilters(filters);
+      const workloadFilters = await normalizeWorkloadFilters(filters);
       const scopedFilters = workloadFilters.filters;
       const [
         deals,
@@ -1965,7 +2064,7 @@ export function createReportingService(
       compareRanges,
       filters
     }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
       const [deals, stageCatalog, stageHistory] = await Promise.all([
         input.repository.getAllDeals(),
         getScopedStageCatalog(true),
@@ -2011,7 +2110,7 @@ export function createReportingService(
       compareRanges,
       filters
     }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
       const [deals, stageCatalog, wonStageIds, stageHistory, pricingRules] =
         await Promise.all([
         input.repository.getAllDeals(),
@@ -2053,7 +2152,7 @@ export function createReportingService(
     },
 
     async getManagerActionOutcomeReport({ filters }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
       const [deals, stageCatalog, stageHistory, activities, calls, wonStageIds] =
         await Promise.all([
           input.repository.getAllDeals(),
@@ -2138,7 +2237,7 @@ export function createReportingService(
       const warnings = await buildManagerActionOutcomeWarnings({
         repository: input.repository,
         categoryIds: input.dealCategoryIds,
-        assignedByIds: ATTRACTION_MANAGER_IDS,
+        assignedByIds: scopedFilters.managerIds ?? [],
         range: reportRange,
         ...(input.meetingDateFieldName
           ? { meetingDateFieldName: input.meetingDateFieldName }
@@ -2154,7 +2253,7 @@ export function createReportingService(
     },
 
     async getCallsWorkloadReport({ periodDays, range, compareRanges, filters }) {
-      const workloadFilters = normalizeWorkloadFilters(filters);
+      const workloadFilters = await normalizeWorkloadFilters(filters);
       const scopedFilters = workloadFilters.filters;
       const repositoryWithActivityBindings = input.repository as Partial<SqliteRepository>;
       const [deals, stageCatalog, stageHistory, activities, activityBindings, calls] =
@@ -2245,7 +2344,7 @@ export function createReportingService(
       compareRanges,
       filters
     }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
       const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
       const [
         deals,
@@ -2329,7 +2428,7 @@ export function createReportingService(
           ? await input.repository.hasSyncCoverage({
               scopeKey: buildCategoryScopeKey(
                 input.dealCategoryIds,
-                ATTRACTION_MANAGER_IDS
+                scopedFilters.managerIds ?? []
               ),
               stream: CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
               providerId: CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
@@ -2392,7 +2491,7 @@ export function createReportingService(
     async getCohortConversionReport({
       filters
     }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
       const [deals, wonStageIds, stageHistory] = await Promise.all([
         input.repository.getAllDeals(),
         input.repository.getWonStageIds(),
@@ -2420,7 +2519,7 @@ export function createReportingService(
     },
 
     async getTocFlowReport({ periodDays, range, compareRanges, filters }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters);
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
       const [deals, stageCatalog, stageHistory] = await Promise.all([
         input.repository.getAllDeals(),
         getScopedStageCatalog(),
@@ -2463,7 +2562,7 @@ export function createReportingService(
       view = "systemState",
       asOf
     }) {
-      const scopedFilters = normalizeAttractionManagerFilters(filters) as ReportFilters & {
+      const scopedFilters = (await normalizeAttractionReportFilters(filters)) as ReportFilters & {
         customerKeys?: string[];
         qualityKeys?: string[];
         tariffKeys?: string[];
@@ -2572,10 +2671,8 @@ export function createReportingService(
 
     async getMeta() {
       const repositoryWithStats = input.repository as Partial<SqliteRepository>;
-      const scopeKey = buildCategoryScopeKey(
-        input.dealCategoryIds,
-        ATTRACTION_MANAGER_IDS
-      );
+      const managerScope = await getAttractionManagerScope();
+      const scopeKey = buildCategoryScopeKey(input.dealCategoryIds, managerScope);
       const [deals, stageCatalog, wonStageIds, lastSync, snapshotStats] =
         await Promise.all([
           input.repository.getAllDeals(),
@@ -2585,20 +2682,21 @@ export function createReportingService(
           typeof repositoryWithStats.getSnapshotStats === "function"
             ? repositoryWithStats.getSnapshotStats({
                 categoryIds: input.dealCategoryIds,
-                assignedByIds: ATTRACTION_MANAGER_IDS
+                assignedByIds: managerScope
               })
             : Promise.resolve(EMPTY_SNAPSHOT_STATS)
         ]);
+      const scopedFilters = normalizeAttractionManagerFilters(undefined, managerScope);
       const scopedDeals = filterDealsByFilters(
         deals,
         stageCatalog,
-        normalizeAttractionManagerFilters(undefined)
+        scopedFilters
       );
-      const managerCatalog = await ensureManagerDirectory(ATTRACTION_MANAGER_IDS);
+      const managerCatalog = await ensureManagerDirectory(managerScope);
       const syncHealth = await buildSyncHealth({
         repository: input.repository,
         categoryIds: input.dealCategoryIds,
-        assignedByIds: ATTRACTION_MANAGER_IDS,
+        assignedByIds: managerScope,
         lastSync,
         now: nowFactory(),
         bootstrapLookbackDays: input.bootstrapLookbackDays ?? 365,
@@ -2620,12 +2718,14 @@ export function createReportingService(
     },
 
     async performSync(syncInput) {
+      const assignedByIds = await getAttractionManagerScope();
       const summary = await performManualSync({
         categoryIds: input.dealCategoryIds,
         qualityFieldName: input.qualityFieldName,
         client: input.client,
         repository: input.repository,
         now: () => nowFactory().toISOString(),
+        assignedByIds,
         ...(syncInput?.onProgress ? { onProgress: syncInput.onProgress } : {}),
         ...(input.bootstrapLookbackDays
           ? { bootstrapLookbackDays: input.bootstrapLookbackDays }

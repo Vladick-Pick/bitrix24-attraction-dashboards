@@ -145,8 +145,24 @@ vi.mock('@/lib/api-client', () => ({
       updatedAt: '2026-04-10T12:05:00.000Z',
     })),
     getConversionEventTypeSettings: vi.fn(async () => ({
-      options: [],
-      settings: [],
+      options: [
+        {
+          id: '128',
+          title: 'Гостевая встреча',
+          categoryId: 34,
+          stageId: null,
+          selectedForPlannedInventory: true,
+        },
+      ],
+      settings: [
+        {
+          moduleKey: 'attraction',
+          eventTypeId: '128',
+          eventTypeLabel: 'Гостевая встреча',
+          enabled: true,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ],
     })),
     saveConversionEventTypeSettings: vi.fn(
       async (input: ConversionEventTypeSettingsInput) => ({
@@ -166,6 +182,56 @@ vi.mock('@/lib/api-client', () => ({
         })),
       }),
     ),
+    getManagerWhitelistSettings: vi.fn(async () => ({
+      options: [
+        {
+          id: '13020',
+          name: 'Илья Какулия',
+        },
+        {
+          id: '78',
+          name: 'Егоров Андрей',
+        },
+      ],
+      settings: [
+        {
+          moduleKey: 'attraction',
+          managerId: '13020',
+          managerName: 'Илья Какулия',
+          enabled: true,
+          sortOrder: 0,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+        {
+          moduleKey: 'attraction',
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          enabled: true,
+          sortOrder: 10,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+    })),
+    saveManagerWhitelistSettings: vi.fn(async (input: { managerIds: string[] }) => ({
+      options: [
+        {
+          id: '13020',
+          name: 'Илья Какулия',
+        },
+        {
+          id: '78',
+          name: 'Егоров Андрей',
+        },
+      ],
+      settings: input.managerIds.map((managerId, index) => ({
+        moduleKey: 'attraction',
+        managerId,
+        managerName: managerId === '13020' ? 'Илья Какулия' : 'Егоров Андрей',
+        enabled: true,
+        sortOrder: index * 10,
+        updatedAt: '2026-04-10T12:05:00.000Z',
+      })),
+    })),
     getSalesPlan: vi.fn(async () => ({
       periodStart: '2026-04-01T00:00:00.000+03:00',
       periodEnd: '2026-04-30T23:59:59.999+03:00',
@@ -629,7 +695,7 @@ vi.mock('@/lib/api-client', () => ({
     getModuleUsers: vi.fn(async () => ({
       users: [],
     })),
-    createModuleUser: vi.fn(async (input: { login: string; role: 'leader' | 'employee' }) => ({
+    createModuleUser: vi.fn(async (input: { login: string; role: 'leader' | 'employee'; defaultManagerId?: string | null }) => ({
       user: {
         id: 2,
         login: input.login,
@@ -639,11 +705,12 @@ vi.mock('@/lib/api-client', () => ({
         moduleId: 'attraction',
         moduleRole: input.role,
         membershipStatus: 'active',
+        defaultManagerId: input.defaultManagerId ?? null,
         createdAt: '2026-04-10T12:00:00.000Z',
         updatedAt: '2026-04-10T12:00:00.000Z',
       },
     })),
-    updateModuleUser: vi.fn(async (id: number, input: { role?: 'leader' | 'employee' }) => ({
+    updateModuleUser: vi.fn(async (id: number, input: { role?: 'leader' | 'employee'; defaultManagerId?: string | null }) => ({
       user: {
         id,
         login: 'employee@example.com',
@@ -653,6 +720,7 @@ vi.mock('@/lib/api-client', () => ({
         moduleId: 'attraction',
         moduleRole: input.role ?? 'employee',
         membershipStatus: 'active',
+        defaultManagerId: input.defaultManagerId ?? null,
         createdAt: '2026-04-10T12:00:00.000Z',
         updatedAt: '2026-04-10T12:05:00.000Z',
       },
@@ -667,6 +735,7 @@ vi.mock('@/lib/api-client', () => ({
         moduleId: 'attraction',
         moduleRole: 'employee',
         membershipStatus: 'disabled',
+        defaultManagerId: null,
         createdAt: '2026-04-10T12:00:00.000Z',
         updatedAt: '2026-04-10T12:05:00.000Z',
       },
@@ -1359,8 +1428,16 @@ describe('ProtoApp', () => {
     expect(screen.getByText(/логин для входа/i)).toBeInTheDocument()
     expect(screen.getAllByText(/модуль/i).length).toBeGreaterThan(0)
     expect(screen.getByText('Привлечение')).toBeInTheDocument()
-    expect(screen.getByText(/рабочие правила/i)).toBeInTheDocument()
-    expect(screen.getByText(/преднастройки фильтров/i)).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: /^настройки модуля$/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('ClubFirst Russia / One')).toBeInTheDocument()
+    expect(screen.getByText('Федеральный')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /плановые мероприятия/i })).toBeInTheDocument()
+    expect(screen.getByText('Гостевая встреча')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /вайтлист менеджеров/i })).toBeInTheDocument()
+    expect(screen.getAllByText('Илья Какулия').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/запланировано/i)).not.toBeInTheDocument()
     expect(screen.getByText(/пользователи модуля/i)).toBeInTheDocument()
     expect(screen.getByText('employee@example.com')).toBeInTheDocument()
     expect(
@@ -1371,6 +1448,7 @@ describe('ProtoApp', () => {
 
     expect(window.location.pathname).toBe('/')
     expect(await screen.findByText(/sales report live/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^настройки$/i })).not.toBeInTheDocument()
     unmount()
 
     render(
@@ -1394,6 +1472,330 @@ describe('ProtoApp', () => {
 
     expect(window.location.pathname).toBe('/account')
     expect(screen.queryByText(/пользователи модуля/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^настройки модуля$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /сохранить цены/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps default manager choices empty after saving an empty manager whitelist', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    vi.mocked(apiClient.getModuleUsers).mockResolvedValueOnce({ users: [] })
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: /илья какулия/i }),
+    )
+    await userEvent.click(screen.getByRole('checkbox', { name: /егоров андрей/i }))
+    await userEvent.click(screen.getByRole('button', { name: /сохранить менеджеров/i }))
+
+    await waitFor(() =>
+      expect(apiClient.saveManagerWhitelistSettings).toHaveBeenCalledWith({
+        managerIds: [],
+      }),
+    )
+
+    await waitFor(() => {
+      const newManagerSelect = screen.getByLabelText(
+        /менеджер по умолчанию для нового сотрудника/i,
+      ) as HTMLSelectElement
+      const optionLabels = Array.from(newManagerSelect.options).map((option) =>
+        option.textContent?.trim(),
+      )
+
+      expect(optionLabels).toEqual(['Не выбран'])
+    })
+  })
+
+  it('warns module leaders when saved whitelist clears employee default managers', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    const employee = {
+      id: 2,
+      login: 'employee@example.com',
+      firstName: 'Анна',
+      lastName: 'Егорова',
+      disabled: false,
+      moduleId: 'attraction',
+      moduleRole: 'employee' as const,
+      membershipStatus: 'active' as const,
+      defaultManagerId: '13020',
+      createdAt: '2026-04-10T12:00:00.000Z',
+      updatedAt: '2026-04-10T12:00:00.000Z',
+    }
+    vi.mocked(apiClient.getModuleUsers)
+      .mockResolvedValueOnce({ users: [employee] })
+      .mockResolvedValueOnce({
+        users: [
+          {
+            ...employee,
+            defaultManagerId: null,
+            updatedAt: '2026-04-10T12:05:00.000Z',
+          },
+        ],
+      })
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+    expect(await screen.findByText('employee@example.com')).toBeInTheDocument()
+
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: /илья какулия/i }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /сохранить менеджеров/i }))
+
+    await waitFor(() =>
+      expect(apiClient.saveManagerWhitelistSettings).toHaveBeenCalledWith({
+        managerIds: ['78'],
+      }),
+    )
+    expect(
+      await screen.findByText(/нужно переназначить менеджера/i),
+    ).toBeInTheDocument()
+  })
+
+  it('lets module leaders choose default managers for new and existing employees', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    vi.mocked(apiClient.getModuleUsers)
+      .mockResolvedValueOnce({
+        users: [
+          {
+            id: 2,
+            login: 'employee@example.com',
+            firstName: 'Анна',
+            lastName: 'Егорова',
+            disabled: false,
+            moduleId: 'attraction',
+            moduleRole: 'employee',
+            membershipStatus: 'active',
+            defaultManagerId: null,
+            createdAt: '2026-04-10T12:00:00.000Z',
+            updatedAt: '2026-04-10T12:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+      users: [
+        {
+          id: 2,
+          login: 'employee@example.com',
+          firstName: 'Анна',
+          lastName: 'Егорова',
+          disabled: false,
+          moduleId: 'attraction',
+          moduleRole: 'employee',
+          membershipStatus: 'active',
+          defaultManagerId: null,
+          createdAt: '2026-04-10T12:00:00.000Z',
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+    })
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+
+    await userEvent.type(screen.getByPlaceholderText('логин email'), 'ilya@example.com')
+    await userEvent.type(screen.getByPlaceholderText('пароль'), 'correct-password')
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/менеджер по умолчанию для нового сотрудника/i),
+      '13020',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /создать сотрудника/i }))
+
+    await waitFor(() =>
+      expect(apiClient.createModuleUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          login: 'ilya@example.com',
+          defaultManagerId: '13020',
+        }),
+        'attraction',
+      ),
+    )
+
+    const employeeManagerSelect = await screen.findByLabelText(
+      /employee@example.com: менеджер по умолчанию/i,
+    )
+    await userEvent.selectOptions(employeeManagerSelect, '78')
+    const employeeRow = employeeManagerSelect.closest('[data-module-user-row="true"]')
+    expect(employeeRow).not.toBeNull()
+    await userEvent.click(
+      within(employeeRow as HTMLElement).getByRole('button', { name: /обновить/i }),
+    )
+
+    await waitFor(() =>
+      expect(apiClient.updateModuleUser).toHaveBeenCalledWith(
+        2,
+        expect.objectContaining({
+          defaultManagerId: '78',
+        }),
+        'attraction',
+      ),
+    )
+  })
+
+  it('starts employee dashboard filters from their default manager and still allows clearing to all managers', async () => {
+    const employee = {
+      id: 2,
+      login: 'ilya@example.com',
+      firstName: 'Илья',
+      lastName: 'Какулия',
+      role: 'admin',
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'employee',
+          permissions: ['comments:create', 'comments:update'],
+          defaultManagerId: '13020',
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    } as unknown as AuthUser
+    const metaWithEmployeeManager: MetaResponse = {
+      stageCatalog: [],
+      managerCatalog: [
+        {
+          id: '13020',
+          name: 'Илья Какулия',
+        },
+        {
+          id: '78',
+          name: 'Егоров Андрей',
+        },
+      ],
+      sourceCatalog: [],
+      wonStageIds: [],
+      defaultPeriodDays: 30,
+      lastSync: null,
+      snapshotStats: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '2026-04-10T12:00:00.000Z',
+        lastSuccessfulSync: null,
+        issues: [],
+        warnings: [],
+      },
+    }
+    vi.mocked(apiClient.getMeta)
+      .mockResolvedValueOnce(metaWithEmployeeManager)
+      .mockResolvedValueOnce(metaWithEmployeeManager)
+
+    render(<ProtoApp currentUser={employee} />)
+
+    await waitFor(() => expect(apiClient.getDashboard).toHaveBeenCalled())
+    expect(vi.mocked(apiClient.getDashboard).mock.calls[0]?.[0]).toMatchObject({
+      managerIds: ['13020'],
+    })
+    expect(await screen.findByText(/менеджеры:\s*илья какулия/i)).toBeInTheDocument()
+
+    const callsBeforeClear = vi.mocked(apiClient.getDashboard).mock.calls.length
+    await userEvent.click(screen.getByRole('button', { name: /^менеджеры$/i }))
+    const managerChoices = await screen.findAllByText('Илья Какулия')
+    await userEvent.click(managerChoices[managerChoices.length - 1]!)
+    await userEvent.click(screen.getByRole('button', { name: /применить фильтры/i }))
+
+    await waitFor(() =>
+      expect(vi.mocked(apiClient.getDashboard).mock.calls.length).toBeGreaterThan(
+        callsBeforeClear,
+      ),
+    )
+    const newDashboardCalls = vi.mocked(apiClient.getDashboard).mock.calls.slice(
+      callsBeforeClear,
+    )
+    expect(
+      newDashboardCalls.some(([query]) => (query.managerIds ?? []).length === 0),
+    ).toBe(true)
   })
 
   it('lets a super admin switch to the leadgen module and loads its isolated funnel report', async () => {

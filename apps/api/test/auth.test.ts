@@ -341,6 +341,182 @@ describe("password session auth", () => {
     store.close();
   });
 
+  it("stores a default manager on module memberships and returns it at login", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    const user = await store.createUser({
+      login: "ilya@example.com",
+      passwordHash: await hashPassword("correct-password")
+    });
+    await (store.setModuleMembership as any)({
+      userId: user.id,
+      moduleId: "attraction",
+      role: "employee",
+      status: "active",
+      defaultManagerId: "13020"
+    });
+
+    await expect(store.listUserModules(user.id)).resolves.toEqual([
+      expect.objectContaining({
+        id: "attraction",
+        role: "employee",
+        defaultManagerId: "13020"
+      })
+    ]);
+
+    await (store.updateModuleUser as any)({
+      userId: user.id,
+      moduleId: "attraction",
+      defaultManagerId: "78"
+    });
+
+    await expect(store.listModuleUsers("attraction")).resolves.toEqual([
+      expect.objectContaining({
+        login: "ilya@example.com",
+        defaultManagerId: "78"
+      })
+    ]);
+
+    await (store.clearModuleDefaultManagersExcept as any)({
+      moduleId: "attraction",
+      managerIds: ["13020"]
+    });
+
+    await expect(store.listModuleUsers("attraction")).resolves.toEqual([
+      expect.objectContaining({
+        login: "ilya@example.com",
+        defaultManagerId: null
+      })
+    ]);
+
+    store.close();
+  });
+
+  it("rejects default managers outside the attraction whitelist for module users", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    const leader = await store.createUser({
+      login: "leader@example.com",
+      passwordHash: await hashPassword("leader-password")
+    });
+    await store.setModuleMembership({
+      userId: leader.id,
+      moduleId: "attraction",
+      role: "leader",
+      status: "active"
+    });
+    const existingEmployee = await store.createUser({
+      login: "employee@example.com",
+      passwordHash: await hashPassword("employee-password")
+    });
+    await store.setModuleMembership({
+      userId: existingEmployee.id,
+      moduleId: "attraction",
+      role: "employee",
+      status: "active"
+    });
+    const auth = createPasswordAuthService({
+      store,
+      sessionSecret: "test-session-secret-with-at-least-32-bytes",
+      cookieName: "b24dash_session",
+      ttlHours: 12,
+      secureCookie: false
+    });
+    const service = {
+      ...createMinimalService(),
+      getManagerWhitelistSettings: async () => ({
+        options: [
+          { id: "78", name: "Егоров Андрей" },
+          { id: "13020", name: "Илья Какулия" }
+        ],
+        settings: [
+          {
+            moduleKey: "attraction",
+            managerId: "78",
+            managerName: "Егоров Андрей",
+            enabled: true,
+            sortOrder: 0,
+            updatedAt: "2026-06-01T10:00:00.000Z"
+          }
+        ]
+      })
+    } as Parameters<typeof createApp>[0];
+    const app = createApp(service, {
+      auth,
+      authStore: store
+    });
+    const agent = request.agent(app);
+    const loginResponse = await agent
+      .post("/api/auth/login")
+      .send({ login: "leader@example.com", password: "leader-password" })
+      .expect(200);
+    const csrfToken = loginResponse.body.csrfToken as string;
+
+    await agent
+      .post("/api/admin/module-users")
+      .set("X-CSRF-Token", csrfToken)
+      .send({
+        login: "new-employee@example.com",
+        password: "employee-password",
+        role: "employee",
+        defaultManagerId: "13020"
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.code).toBe("VALIDATION_ERROR");
+        expect(body.details).toEqual(
+          expect.objectContaining({
+            field: "defaultManagerId",
+            reason: "DEFAULT_MANAGER_NOT_IN_WHITELIST"
+          })
+        );
+      });
+
+    await agent
+      .patch(`/api/admin/module-users/${existingEmployee.id}`)
+      .set("X-CSRF-Token", csrfToken)
+      .send({ defaultManagerId: "13020" })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.code).toBe("VALIDATION_ERROR");
+        expect(body.details).toEqual(
+          expect.objectContaining({
+            field: "defaultManagerId",
+            reason: "DEFAULT_MANAGER_NOT_IN_WHITELIST"
+          })
+        );
+      });
+
+    await agent
+      .patch(`/api/admin/module-users/${existingEmployee.id}`)
+      .set("X-CSRF-Token", csrfToken)
+      .send({ defaultManagerId: "78" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.user.defaultManagerId).toBe("78");
+      });
+
+    store.close();
+  });
+
   it("lets only super admins grant explicit module memberships", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
     directories.push(directory);
@@ -976,6 +1152,8 @@ describe("password session auth", () => {
         windowMs: 60_000
       }
     });
+    const admin = await store.findUserByLogin("admin");
+    const verificationInputs: Array<{ password: string; passwordHash: string }> = [];
     const auth = createPasswordAuthService({
       store,
       sessionSecret: "test-session-secret-with-at-least-32-bytes",
@@ -984,10 +1162,13 @@ describe("password session auth", () => {
       rateLimit: {
         maxFailures: 20,
         windowMs: 60_000
+      },
+      verifyPassword: async (password, passwordHash) => {
+        verificationInputs.push({ password, passwordHash });
+        return false;
       }
     });
 
-    const knownUserStartedAt = performance.now();
     await expect(
       auth.login({
         login: "admin",
@@ -995,9 +1176,7 @@ describe("password session auth", () => {
         rateLimitKey: "127.0.0.1"
       })
     ).rejects.toThrow("INVALID_CREDENTIALS");
-    const knownUserDuration = performance.now() - knownUserStartedAt;
 
-    const missingUserStartedAt = performance.now();
     await expect(
       auth.login({
         login: "missing",
@@ -1005,9 +1184,15 @@ describe("password session auth", () => {
         rateLimitKey: "127.0.0.1"
       })
     ).rejects.toThrow("INVALID_CREDENTIALS");
-    const missingUserDuration = performance.now() - missingUserStartedAt;
 
-    expect(missingUserDuration).toBeGreaterThan(knownUserDuration * 0.5);
+    expect(verificationInputs).toHaveLength(2);
+    expect(verificationInputs[0]).toEqual({
+      password: "wrong-password",
+      passwordHash: admin?.passwordHash
+    });
+    expect(verificationInputs[1]?.password).toBe("wrong-password");
+    expect(verificationInputs[1]?.passwordHash).toMatch(/^scrypt\$/);
+    expect(verificationInputs[1]?.passwordHash).not.toBe(admin?.passwordHash);
 
     store.close();
   });

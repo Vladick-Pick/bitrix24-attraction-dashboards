@@ -28,6 +28,7 @@ import type {
   DealPricingRuleInput,
   LastSyncSummary,
   LeadgenFunnelReport,
+  ManagerWhitelistSettingsInput,
   MetaResponse,
   SalesPlanQuarterDraftRow,
   SnapshotStats,
@@ -50,6 +51,7 @@ import {
   mapCohortSceneData,
   mapTocFlowSceneData,
 } from '@/proto/live-reporting'
+import { ModuleSettingsPanel } from '@/proto/module-settings-panel'
 import type {
   CompareRange,
   AuthUser,
@@ -546,6 +548,19 @@ function normalizeManagerPickerOptions(
     })
 }
 
+function buildWhitelistedManagerOptions(
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
+): PickerOption[] {
+  return (managerWhitelistSettings?.settings ?? [])
+    .filter((setting) => setting.enabled)
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((setting) => ({
+      id: setting.managerId,
+      label: setting.managerName,
+      meta: 'Менеджер',
+    }))
+}
+
 function shiftDateInputValue(value: string, days: number) {
   const date = new Date(`${value}T12:00:00`)
   date.setDate(date.getDate() + days)
@@ -576,6 +591,29 @@ function cloneFilters(filters: ProtoFilterState): ProtoFilterState {
     managers: [...filters.managers],
     sources: [...filters.sources],
   }
+}
+
+function getDefaultManagerIdForModule(
+  user: AuthUser | null | undefined,
+  moduleId = 'attraction',
+) {
+  const module =
+    user?.modules.find((item) => item.id === moduleId) ??
+    user?.modules.find((item) => item.id === 'attraction' || item.slug === 'attraction') ??
+    null
+  const defaultManagerId = module?.defaultManagerId?.trim()
+
+  return defaultManagerId || null
+}
+
+function createDefaultFiltersForUser(
+  user: AuthUser | null | undefined,
+  moduleId = 'attraction',
+) {
+  const filters = createDefaultFilters()
+  const defaultManagerId = getDefaultManagerIdForModule(user, moduleId)
+
+  return defaultManagerId ? { ...filters, managers: [defaultManagerId] } : filters
 }
 
 function shouldIgnoreCommentTarget(target: EventTarget | null) {
@@ -1147,15 +1185,14 @@ function LeadgenDashboard({
 }
 
 export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
+  const initialModuleId = currentUser?.modules[0]?.id ?? 'attraction'
   const [route, setRoute] = useState<ProtoRoute>(() => readProtoRoute())
   const [activeSceneId, setActiveSceneId] = useState(scenes[0]?.id ?? 'sales')
   const [pendingScrollTarget, setPendingScrollTarget] = useState<string | null>(null)
   const [commentMode, setCommentMode] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [accountUser, setAccountUser] = useState<AuthUser | null>(currentUser ?? null)
-  const [activeModuleId, setActiveModuleId] = useState(
-    currentUser?.modules[0]?.id ?? 'attraction',
-  )
+  const [activeModuleId, setActiveModuleId] = useState(initialModuleId)
   const [accountStatus, setAccountStatus] = useState<'idle' | 'saving' | 'error'>('idle')
   const [accountMessage, setAccountMessage] = useState<string | null>(null)
   const [profileDraft, setProfileDraft] = useState({
@@ -1166,10 +1203,14 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     currentPassword: '',
     newPassword: '',
   })
-  const [filters, setFilters] = useState<ProtoFilterState>(() => createDefaultFilters())
-  const [appliedFilters, setAppliedFilters] = useState<ProtoFilterState>(() => createDefaultFilters())
+  const [filters, setFilters] = useState<ProtoFilterState>(() =>
+    createDefaultFiltersForUser(currentUser, initialModuleId),
+  )
+  const [appliedFilters, setAppliedFilters] = useState<ProtoFilterState>(() =>
+    createDefaultFiltersForUser(currentUser, initialModuleId),
+  )
   const [salesPlanQuarter, setSalesPlanQuarter] = useState(() =>
-    resolveSalesPlanQuarter(createDefaultFilters()),
+    resolveSalesPlanQuarter(createDefaultFiltersForUser(currentUser, initialModuleId)),
   )
   const [lastFiltersApply, setLastFiltersApply] = useState(
     new Date('2026-04-10T11:42:00.000Z').toISOString(),
@@ -1198,6 +1239,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [conversionEventTypeSettingsLoading, setConversionEventTypeSettingsLoading] = useState(false)
   const [conversionEventTypeSettingsSaving, setConversionEventTypeSettingsSaving] = useState(false)
   const [conversionEventTypeSettingsSaveError, setConversionEventTypeSettingsSaveError] = useState<string | null>(null)
+  const [managerWhitelistSettingsLoading, setManagerWhitelistSettingsLoading] = useState(false)
+  const [managerWhitelistSettingsSaving, setManagerWhitelistSettingsSaving] = useState(false)
+  const [managerWhitelistSettingsSaveError, setManagerWhitelistSettingsSaveError] = useState<string | null>(null)
+  const [managerWhitelistSettingsNotice, setManagerWhitelistSettingsNotice] = useState<string | null>(null)
   const [commentNotifications, setCommentNotifications] = useState<CommentNotification[]>([])
   const [readCommentNotificationKeys, setReadCommentNotificationKeys] = useState<Set<string>>(
     () => readStoredCommentNotificationKeys(),
@@ -1216,6 +1261,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     login: '',
     password: '',
     role: 'employee' as ModuleRole,
+    defaultManagerId: '',
   })
   const [createdCredentials, setCreatedCredentials] = useState<string | null>(null)
   const [snapshotStats, setSnapshotStats] = useState<SnapshotStats | null>(null)
@@ -1240,6 +1286,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const rangeStartInputRef = useRef<HTMLInputElement>(null)
   const rangeEndInputRef = useRef<HTMLInputElement>(null)
   const runtimeRequestRef = useRef(0)
+  const managerWhitelistSettingsRevisionRef = useRef(0)
   const commentSaveInFlightRef = useRef(false)
   const commentReworkInFlightRef = useRef(false)
   const {
@@ -1326,6 +1373,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     activeModule?.permissions.includes('comments:archive') === true
   const canManageModuleUsers =
     activeModule?.permissions.includes('module-users:manage') === true
+  const canManageModuleSettings = canManageModuleUsers || accountUser?.isSuperAdmin === true
   const platformModules = platformAccess?.modules ?? []
   const platformUsers = platformAccess?.users ?? []
 
@@ -1438,6 +1486,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     runtimeData.managerOptions.length > 0 ? runtimeData.managerOptions : managerOptions
   const availableSourceOptions =
     runtimeData.sourceOptions.length > 0 ? runtimeData.sourceOptions : sourceOptions
+  const whitelistedManagerOptions = buildWhitelistedManagerOptions(
+    runtimeData.managerWhitelistSettings,
+  )
+  const hasManagerWhitelistSettings = runtimeData.managerWhitelistSettings !== undefined
+  const defaultManagerOptions = hasManagerWhitelistSettings
+    ? whitelistedManagerOptions
+    : availableManagerOptions
   const isReportLoading = isLeadgenModule
     ? leadgenReportStatus === 'loading'
     : runtimeData.operationalStatus === 'loading'
@@ -1518,7 +1573,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   }, [commentNotifications])
 
   const refreshModuleUsers = useCallback(async () => {
-    if (!canManageModuleUsers) {
+    if (!canManageModuleSettings) {
       setModuleUsers([])
       return
     }
@@ -1538,7 +1593,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           : 'Не удалось загрузить пользователей модуля',
       )
     }
-  }, [activeModuleId, canManageModuleUsers])
+  }, [activeModuleId, canManageModuleSettings])
 
   const refreshPlatformAccess = useCallback(async () => {
     if (!accountUser?.isSuperAdmin) {
@@ -1571,6 +1626,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     async function loadRuntimeData() {
       const requestId = runtimeRequestRef.current + 1
       runtimeRequestRef.current = requestId
+      const managerWhitelistSettingsRevisionAtRequestStart =
+        managerWhitelistSettingsRevisionRef.current
 
       setRuntimeData((current) => ({
         ...current,
@@ -1586,6 +1643,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           setLeadgenWorkload(null)
           setPricingSettingsLoading(false)
           setConversionEventTypeSettingsLoading(false)
+          setManagerWhitelistSettingsLoading(false)
 
           const [meta, report, activities, calls] = await Promise.all([
             apiClient.getMeta(activeModuleId),
@@ -1630,16 +1688,24 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setLeadgenReportError(null)
         setPricingSettingsLoading(true)
         setConversionEventTypeSettingsLoading(true)
-        const [meta, pricingSettings, conversionEventTypeSettings] = await Promise.all([
+        setManagerWhitelistSettingsLoading(true)
+        const [
+          meta,
+          pricingSettings,
+          conversionEventTypeSettings,
+          managerWhitelistSettings,
+        ] = await Promise.all([
           apiClient.getMeta(activeModuleId),
           apiClient.getPricingSettings(),
           apiClient.getConversionEventTypeSettings(),
+          apiClient.getManagerWhitelistSettings(),
         ])
         if (cancelled || runtimeRequestRef.current !== requestId) {
           return
         }
         setPricingSettingsLoading(false)
         setConversionEventTypeSettingsLoading(false)
+        setManagerWhitelistSettingsLoading(false)
 
         const managerPickerOptions = normalizeManagerPickerOptions(meta.managerCatalog)
         const sourcePickerOptions = meta.sourceCatalog.map((entry) => ({
@@ -1770,35 +1836,44 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           return
         }
 
-        setRuntimeData((current) => ({
-          managerOptions: managerPickerOptions,
-          sourceOptions: sourcePickerOptions,
-          ...(current.salesPlan ? { salesPlan: current.salesPlan } : {}),
-          ...(current.salesPlanMonth ? { salesPlanMonth: current.salesPlanMonth } : {}),
-          ...(current.salesPlanQuarter ? { salesPlanQuarter: current.salesPlanQuarter } : {}),
-          pricingSettings,
-          conversionEventTypeSettings,
-          salesDashboard: dashboard,
-          salesPlanMonthDashboard: monthDashboard,
-          salesPlanQuarterDashboard: quarterDashboard,
-          activitiesWorkload: activities,
-          callsWorkload: calls,
-          activitiesCalls: mapActivitiesCallsSceneData({ activities, calls }),
-          acquisitionOutcomes,
-          targetGroupConversion,
-          managerActionOutcomes,
-          conversionEvents,
-          ...(ontology ? { attractionOntology: ontology } : {}),
-          ...(current.revenueVelocity ? { revenueVelocity: current.revenueVelocity } : {}),
-          cohorts: mapCohortSceneData({
-            report: cohort,
-            managerBreakdowns,
-            sourceBreakdowns,
-          }),
-          tocFlow: mapTocFlowSceneData({ report: toc, managerBreakdowns: tocManagerBreakdowns }),
-          operationalStatus: 'ready',
-          operationalError: null,
-        }))
+        setRuntimeData((current) => {
+          const shouldUseFetchedManagerWhitelistSettings =
+            managerWhitelistSettingsRevisionRef.current ===
+            managerWhitelistSettingsRevisionAtRequestStart
+
+          return {
+            managerOptions: managerPickerOptions,
+            sourceOptions: sourcePickerOptions,
+            ...(current.salesPlan ? { salesPlan: current.salesPlan } : {}),
+            ...(current.salesPlanMonth ? { salesPlanMonth: current.salesPlanMonth } : {}),
+            ...(current.salesPlanQuarter ? { salesPlanQuarter: current.salesPlanQuarter } : {}),
+            pricingSettings,
+            conversionEventTypeSettings,
+            managerWhitelistSettings: shouldUseFetchedManagerWhitelistSettings
+              ? managerWhitelistSettings
+              : (current.managerWhitelistSettings ?? managerWhitelistSettings),
+            salesDashboard: dashboard,
+            salesPlanMonthDashboard: monthDashboard,
+            salesPlanQuarterDashboard: quarterDashboard,
+            activitiesWorkload: activities,
+            callsWorkload: calls,
+            activitiesCalls: mapActivitiesCallsSceneData({ activities, calls }),
+            acquisitionOutcomes,
+            targetGroupConversion,
+            managerActionOutcomes,
+            conversionEvents,
+            ...(ontology ? { attractionOntology: ontology } : {}),
+            ...(current.revenueVelocity ? { revenueVelocity: current.revenueVelocity } : {}),
+            cohorts: mapCohortSceneData({
+              report: cohort,
+              managerBreakdowns,
+              sourceBreakdowns,
+            }),
+            tocFlow: mapTocFlowSceneData({ report: toc, managerBreakdowns: tocManagerBreakdowns }),
+            operationalStatus: 'ready',
+            operationalError: null,
+          }
+        })
       } catch (error) {
         if (cancelled || runtimeRequestRef.current !== requestId) {
           return
@@ -1819,6 +1894,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         }
         setPricingSettingsLoading(false)
         setConversionEventTypeSettingsLoading(false)
+        setManagerWhitelistSettingsLoading(false)
       }
     }
 
@@ -2084,6 +2160,59 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       )
     } finally {
       setConversionEventTypeSettingsSaving(false)
+    }
+  }
+
+  async function handleSaveManagerWhitelistSettings(
+    input: ManagerWhitelistSettingsInput,
+  ) {
+    if (managerWhitelistSettingsLoading) {
+      return
+    }
+
+    setManagerWhitelistSettingsSaving(true)
+    setManagerWhitelistSettingsSaveError(null)
+    setManagerWhitelistSettingsNotice(null)
+    managerWhitelistSettingsRevisionRef.current += 1
+
+    try {
+      const saved = await apiClient.saveManagerWhitelistSettings(input)
+      const managerOptionsFromSettings = buildWhitelistedManagerOptions(saved)
+      const allowedManagerIds = new Set(managerOptionsFromSettings.map((option) => option.id))
+      const keepAllowedManagers = (current: ProtoFilterState) => {
+        const managers = current.managers.filter((managerId) => allowedManagerIds.has(managerId))
+        const unchanged =
+          managers.length === current.managers.length &&
+          managers.every((managerId, index) => managerId === current.managers[index])
+
+        return unchanged ? current : { ...current, managers }
+      }
+      const usersNeedingDefaultManagerReassignment = moduleUsers.filter(
+        (user) => user.defaultManagerId && !allowedManagerIds.has(user.defaultManagerId),
+      )
+      setRuntimeData((current) => ({
+        ...current,
+        managerWhitelistSettings: saved,
+        managerOptions: managerOptionsFromSettings,
+      }))
+      setFilters(keepAllowedManagers)
+      setAppliedFilters(keepAllowedManagers)
+      const syncNotice = 'Вайтлист менеджеров изменен. Нужна синхронизация данных.'
+      const reassignmentNotice =
+        usersNeedingDefaultManagerReassignment.length > 0
+          ? `${syncNotice} Нужно переназначить менеджера.`
+          : syncNotice
+      setSyncWarning(syncNotice)
+      setManagerWhitelistSettingsNotice(
+        reassignmentNotice,
+      )
+      await refreshModuleUsers()
+    } catch (error) {
+      setManagerWhitelistSettingsSaveError(
+        error instanceof Error ? error.message : 'Не удалось сохранить менеджеров',
+      )
+    } finally {
+      setManagerWhitelistSettingsSaving(false)
     }
   }
 
@@ -2362,6 +2491,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           lastName: newModuleUser.lastName.trim() || null,
           password,
           role: newModuleUser.role,
+          defaultManagerId: newModuleUser.defaultManagerId || null,
         },
         activeModuleId,
       )
@@ -2372,6 +2502,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         login: '',
         password: '',
         role: 'employee',
+        defaultManagerId: '',
       })
       await refreshModuleUsers()
     } catch (createError) {
@@ -2391,6 +2522,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       lastName?: string | null
       password?: string
       role?: ModuleRole
+      defaultManagerId?: string | null
       disabled?: boolean
       membershipStatus?: 'active' | 'disabled'
     },
@@ -2681,28 +2813,25 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             </div>
           </section>
 
-          <section className="panel grid gap-4 p-5">
-            <div>
-              <div className="subtle-label">Настройки модуля</div>
-              <h2 className="mt-1 text-xl font-bold text-slate-900">Рабочие правила</h2>
-            </div>
-            <div className="grid gap-3 lg:grid-cols-3">
-              {[
-                ['Менеджеры', 'Преднастройки фильтров'],
-                ['Контракты', 'Стоимость и тарифы'],
-                ['Воронки', 'Источник расчета'],
-              ].map(([title, label]) => (
-                <div
-                  key={title}
-                  className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3"
-                >
-                  <div className="subtle-label">{title}</div>
-                  <div className="mt-1 font-semibold text-slate-900">{label}</div>
-                  <span className="badge-chip badge-neutral mt-3">Запланировано</span>
-                </div>
-              ))}
-            </div>
-          </section>
+          <ModuleSettingsPanel
+            canEdit={canManageModuleSettings}
+            pricingSettings={runtimeData.pricingSettings}
+            conversionEventTypeSettings={runtimeData.conversionEventTypeSettings}
+            managerWhitelistSettings={runtimeData.managerWhitelistSettings}
+            pricingSettingsLoading={pricingSettingsLoading}
+            pricingSettingsSaving={pricingSettingsSaving}
+            pricingSettingsSaveError={pricingSettingsSaveError}
+            conversionEventTypeSettingsLoading={conversionEventTypeSettingsLoading}
+            conversionEventTypeSettingsSaving={conversionEventTypeSettingsSaving}
+            conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
+            managerWhitelistSettingsLoading={managerWhitelistSettingsLoading}
+            managerWhitelistSettingsSaving={managerWhitelistSettingsSaving}
+            managerWhitelistSettingsSaveError={managerWhitelistSettingsSaveError}
+            managerWhitelistSettingsNotice={managerWhitelistSettingsNotice}
+            onPricingSettingsSave={handleSavePricingSettings}
+            onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
+            onManagerWhitelistSettingsSave={handleSaveManagerWhitelistSettings}
+          />
 
           {accountUser?.isSuperAdmin ? (
             <section className="panel grid gap-4 p-5">
@@ -2804,7 +2933,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             </section>
           ) : null}
 
-          {canManageModuleUsers ? (
+          {canManageModuleSettings ? (
             <section className="panel grid gap-4 p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -2884,6 +3013,27 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                   <option value="employee">Сотрудник</option>
                   <option value="leader">Лидер</option>
                 </select>
+                <label className="space-y-1.5">
+                  <span className="subtle-label">Менеджер по умолчанию</span>
+                  <select
+                    className="field"
+                    aria-label="Менеджер по умолчанию для нового сотрудника"
+                    value={newModuleUser.defaultManagerId}
+                    onChange={(event) =>
+                      setNewModuleUser((current) => ({
+                        ...current,
+                        defaultManagerId: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Не выбран</option>
+                    {defaultManagerOptions.map((manager) => (
+                      <option key={manager.id} value={manager.id}>
+                        {manager.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -2911,88 +3061,124 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               ) : null}
 
               <div className="grid gap-2">
-                {moduleUsers.map((user) => (
-                  <div
-                    key={user.id}
-                    className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 xl:grid-cols-[1.2fr_1fr_1fr_9rem_auto_auto]"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-bold text-slate-900">
-                        {user.login}
+                {moduleUsers.map((user) => {
+                  const defaultManagerExists =
+                    !user.defaultManagerId ||
+                    defaultManagerOptions.some((manager) => manager.id === user.defaultManagerId)
+
+                  return (
+                    <div
+                      key={user.id}
+                      data-module-user-row="true"
+                      className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 xl:grid-cols-[1.2fr_1fr_1fr_9rem_minmax(12rem,0.9fr)_auto_auto]"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold text-slate-900">
+                          {user.login}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {user.disabled || user.membershipStatus === 'disabled'
+                            ? 'Удален'
+                            : 'Активен'}
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {user.disabled || user.membershipStatus === 'disabled'
-                          ? 'Удален'
-                          : 'Активен'}
+                      <input
+                        className="field"
+                        placeholder="имя"
+                        value={user.firstName ?? ''}
+                        onChange={(event) =>
+                          setModuleUsers((current) =>
+                            current.map((item) =>
+                              item.id === user.id
+                                ? { ...item, firstName: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                      <input
+                        className="field"
+                        placeholder="фамилия"
+                        value={user.lastName ?? ''}
+                        onChange={(event) =>
+                          setModuleUsers((current) =>
+                            current.map((item) =>
+                              item.id === user.id
+                                ? { ...item, lastName: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                      <select
+                        className="field"
+                        value={user.moduleRole}
+                        onChange={(event) =>
+                          setModuleUsers((current) =>
+                            current.map((item) =>
+                              item.id === user.id
+                                ? { ...item, moduleRole: event.target.value as ModuleRole }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        <option value="employee">Сотрудник</option>
+                        <option value="leader">Лидер</option>
+                      </select>
+                      <div className="grid gap-1">
+                        <select
+                          className="field"
+                          aria-label={`${user.login}: менеджер по умолчанию`}
+                          value={defaultManagerExists ? user.defaultManagerId ?? '' : ''}
+                          onChange={(event) =>
+                            setModuleUsers((current) =>
+                              current.map((item) =>
+                                item.id === user.id
+                                  ? { ...item, defaultManagerId: event.target.value || null }
+                                  : item,
+                              ),
+                            )
+                          }
+                        >
+                          <option value="">Не выбран</option>
+                          {defaultManagerOptions.map((manager) => (
+                            <option key={manager.id} value={manager.id}>
+                              {manager.label}
+                            </option>
+                          ))}
+                        </select>
+                        {defaultManagerExists ? null : (
+                          <span className="text-xs font-semibold text-amber-700">
+                            Нужно переназначить менеджера.
+                          </span>
+                        )}
                       </div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() =>
+                          void handleUpdateModuleUser(user, {
+                            firstName: user.firstName?.trim() || null,
+                            lastName: user.lastName?.trim() || null,
+                            role: user.moduleRole,
+                            defaultManagerId: user.defaultManagerId ?? null,
+                          })
+                        }
+                      >
+                        Обновить
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => void handleDeleteModuleUser(user)}
+                        disabled={user.disabled || user.membershipStatus === 'disabled'}
+                      >
+                        Удалить
+                      </button>
                     </div>
-                    <input
-                      className="field"
-                      placeholder="имя"
-                      value={user.firstName ?? ''}
-                      onChange={(event) =>
-                        setModuleUsers((current) =>
-                          current.map((item) =>
-                            item.id === user.id
-                              ? { ...item, firstName: event.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                    <input
-                      className="field"
-                      placeholder="фамилия"
-                      value={user.lastName ?? ''}
-                      onChange={(event) =>
-                        setModuleUsers((current) =>
-                          current.map((item) =>
-                            item.id === user.id
-                              ? { ...item, lastName: event.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                    <select
-                      className="field"
-                      value={user.moduleRole}
-                      onChange={(event) =>
-                        setModuleUsers((current) =>
-                          current.map((item) =>
-                            item.id === user.id
-                              ? { ...item, moduleRole: event.target.value as ModuleRole }
-                              : item,
-                          ),
-                        )
-                      }
-                    >
-                      <option value="employee">Сотрудник</option>
-                      <option value="leader">Лидер</option>
-                    </select>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      onClick={() =>
-                        void handleUpdateModuleUser(user, {
-                          firstName: user.firstName?.trim() || null,
-                          lastName: user.lastName?.trim() || null,
-                          role: user.moduleRole,
-                        })
-                      }
-                    >
-                      Обновить
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      onClick={() => void handleDeleteModuleUser(user)}
-                      disabled={user.disabled || user.membershipStatus === 'disabled'}
-                    >
-                      Удалить
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </section>
           ) : null}

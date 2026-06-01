@@ -868,6 +868,78 @@ describe("createApp", () => {
     });
   });
 
+  it("reads and saves manager whitelist settings", async () => {
+    const app = createTestApp({
+      getManagerWhitelistSettings: async () => ({
+        options: [
+          { id: "78", name: "Егоров Андрей" },
+          { id: "13020", name: "Какулия Илья" }
+        ],
+        settings: [
+          {
+            moduleKey: "attraction",
+            managerId: "78",
+            managerName: "Егоров Андрей",
+            enabled: true,
+            sortOrder: 0,
+            updatedAt: "2026-06-01T10:00:00.000Z"
+          }
+        ]
+      }),
+      replaceManagerWhitelistSettings: async (input: { managerIds: string[] }) => ({
+        options: input.managerIds.map((id) => ({ id, name: id })),
+        settings: input.managerIds.map((id, index) => ({
+          moduleKey: "attraction",
+          managerId: id,
+          managerName: id,
+          enabled: true,
+          sortOrder: index * 10,
+          updatedAt: "2026-06-01T10:05:00.000Z"
+        }))
+      })
+    } as any);
+
+    await expect(
+      request(app).get("/api/settings/manager-whitelist").expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        options: [
+          { id: "78", name: "Егоров Андрей" },
+          { id: "13020", name: "Какулия Илья" }
+        ],
+        settings: [
+          {
+            moduleKey: "attraction",
+            managerId: "78",
+            enabled: true
+          }
+        ]
+      }
+    });
+
+    await expect(
+      request(app)
+        .put("/api/settings/manager-whitelist")
+        .send({ managerIds: ["13020", "78"] })
+        .expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        settings: [
+          {
+            managerId: "13020",
+            sortOrder: 0,
+            updatedAt: "2026-06-01T10:05:00.000Z"
+          },
+          {
+            managerId: "78",
+            sortOrder: 10,
+            updatedAt: "2026-06-01T10:05:00.000Z"
+          }
+        ]
+      }
+    });
+  });
+
   it("returns dashboard data, settings and sync status from the local API", async () => {
     let receivedActivitiesInput: unknown = null;
     let receivedRevenueVelocityInput: unknown = null;

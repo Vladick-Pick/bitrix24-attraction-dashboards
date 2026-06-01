@@ -18,6 +18,8 @@ import type {
   DealPricingSettings,
   DealPricingSettingsInput,
   LeadgenFunnelReport,
+  ManagerWhitelistSettingsData,
+  ManagerWhitelistSettingsInput,
   ManagerActionOutcomeDealSlaStatus,
   ManagerActionOutcomeReport,
   ManagerActionOutcomeReportSnapshot,
@@ -265,6 +267,7 @@ function normalizeAuthModule(value: unknown): AuthModule {
     paperclipProjectId: asNullableString(data.paperclipProjectId),
     paperclipGoalId: asNullableString(data.paperclipGoalId),
     paperclipTriageAgentId: asNullableString(data.paperclipTriageAgentId),
+    defaultManagerId: asNullableString(data.defaultManagerId),
   }
 }
 
@@ -463,6 +466,7 @@ function normalizeModuleUser(value: unknown): ModuleUser {
     moduleId: asString(data.moduleId),
     moduleRole: normalizeModuleRole(data.moduleRole),
     membershipStatus: data.membershipStatus === 'disabled' ? 'disabled' : 'active',
+    defaultManagerId: asNullableString(data.defaultManagerId),
     createdAt: asString(data.createdAt),
     updatedAt: asString(data.updatedAt),
   }
@@ -855,6 +859,33 @@ function normalizeConversionEventTypeSettings(
         updatedAt: asString(setting.updatedAt),
       }
     }),
+  }
+}
+
+function normalizeManagerWhitelistSettings(value: unknown): ManagerWhitelistSettingsData {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    options: asArray(data.options, (entry) => {
+      const option = isRecord(entry) ? entry : {}
+
+      return {
+        id: asString(option.id),
+        name: asString(option.name, asString(option.id)),
+      }
+    }).filter((option) => option.id),
+    settings: asArray(data.settings, (entry) => {
+      const setting = isRecord(entry) ? entry : {}
+
+      return {
+        moduleKey: asString(setting.moduleKey, 'attraction'),
+        managerId: asString(setting.managerId),
+        managerName: asString(setting.managerName, asString(setting.managerId)),
+        enabled: setting.enabled !== false,
+        sortOrder: asNumber(setting.sortOrder),
+        updatedAt: asString(setting.updatedAt),
+      }
+    }).filter((setting) => setting.managerId),
   }
 }
 
@@ -2643,6 +2674,7 @@ export const apiClient = {
       lastName?: string | null
       password: string
       role: ModuleRole
+      defaultManagerId?: string | null
     },
     moduleId = 'attraction',
   ) {
@@ -2662,6 +2694,7 @@ export const apiClient = {
       lastName?: string | null
       password?: string
       role?: ModuleRole
+      defaultManagerId?: string | null
       disabled?: boolean
       membershipStatus?: 'active' | 'disabled'
     },
@@ -2822,6 +2855,23 @@ export const apiClient = {
         body: JSON.stringify(input),
       },
       normalizeConversionEventTypeSettings,
+    )
+  },
+  async getManagerWhitelistSettings() {
+    return requestJson(
+      buildUrl('/api/settings/manager-whitelist'),
+      { method: 'GET' },
+      normalizeManagerWhitelistSettings,
+    )
+  },
+  async saveManagerWhitelistSettings(input: ManagerWhitelistSettingsInput) {
+    return requestJson(
+      buildUrl('/api/settings/manager-whitelist'),
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      normalizeManagerWhitelistSettings,
     )
   },
   async getMeta(moduleId = 'attraction') {

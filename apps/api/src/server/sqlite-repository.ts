@@ -21,6 +21,7 @@ import type {
   IdentityLinkSnapshot,
   LeadSnapshot,
   ManagerDirectoryEntry,
+  ManagerWhitelistSetting,
   ModuleEventTypeSetting,
   SalesPlanDraftRow,
   SalesPlanRow,
@@ -31,6 +32,7 @@ import type {
 } from "@bitrix24-reporting/contracts";
 
 import { DEFAULT_PRICING_RULES } from "../domain/deal-economics.js";
+import { ATTRACTION_MANAGER_CATALOG } from "../domain/attraction-managers.js";
 import { sanitizeRefusalReasonDetail } from "../domain/refusal-detail.js";
 
 export interface LastSyncSummary {
@@ -97,6 +99,12 @@ export interface ReplaceSalesPlanPeriodsInput {
 export interface ReplacePricingRulesInput {
   updatedAt: string;
   rules: DealPricingRuleInput[];
+}
+
+export interface ReplaceManagerWhitelistSettingsInput {
+  moduleKey: string;
+  managerIds: string[];
+  updatedAt: string;
 }
 
 export interface PruneConversionEventSnapshotsInput {
@@ -265,6 +273,10 @@ export interface SqliteRepository {
     moduleKey: string;
     rows: ModuleEventTypeSetting[];
   }): Promise<number>;
+  getManagerWhitelistSettings(moduleKey: string): Promise<ManagerWhitelistSetting[]>;
+  replaceManagerWhitelistSettings(
+    input: ReplaceManagerWhitelistSettingsInput
+  ): Promise<ManagerWhitelistSetting[]>;
   replaceConversionEventTypeOptions(
     rows: ConversionEventTypeOption[]
   ): Promise<number>;
@@ -869,6 +881,16 @@ export function createSqliteRepository(
       PRIMARY KEY (module_key, event_type_id)
     );
 
+    CREATE TABLE IF NOT EXISTS module_manager_whitelist_settings (
+      module_key TEXT NOT NULL,
+      manager_id TEXT NOT NULL,
+      manager_name TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      sort_order INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (module_key, manager_id)
+    );
+
     CREATE TABLE IF NOT EXISTS conversion_event_type_options (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -984,6 +1006,8 @@ export function createSqliteRepository(
       ON event_visit_stage_history (visit_id, changed_at);
     CREATE INDEX IF NOT EXISTS idx_module_event_type_settings_module
       ON module_event_type_settings (module_key, enabled);
+    CREATE INDEX IF NOT EXISTS idx_module_manager_whitelist_module
+      ON module_manager_whitelist_settings (module_key, enabled, sort_order);
     CREATE INDEX IF NOT EXISTS idx_call_crm_activity_id
       ON call_snapshots (crm_activity_id);
     CREATE INDEX IF NOT EXISTS idx_proto_comments_scene_status
@@ -1099,6 +1123,46 @@ export function createSqliteRepository(
       }
     );
     seedPricingTransaction(DEFAULT_PRICING_RULES);
+  }
+
+  const existingManagerWhitelist = database
+    .prepare(
+      "SELECT COUNT(*) AS count FROM module_manager_whitelist_settings WHERE module_key = ?"
+    )
+    .get("attraction") as { count: number };
+
+  if (existingManagerWhitelist.count === 0) {
+    const seedManagerWhitelist = database.prepare(`
+      INSERT INTO module_manager_whitelist_settings (
+        module_key,
+        manager_id,
+        manager_name,
+        enabled,
+        sort_order,
+        updated_at
+      ) VALUES (
+        @moduleKey,
+        @managerId,
+        @managerName,
+        1,
+        @sortOrder,
+        @updatedAt
+      )
+    `);
+    const seedManagerWhitelistTransaction = database.transaction(
+      (updatedAt: string) => {
+        ATTRACTION_MANAGER_CATALOG.forEach((manager, index) => {
+          seedManagerWhitelist.run({
+            moduleKey: "attraction",
+            managerId: manager.id,
+            managerName: manager.name,
+            sortOrder: index * 10,
+            updatedAt
+          });
+        });
+      }
+    );
+    seedManagerWhitelistTransaction(new Date().toISOString());
   }
 
   const replaceStageCatalogStatement = database.prepare(`
@@ -1681,6 +1745,34 @@ export function createSqliteRepository(
     ON CONFLICT(module_key, event_type_id) DO UPDATE SET
       event_type_label = excluded.event_type_label,
       enabled = excluded.enabled,
+      updated_at = excluded.updated_at
+  `);
+
+  const deleteManagerWhitelistSettingsStatement = database.prepare(`
+    DELETE FROM module_manager_whitelist_settings
+    WHERE module_key = ?
+  `);
+
+  const upsertManagerWhitelistSettingStatement = database.prepare(`
+    INSERT INTO module_manager_whitelist_settings (
+      module_key,
+      manager_id,
+      manager_name,
+      enabled,
+      sort_order,
+      updated_at
+    ) VALUES (
+      @moduleKey,
+      @managerId,
+      @managerName,
+      @enabled,
+      @sortOrder,
+      @updatedAt
+    )
+    ON CONFLICT(module_key, manager_id) DO UPDATE SET
+      manager_name = excluded.manager_name,
+      enabled = excluded.enabled,
+      sort_order = excluded.sort_order,
       updated_at = excluded.updated_at
   `);
 
@@ -3149,6 +3241,73 @@ export function createSqliteRepository(
       );
       transaction(inputRow.rows);
       return Promise.resolve(inputRow.rows.length);
+    },
+
+    async getManagerWhitelistSettings(moduleKey) {
+      const rows = database
+        .prepare(
+          `SELECT
+            module_key AS moduleKey,
+            manager_id AS managerId,
+            manager_name AS managerName,
+            enabled,
+            sort_order AS sortOrder,
+            updated_at AS updatedAt
+          FROM module_manager_whitelist_settings
+          WHERE module_key = ?
+          ORDER BY sort_order ASC, manager_name ASC, manager_id ASC`
+        )
+        .all(moduleKey) as Array<
+        Omit<ManagerWhitelistSetting, "enabled"> & {
+          enabled: number;
+        }
+      >;
+
+      return rows.map((row) => ({
+        ...row,
+        enabled: Boolean(row.enabled)
+      }));
+    },
+
+    async replaceManagerWhitelistSettings(inputSettings) {
+      const existingDirectory = new Map(
+        (
+          database
+            .prepare(
+              `SELECT
+                id,
+                name
+              FROM manager_directory`
+            )
+            .all() as ManagerDirectoryEntry[]
+        ).map((manager) => [manager.id, manager.name])
+      );
+      const seededDirectory = new Map(
+        ATTRACTION_MANAGER_CATALOG.map((manager) => [manager.id, manager.name])
+      );
+      const managerIds = Array.from(
+        new Set(inputSettings.managerIds.map(String).map((id) => id.trim()).filter(Boolean))
+      );
+      const rows: ManagerWhitelistSetting[] = managerIds.map((managerId, index) => ({
+        moduleKey: inputSettings.moduleKey,
+        managerId,
+        managerName:
+          seededDirectory.get(managerId) ?? existingDirectory.get(managerId) ?? managerId,
+        enabled: true,
+        sortOrder: index * 10,
+        updatedAt: inputSettings.updatedAt
+      }));
+      const transaction = database.transaction((nextRows: ManagerWhitelistSetting[]) => {
+        deleteManagerWhitelistSettingsStatement.run(inputSettings.moduleKey);
+        for (const row of nextRows) {
+          upsertManagerWhitelistSettingStatement.run({
+            ...row,
+            enabled: row.enabled ? 1 : 0
+          });
+        }
+      });
+      transaction(rows);
+      return rows;
     },
 
     replaceConversionEventTypeOptions(rows) {

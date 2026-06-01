@@ -16,18 +16,21 @@ export const ATTRACTION_MANAGER_IDS = ATTRACTION_MANAGER_CATALOG.map(
   (manager) => manager.id
 );
 
-const attractionManagerIdSet = new Set(ATTRACTION_MANAGER_IDS);
 const attractionManagerOrder = new Map(
   ATTRACTION_MANAGER_IDS.map((id, index) => [id, index])
 );
 const NO_ATTRACTION_MANAGER_MATCH_ID = "__NO_ATTRACTION_MANAGER_MATCH__";
 
 export function normalizeAttractionManagerFilters(
-  filters: ReportFilters | undefined
+  filters: ReportFilters | undefined,
+  managerIds: string[] = ATTRACTION_MANAGER_IDS
 ): ReportFilters {
+  const effectiveManagerIds =
+    managerIds.length > 0 ? managerIds : [NO_ATTRACTION_MANAGER_MATCH_ID];
+  const managerIdSet = new Set(effectiveManagerIds);
   const requestedManagerIds = filters?.managerIds ?? [];
   const scopedManagerIds = requestedManagerIds.filter((id) =>
-    attractionManagerIdSet.has(id)
+    managerIdSet.has(id)
   );
 
   return {
@@ -37,7 +40,7 @@ export function normalizeAttractionManagerFilters(
         ? scopedManagerIds.length > 0
           ? scopedManagerIds
           : [NO_ATTRACTION_MANAGER_MATCH_ID]
-        : ATTRACTION_MANAGER_IDS
+        : effectiveManagerIds
   };
 }
 

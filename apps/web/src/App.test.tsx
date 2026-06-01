@@ -144,6 +144,24 @@ vi.mock('@/lib/api-client', () => ({
         })),
       }),
     ),
+    getManagerWhitelistSettings: vi.fn(async () => ({
+      options: [],
+      settings: [],
+    })),
+    saveManagerWhitelistSettings: vi.fn(async (input: { managerIds: string[] }) => ({
+      options: input.managerIds.map((id) => ({
+        id,
+        name: id,
+      })),
+      settings: input.managerIds.map((id, index) => ({
+        moduleKey: 'attraction',
+        managerId: id,
+        managerName: id,
+        enabled: true,
+        sortOrder: index * 10,
+        updatedAt: '2026-04-10T12:05:00.000Z',
+      })),
+    })),
     getSalesPlan: vi.fn(async () => ({
       periodStart: '2026-04-01T00:00:00.000+03:00',
       periodEnd: '2026-04-30T23:59:59.999+03:00',

@@ -842,6 +842,56 @@ describe("createSqliteRepository", () => {
     );
   });
 
+  it("seeds and replaces attraction manager whitelist settings", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    const seeded = await (repository as any).getManagerWhitelistSettings("attraction");
+    expect(seeded.map((row: { managerId: string }) => row.managerId)).toEqual([
+      "78",
+      "11234",
+      "7824",
+      "6994",
+      "7814",
+      "72",
+      "2236",
+      "2764",
+      "13020"
+    ]);
+
+    await (repository as any).replaceManagerWhitelistSettings({
+      moduleKey: "attraction",
+      managerIds: ["13020", "78"],
+      updatedAt: "2026-06-01T10:00:00.000Z"
+    });
+
+    await expect(
+      (repository as any).getManagerWhitelistSettings("attraction")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        moduleKey: "attraction",
+        managerId: "13020",
+        managerName: "Какулия Илья",
+        enabled: true,
+        sortOrder: 0,
+        updatedAt: "2026-06-01T10:00:00.000Z"
+      }),
+      expect.objectContaining({
+        moduleKey: "attraction",
+        managerId: "78",
+        managerName: "Егоров Андрей",
+        enabled: true,
+        sortOrder: 10,
+        updatedAt: "2026-06-01T10:00:00.000Z"
+      })
+    ]);
+  });
+
   it("replaces and reads sales plan rows for a period", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

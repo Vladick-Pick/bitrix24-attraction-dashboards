@@ -1126,6 +1126,24 @@ export interface ManagerDirectoryEntry {
   name: string
 }
 
+export interface ManagerWhitelistSetting {
+  moduleKey: string
+  managerId: string
+  managerName: string
+  enabled: boolean
+  sortOrder: number
+  updatedAt: string
+}
+
+export interface ManagerWhitelistSettingsData {
+  options: ManagerDirectoryEntry[]
+  settings: ManagerWhitelistSetting[]
+}
+
+export interface ManagerWhitelistSettingsInput {
+  managerIds: string[]
+}
+
 export interface SourceCatalogEntry {
   key: string
   label: string

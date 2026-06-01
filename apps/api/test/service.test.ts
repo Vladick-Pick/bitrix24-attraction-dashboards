@@ -836,6 +836,116 @@ describe("createReportingService", () => {
     expect(calls.linkedDealCalls.totalCalls).toBe(0);
   });
 
+  it("uses saved manager whitelist settings as the attraction reporting scope", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 10000,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-04-01T10:00:00.000Z",
+          dateModify: "2026-04-01T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "2",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 20000,
+          assignedById: "999",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-04-01T10:00:00.000Z",
+          dateModify: "2026-04-01T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Preparation",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getWonStageIds: async () => ["C10:WON"],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllCalls: async () => [],
+      getManagerDirectory: async () => [
+        { id: "78", name: "Егоров Андрей" },
+        { id: "999", name: "Новый Менеджер" }
+      ],
+      getManagerWhitelistSettings: async () => [
+        {
+          moduleKey: "attraction",
+          managerId: "999",
+          managerName: "Новый Менеджер",
+          enabled: true,
+          sortOrder: 0,
+          updatedAt: "2026-06-01T10:00:00.000Z"
+        }
+      ],
+      upsertManagerDirectory: async () => 1,
+      getLastSyncSummary: async () => null,
+      setWonStageIds: async () => undefined
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T12:00:00.000Z")
+    });
+
+    const [meta, dashboard] = await Promise.all([
+      service.getMeta(),
+      service.getDashboard({
+        range: {
+          from: "2026-04-01T00:00:00.000Z",
+          to: "2026-04-30T23:59:59.999Z"
+        }
+      })
+    ]);
+
+    expect(meta.managerCatalog.map((manager) => manager.id)).toEqual(["999"]);
+    expect(dashboard.salesSummary.newDealsCount).toBe(1);
+    expect(dashboard.managerGroups.map((group) => group.managerId)).not.toContain("78");
+  });
+
   it("applies shared manager and source filters and exposes filter catalogs", async () => {
     const repository = {
       getAllDeals: async () => [

@@ -10,6 +10,7 @@ import type {
   DashboardData,
   DealPricingRuleInput,
   DealPricingSettings,
+  ManagerWhitelistSettingsData,
   ManagerActionOutcomeReport,
   RevenueVelocityReport,
   SalesPlanData,
@@ -108,6 +109,7 @@ export interface AuthModule {
   paperclipProjectId?: string | null
   paperclipGoalId?: string | null
   paperclipTriageAgentId?: string | null
+  defaultManagerId?: string | null
 }
 
 export interface AuthUser {
@@ -174,6 +176,7 @@ export interface ModuleUser {
   moduleId: string
   moduleRole: ModuleRole
   membershipStatus: 'active' | 'disabled'
+  defaultManagerId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -449,6 +452,7 @@ export interface ProtoRuntimeData {
   salesPlanQuarterDashboard?: DashboardData
   pricingSettings?: DealPricingSettings
   conversionEventTypeSettings?: ConversionEventTypeSettingsData
+  managerWhitelistSettings?: ManagerWhitelistSettingsData
   activitiesWorkload?: ActivitiesWorkloadReport
   callsWorkload?: CallsWorkloadReport
   activitiesCalls?: ActivitiesCallsSceneData

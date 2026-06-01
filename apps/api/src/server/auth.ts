@@ -57,6 +57,7 @@ export interface AuthenticatedModule {
   name: string;
   role: ModuleRole;
   permissions: ModulePermission[];
+  defaultManagerId: string | null;
   bitrixCategoryId: string;
   paperclipCompanyId: string | null;
   paperclipProjectId: string | null;
@@ -85,6 +86,7 @@ export interface ModuleUser {
   moduleSlug: string;
   moduleRole: ModuleRole;
   membershipStatus: ModuleMembershipStatus;
+  defaultManagerId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -171,6 +173,7 @@ export interface SqliteAuthStore {
       moduleId: string;
       role: ModuleRole;
       status: ModuleMembershipStatus;
+      defaultManagerId?: string | null;
     }>;
     now?: Date;
   }): Promise<PlatformUser | null>;
@@ -179,6 +182,7 @@ export interface SqliteAuthStore {
     moduleId: string;
     role: ModuleRole;
     status: ModuleMembershipStatus;
+    defaultManagerId?: string | null;
     now?: Date;
   }): Promise<void>;
   listModuleUsers(moduleId: string): Promise<ModuleUser[]>;
@@ -191,8 +195,14 @@ export interface SqliteAuthStore {
     role?: ModuleRole;
     disabled?: boolean;
     membershipStatus?: ModuleMembershipStatus;
+    defaultManagerId?: string | null;
     now?: Date;
   }): Promise<ModuleUser | null>;
+  clearModuleDefaultManagersExcept(input: {
+    moduleId: string;
+    managerIds: string[];
+    now?: Date;
+  }): Promise<number>;
   close(): void;
 }
 
@@ -454,6 +464,7 @@ function readAuthenticatedModule(row: unknown): AuthenticatedModule | null {
     slug: string;
     name: string;
     role: string;
+    defaultManagerId: string | null;
     bitrixCategoryId: string;
     paperclipCompanyId: string | null;
     paperclipProjectId: string | null;
@@ -468,6 +479,7 @@ function readAuthenticatedModule(row: unknown): AuthenticatedModule | null {
     name: data.name,
     role,
     permissions: permissionsForModuleRole(role),
+    defaultManagerId: data.defaultManagerId ?? null,
     bitrixCategoryId: data.bitrixCategoryId,
     paperclipCompanyId: data.paperclipCompanyId ?? null,
     paperclipProjectId: data.paperclipProjectId ?? null,
@@ -519,6 +531,7 @@ function readModuleUser(row: unknown): ModuleUser | null {
     moduleSlug: string;
     role: string;
     status: string;
+    defaultManagerId: string | null;
     createdAt: string;
     updatedAt: string;
   };
@@ -533,6 +546,7 @@ function readModuleUser(row: unknown): ModuleUser | null {
     moduleSlug: data.moduleSlug,
     moduleRole: normalizeModuleRole(data.role),
     membershipStatus: normalizeModuleMembershipStatus(data.status),
+    defaultManagerId: data.defaultManagerId ?? null,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt
   };
@@ -628,6 +642,7 @@ export function createSqliteAuthStore(input: {
       module_id TEXT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
       role TEXT NOT NULL,
       status TEXT NOT NULL,
+      default_manager_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, module_id)
@@ -642,6 +657,7 @@ export function createSqliteAuthStore(input: {
   ensureAuthColumn(database, "auth_users", "first_name", "TEXT");
   ensureAuthColumn(database, "auth_users", "last_name", "TEXT");
   ensureAuthColumn(database, "auth_users", "is_super_admin", "INTEGER NOT NULL DEFAULT 0");
+  ensureAuthColumn(database, "module_memberships", "default_manager_id", "TEXT");
 
   const createUserStatement = database.prepare(`
     INSERT INTO auth_users (
@@ -792,6 +808,7 @@ export function createSqliteAuthStore(input: {
       modules.slug,
       modules.name,
       module_memberships.role,
+      module_memberships.default_manager_id AS defaultManagerId,
       modules.bitrix_category_id AS bitrixCategoryId,
       modules.paperclip_company_id AS paperclipCompanyId,
       modules.paperclip_project_id AS paperclipProjectId,
@@ -822,6 +839,7 @@ export function createSqliteAuthStore(input: {
       modules.slug,
       modules.name,
       'leader' AS role,
+      NULL AS defaultManagerId,
       modules.bitrix_category_id AS bitrixCategoryId,
       modules.paperclip_company_id AS paperclipCompanyId,
       modules.paperclip_project_id AS paperclipProjectId,
@@ -841,6 +859,7 @@ export function createSqliteAuthStore(input: {
       module_id,
       role,
       status,
+      default_manager_id,
       created_at,
       updated_at
     ) VALUES (
@@ -848,12 +867,14 @@ export function createSqliteAuthStore(input: {
       @moduleId,
       @role,
       @status,
+      @defaultManagerId,
       @createdAt,
       @updatedAt
     )
     ON CONFLICT(user_id, module_id) DO UPDATE SET
       role = excluded.role,
       status = excluded.status,
+      default_manager_id = COALESCE(excluded.default_manager_id, module_memberships.default_manager_id),
       updated_at = excluded.updated_at
   `);
   const listModuleUsersStatement = database.prepare(`
@@ -867,6 +888,7 @@ export function createSqliteAuthStore(input: {
       modules.slug AS moduleSlug,
       module_memberships.role,
       module_memberships.status,
+      module_memberships.default_manager_id AS defaultManagerId,
       module_memberships.created_at AS createdAt,
       module_memberships.updated_at AS updatedAt
     FROM module_memberships
@@ -886,6 +908,7 @@ export function createSqliteAuthStore(input: {
       modules.slug AS moduleSlug,
       module_memberships.role,
       module_memberships.status,
+      module_memberships.default_manager_id AS defaultManagerId,
       module_memberships.created_at AS createdAt,
       module_memberships.updated_at AS updatedAt
     FROM module_memberships
@@ -904,6 +927,7 @@ export function createSqliteAuthStore(input: {
       modules.slug AS moduleSlug,
       module_memberships.role,
       module_memberships.status,
+      module_memberships.default_manager_id AS defaultManagerId,
       module_memberships.created_at AS createdAt,
       module_memberships.updated_at AS updatedAt
     FROM module_memberships
@@ -936,6 +960,10 @@ export function createSqliteAuthStore(input: {
     UPDATE module_memberships
     SET role = COALESCE(@role, role),
       status = COALESCE(@status, status),
+      default_manager_id = CASE
+        WHEN @defaultManagerChanged = 1 THEN @defaultManagerId
+        ELSE default_manager_id
+      END,
       updated_at = @updatedAt
     WHERE user_id = @userId
       AND module_id = @moduleId
@@ -951,6 +979,7 @@ export function createSqliteAuthStore(input: {
       modules.slug AS moduleSlug,
       module_memberships.role,
       module_memberships.status,
+      module_memberships.default_manager_id AS defaultManagerId,
       module_memberships.created_at AS createdAt,
       module_memberships.updated_at AS updatedAt
     FROM module_memberships
@@ -984,6 +1013,13 @@ export function createSqliteAuthStore(input: {
       updated_at = @updatedAt
     WHERE id = @userId
   `);
+  const clearAllDefaultManagersForModuleStatement = database.prepare(`
+    UPDATE module_memberships
+    SET default_manager_id = NULL,
+      updated_at = @updatedAt
+    WHERE module_id = @moduleId
+      AND default_manager_id IS NOT NULL
+  `);
 
   function listMembershipsForUser(userId: number) {
     return listModuleUsersByUserStatement
@@ -1011,6 +1047,7 @@ export function createSqliteAuthStore(input: {
         moduleId: string;
         role: ModuleRole;
         status: ModuleMembershipStatus;
+        defaultManagerId?: string | null;
       }>;
       now: Date;
     }) => {
@@ -1057,6 +1094,7 @@ export function createSqliteAuthStore(input: {
           moduleId: module.id,
           role: requested?.role ?? existing?.moduleRole ?? "employee",
           status: requested?.status ?? "disabled",
+          defaultManagerId: requested?.defaultManagerId ?? null,
           createdAt: nowIso,
           updatedAt: nowIso
         });
@@ -1208,6 +1246,7 @@ export function createSqliteAuthStore(input: {
         moduleId,
         role: "leader",
         status: "active",
+        defaultManagerId: null,
         createdAt: nowIso,
         updatedAt: nowIso
       });
@@ -1291,6 +1330,7 @@ export function createSqliteAuthStore(input: {
         moduleId: inputMembership.moduleId,
         role: inputMembership.role,
         status: inputMembership.status,
+        defaultManagerId: inputMembership.defaultManagerId ?? null,
         createdAt: nowIso,
         updatedAt: nowIso
       });
@@ -1334,12 +1374,18 @@ export function createSqliteAuthStore(input: {
         });
       }
 
-      if (inputUser.role !== undefined || inputUser.membershipStatus !== undefined) {
+      if (
+        inputUser.role !== undefined ||
+        inputUser.membershipStatus !== undefined ||
+        inputUser.defaultManagerId !== undefined
+      ) {
         updateModuleMembershipStatement.run({
           userId: inputUser.userId,
           moduleId: inputUser.moduleId,
           role: inputUser.role ?? null,
           status: inputUser.membershipStatus ?? null,
+          defaultManagerChanged: inputUser.defaultManagerId !== undefined ? 1 : 0,
+          defaultManagerId: inputUser.defaultManagerId ?? null,
           updatedAt: nowIso
         });
       }
@@ -1347,6 +1393,33 @@ export function createSqliteAuthStore(input: {
       return readModuleUser(
         getModuleUserStatement.get(inputUser.userId, inputUser.moduleId)
       );
+    },
+    async clearModuleDefaultManagersExcept(inputClear) {
+      const nowIso = toIso(inputClear.now ?? new Date());
+      const managerIds = Array.from(
+        new Set(inputClear.managerIds.map(String).map((id) => id.trim()).filter(Boolean))
+      );
+
+      if (managerIds.length === 0) {
+        return clearAllDefaultManagersForModuleStatement.run({
+          moduleId: inputClear.moduleId,
+          updatedAt: nowIso
+        }).changes;
+      }
+
+      const placeholders = managerIds.map(() => "?").join(", ");
+      const result = database
+        .prepare(
+          `UPDATE module_memberships
+          SET default_manager_id = NULL,
+            updated_at = ?
+          WHERE module_id = ?
+            AND default_manager_id IS NOT NULL
+            AND default_manager_id NOT IN (${placeholders})`
+        )
+        .run(nowIso, inputClear.moduleId, ...managerIds);
+
+      return result.changes;
     },
     close() {
       database.close();
@@ -1370,6 +1443,7 @@ export function createPasswordAuthService(input: {
     windowMs: number;
   };
   now?: () => Date;
+  verifyPassword?: typeof verifyPassword;
 }): PasswordAuthService {
   const cookieName = input.cookieName ?? "b24dash_session";
   const ttlMs = (input.ttlHours ?? 12) * 60 * 60 * 1000;
@@ -1380,6 +1454,7 @@ export function createPasswordAuthService(input: {
   };
   const buckets = new Map<string, RateLimitBucket>();
   const now = input.now ?? (() => new Date());
+  const verifyPasswordForLogin = input.verifyPassword ?? verifyPassword;
 
   function readBucket(rateLimitKey: string, nowMs: number) {
     const bucket = buckets.get(rateLimitKey);
@@ -1421,7 +1496,7 @@ export function createPasswordAuthService(input: {
       assertNotRateLimited(rateLimitKey, currentMs);
 
       const user = await input.store.findUserByLogin(login);
-      const validPassword = await verifyPassword(
+      const validPassword = await verifyPasswordForLogin(
         credentials.password,
         user && !user.disabled ? user.passwordHash : DUMMY_PASSWORD_HASH
       );

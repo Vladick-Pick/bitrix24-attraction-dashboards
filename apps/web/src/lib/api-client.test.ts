@@ -828,6 +828,85 @@ describe('apiClient', () => {
     })
   })
 
+  it('loads and saves manager whitelist settings', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          options: [
+            {
+              id: '13020',
+              name: 'Илья Какулия',
+            },
+          ],
+          settings: [
+            {
+              moduleKey: 'attraction',
+              managerId: '13020',
+              managerName: 'Илья Какулия',
+              enabled: true,
+              sortOrder: 0,
+              updatedAt: '2026-05-24T10:00:00.000Z',
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          options: [
+            {
+              id: '13020',
+              name: 'Илья Какулия',
+            },
+          ],
+          settings: [
+            {
+              moduleKey: 'attraction',
+              managerId: '13020',
+              managerName: 'Илья Какулия',
+              enabled: true,
+              sortOrder: 0,
+              updatedAt: '2026-05-24T10:05:00.000Z',
+            },
+          ],
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const settings = await apiClient.getManagerWhitelistSettings()
+    const saved = await apiClient.saveManagerWhitelistSettings({
+      managerIds: ['13020'],
+    })
+
+    const [getUrl, getInit] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const [saveUrl, saveInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+
+    expect(new URL(getUrl, window.location.origin).pathname).toBe(
+      '/api/settings/manager-whitelist',
+    )
+    expect(getInit.method).toBe('GET')
+    expect(new URL(saveUrl, window.location.origin).pathname).toBe(
+      '/api/settings/manager-whitelist',
+    )
+    expect(saveInit.method).toBe('PUT')
+    expect(JSON.parse(String(saveInit.body))).toEqual({
+      managerIds: ['13020'],
+    })
+    expect(settings.options[0]).toMatchObject({
+      id: '13020',
+      name: 'Илья Какулия',
+    })
+    expect(saved.settings[0]).toMatchObject({
+      moduleKey: 'attraction',
+      managerId: '13020',
+      managerName: 'Илья Какулия',
+      enabled: true,
+    })
+  })
+
   it('normalizes acquisition outcome reports defensively', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -1386,6 +1465,7 @@ describe('apiClient', () => {
                 name: 'Привлечение',
                 role: 'leader',
                 permissions: ['comments:create', 'module-users:manage'],
+                defaultManagerId: '13020',
               },
             ],
           },
@@ -1444,6 +1524,7 @@ describe('apiClient', () => {
             moduleId: 'attraction',
             moduleRole: 'employee',
             membershipStatus: 'active',
+            defaultManagerId: '13020',
             createdAt: '2026-04-10T12:00:00.000Z',
             updatedAt: '2026-04-10T12:00:00.000Z',
           },
@@ -1469,16 +1550,19 @@ describe('apiClient', () => {
       login: 'employee@example.com',
       password: 'correct-password',
       role: 'employee',
+      defaultManagerId: '13020',
     })
 
     expect(auth.user.modules[0]).toMatchObject({
       id: 'attraction',
       role: 'leader',
       permissions: ['comments:create', 'module-users:manage'],
+      defaultManagerId: '13020',
     })
     expect(created.comment.paperclipStatus).toBe('sent')
     expect(notifications.notifications[0]?.status).toBe('in_work')
     expect(moduleUser.user.moduleRole).toBe('employee')
+    expect(moduleUser.user.defaultManagerId).toBe('13020')
 
     const [, createCommentInit] = fetchMock.mock.calls[1] as [string, RequestInit]
     const [notificationsUrl] = fetchMock.mock.calls[2] as [string, RequestInit]
@@ -1498,6 +1582,9 @@ describe('apiClient', () => {
     )
     expect(createUserInit.headers).toMatchObject({
       'X-CSRF-Token': 'csrf-from-me',
+    })
+    expect(JSON.parse(String(createUserInit.body))).toMatchObject({
+      defaultManagerId: '13020',
     })
   })
 

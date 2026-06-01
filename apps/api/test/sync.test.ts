@@ -416,6 +416,94 @@ describe("performManualSync", () => {
     );
   });
 
+  it("keeps an empty attraction manager whitelist as an empty sync scope", async () => {
+    let snapshotReads = 0;
+    let cursorReads = 0;
+    let stageCatalogFetches = 0;
+    let listDealCalls = 0;
+    let syncRunScopeKey: string | null = null;
+    let finishedSummary: unknown = null;
+    const repo = {
+      getLatestSuccessCursor: async () => {
+        cursorReads += 1;
+        return "2026-05-01T00:00:00.000Z";
+      },
+      getOperationalHistoryBootstrappedAt: async () => null,
+      getCallHistoryBootstrappedAt: async () => null,
+      getActivitySnapshotCount: async () => 0,
+      getSnapshotStats: async () => {
+        snapshotReads += 1;
+        return {
+          deals: 99,
+          activities: 12,
+          calls: 7,
+          stageHistory: 21
+        };
+      },
+      createSyncRun: async (input: { scopeKey: string }) => {
+        syncRunScopeKey = input.scopeKey;
+        return 130;
+      },
+      finishSyncRun: async (input: unknown) => {
+        finishedSummary = input;
+      },
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => {
+        stageCatalogFetches += 1;
+        return [];
+      },
+      fetchSourceCatalog: async () => [],
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async () => {
+        listDealCalls += 1;
+        return [];
+      },
+      fetchUsers: async () => []
+    };
+
+    const result = await performManualSync({
+      client: client as never,
+      repository: repo as never,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      assignedByIds: [],
+      now: () => "2026-06-01T10:00:00.000Z"
+    });
+
+    expect(snapshotReads).toBe(0);
+    expect(cursorReads).toBe(0);
+    expect(stageCatalogFetches).toBe(0);
+    expect(listDealCalls).toBe(0);
+    expect(syncRunScopeKey).toBe("category:10:assigned:");
+    expect(result).toMatchObject({
+      syncRunId: 130,
+      dealsSynced: 0,
+      modifiedAfter: null,
+      snapshotBefore: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      },
+      snapshotAfter: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0
+      },
+      diagnostics: ["attractionSkipped=empty-scope", "attractionManagers=0"]
+    });
+    expect(finishedSummary).toEqual(
+      expect.objectContaining({
+        status: "success",
+        dealsSynced: 0,
+        modifiedAfter: null
+      })
+    );
+  });
+
   it("backfills leadgen supplemental calls from call-stat coverage instead of the deal cursor", async () => {
     const callRequests: Array<{
       activityIds?: string[];

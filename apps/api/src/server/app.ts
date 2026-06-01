@@ -13,6 +13,8 @@ import type {
   LeadgenFunnelReport,
   ManagerActionOutcomeReport,
   ManagerDirectoryEntry,
+  ManagerWhitelistSettingsData,
+  ManagerWhitelistSettingsInput,
   ManualSyncSummary,
   OntologySourceDocumentResponse,
   RevenueVelocityDimension,
@@ -151,6 +153,10 @@ interface AppService {
   replaceConversionEventTypeSettings?(
     input: ConversionEventTypeSettingsInput
   ): Promise<ConversionEventTypeSettingsData>;
+  getManagerWhitelistSettings?(): Promise<ManagerWhitelistSettingsData>;
+  replaceManagerWhitelistSettings?(
+    input: ManagerWhitelistSettingsInput
+  ): Promise<ManagerWhitelistSettingsData>;
   getMeta(): Promise<MetaResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
@@ -412,7 +418,8 @@ const createModuleUserBodySchema = z.object({
   firstName: z.string().trim().max(100).nullable().optional(),
   lastName: z.string().trim().max(100).nullable().optional(),
   password: z.string().min(8).max(200),
-  role: z.enum(["leader", "employee"]).default("employee")
+  role: z.enum(["leader", "employee"]).default("employee"),
+  defaultManagerId: z.string().trim().min(1).max(100).nullable().optional()
 });
 
 const updateModuleUserBodySchema = z.object({
@@ -421,7 +428,8 @@ const updateModuleUserBodySchema = z.object({
   password: z.string().min(8).max(200).optional(),
   role: z.enum(["leader", "employee"]).optional(),
   disabled: z.boolean().optional(),
-  membershipStatus: z.enum(["active", "disabled"]).optional()
+  membershipStatus: z.enum(["active", "disabled"]).optional(),
+  defaultManagerId: z.string().trim().min(1).max(100).nullable().optional()
 });
 
 const platformMembershipsBodySchema = z.object({
@@ -587,6 +595,10 @@ const pricingSettingsBodySchema = z.object({
 
 const conversionEventTypeSettingsBodySchema = z.object({
   eventTypeIds: z.array(z.string().trim().min(1))
+});
+
+const managerWhitelistSettingsBodySchema = z.object({
+  managerIds: z.array(z.string().trim().min(1))
 });
 
 const loginBodySchema = z.object({
@@ -1302,6 +1314,47 @@ export function createApp(
     const access = requireModuleAccess(response, undefined, moduleId);
     if (!access || access.module.role !== "leader") {
       response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return true;
+    }
+
+    return false;
+  }
+
+  async function denyIfInvalidDefaultManager(
+    response: express.Response,
+    moduleId: string,
+    defaultManagerId: string | null | undefined
+  ) {
+    if (defaultManagerId === undefined || defaultManagerId === null) {
+      return false;
+    }
+
+    const managerId = defaultManagerId.trim();
+    if (!managerId || moduleId !== "attraction") {
+      return false;
+    }
+
+    if (!service.getManagerWhitelistSettings) {
+      response.status(400).json(
+        createErrorResponse("VALIDATION_ERROR", {
+          field: "defaultManagerId",
+          reason: "DEFAULT_MANAGER_NOT_IN_WHITELIST"
+        })
+      );
+      return true;
+    }
+
+    const whitelist = await service.getManagerWhitelistSettings();
+    const allowed = whitelist.settings.some(
+      (setting) => setting.enabled && setting.managerId === managerId
+    );
+    if (!allowed) {
+      response.status(400).json(
+        createErrorResponse("VALIDATION_ERROR", {
+          field: "defaultManagerId",
+          reason: "DEFAULT_MANAGER_NOT_IN_WHITELIST"
+        })
+      );
       return true;
     }
 
@@ -2259,6 +2312,15 @@ export function createApp(
         response.status(409).json(createErrorResponse("USER_ALREADY_EXISTS"));
         return;
       }
+      if (
+        await denyIfInvalidDefaultManager(
+          response,
+          access.module.id,
+          payload.defaultManagerId
+        )
+      ) {
+        return;
+      }
 
       const user = await config.authStore.createUser({
         login: payload.login,
@@ -2270,7 +2332,8 @@ export function createApp(
         userId: user.id,
         moduleId: access.module.id,
         role: payload.role,
-        status: "active"
+        status: "active",
+        defaultManagerId: payload.defaultManagerId ?? null
       });
       response.status(201).json({
         user: await config.authStore.updateModuleUser({
@@ -2305,6 +2368,15 @@ export function createApp(
         return;
       }
       const payload = updateModuleUserBodySchema.parse(request.body);
+      if (
+        await denyIfInvalidDefaultManager(
+          response,
+          access.module.id,
+          payload.defaultManagerId
+        )
+      ) {
+        return;
+      }
       const user = await config.authStore.updateModuleUser({
         userId,
         moduleId: access.module.id,
@@ -2318,6 +2390,9 @@ export function createApp(
         ...(payload.role ? { role: payload.role as ModuleRole } : {}),
         ...(payload.membershipStatus
           ? { membershipStatus: payload.membershipStatus }
+          : {}),
+        ...(payload.defaultManagerId !== undefined
+          ? { defaultManagerId: payload.defaultManagerId ?? null }
           : {})
       });
       if (!user) {
@@ -2914,6 +2989,51 @@ export function createApp(
       try {
         const payload = conversionEventTypeSettingsBodySchema.parse(request.body);
         response.json(await service.replaceConversionEventTypeSettings(payload));
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get("/api/settings/manager-whitelist", async (_request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
+    if (!service.getManagerWhitelistSettings) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      response.json(await service.getManagerWhitelistSettings());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put(
+    "/api/settings/manager-whitelist",
+    async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+        return;
+      }
+
+      if (!service.replaceManagerWhitelistSettings) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      try {
+        const payload = managerWhitelistSettingsBodySchema.parse(request.body);
+        const result = await service.replaceManagerWhitelistSettings(payload);
+        if (config.authStore) {
+          await config.authStore.clearModuleDefaultManagersExcept({
+            moduleId: "attraction",
+            managerIds: payload.managerIds
+          });
+        }
+        response.json(result);
       } catch (error) {
         next(error);
       }

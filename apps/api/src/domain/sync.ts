@@ -321,6 +321,7 @@ interface PerformManualSyncInput {
   onProgress?: (event: SyncProgressEvent) => void;
   conversionEventVisitsTimeoutMs?: number;
   stageHistoryTimeoutMs?: number;
+  assignedByIds?: string[];
   afterPersist?: () => Promise<void>;
 }
 
@@ -1267,7 +1268,70 @@ function runSnapshotTransaction<T>(
 export async function performManualSync(
   input: PerformManualSyncInput
 ): Promise<ManualSyncSummary> {
-  const assignedByIds = ATTRACTION_MANAGER_IDS;
+  const assignedByIds = input.assignedByIds ?? ATTRACTION_MANAGER_IDS;
+  const hasAttractionScope = assignedByIds.length > 0;
+  const scopeKey = hasAttractionScope
+    ? buildCategoryScopeKey(input.categoryIds, assignedByIds)
+    : `${buildCategoryScopeKey(input.categoryIds)}:assigned:`;
+
+  if (!hasAttractionScope) {
+    const startedAt = input.now();
+    const mode = "full";
+    const modifiedAfter = null;
+    const snapshotBefore: SnapshotStats = {
+      deals: 0,
+      activities: 0,
+      calls: 0,
+      stageHistory: 0
+    };
+    const dealBreakdown = buildDealChangeBreakdown({
+      deals: [],
+      previousDeals: []
+    });
+    const changes: SyncChangeSummary = {
+      deals: 0,
+      dealBreakdown,
+      activities: 0,
+      calls: 0,
+      stageHistory: 0,
+      managers: 0
+    };
+    const diagnostics = [
+      "attractionSkipped=empty-scope",
+      `attractionManagers=${assignedByIds.length}`
+    ];
+    const syncRunId = await input.repository.createSyncRun({
+      startedAt,
+      mode,
+      modifiedAfter,
+      scopeKey
+    });
+    const finishedAt = input.now();
+    await input.repository.finishSyncRun({
+      syncRunId,
+      finishedAt,
+      status: "success",
+      leadsSynced: 0,
+      dealsSynced: 0,
+      dealBreakdown,
+      diagnostics,
+      modifiedAfter
+    });
+
+    return {
+      syncRunId,
+      leadsSynced: 0,
+      dealsSynced: 0,
+      mode,
+      modifiedAfter,
+      finishedAt,
+      snapshotBefore,
+      snapshotAfter: snapshotBefore,
+      changes,
+      diagnostics
+    };
+  }
+
   const snapshotScope = {
     categoryIds: input.categoryIds,
     assignedByIds
@@ -1285,7 +1349,6 @@ export async function performManualSync(
     input.repository.getActivitySnapshotCount(),
     getSnapshotStats(input.repository, snapshotScope)
   ]);
-  const scopeKey = buildCategoryScopeKey(input.categoryIds, assignedByIds);
   const compatibleScope =
     exactModifiedAfter === null && input.repository.getLatestSuccessfulScope
       ? await input.repository.getLatestSuccessfulScope(
@@ -2083,7 +2146,7 @@ export async function performManualSync(
             input.client.listCalls({
               callStartDateFrom: callStatsCursor,
               callStartDateTo: startedAt,
-              portalUserIds: ATTRACTION_MANAGER_IDS
+              portalUserIds: assignedByIds
             })
         })
       : [];

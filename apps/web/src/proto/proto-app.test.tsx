@@ -1675,7 +1675,7 @@ describe('ProtoApp', () => {
       await screen.findByRole('button', { name: /^личный кабинет$/i }),
     )
 
-    await userEvent.type(screen.getByPlaceholderText('логин email'), 'ilya@example.com')
+    await userEvent.type(screen.getByPlaceholderText('логин'), 'ilya@example.com')
     await userEvent.type(screen.getByPlaceholderText('пароль'), 'correct-password')
     await userEvent.selectOptions(
       await screen.findByLabelText(/менеджер по умолчанию для нового сотрудника/i),

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import type { DashboardData, ManualSyncSummary } from "@bitrix24-reporting/contracts";
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPasswordAuthService,
@@ -513,6 +513,145 @@ describe("password session auth", () => {
       .expect(({ body }) => {
         expect(body.user.defaultManagerId).toBe("78");
       });
+
+    store.close();
+  });
+
+  it("creates module leaders without requiring a default manager or email login", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    const leader = await store.createUser({
+      login: "leader",
+      passwordHash: await hashPassword("leader-password")
+    });
+    await store.setModuleMembership({
+      userId: leader.id,
+      moduleId: "attraction",
+      role: "leader",
+      status: "active"
+    });
+    const auth = createPasswordAuthService({
+      store,
+      sessionSecret: "test-session-secret-with-at-least-32-bytes",
+      cookieName: "b24dash_session",
+      ttlHours: 12,
+      secureCookie: false
+    });
+    const app = createApp(createMinimalService(), {
+      auth,
+      authStore: store
+    });
+    const agent = request.agent(app);
+    const loginResponse = await agent
+      .post("/api/auth/login")
+      .send({ login: "leader", password: "leader-password" })
+      .expect(200);
+    const csrfToken = loginResponse.body.csrfToken as string;
+
+    await agent
+      .post("/api/admin/module-users")
+      .set("X-CSRF-Token", csrfToken)
+      .send({
+        login: "Daria",
+        firstName: "Дарья",
+        lastName: "Бычкова",
+        password: "leader-password",
+        role: "leader",
+        defaultManagerId: null
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.user).toMatchObject({
+          login: "daria",
+          moduleRole: "leader",
+          defaultManagerId: null
+        });
+      });
+
+    await expect(store.listModuleUsers("attraction")).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          login: "daria",
+          moduleRole: "leader",
+          defaultManagerId: null
+        })
+      ])
+    );
+
+    store.close();
+  });
+
+  it("does not leave an auth user behind when module user creation fails after the user insert", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-auth-"));
+    directories.push(directory);
+    const store = createSqliteAuthStore({
+      databaseUrl: `file:${join(directory, "reporting.sqlite")}`
+    });
+    await store.ensureModule({
+      id: "attraction",
+      slug: "attraction",
+      name: "Привлечение",
+      bitrixCategoryId: "10"
+    });
+    const leader = await store.createUser({
+      login: "leader",
+      passwordHash: await hashPassword("leader-password")
+    });
+    await store.setModuleMembership({
+      userId: leader.id,
+      moduleId: "attraction",
+      role: "leader",
+      status: "active"
+    });
+    const auth = createPasswordAuthService({
+      store,
+      sessionSecret: "test-session-secret-with-at-least-32-bytes",
+      cookieName: "b24dash_session",
+      ttlHours: 12,
+      secureCookie: false
+    });
+    const authStoreWithFailingMembership = {
+      ...store,
+      async setModuleMembership() {
+        throw new Error("Simulated module membership failure.");
+      }
+    };
+    const app = createApp(createMinimalService(), {
+      auth,
+      authStore: authStoreWithFailingMembership
+    });
+    const agent = request.agent(app);
+    const loginResponse = await agent
+      .post("/api/auth/login")
+      .send({ login: "leader", password: "leader-password" })
+      .expect(200);
+    const csrfToken = loginResponse.body.csrfToken as string;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await agent
+        .post("/api/admin/module-users")
+        .set("X-CSRF-Token", csrfToken)
+        .send({
+          login: "partial-user@example.com",
+          password: "employee-password",
+          role: "employee"
+        })
+        .expect(500);
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    await expect(store.findUserByLogin("partial-user@example.com")).resolves.toBeNull();
 
     store.close();
   });

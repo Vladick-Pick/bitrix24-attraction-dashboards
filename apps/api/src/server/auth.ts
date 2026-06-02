@@ -135,6 +135,7 @@ export interface AuthSessionInput {
 
 export interface SqliteAuthStore {
   createUser(input: AuthUserInput): Promise<AuthUser>;
+  deleteUser(userId: number): Promise<boolean>;
   updateUserProfile(input: {
     userId: number;
     firstName?: string | null;
@@ -690,6 +691,10 @@ export function createSqliteAuthStore(input: {
     FROM auth_users
     WHERE id = ?
   `);
+  const deleteUserStatement = database.prepare(`
+    DELETE FROM auth_users
+    WHERE id = ?
+  `);
   const updateAuthUserProfileStatement = database.prepare(`
     UPDATE auth_users
     SET first_name = @firstName,
@@ -1126,6 +1131,10 @@ export function createSqliteAuthStore(input: {
       }
 
       return user;
+    },
+    async deleteUser(userId) {
+      const result = deleteUserStatement.run(userId);
+      return result.changes > 0;
     },
     async updateUserProfile(inputUser) {
       const nowIso = toIso(inputUser.now ?? new Date());

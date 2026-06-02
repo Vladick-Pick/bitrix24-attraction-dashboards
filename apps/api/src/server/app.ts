@@ -414,7 +414,7 @@ const PAPERCLIP_DEVELOPMENT_READY_REPORT_MARKER =
 const PAPERCLIP_DEVELOPMENT_READY_REPORT_HEADING = "## Готово к проверке";
 
 const createModuleUserBodySchema = z.object({
-  login: z.string().trim().email().max(200),
+  login: z.string().trim().min(1).max(128),
   firstName: z.string().trim().max(100).nullable().optional(),
   lastName: z.string().trim().max(100).nullable().optional(),
   password: z.string().min(8).max(200),
@@ -2328,19 +2328,31 @@ export function createApp(
         lastName: normalizeProfileField(payload.lastName) ?? null,
         passwordHash: await hashPassword(payload.password)
       });
-      await config.authStore.setModuleMembership({
-        userId: user.id,
-        moduleId: access.module.id,
-        role: payload.role,
-        status: "active",
-        defaultManagerId: payload.defaultManagerId ?? null
-      });
-      response.status(201).json({
-        user: await config.authStore.updateModuleUser({
+
+      try {
+        await config.authStore.setModuleMembership({
+          userId: user.id,
+          moduleId: access.module.id,
+          role: payload.role,
+          status: "active",
+          defaultManagerId: payload.defaultManagerId ?? null
+        });
+        const moduleUser = await config.authStore.updateModuleUser({
           userId: user.id,
           moduleId: access.module.id
-        })
-      });
+        });
+        if (!moduleUser) {
+          throw new Error("Failed to read created module user.");
+        }
+        response.status(201).json({ user: moduleUser });
+      } catch (createMembershipError) {
+        try {
+          await config.authStore.deleteUser(user.id);
+        } catch (cleanupError) {
+          logInternalError(cleanupError);
+        }
+        throw createMembershipError;
+      }
     } catch (error) {
       next(error);
     }

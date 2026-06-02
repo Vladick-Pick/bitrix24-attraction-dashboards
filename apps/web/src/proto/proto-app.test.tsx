@@ -13,6 +13,9 @@ import type {
   SalesPlanInput,
   SalesPlanQuarterData,
   SalesPlanQuarterInput,
+  UnitEconomicsCostRulesInput,
+  UnitEconomicsReport,
+  UnitEconomicsSettings,
 } from '@/lib/dashboard-types'
 import { createCompareRange, ProtoApp } from '@/proto/proto-app'
 import { createDefaultFilters } from '@/proto/scenes'
@@ -232,6 +235,13 @@ vi.mock('@/lib/api-client', () => ({
         updatedAt: '2026-04-10T12:05:00.000Z',
       })),
     })),
+    getUnitEconomicsSettings: vi.fn(async () => createUnitEconomicsSettings()),
+    saveUnitEconomicsCostRules: vi.fn(async (input: UnitEconomicsCostRulesInput) => ({
+      ...createUnitEconomicsSettings(input.rules),
+      eventParticipantMode: input.eventParticipantMode ?? 'invited',
+      updatedAt: '2026-04-10T12:05:00.000Z',
+    })),
+    getUnitEconomicsReport: vi.fn(async () => createUnitEconomicsReport()),
     getSalesPlan: vi.fn(async () => ({
       periodStart: '2026-04-01T00:00:00.000+03:00',
       periodEnd: '2026-04-30T23:59:59.999+03:00',
@@ -840,6 +850,303 @@ function createSalesDashboard(salesCount: number): DashboardData {
   }
 }
 
+function createUnitEconomicsSettings(
+  rules: UnitEconomicsSettings['rules'] = [
+    {
+      id: 'leadgen-ready-to-meet',
+      articleId: 'lead_purchase',
+      pnlLevel: 'variable_contribution',
+      costBehavior: 'variable',
+      calculationMethod: 'amount_per_lead',
+      unitPrice: 40000,
+      percent: null,
+      amount: null,
+      sourceKey: 'Лидген УС',
+      qualityValue: 'Готов к встрече',
+      eventNamePattern: null,
+      enabled: true,
+      effectiveFrom: '2026-01-01',
+      effectiveTo: null,
+      sortOrder: 10,
+    },
+    {
+      id: 'contractation-per-won-default',
+      articleId: 'contractation',
+      pnlLevel: 'variable_contribution',
+      costBehavior: 'variable',
+      calculationMethod: 'amount_per_contract',
+      unitPrice: 5000,
+      percent: null,
+      amount: null,
+      sourceKey: null,
+      qualityValue: null,
+      eventNamePattern: null,
+      enabled: true,
+      effectiveFrom: '2026-01-01',
+      effectiveTo: null,
+      sortOrder: 20,
+    },
+    {
+      id: 'guest-meeting-participant-default',
+      articleId: 'demo_events',
+      pnlLevel: 'variable_contribution',
+      costBehavior: 'variable',
+      calculationMethod: 'amount_per_participant',
+      unitPrice: 5000,
+      percent: null,
+      amount: null,
+      sourceKey: null,
+      qualityValue: null,
+      eventNamePattern: 'Гостевая встреча',
+      enabled: true,
+      effectiveFrom: '2026-01-01',
+      effectiveTo: null,
+      sortOrder: 30,
+    },
+    {
+      id: 'other-conversion-event-participant-default',
+      articleId: 'demo_events',
+      pnlLevel: 'variable_contribution',
+      costBehavior: 'variable',
+      calculationMethod: 'amount_per_participant',
+      unitPrice: 15000,
+      percent: null,
+      amount: null,
+      sourceKey: null,
+      qualityValue: null,
+      eventNamePattern: null,
+      enabled: true,
+      effectiveFrom: '2026-01-01',
+      effectiveTo: null,
+      sortOrder: 40,
+    },
+  ],
+): UnitEconomicsSettings {
+  return {
+    articles: [
+      {
+        id: 'lead_purchase',
+        name: 'Закупка лидов',
+        pnlLevel: 'variable_contribution',
+        costBehavior: 'variable',
+        calculationMethod: 'amount_per_lead',
+        enabled: true,
+        sortOrder: 10,
+        effectiveFrom: null,
+        effectiveTo: null,
+        updatedAt: null,
+      },
+      {
+        id: 'contractation',
+        name: 'Контрактация',
+        pnlLevel: 'variable_contribution',
+        costBehavior: 'variable',
+        calculationMethod: 'amount_per_contract',
+        enabled: true,
+        sortOrder: 50,
+        effectiveFrom: null,
+        effectiveTo: null,
+        updatedAt: null,
+      },
+      {
+        id: 'demo_events',
+        name: 'Демо-мероприятия',
+        pnlLevel: 'variable_contribution',
+        costBehavior: 'variable',
+        calculationMethod: 'amount_per_participant',
+        enabled: true,
+        sortOrder: 40,
+        effectiveFrom: null,
+        effectiveTo: null,
+        updatedAt: null,
+      },
+      {
+        id: 'facility',
+        name: 'Facility / АХО',
+        pnlLevel: 'above_ebitda',
+        costBehavior: 'fixed',
+        calculationMethod: 'amount_per_period',
+        enabled: true,
+        sortOrder: 140,
+        effectiveFrom: null,
+        effectiveTo: null,
+        updatedAt: null,
+      },
+    ],
+    rules,
+    eventParticipantMode: 'invited',
+    updatedAt: null,
+  }
+}
+
+function createUnitEconomicsReport(): UnitEconomicsReport {
+  return {
+    range: {
+      from: '2026-04-01T00:00:00.000+03:00',
+      to: '2026-04-30T23:59:59.999+03:00',
+    },
+    summary: {
+      createdDeals: 3,
+      wonDeals: 2,
+      purchasedLeads: 2,
+      attractionRevenue: 300000,
+      clubRevenue: 1500000,
+      leadPurchaseCost: 80000,
+      eventCost: 5000,
+      ambassadorActivityCost: 0,
+      ctuCertificateCost: 0,
+      contractationCost: 10000,
+      otherVariableCost: 0,
+      variableCosts: 140000,
+      contributionResult: 160000,
+      contributionMargin: 0.5333333333333333,
+      aboveEbitdaCosts: 173000,
+      ebitda: -13000,
+      ebitdaMargin: -0.043333333333333335,
+      belowEbitdaCosts: 6000,
+      netProfit: -19000,
+      netProfitMargin: -0.06333333333333334,
+      attractionAverageCheck: 150000,
+      clubAverageCheck: 750000,
+      costPerWonDeal: 156500,
+      costPerCreatedDeal: 104333.33,
+    },
+    sourceQualityRows: [
+      {
+        sourceKey: 'Лидген УС',
+        sourceLabel: 'Лидген УС',
+        qualityValue: 'Готов к встрече',
+        createdDeals: 2,
+        wonDeals: 2,
+        purchasedLeads: 2,
+        attractionRevenue: 300000,
+        clubRevenue: 1500000,
+        leadPurchaseCost: 80000,
+        contractationCost: 10000,
+        variableCosts: 140000,
+        financialResult: 160000,
+        margin: 0.5333333333333333,
+        warnings: [],
+      },
+    ],
+    managerRows: [
+      {
+        managerId: '78',
+        managerName: 'Мария Потапова',
+        createdDeals: 2,
+        wonDeals: 1,
+        purchasedLeads: 2,
+        attractionRevenue: 300000,
+        clubRevenue: 1500000,
+        leadPurchaseCost: 80000,
+        eventCost: 5000,
+        ambassadorActivityCost: 0,
+        ctuCertificateCost: 0,
+        contractationCost: 10000,
+        variableCosts: 140000,
+        financialResult: -19000,
+        margin: -0.06333333333333334,
+        warnings: [],
+        revenueRows: [
+          {
+            clubLabel: 'ClubFirst One',
+            tariffLabel: 'Федеральный',
+            wonDeals: 1,
+            attractionRevenue: 300000,
+            clubRevenue: 1500000,
+          },
+        ],
+        productionCostRows: [
+          {
+            articleId: 'lead_purchase',
+            articleLabel: 'Лидогенерация',
+            productLabel: 'Лидген УС · Готов к встрече',
+            quantity: 2,
+            unitLabel: 'лид',
+            unitPrice: 40000,
+            percent: null,
+            amount: 80000,
+            basis: 'Созданные сделки периода',
+            warnings: [],
+          },
+          {
+            articleId: 'sales_bonus',
+            articleLabel: 'Бонусы за продажу',
+            productLabel: 'Бонусы за продажу',
+            quantity: null,
+            unitLabel: null,
+            unitPrice: null,
+            percent: 4,
+            amount: 60000,
+            basis: 'Стоимость членства клуба',
+            warnings: [],
+          },
+        ],
+        directCostRows: [
+          {
+            articleId: 'demo_events',
+            articleLabel: 'Демо-мероприятия',
+            productLabel: 'Гостевая встреча ClubFirst',
+            quantity: 1,
+            unitLabel: 'участник',
+            unitPrice: 5000,
+            percent: null,
+            amount: 5000,
+            basis: 'Приглашенные участники периода',
+            warnings: [],
+          },
+          {
+            articleId: 'community_integrators_fixed',
+            articleLabel: 'Комьюнити-интеграторы',
+            productLabel: '120 000 оклад + 40% налог',
+            quantity: 1,
+            unitLabel: 'КИ',
+            unitPrice: 168000,
+            percent: null,
+            amount: 168000,
+            basis: 'Правило периода',
+            warnings: [],
+          },
+        ],
+        taxAndFinanceRows: [
+          {
+            articleId: 'ctg_finance_service',
+            articleLabel: 'Финансово-юридический сервис',
+            productLabel: '2% от общего дохода',
+            quantity: null,
+            unitLabel: null,
+            unitPrice: null,
+            percent: 2,
+            amount: 6000,
+            basis: 'Общий доход всех',
+            warnings: [],
+          },
+        ],
+      },
+    ],
+    costRows: [
+      {
+        articleId: 'lead_purchase',
+        label: 'Закупка лидов',
+        pnlLevel: 'variable_contribution',
+        costBehavior: 'variable',
+        calculationMethod: 'amount_per_lead',
+        amount: 80000,
+        quantity: 2,
+        unitPrice: 40000,
+        percent: null,
+        sourceKey: 'Лидген УС',
+        qualityValue: 'Готов к встрече',
+        confidence: 'manual',
+        sourceSystem: 'rule',
+        warnings: [],
+      },
+    ],
+    warnings: [],
+    comparisons: [],
+  }
+}
+
 function createAttractionOntology(
   overrides: Partial<AttractionOntologyResponse> = {},
 ): AttractionOntologyResponse {
@@ -1436,6 +1743,7 @@ describe('ProtoApp', () => {
     expect(screen.getByRole('heading', { name: /плановые мероприятия/i })).toBeInTheDocument()
     expect(screen.getByText('Гостевая встреча')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /вайтлист менеджеров/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /расходы и финрезультат/i })).toBeInTheDocument()
     expect(screen.getAllByText('Илья Какулия').length).toBeGreaterThan(0)
     expect(screen.queryByText(/запланировано/i)).not.toBeInTheDocument()
     expect(screen.getByText(/пользователи модуля/i)).toBeInTheDocument()
@@ -1474,6 +1782,175 @@ describe('ProtoApp', () => {
     expect(screen.queryByText(/пользователи модуля/i)).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /^настройки модуля$/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /сохранить цены/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /сохранить расходы/i })).not.toBeInTheDocument()
+  })
+
+  it('loads the unit economics scene lazily and expands manager economics details', async () => {
+    render(<ProtoApp />)
+
+    const unitEconomicsTab = await screen.findByRole('button', {
+      name: /^финрезультат$/i,
+    })
+    await userEvent.click(unitEconomicsTab)
+
+    expect(
+      await screen.findByRole('heading', { name: /^финрезультат$/i }),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(apiClient.getUnitEconomicsReport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preset: 'custom',
+          eventParticipantMode: 'invited',
+          compareRanges: [],
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(screen.queryByText('Источник × качество')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('Период: 01.04.26 - 30.04.26')).toBeInTheDocument()
+    const invitedModeButton = screen.getByRole('button', { name: /^Приглашенные$/i })
+    const attendedModeButton = screen.getByRole('button', { name: /^Дошедшие$/i })
+    expect(invitedModeButton).toHaveAttribute('aria-pressed', 'true')
+    expect(attendedModeButton).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getAllByText('Менеджеры').length).toBeGreaterThan(0)
+    const managerSection = screen.getByRole('heading', { name: /^Менеджеры$/i }).closest('section')
+    expect(managerSection).not.toBeNull()
+    expect(within(managerSection!).getByRole('columnheader', { name: 'С/с производства' }))
+      .toBeInTheDocument()
+    expect(within(managerSection!).getByRole('columnheader', { name: 'Прямые расходы' }))
+      .toBeInTheDocument()
+    expect(within(managerSection!).getByRole('columnheader', { name: 'Налоги и финсервис' }))
+      .toBeInTheDocument()
+    expect(within(managerSection!).getByRole('columnheader', { name: 'Все расходы' }))
+      .toBeInTheDocument()
+    expect(within(managerSection!).getByRole('columnheader', { name: 'Прибыль' }))
+      .toBeInTheDocument()
+    const managerButton = within(managerSection!).getByRole('button', { name: /Мария Потапова/i })
+    const managerRow = managerButton.closest('tr')
+    expect(managerRow).not.toBeNull()
+    expect(within(managerRow!).getByText('140 000 ₽')).toHaveClass('text-rose-700')
+    expect(within(managerRow!).getByText('173 000 ₽')).toHaveClass('text-rose-700')
+    expect(within(managerRow!).getByText('6 000 ₽')).toHaveClass('text-rose-700')
+    expect(within(managerRow!).getByText('319 000 ₽')).toHaveClass('text-rose-700')
+    await userEvent.click(screen.getByRole('button', { name: /Мария Потапова/i }))
+    expect(screen.getByText('Доходы')).toBeInTheDocument()
+    expect(screen.getByText('ClubFirst One')).toBeInTheDocument()
+    expect(screen.getByText('Федеральный')).toBeInTheDocument()
+    expect(screen.getByText('Себестоимость производства')).toBeInTheDocument()
+    expect(screen.getByText('Лидген УС · Готов к встрече')).toBeInTheDocument()
+    expect(screen.getByText('Гостевая встреча ClubFirst')).toBeInTheDocument()
+    expect(screen.getByText('Бонусы за продажу')).toBeInTheDocument()
+    expect(screen.getAllByText('Прямые расходы').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Налоги и финсервис').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Итого Доходы:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Итого с/с производства:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Итого расходы (выше Ebitda):')).not.toBeInTheDocument()
+    expect(screen.queryByText('Итого расходы (ниже Ebitda):')).not.toBeInTheDocument()
+    expect(screen.queryByText('Итого по блоку')).not.toBeInTheDocument()
+    expect(screen.getByText('Итого доходы')).toBeInTheDocument()
+    expect(screen.getByText('Итого себестоимость производства')).toBeInTheDocument()
+    expect(screen.getByText('Итого прямые расходы')).toBeInTheDocument()
+    expect(screen.getByText('Итого налоги и финсервис')).toBeInTheDocument()
+    expect(screen.getByText('Gross margin, Р.:')).toBeInTheDocument()
+    expect(screen.getByText('Gross margin, %:')).toBeInTheDocument()
+    expect(screen.getByText('Ebitda, Р.:')).toBeInTheDocument()
+    expect(screen.getByText('Ebitda, %:')).toBeInTheDocument()
+    expect(screen.getByText('Чистая прибыль (Net Profit), Р.:')).toBeInTheDocument()
+    expect(screen.getByText('Чистая прибыль (Net Profit), %:')).toBeInTheDocument()
+    const leadCostDetailRow = screen.getByText('Лидген УС · Готов к встрече').closest('tr')
+    expect(leadCostDetailRow).not.toBeNull()
+    expect(within(leadCostDetailRow!).getByText('80 000 ₽')).toHaveClass('text-rose-700')
+    expect(screen.getAllByText('-19 000 ₽').length).toBeGreaterThan(0)
+    await userEvent.click(attendedModeButton)
+    await waitFor(() =>
+      expect(apiClient.getUnitEconomicsReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          eventParticipantMode: 'attended',
+          compareRanges: [],
+        }),
+      ),
+    )
+  })
+
+  it('lets module leaders edit and save unit economics cost rules', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /расходы и финрезультат/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Все остальные конверсионные мероприятия')).toBeInTheDocument()
+    expect(
+      screen.getByRole('spinbutton', {
+        name: /демо-мероприятия.*все остальные конверсионные мероприятия/i,
+      }),
+    ).toHaveValue(15000)
+
+    const leadPriceInput = screen.getByRole('spinbutton', {
+      name: /закупка лидов.*лидген ус.*готов к встрече/i,
+    })
+    await userEvent.clear(leadPriceInput)
+    await userEvent.type(leadPriceInput, '45000')
+
+    const contractationInput = screen.getByRole('spinbutton', {
+      name: /контрактация/i,
+    })
+    await userEvent.clear(contractationInput)
+    await userEvent.type(contractationInput, '6000')
+
+    await userEvent.click(screen.getByRole('button', { name: /сохранить расходы/i }))
+
+    await waitFor(() =>
+      expect(apiClient.saveUnitEconomicsCostRules).toHaveBeenCalledWith({
+        eventParticipantMode: 'invited',
+        rules: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'leadgen-ready-to-meet',
+            articleId: 'lead_purchase',
+            calculationMethod: 'amount_per_lead',
+            unitPrice: 45000,
+            sourceKey: 'Лидген УС',
+            qualityValue: 'Готов к встрече',
+          }),
+          expect.objectContaining({
+            id: 'contractation-per-won-default',
+            articleId: 'contractation',
+            calculationMethod: 'amount_per_contract',
+            unitPrice: 6000,
+          }),
+        ]),
+      }),
+    )
   })
 
   it('keeps default manager choices empty after saving an empty manager whitelist', async () => {

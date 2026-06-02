@@ -15,6 +15,191 @@ afterEach(() => {
 });
 
 describe("createSqliteRepository", () => {
+  it("persists unit economics articles, rules and active cost facts by period", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await expect(repository.getUnitEconomicsCostArticles()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "lead_purchase",
+          name: "Закупка лидов",
+          pnlLevel: "variable_contribution",
+          calculationMethod: "amount_per_lead"
+        }),
+        expect.objectContaining({
+          id: "contractation",
+          name: "Контрактация",
+          pnlLevel: "variable_contribution",
+          calculationMethod: "amount_per_contract"
+        }),
+        expect.objectContaining({
+          id: "demo_events",
+          pnlLevel: "variable_contribution",
+          calculationMethod: "amount_per_participant"
+        }),
+        expect.objectContaining({
+          id: "it_service",
+          name: "IT-сервис",
+          pnlLevel: "above_ebitda"
+        })
+      ])
+    );
+
+    await expect(repository.getUnitEconomicsCostRules()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "leadgen-us-ready-to-meet-default",
+          articleId: "lead_purchase",
+          pnlLevel: "variable_contribution",
+          unitPrice: 20_000,
+          qualityValue: "Готов к встрече",
+          enabled: true
+        }),
+        expect.objectContaining({
+          id: "guest-meeting-participant-default",
+          articleId: "demo_events",
+          pnlLevel: "variable_contribution",
+          unitPrice: 5_000,
+          eventNamePattern: "Гостевая встреча",
+          enabled: true
+        }),
+        expect.objectContaining({
+          id: "other-conversion-event-participant-default",
+          articleId: "demo_events",
+          pnlLevel: "variable_contribution",
+          unitPrice: 15_000,
+          eventNamePattern: null,
+          enabled: true
+        }),
+        expect.objectContaining({
+          id: "leadgen-us-attended-meeting-default",
+          articleId: "lead_purchase",
+          pnlLevel: "variable_contribution",
+          unitPrice: 40_000,
+          qualityValue: "Пришёл на встречу",
+          enabled: true
+        })
+      ])
+    );
+
+    await expect(repository.getUnitEconomicsEventParticipantMode()).resolves.toBe(
+      "invited"
+    );
+
+    await repository.replaceUnitEconomicsCostRules({
+      updatedAt: "2026-06-02T08:00:00.000Z",
+      rules: [
+        {
+          id: "leadgen-ready-to-meet",
+          articleId: "lead_purchase",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_lead",
+          unitPrice: 40_000,
+          percent: null,
+          amount: null,
+          sourceKey: "LEADGEN_US",
+          qualityValue: "Готов к встрече",
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 10
+        },
+        {
+          id: "contractation-per-won",
+          articleId: "contractation",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_contract",
+          unitPrice: 5_000,
+          percent: null,
+          amount: null,
+          sourceKey: null,
+          qualityValue: null,
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 20
+        }
+      ]
+    });
+
+    await repository.upsertUnitEconomicsCostFacts([
+      {
+        id: "facility-april",
+        articleId: "facility_aho",
+        pnlLevel: "above_ebitda",
+        costBehavior: "fixed",
+        calculationMethod: "manual_amount",
+        periodStart: "2026-04-01",
+        periodEnd: "2026-04-30",
+        amount: 31_500,
+        currency: "RUB",
+        quantity: 1,
+        sourceSystem: "manual",
+        sourceReference: "unitka-priv-april",
+        confidence: "manual",
+        status: "active",
+        comment: "Офис и переговорки"
+      },
+      {
+        id: "facility-may",
+        articleId: "facility_aho",
+        pnlLevel: "above_ebitda",
+        costBehavior: "fixed",
+        calculationMethod: "manual_amount",
+        periodStart: "2026-05-01",
+        periodEnd: "2026-05-31",
+        amount: 32_000,
+        currency: "RUB",
+        quantity: 1,
+        sourceSystem: "manual",
+        sourceReference: "unitka-priv-may",
+        confidence: "manual",
+        status: "active",
+        comment: null
+      }
+    ]);
+
+    await expect(repository.getUnitEconomicsCostRules()).resolves.toEqual([
+      expect.objectContaining({
+        id: "leadgen-ready-to-meet",
+        articleId: "lead_purchase",
+        sourceKey: "LEADGEN_US",
+        qualityValue: "Готов к встрече",
+        unitPrice: 40_000,
+        enabled: true
+      }),
+      expect.objectContaining({
+        id: "contractation-per-won",
+        articleId: "contractation",
+        unitPrice: 5_000,
+        enabled: true
+      })
+    ]);
+
+    await expect(
+      repository.getUnitEconomicsCostFacts({
+        periodStart: "2026-04-01",
+        periodEnd: "2026-04-30"
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "facility-april",
+        articleId: "facility_aho",
+        amount: 31_500,
+        sourceReference: "unitka-priv-april",
+        comment: "Офис и переговорки"
+      })
+    ]);
+  });
+
   it("persists prototype comments with block anchors", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

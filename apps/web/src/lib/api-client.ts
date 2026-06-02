@@ -56,6 +56,15 @@ import type {
   TocFlowReport,
   TocFlowReportSnapshot,
   TocStageDistribution,
+  UnitEconomicsCalculationMethod,
+  UnitEconomicsCostBehavior,
+  UnitEconomicsCostConfidence,
+  UnitEconomicsCostRulesInput,
+  UnitEconomicsPnlLevel,
+  UnitEconomicsQuery,
+  UnitEconomicsReport,
+  UnitEconomicsReportSnapshot,
+  UnitEconomicsSettings,
 } from '@/lib/dashboard-types'
 import type {
   AuthModule,
@@ -2347,9 +2356,285 @@ function normalizeRevenueVelocityReport(value: unknown): RevenueVelocityReport {
   }
 }
 
+function asUnitEconomicsNumber(value: unknown, fallback = 0) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+
+  return fallback
+}
+
+function asUnitEconomicsNullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+
+  const parsed = asUnitEconomicsNumber(value, Number.NaN)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeUnitEconomicsPnlLevel(value: unknown): UnitEconomicsPnlLevel {
+  return value === 'above_ebitda' || value === 'below_ebitda'
+    ? value
+    : 'variable_contribution'
+}
+
+function normalizeUnitEconomicsCostBehavior(value: unknown): UnitEconomicsCostBehavior {
+  return value === 'fixed' || value === 'mixed' ? value : 'variable'
+}
+
+function normalizeUnitEconomicsEventParticipantMode(value: unknown) {
+  return value === 'attended' ? 'attended' : 'invited'
+}
+
+function normalizeUnitEconomicsCalculationMethod(
+  value: unknown,
+): UnitEconomicsCalculationMethod {
+  return value === 'manual_amount' ||
+    value === 'percent_of_module_revenue' ||
+    value === 'percent_of_sale' ||
+    value === 'percent_of_club_membership' ||
+    value === 'amount_per_lead' ||
+    value === 'amount_per_participant' ||
+    value === 'amount_per_contract' ||
+    value === 'amount_per_event' ||
+    value === 'amount_per_period' ||
+    value === 'imported_fact'
+    ? value
+    : 'manual_amount'
+}
+
+function normalizeUnitEconomicsCostConfidence(
+  value: unknown,
+): UnitEconomicsCostConfidence {
+  return value === 'confirmed' ||
+    value === 'imported' ||
+    value === 'manual' ||
+    value === 'inferred' ||
+    value === 'needs_review' ||
+    value === 'conflicting'
+    ? value
+    : 'needs_review'
+}
+
+function normalizeUnitEconomicsSummary(value: unknown) {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    createdDeals: asUnitEconomicsNumber(data.createdDeals),
+    wonDeals: asUnitEconomicsNumber(data.wonDeals),
+    purchasedLeads: asUnitEconomicsNumber(data.purchasedLeads),
+    attractionRevenue: asUnitEconomicsNumber(data.attractionRevenue),
+    clubRevenue: asUnitEconomicsNumber(data.clubRevenue),
+    leadPurchaseCost: asUnitEconomicsNumber(data.leadPurchaseCost),
+    eventCost: asUnitEconomicsNumber(data.eventCost),
+    ambassadorActivityCost: asUnitEconomicsNumber(data.ambassadorActivityCost),
+    ctuCertificateCost: asUnitEconomicsNumber(data.ctuCertificateCost),
+    contractationCost: asUnitEconomicsNumber(data.contractationCost),
+    otherVariableCost: asUnitEconomicsNumber(data.otherVariableCost),
+    variableCosts: asUnitEconomicsNumber(data.variableCosts),
+    contributionResult: asUnitEconomicsNumber(data.contributionResult),
+    contributionMargin: asUnitEconomicsNullableNumber(data.contributionMargin),
+    aboveEbitdaCosts: asUnitEconomicsNumber(data.aboveEbitdaCosts),
+    ebitda: asUnitEconomicsNumber(data.ebitda),
+    ebitdaMargin: asUnitEconomicsNullableNumber(data.ebitdaMargin),
+    belowEbitdaCosts: asUnitEconomicsNumber(data.belowEbitdaCosts),
+    netProfit: asUnitEconomicsNumber(data.netProfit),
+    netProfitMargin: asUnitEconomicsNullableNumber(data.netProfitMargin),
+    attractionAverageCheck: asUnitEconomicsNullableNumber(data.attractionAverageCheck),
+    clubAverageCheck: asUnitEconomicsNullableNumber(data.clubAverageCheck),
+    costPerWonDeal: asUnitEconomicsNullableNumber(data.costPerWonDeal),
+    costPerCreatedDeal: asUnitEconomicsNullableNumber(data.costPerCreatedDeal),
+  }
+}
+
+function normalizeUnitEconomicsCostRule(value: unknown) {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    id: asString(data.id),
+    articleId: asString(data.articleId),
+    pnlLevel: normalizeUnitEconomicsPnlLevel(data.pnlLevel),
+    costBehavior: normalizeUnitEconomicsCostBehavior(data.costBehavior),
+    calculationMethod: normalizeUnitEconomicsCalculationMethod(data.calculationMethod),
+    unitPrice: asUnitEconomicsNullableNumber(data.unitPrice),
+    percent: asUnitEconomicsNullableNumber(data.percent),
+    amount: asUnitEconomicsNullableNumber(data.amount),
+    sourceKey: asNullableString(data.sourceKey),
+    qualityValue: asNullableString(data.qualityValue),
+    eventNamePattern: asNullableString(data.eventNamePattern),
+    enabled: data.enabled !== false,
+    effectiveFrom: asString(data.effectiveFrom),
+    effectiveTo: asNullableString(data.effectiveTo),
+    sortOrder: asUnitEconomicsNumber(data.sortOrder),
+  }
+}
+
+function normalizeUnitEconomicsSettings(value: unknown): UnitEconomicsSettings {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    articles: asArray(data.articles, (entry) => {
+      const article = isRecord(entry) ? entry : {}
+      return {
+        id: asString(article.id),
+        name: asString(article.name, asString(article.id)),
+        pnlLevel: normalizeUnitEconomicsPnlLevel(article.pnlLevel),
+        costBehavior: normalizeUnitEconomicsCostBehavior(article.costBehavior),
+        calculationMethod: normalizeUnitEconomicsCalculationMethod(
+          article.calculationMethod,
+        ),
+        enabled: article.enabled !== false,
+        sortOrder: asUnitEconomicsNumber(article.sortOrder),
+        effectiveFrom: asNullableString(article.effectiveFrom),
+        effectiveTo: asNullableString(article.effectiveTo),
+        updatedAt: asNullableString(article.updatedAt),
+      }
+    }),
+    rules: asArray(data.rules, normalizeUnitEconomicsCostRule),
+    eventParticipantMode: normalizeUnitEconomicsEventParticipantMode(
+      data.eventParticipantMode,
+    ),
+    updatedAt: asNullableString(data.updatedAt),
+  }
+}
+
+function normalizeUnitEconomicsManagerRevenueRow(value: unknown) {
+  const row = isRecord(value) ? value : {}
+
+  return {
+    clubLabel: asNullableString(row.clubLabel),
+    tariffLabel: asNullableString(row.tariffLabel),
+    wonDeals: asUnitEconomicsNumber(row.wonDeals),
+    attractionRevenue: asUnitEconomicsNumber(row.attractionRevenue),
+    clubRevenue: asUnitEconomicsNumber(row.clubRevenue),
+  }
+}
+
+function normalizeUnitEconomicsManagerCostDetailRow(value: unknown) {
+  const row = isRecord(value) ? value : {}
+
+  return {
+    articleId: asString(row.articleId),
+    articleLabel: asString(row.articleLabel, asString(row.articleId)),
+    productLabel: asString(row.productLabel),
+    quantity: asUnitEconomicsNullableNumber(row.quantity),
+    unitLabel: asNullableString(row.unitLabel),
+    unitPrice: asUnitEconomicsNullableNumber(row.unitPrice),
+    percent: asUnitEconomicsNullableNumber(row.percent),
+    amount: asUnitEconomicsNumber(row.amount),
+    basis: asString(row.basis),
+    warnings: asArray(row.warnings, (warning) => asString(warning)).filter(Boolean),
+  }
+}
+
+function normalizeUnitEconomicsSnapshot(value: unknown): UnitEconomicsReportSnapshot {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    range: normalizeRange(data.range),
+    summary: normalizeUnitEconomicsSummary(data.summary),
+    sourceQualityRows: asArray(data.sourceQualityRows, (entry) => {
+      const row = isRecord(entry) ? entry : {}
+      return {
+        sourceKey: asString(row.sourceKey),
+        sourceLabel: asString(row.sourceLabel, asString(row.sourceKey)),
+        qualityValue: asNullableString(row.qualityValue),
+        createdDeals: asUnitEconomicsNumber(row.createdDeals),
+        wonDeals: asUnitEconomicsNumber(row.wonDeals),
+        purchasedLeads: asUnitEconomicsNumber(row.purchasedLeads),
+        attractionRevenue: asUnitEconomicsNumber(row.attractionRevenue),
+        clubRevenue: asUnitEconomicsNumber(row.clubRevenue),
+        leadPurchaseCost: asUnitEconomicsNumber(row.leadPurchaseCost),
+        contractationCost: asUnitEconomicsNumber(row.contractationCost),
+        variableCosts: asUnitEconomicsNumber(row.variableCosts),
+        financialResult: asUnitEconomicsNumber(row.financialResult),
+        margin: asUnitEconomicsNullableNumber(row.margin),
+        warnings: asArray(row.warnings, (warning) => asString(warning)).filter(Boolean),
+      }
+    }),
+    managerRows: asArray(data.managerRows, (entry) => {
+      const row = isRecord(entry) ? entry : {}
+      return {
+        managerId: asString(row.managerId),
+        managerName: asString(row.managerName, asString(row.managerId)),
+        createdDeals: asUnitEconomicsNumber(row.createdDeals),
+        wonDeals: asUnitEconomicsNumber(row.wonDeals),
+        purchasedLeads: asUnitEconomicsNumber(row.purchasedLeads),
+        attractionRevenue: asUnitEconomicsNumber(row.attractionRevenue),
+        clubRevenue: asUnitEconomicsNumber(row.clubRevenue),
+        leadPurchaseCost: asUnitEconomicsNumber(row.leadPurchaseCost),
+        eventCost: asUnitEconomicsNumber(row.eventCost),
+        ambassadorActivityCost: asUnitEconomicsNumber(row.ambassadorActivityCost),
+        ctuCertificateCost: asUnitEconomicsNumber(row.ctuCertificateCost),
+        contractationCost: asUnitEconomicsNumber(row.contractationCost),
+        variableCosts: asUnitEconomicsNumber(row.variableCosts),
+        financialResult: asUnitEconomicsNumber(row.financialResult),
+        margin: asUnitEconomicsNullableNumber(row.margin),
+        warnings: asArray(row.warnings, (warning) => asString(warning)).filter(Boolean),
+        revenueRows: asArray(
+          row.revenueRows,
+          normalizeUnitEconomicsManagerRevenueRow,
+        ),
+        productionCostRows: asArray(
+          row.productionCostRows,
+          normalizeUnitEconomicsManagerCostDetailRow,
+        ),
+        directCostRows: asArray(
+          row.directCostRows,
+          normalizeUnitEconomicsManagerCostDetailRow,
+        ),
+        taxAndFinanceRows: asArray(
+          row.taxAndFinanceRows,
+          normalizeUnitEconomicsManagerCostDetailRow,
+        ),
+      }
+    }),
+    costRows: asArray(data.costRows, (entry) => {
+      const row = isRecord(entry) ? entry : {}
+      return {
+        articleId: asString(row.articleId),
+        label: asString(row.label, asString(row.articleId)),
+        pnlLevel: normalizeUnitEconomicsPnlLevel(row.pnlLevel),
+        costBehavior: normalizeUnitEconomicsCostBehavior(row.costBehavior),
+        calculationMethod: normalizeUnitEconomicsCalculationMethod(
+          row.calculationMethod,
+        ),
+        amount: asUnitEconomicsNumber(row.amount),
+        quantity: asUnitEconomicsNullableNumber(row.quantity),
+        unitPrice: asUnitEconomicsNullableNumber(row.unitPrice),
+        percent: asUnitEconomicsNullableNumber(row.percent),
+        sourceKey: asNullableString(row.sourceKey),
+        qualityValue: asNullableString(row.qualityValue),
+        confidence: normalizeUnitEconomicsCostConfidence(row.confidence),
+        sourceSystem: asString(row.sourceSystem),
+        warnings: asArray(row.warnings, (warning) => asString(warning)).filter(Boolean),
+      }
+    }),
+    warnings: asArray(data.warnings, (warning) => asString(warning)).filter(Boolean),
+  }
+}
+
+function normalizeUnitEconomicsReport(value: unknown): UnitEconomicsReport {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    ...normalizeUnitEconomicsSnapshot(data),
+    comparisons: normalizeComparisons(data.comparisons, normalizeUnitEconomicsSnapshot),
+  }
+}
+
 function buildQueryParams(query: DashboardQuery) {
   const compareFrom = query.compareRanges?.map((range) => range.from)
   const compareTo = query.compareRanges?.map((range) => range.to)
+  const queryWithUnitEconomics = query as DashboardQuery & {
+    eventParticipantMode?: string
+  }
   const compareParams =
     compareFrom?.length && compareTo?.length
       ? {
@@ -2360,6 +2645,7 @@ function buildQueryParams(query: DashboardQuery) {
   const sharedParams = {
     managerIds: query.managerIds,
     sourceKeys: query.sourceKeys,
+    eventParticipantMode: queryWithUnitEconomics.eventParticipantMode,
     ...compareParams,
   }
 
@@ -2840,6 +3126,23 @@ export const apiClient = {
       normalizePricingSettings,
     )
   },
+  async getUnitEconomicsSettings() {
+    return requestJson(
+      buildUrl('/api/settings/unit-economics'),
+      { method: 'GET' },
+      normalizeUnitEconomicsSettings,
+    )
+  },
+  async saveUnitEconomicsCostRules(input: UnitEconomicsCostRulesInput) {
+    return requestJson(
+      buildUrl('/api/settings/unit-economics/cost-rules'),
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      normalizeUnitEconomicsSettings,
+    )
+  },
   async getConversionEventTypeSettings() {
     return requestJson(
       buildUrl('/api/settings/conversion-event-types'),
@@ -2971,6 +3274,13 @@ export const apiClient = {
       ),
       { method: 'GET' },
       normalizeRevenueVelocityReport,
+    )
+  },
+  async getUnitEconomicsReport(query: UnitEconomicsQuery) {
+    return requestJson(
+      buildUrl('/api/reports/unit-economics', buildQueryParams(query)),
+      { method: 'GET' },
+      normalizeUnitEconomicsReport,
     )
   },
   async triggerSync(

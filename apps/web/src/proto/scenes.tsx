@@ -19,6 +19,10 @@ import type {
   SalesDealRow,
   SalesManagerGroup,
   TargetGroupConversionReport,
+  UnitEconomicsManagerCostDetailRow,
+  UnitEconomicsManagerRow,
+  UnitEconomicsEventParticipantMode,
+  UnitEconomicsReport,
 } from '@/lib/dashboard-types'
 import { apiClient } from '@/lib/api-client'
 import {
@@ -6419,6 +6423,659 @@ function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
   )
 }
 
+function formatUnitEconomicsRange(
+  report: UnitEconomicsReport | null,
+  filters: ProtoFilterState,
+) {
+  const from = report?.range.from.slice(0, 10) ?? filters.rangeStart
+  const to = report?.range.to.slice(0, 10) ?? filters.rangeEnd
+
+  return `${formatFilterDate(from)} - ${formatFilterDate(to)}`
+}
+
+function sumUnitEconomicsCostRows(rows: UnitEconomicsManagerCostDetailRow[]) {
+  return rows.reduce((total, detailRow) => total + detailRow.amount, 0)
+}
+
+function getManagerProductionCost(row: UnitEconomicsManagerRow) {
+  return sumUnitEconomicsCostRows(row.productionCostRows)
+}
+
+function getManagerDirectCost(row: UnitEconomicsManagerRow) {
+  return sumUnitEconomicsCostRows(row.directCostRows)
+}
+
+function getManagerTaxAndFinanceCost(row: UnitEconomicsManagerRow) {
+  return sumUnitEconomicsCostRows(row.taxAndFinanceRows)
+}
+
+function getManagerTotalCost(row: UnitEconomicsManagerRow) {
+  return getManagerProductionCost(row) + getManagerDirectCost(row) + getManagerTaxAndFinanceCost(row)
+}
+
+function formatUnitEconomicsQuantity(
+  quantity: number | null,
+  unitLabel: string | null,
+) {
+  if (quantity === null) {
+    return '—'
+  }
+
+  return unitLabel ? `${formatNumber(quantity)} ${unitLabel}` : formatNumber(quantity)
+}
+
+function formatUnitEconomicsDetailPrice(
+  unitPrice: number | null,
+  percent: number | null,
+) {
+  if (percent !== null) {
+    return `${formatNumber(percent)}%`
+  }
+
+  if (unitPrice !== null) {
+    return formatRubles(unitPrice)
+  }
+
+  return '—'
+}
+
+function formatUnitEconomicsPnlLevel(level: string) {
+  if (level === 'variable_contribution') {
+    return 'Себестоимость производства'
+  }
+
+  if (level === 'above_ebitda') {
+    return 'Прямые расходы'
+  }
+
+  if (level === 'below_ebitda') {
+    return 'Налоги и финсервис'
+  }
+
+  return level
+}
+
+function UnitEconomicsManagerDetails({ row }: { row: UnitEconomicsManagerRow }) {
+  const hasDetailRows =
+    row.revenueRows.length > 0 ||
+    row.productionCostRows.length > 0 ||
+    row.directCostRows.length > 0 ||
+    row.taxAndFinanceRows.length > 0
+  const revenueTotal = row.revenueRows.reduce(
+    (total, revenueRow) => total + revenueRow.attractionRevenue,
+    0,
+  )
+  const productionTotal = row.productionCostRows.reduce(
+    (total, detailRow) => total + detailRow.amount,
+    0,
+  )
+  const grossMarginRubles = revenueTotal - productionTotal
+  const directTotal = row.directCostRows.reduce(
+    (total, detailRow) => total + detailRow.amount,
+    0,
+  )
+  const ebitdaRubles = grossMarginRubles - directTotal
+  const belowEbitdaTotal = row.taxAndFinanceRows.reduce(
+    (total, detailRow) => total + detailRow.amount,
+    0,
+  )
+  const netProfitRubles = ebitdaRubles - belowEbitdaTotal
+  const marginPercent = (value: number) =>
+    revenueTotal > 0 ? formatOptionalPercent(value / revenueTotal) : '—'
+  const buildTotalRow = (
+    section: string,
+    article: string,
+    amount: string,
+    tone: 'revenue' | 'expense' | 'result',
+  ) => ({
+    section,
+    article,
+    product: '—',
+    quantity: '—',
+    basis: '—',
+    price: '—',
+    amount,
+    warnings: [],
+    isTotal: true,
+    tone,
+  })
+  const detailRows: Array<{
+    section: string
+    article: string
+    product: string
+    quantity: string
+    basis: string
+    price: string
+    amount: string
+    warnings: string[]
+    tone: 'revenue' | 'expense' | 'result'
+    isTotal?: boolean
+  }> = [
+    ...row.revenueRows.map((revenueRow) => ({
+      section: 'Доходы',
+      article: 'Выручка от основной деятельности',
+      product: [revenueRow.clubLabel ?? 'Без клуба', revenueRow.tariffLabel ?? 'Без тарифа']
+        .filter(Boolean)
+        .join(' · '),
+      quantity: `${formatInteger(revenueRow.wonDeals)} won`,
+      basis: 'Выигранные сделки периода',
+      price: revenueRow.wonDeals > 0
+        ? formatRubles(revenueRow.attractionRevenue / revenueRow.wonDeals)
+        : '—',
+      amount: formatRubles(revenueRow.attractionRevenue),
+        warnings: [],
+        tone: 'revenue' as const,
+    })),
+    buildTotalRow('Доходы', 'Итого доходы', formatRubles(revenueTotal), 'revenue'),
+    ...row.productionCostRows.map((detailRow) => ({
+      section: 'Себестоимость производства',
+      article: detailRow.articleLabel,
+      product: detailRow.productLabel,
+      quantity: formatUnitEconomicsQuantity(detailRow.quantity, detailRow.unitLabel),
+      basis: detailRow.basis,
+      price: formatUnitEconomicsDetailPrice(detailRow.unitPrice, detailRow.percent),
+      amount: formatRubles(detailRow.amount),
+      warnings: detailRow.warnings,
+      tone: 'expense' as const,
+    })),
+    buildTotalRow(
+      'Себестоимость производства',
+      'Итого себестоимость производства',
+      formatRubles(productionTotal),
+      'expense',
+    ),
+    buildTotalRow(
+      'Себестоимость производства',
+      'Gross margin, Р.:',
+      formatRubles(grossMarginRubles),
+      'result',
+    ),
+    buildTotalRow(
+      'Себестоимость производства',
+      'Gross margin, %:',
+      marginPercent(grossMarginRubles),
+      'result',
+    ),
+    ...row.directCostRows.map((detailRow) => ({
+      section: 'Прямые расходы',
+      article: detailRow.articleLabel,
+      product: detailRow.productLabel,
+      quantity: formatUnitEconomicsQuantity(detailRow.quantity, detailRow.unitLabel),
+      basis: detailRow.basis,
+      price: formatUnitEconomicsDetailPrice(detailRow.unitPrice, detailRow.percent),
+      amount: formatRubles(detailRow.amount),
+      warnings: detailRow.warnings,
+      tone: 'expense' as const,
+    })),
+    buildTotalRow(
+      'Прямые расходы',
+      'Итого прямые расходы',
+      formatRubles(directTotal),
+      'expense',
+    ),
+    buildTotalRow('Прямые расходы', 'Ebitda, Р.:', formatRubles(ebitdaRubles), 'result'),
+    buildTotalRow('Прямые расходы', 'Ebitda, %:', marginPercent(ebitdaRubles), 'result'),
+    ...row.taxAndFinanceRows.map((detailRow) => ({
+      section: 'Налоги и финсервис',
+      article: detailRow.articleLabel,
+      product: detailRow.productLabel,
+      quantity: formatUnitEconomicsQuantity(detailRow.quantity, detailRow.unitLabel),
+      basis: detailRow.basis,
+      price: formatUnitEconomicsDetailPrice(detailRow.unitPrice, detailRow.percent),
+      amount: formatRubles(detailRow.amount),
+      warnings: detailRow.warnings,
+      tone: 'expense' as const,
+    })),
+    buildTotalRow(
+      'Налоги и финсервис',
+      'Итого налоги и финсервис',
+      formatRubles(belowEbitdaTotal),
+      'expense',
+    ),
+    buildTotalRow(
+      'Налоги и финсервис',
+      'Чистая прибыль (Net Profit), Р.:',
+      formatRubles(netProfitRubles),
+      'result',
+    ),
+    buildTotalRow(
+      'Налоги и финсервис',
+      'Чистая прибыль (Net Profit), %:',
+      marginPercent(netProfitRubles),
+      'result',
+    ),
+  ]
+  let previousSection: string | null = null
+
+  if (!hasDetailRows) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+        Детализация по менеджеру пока не рассчитана.
+      </div>
+    )
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <table className="min-w-full text-left text-xs">
+        <thead>
+          <tr className="border-b border-slate-200 bg-slate-50 text-[0.68rem] uppercase tracking-[0.08em] text-slate-500">
+            <th className="px-3 py-2">Раздел</th>
+            <th className="px-3 py-2">Статья</th>
+            <th className="px-3 py-2">Продукт</th>
+            <th className="px-3 py-2">Кол-во</th>
+            <th className="px-3 py-2">Основание</th>
+            <th className="px-3 py-2">Цена</th>
+            <th className="px-3 py-2">Стоимость</th>
+          </tr>
+        </thead>
+        <tbody>
+          {detailRows.map((detailRow, index) => {
+            const showSection = detailRow.section !== previousSection
+            previousSection = detailRow.section
+            const productLabel =
+              detailRow.product === detailRow.article ? '—' : detailRow.product
+            const amountClassName = [
+              'px-3 py-2 font-semibold',
+              detailRow.tone === 'expense' || detailRow.amount.startsWith('-')
+                ? 'text-rose-700'
+                : 'text-slate-900',
+            ].join(' ')
+
+            return (
+              <tr
+                key={`${detailRow.section}-${detailRow.article}-${detailRow.product}-${index}`}
+                className={[
+                  'border-b border-slate-100 last:border-b-0',
+                  detailRow.isTotal ? 'bg-slate-50 font-semibold' : '',
+                ].filter(Boolean).join(' ')}
+              >
+                <td className="px-3 py-2 font-semibold text-slate-900">
+                  {showSection ? detailRow.section : ''}
+                </td>
+                <td className="px-3 py-2 text-slate-700">{detailRow.article}</td>
+                <td className="px-3 py-2 text-slate-700">
+                  {detailRow.section === 'Доходы' ? (
+                    <div className="flex flex-wrap gap-1">
+                      {productLabel.split(' · ').map((productPart) => (
+                        <span
+                          key={productPart}
+                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5"
+                        >
+                          {productPart}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>{productLabel}</div>
+                  )}
+                  {detailRow.warnings.length > 0 ? (
+                    <div className="mt-1 text-[0.68rem] font-semibold text-amber-700">
+                      {detailRow.warnings.join(' ')}
+                    </div>
+                  ) : null}
+                </td>
+                <td className="px-3 py-2 text-slate-700">{detailRow.quantity}</td>
+                <td className="px-3 py-2 text-slate-500">{detailRow.basis}</td>
+                <td className="px-3 py-2 text-slate-700">{detailRow.price}</td>
+                <td className={amountClassName}>
+                  {detailRow.amount}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function UnitEconomicsScene({ filters, runtimeData }: SceneComponentProps) {
+  const [expandedManagerId, setExpandedManagerId] = useState<string | null>(null)
+  const savedEventParticipantMode =
+    runtimeData?.unitEconomicsSettings?.eventParticipantMode ?? 'invited'
+  const [eventParticipantMode, setEventParticipantMode] =
+    useState<UnitEconomicsEventParticipantMode>(savedEventParticipantMode)
+  const [fetchedReport, setFetchedReport] = useState<{
+    runtimeKey: string
+    report: UnitEconomicsReport
+  } | null>(null)
+  const [loadError, setLoadError] = useState<{
+    runtimeKey: string
+    message: string
+  } | null>(null)
+  const query = useMemo(() => buildDashboardQueryFromProtoFilters(filters), [filters])
+  const runtimeKey = JSON.stringify({
+    preset: query.preset,
+    from: 'from' in query ? query.from : null,
+    to: 'to' in query ? query.to : null,
+    managers: query.managerIds,
+    sources: query.sourceKeys,
+    eventParticipantMode,
+  })
+  const report =
+    fetchedReport?.runtimeKey === runtimeKey ? fetchedReport.report : null
+  const errorMessage =
+    loadError?.runtimeKey === runtimeKey ? loadError.message : null
+  const shouldLoad =
+    Boolean(runtimeData && runtimeData.operationalStatus === 'ready') && !report
+  const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !report
+
+  useEffect(() => {
+    setEventParticipantMode(savedEventParticipantMode)
+  }, [savedEventParticipantMode])
+
+  useEffect(() => {
+    if (!shouldLoad) {
+      return
+    }
+
+    let cancelled = false
+
+    apiClient
+      .getUnitEconomicsReport({
+        ...query,
+        eventParticipantMode,
+        compareRanges: [],
+      })
+      .then((nextReport) => {
+        if (!cancelled) {
+          setFetchedReport({ runtimeKey, report: nextReport })
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setLoadError({
+            runtimeKey,
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Не удалось загрузить финрезультат',
+          })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [eventParticipantMode, query, runtimeKey, shouldLoad])
+
+  if (isUnavailable) {
+    return (
+      <section
+        className="panel p-5"
+        data-comment-block-id="attraction-unit-economics-financial-result"
+        data-comment-block-label="Привлечение: финрезультат"
+        id="attraction-unit-economics-financial-result"
+      >
+        <PanelHeading
+          title="Финрезультат"
+          description={
+            runtimeData?.operationalStatus === 'loading'
+              ? 'Загружаю P&L и юнит-экономику.'
+              : 'Финрезультат сейчас недоступен.'
+          }
+        />
+      </section>
+    )
+  }
+
+  const summary = report?.summary
+  const warnings = report?.warnings ?? []
+  const managerRows = report?.managerRows ?? []
+  const rangeLabel = formatUnitEconomicsRange(report, filters)
+  const metrics = [
+    {
+      label: 'Доход Привлечения',
+      value: formatOptionalRubles(summary?.attractionRevenue ?? null),
+      note: `${formatInteger(summary?.wonDeals ?? 0)} won`,
+    },
+    {
+      label: 'Переменные расходы',
+      value: formatOptionalRubles(summary?.variableCosts ?? null),
+      note: `Лиды ${formatOptionalRubles(summary?.leadPurchaseCost ?? null)}`,
+      tone: 'expense',
+    },
+    {
+      label: 'Маржинальный результат',
+      value: formatOptionalRubles(summary?.contributionResult ?? null),
+      note: formatOptionalPercent(summary?.contributionMargin ?? null),
+    },
+    {
+      label: 'Операционные расходы',
+      value: formatOptionalRubles(summary?.aboveEbitdaCosts ?? null),
+      note: 'Операционный блок',
+      tone: 'expense',
+    },
+    {
+      label: 'EBITDA',
+      value: formatOptionalRubles(summary?.ebitda ?? null),
+      note: formatOptionalPercent(summary?.ebitdaMargin ?? null),
+    },
+    {
+      label: 'Net Profit',
+      value: formatOptionalRubles(summary?.netProfit ?? null),
+      note: formatOptionalPercent(summary?.netProfitMargin ?? null),
+    },
+  ]
+
+  return (
+    <div className="grid gap-6">
+      <section
+        className="panel p-5"
+        data-comment-block-id="attraction-unit-economics-financial-result"
+        data-comment-block-label="Привлечение: финрезультат"
+        id="attraction-unit-economics-financial-result"
+      >
+        <PanelHeading
+          title="Финрезультат"
+          description="P&L модуля: закупка лидов, контрактация, прямые расходы, EBITDA и Net Profit."
+          right={<span className="badge-chip badge-neutral">Период: {rangeLabel}</span>}
+        />
+
+        {errorMessage ? (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-900">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        {!report && !errorMessage ? (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600">
+            Загрузка финрезультата...
+          </div>
+        ) : null}
+
+        {warnings.length > 0 ? <WarningSummaryBlock warnings={warnings} /> : null}
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+            Расходы событий
+          </span>
+          {([
+            ['invited', 'Приглашенные'],
+            ['attended', 'Дошедшие'],
+          ] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className={eventParticipantMode === mode ? 'btn btn-primary' : 'btn btn-ghost'}
+              aria-pressed={eventParticipantMode === mode}
+              onClick={() => setEventParticipantMode(mode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {metrics.map((metric) => {
+            const valueClassName = [
+              'mt-1 break-words text-xl font-bold',
+              metric.tone === 'expense' || metric.value.startsWith('-')
+                ? 'text-rose-700'
+                : 'text-slate-900',
+            ].join(' ')
+
+            return (
+              <div key={metric.label} className="metric p-4">
+                <p className="subtle-label">{metric.label}</p>
+                <p className={valueClassName}>
+                  {metric.value}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">{metric.note}</p>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      <section
+        className="panel p-5"
+        data-comment-block-id="attraction-unit-economics-managers"
+        data-comment-block-label="Привлечение: финрезультат по менеджерам"
+      >
+        <PanelHeading
+          title="Менеджеры"
+          description="Разрез P&L по владельцу сделки: себестоимость производства, прямые расходы, налоги, доход и прибыль."
+          right={<span className="badge-chip badge-neutral">{formatInteger(managerRows.length)} строк</span>}
+        />
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.08em] text-slate-500">
+                <th className="px-2 py-2">Менеджер</th>
+                <th className="px-2 py-2">Создано</th>
+                <th className="px-2 py-2">Won</th>
+                <th className="px-2 py-2">Покупки</th>
+                <th className="px-2 py-2">С/с производства</th>
+                <th className="px-2 py-2">Прямые расходы</th>
+                <th className="px-2 py-2">Налоги и финсервис</th>
+                <th className="px-2 py-2">Все расходы</th>
+                <th className="px-2 py-2">Доход</th>
+                <th className="px-2 py-2">Прибыль</th>
+                <th className="px-2 py-2">Маржа</th>
+              </tr>
+            </thead>
+            <tbody>
+              {managerRows.length > 0 ? (
+                managerRows.map((row) => {
+                  const isExpanded = expandedManagerId === row.managerId
+                  const productionCost = getManagerProductionCost(row)
+                  const directCost = getManagerDirectCost(row)
+                  const taxAndFinanceCost = getManagerTaxAndFinanceCost(row)
+                  const totalCost = getManagerTotalCost(row)
+                  const profitClassName = [
+                    'px-2 py-3 font-semibold',
+                    row.financialResult < 0 ? 'text-rose-700' : 'text-slate-900',
+                  ].join(' ')
+
+                  return (
+                    <Fragment key={row.managerId}>
+                      <tr className="border-b border-slate-100">
+                        <td className="px-2 py-3 font-semibold text-slate-900">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-2 text-left font-semibold text-slate-900 hover:text-blue-700"
+                            onClick={() =>
+                              setExpandedManagerId((current) =>
+                                current === row.managerId ? null : row.managerId,
+                              )
+                            }
+                          >
+                            <span className="text-slate-400">
+                              {isExpanded ? '▾' : '▸'}
+                            </span>
+                            <span>{row.managerName}</span>
+                          </button>
+                        </td>
+                        <td className="px-2 py-3">{formatInteger(row.createdDeals)}</td>
+                        <td className="px-2 py-3">{formatInteger(row.wonDeals)}</td>
+                        <td className="px-2 py-3">{formatInteger(row.purchasedLeads)}</td>
+                        <td className="px-2 py-3 text-rose-700">
+                          {formatRubles(productionCost)}
+                        </td>
+                        <td className="px-2 py-3 text-rose-700">
+                          {formatRubles(directCost)}
+                        </td>
+                        <td className="px-2 py-3 text-rose-700">
+                          {formatRubles(taxAndFinanceCost)}
+                        </td>
+                        <td className="px-2 py-3 text-rose-700">
+                          {formatRubles(totalCost)}
+                        </td>
+                        <td className="px-2 py-3 font-semibold text-slate-900">
+                          {formatRubles(row.attractionRevenue)}
+                        </td>
+                        <td className={profitClassName}>
+                          {formatRubles(row.financialResult)}
+                        </td>
+                        <td className="px-2 py-3">
+                          {formatOptionalPercent(row.margin)}
+                        </td>
+                      </tr>
+                      {isExpanded ? (
+                        <tr className="border-b border-slate-100 bg-slate-50/60">
+                          <td className="px-2 py-3" colSpan={11}>
+                            <UnitEconomicsManagerDetails row={row} />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  )
+                })
+              ) : (
+                <tr>
+                  <td className="px-2 py-3 text-sm font-semibold text-slate-600" colSpan={11}>
+                    Нет менеджерских строк для выбранного периода.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section
+        className="panel p-5"
+        data-comment-block-id="attraction-unit-economics-cost-ledger"
+        data-comment-block-label="Привлечение: статьи расходов"
+      >
+        <PanelHeading
+          title="Статьи расходов"
+          description="Факты и правила расходов с уровнем P&L и методом расчета."
+        />
+        <div className="mt-4 grid gap-2">
+          {(report?.costRows ?? []).length > 0 ? (
+            report?.costRows.map((row) => (
+              <div
+                key={`${row.articleId}-${row.sourceSystem}-${row.amount}`}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+              >
+                <div>
+                  <div className="font-semibold text-slate-900">{row.label}</div>
+                  <div className="text-xs text-slate-500">
+                    {formatUnitEconomicsPnlLevel(row.pnlLevel)} · {row.calculationMethod} · {row.sourceSystem}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-bold text-rose-700">{formatRubles(row.amount)}</div>
+                  <div className="text-xs text-slate-500">
+                    {row.percent !== null ? `${formatNumber(row.percent)}%` : row.confidence}
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600">
+              Расходные правила пока не настроены для выбранного периода.
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export const scenes: ProtoScene[] = [
   {
     id: 'sales',
@@ -6486,6 +7143,14 @@ export const scenes: ProtoScene[] = [
     focus: 'Денежная скорость / действия / клубы',
     kpis: [],
     component: RevenueVelocityScene,
+  },
+  {
+    id: 'unit-economics',
+    label: 'Финрезультат',
+    description: 'P&L модуля: переменные расходы, EBITDA, Net Profit и экономика источников.',
+    focus: 'P&L / расходы / маржа',
+    kpis: [],
+    component: UnitEconomicsScene,
   },
   {
     id: 'funnel-flow',

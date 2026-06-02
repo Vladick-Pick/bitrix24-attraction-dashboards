@@ -219,6 +219,232 @@ describe('apiClient', () => {
     expect(saved.rows[0]?.plannedAmount).toBe(3000000)
   })
 
+  it('loads unit economics report and saves unit economics cost rules', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          range: {
+            from: '2026-04-01T00:00:00.000Z',
+            to: '2026-04-30T23:59:59.999Z',
+          },
+          summary: {
+            createdDeals: '3',
+            wonDeals: 2,
+            purchasedLeads: 2,
+            attractionRevenue: 600000,
+            clubRevenue: 2000000,
+            leadPurchaseCost: 80000,
+            eventCost: 0,
+            ambassadorActivityCost: 0,
+            ctuCertificateCost: 0,
+            contractationCost: 10000,
+            otherVariableCost: 0,
+            variableCosts: 90000,
+            contributionResult: 510000,
+            contributionMargin: 0.85,
+            aboveEbitdaCosts: 91500,
+            ebitda: 418500,
+            ebitdaMargin: 0.6975,
+            belowEbitdaCosts: 0,
+            netProfit: 418500,
+            netProfitMargin: 0.6975,
+            attractionAverageCheck: 300000,
+            clubAverageCheck: 1000000,
+            costPerWonDeal: 90750,
+            costPerCreatedDeal: 60500,
+          },
+          sourceQualityRows: [
+            {
+              sourceKey: 'LEADGEN_US',
+              sourceLabel: 'Лидген УС',
+              qualityValue: 'Готов к встрече',
+              createdDeals: 2,
+              wonDeals: 1,
+              purchasedLeads: 2,
+              attractionRevenue: 300000,
+              clubRevenue: 1000000,
+              leadPurchaseCost: 80000,
+              contractationCost: 5000,
+              variableCosts: 85000,
+              financialResult: 215000,
+              margin: 0.7167,
+              warnings: [],
+            },
+          ],
+          managerRows: [
+            {
+              managerId: '78',
+              managerName: 'Мария Потапова',
+              createdDeals: 2,
+              wonDeals: 1,
+              purchasedLeads: 2,
+              attractionRevenue: 300000,
+              clubRevenue: 1000000,
+              leadPurchaseCost: 80000,
+              eventCost: 0,
+              ambassadorActivityCost: 0,
+              ctuCertificateCost: 0,
+              contractationCost: 5000,
+              variableCosts: 85000,
+              financialResult: 215000,
+              margin: 0.7167,
+              warnings: [],
+              revenueRows: [
+                {
+                  clubLabel: 'ClubFirst One',
+                  tariffLabel: 'Федеральный',
+                  wonDeals: 1,
+                  attractionRevenue: 300000,
+                  clubRevenue: 1000000,
+                },
+              ],
+              productionCostRows: [
+                {
+                  articleId: 'demo_events',
+                  articleLabel: 'События',
+                  productLabel: 'Гостевая встреча ClubFirst',
+                  quantity: 1,
+                  unitLabel: 'участник',
+                  unitPrice: 15000,
+                  percent: null,
+                  amount: 15000,
+                  basis: 'Посещенные мероприятия периода',
+                  warnings: [],
+                },
+              ],
+              directCostRows: [
+                {
+                  articleId: 'community_integrators_fixed',
+                  articleLabel: 'Комьюнити-интеграторы',
+                  productLabel: '120 000 оклад + 40% налог',
+                  quantity: 1,
+                  unitLabel: 'КИ',
+                  unitPrice: 168000,
+                  percent: null,
+                  amount: 168000,
+                  basis: 'Правило периода',
+                  warnings: [],
+                },
+              ],
+              taxAndFinanceRows: [
+                {
+                  articleId: 'ctg_finance_service',
+                  articleLabel: 'Финансово-юридический сервис',
+                  productLabel: '2% от общего дохода',
+                  quantity: null,
+                  unitLabel: null,
+                  unitPrice: null,
+                  percent: 2,
+                  amount: 6000,
+                  basis: 'Общий доход всех',
+                  warnings: [],
+                },
+              ],
+            },
+          ],
+          costRows: [],
+          warnings: ['warning'],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          articles: [],
+          rules: [
+            {
+              id: 'leadgen-ready-to-meet',
+              articleId: 'lead_purchase',
+              pnlLevel: 'variable_contribution',
+              costBehavior: 'variable',
+              calculationMethod: 'amount_per_lead',
+              unitPrice: 40000,
+              percent: null,
+              amount: null,
+              sourceKey: 'LEADGEN_US',
+              qualityValue: 'Готов к встрече',
+              enabled: true,
+              effectiveFrom: '2026-01-01',
+              effectiveTo: null,
+              sortOrder: 10,
+            },
+          ],
+          eventParticipantMode: 'attended',
+          updatedAt: '2026-06-02T08:00:00.000Z',
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const report = await apiClient.getUnitEconomicsReport({
+      preset: 'custom',
+      from: '2026-04-01T00:00:00.000+03:00',
+      to: '2026-04-30T23:59:59.999+03:00',
+      sourceKeys: ['LEADGEN_US'],
+    })
+    const saved = await apiClient.saveUnitEconomicsCostRules({
+      eventParticipantMode: 'attended',
+      rules: [
+        {
+          id: 'leadgen-ready-to-meet',
+          articleId: 'lead_purchase',
+          pnlLevel: 'variable_contribution',
+          costBehavior: 'variable',
+          calculationMethod: 'amount_per_lead',
+          unitPrice: 40000,
+          percent: null,
+          amount: null,
+          sourceKey: 'LEADGEN_US',
+          qualityValue: 'Готов к встрече',
+          eventNamePattern: null,
+          enabled: true,
+          effectiveFrom: '2026-01-01',
+          effectiveTo: null,
+          sortOrder: 10,
+        },
+      ],
+    })
+
+    const [reportUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const parsedReportUrl = new URL(reportUrl, window.location.origin)
+
+    expect(parsedReportUrl.pathname).toBe('/api/reports/unit-economics')
+    expect(parsedReportUrl.searchParams.get('sourceKeys')).toBe('LEADGEN_US')
+    expect(report.summary.createdDeals).toBe(3)
+    expect(report.summary.contributionMargin).toBe(0.85)
+    expect(report.sourceQualityRows[0]).toMatchObject({
+      sourceLabel: 'Лидген УС',
+      qualityValue: 'Готов к встрече',
+      financialResult: 215000,
+    })
+    expect(report.managerRows[0]).toMatchObject({
+      managerName: 'Мария Потапова',
+      purchasedLeads: 2,
+      leadPurchaseCost: 80000,
+      financialResult: 215000,
+    })
+    expect(report.managerRows[0]?.revenueRows[0]).toMatchObject({
+      clubLabel: 'ClubFirst One',
+      tariffLabel: 'Федеральный',
+      clubRevenue: 1000000,
+    })
+    expect(report.managerRows[0]?.productionCostRows[0]).toMatchObject({
+      articleId: 'demo_events',
+      productLabel: 'Гостевая встреча ClubFirst',
+      amount: 15000,
+    })
+
+    const [, saveInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(saveInit.method).toBe('PUT')
+    expect(JSON.parse(String(saveInit.body))).toMatchObject({
+      eventParticipantMode: 'attended',
+    })
+    expect(saved.rules[0]?.unitPrice).toBe(40000)
+    expect(saved.eventParticipantMode).toBe('attended')
+    expect(saved.updatedAt).toBe('2026-06-02T08:00:00.000Z')
+  })
+
   it('returns a dashboard comment to development as a rework thread reply', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,

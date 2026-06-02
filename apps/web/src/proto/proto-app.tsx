@@ -36,6 +36,7 @@ import type {
   SyncDealChangeBreakdown,
   SyncProgressEvent,
   SyncSummary,
+  UnitEconomicsCostRulesInput,
 } from '@/lib/dashboard-types'
 import { cn } from '@/lib/utils'
 import {
@@ -1239,6 +1240,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [conversionEventTypeSettingsLoading, setConversionEventTypeSettingsLoading] = useState(false)
   const [conversionEventTypeSettingsSaving, setConversionEventTypeSettingsSaving] = useState(false)
   const [conversionEventTypeSettingsSaveError, setConversionEventTypeSettingsSaveError] = useState<string | null>(null)
+  const [unitEconomicsSettingsLoading, setUnitEconomicsSettingsLoading] = useState(false)
+  const [unitEconomicsSettingsSaving, setUnitEconomicsSettingsSaving] = useState(false)
+  const [unitEconomicsSettingsSaveError, setUnitEconomicsSettingsSaveError] = useState<string | null>(null)
   const [managerWhitelistSettingsLoading, setManagerWhitelistSettingsLoading] = useState(false)
   const [managerWhitelistSettingsSaving, setManagerWhitelistSettingsSaving] = useState(false)
   const [managerWhitelistSettingsSaveError, setManagerWhitelistSettingsSaveError] = useState<string | null>(null)
@@ -1643,6 +1647,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           setLeadgenWorkload(null)
           setPricingSettingsLoading(false)
           setConversionEventTypeSettingsLoading(false)
+          setUnitEconomicsSettingsLoading(false)
           setManagerWhitelistSettingsLoading(false)
 
           const [meta, report, activities, calls] = await Promise.all([
@@ -1688,16 +1693,19 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setLeadgenReportError(null)
         setPricingSettingsLoading(true)
         setConversionEventTypeSettingsLoading(true)
+        setUnitEconomicsSettingsLoading(true)
         setManagerWhitelistSettingsLoading(true)
         const [
           meta,
           pricingSettings,
           conversionEventTypeSettings,
+          unitEconomicsSettings,
           managerWhitelistSettings,
         ] = await Promise.all([
           apiClient.getMeta(activeModuleId),
           apiClient.getPricingSettings(),
           apiClient.getConversionEventTypeSettings(),
+          apiClient.getUnitEconomicsSettings(),
           apiClient.getManagerWhitelistSettings(),
         ])
         if (cancelled || runtimeRequestRef.current !== requestId) {
@@ -1705,6 +1713,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         }
         setPricingSettingsLoading(false)
         setConversionEventTypeSettingsLoading(false)
+        setUnitEconomicsSettingsLoading(false)
         setManagerWhitelistSettingsLoading(false)
 
         const managerPickerOptions = normalizeManagerPickerOptions(meta.managerCatalog)
@@ -1849,6 +1858,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             ...(current.salesPlanQuarter ? { salesPlanQuarter: current.salesPlanQuarter } : {}),
             pricingSettings,
             conversionEventTypeSettings,
+            unitEconomicsSettings,
             managerWhitelistSettings: shouldUseFetchedManagerWhitelistSettings
               ? managerWhitelistSettings
               : (current.managerWhitelistSettings ?? managerWhitelistSettings),
@@ -1894,6 +1904,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         }
         setPricingSettingsLoading(false)
         setConversionEventTypeSettingsLoading(false)
+        setUnitEconomicsSettingsLoading(false)
         setManagerWhitelistSettingsLoading(false)
       }
     }
@@ -2160,6 +2171,30 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       )
     } finally {
       setConversionEventTypeSettingsSaving(false)
+    }
+  }
+
+  async function handleSaveUnitEconomicsCostRules(input: UnitEconomicsCostRulesInput) {
+    if (unitEconomicsSettingsLoading) {
+      return
+    }
+
+    setUnitEconomicsSettingsSaving(true)
+    setUnitEconomicsSettingsSaveError(null)
+
+    try {
+      const saved = await apiClient.saveUnitEconomicsCostRules(input)
+      setRuntimeData((current) => ({
+        ...current,
+        unitEconomicsSettings: saved,
+      }))
+      setAppliedFilters((current) => cloneFilters(current))
+    } catch (error) {
+      setUnitEconomicsSettingsSaveError(
+        error instanceof Error ? error.message : 'Не удалось сохранить расходы',
+      )
+    } finally {
+      setUnitEconomicsSettingsSaving(false)
     }
   }
 
@@ -2817,6 +2852,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             canEdit={canManageModuleSettings}
             pricingSettings={runtimeData.pricingSettings}
             conversionEventTypeSettings={runtimeData.conversionEventTypeSettings}
+            unitEconomicsSettings={runtimeData.unitEconomicsSettings}
             managerWhitelistSettings={runtimeData.managerWhitelistSettings}
             pricingSettingsLoading={pricingSettingsLoading}
             pricingSettingsSaving={pricingSettingsSaving}
@@ -2824,12 +2860,16 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             conversionEventTypeSettingsLoading={conversionEventTypeSettingsLoading}
             conversionEventTypeSettingsSaving={conversionEventTypeSettingsSaving}
             conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
+            unitEconomicsSettingsLoading={unitEconomicsSettingsLoading}
+            unitEconomicsSettingsSaving={unitEconomicsSettingsSaving}
+            unitEconomicsSettingsSaveError={unitEconomicsSettingsSaveError}
             managerWhitelistSettingsLoading={managerWhitelistSettingsLoading}
             managerWhitelistSettingsSaving={managerWhitelistSettingsSaving}
             managerWhitelistSettingsSaveError={managerWhitelistSettingsSaveError}
             managerWhitelistSettingsNotice={managerWhitelistSettingsNotice}
             onPricingSettingsSave={handleSavePricingSettings}
             onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
+            onUnitEconomicsCostRulesSave={handleSaveUnitEconomicsCostRules}
             onManagerWhitelistSettingsSave={handleSaveManagerWhitelistSettings}
           />
 

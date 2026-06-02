@@ -1,4 +1,8 @@
-import type { RevenueVelocityReport } from "@bitrix24-reporting/contracts";
+import type {
+  RevenueVelocityReport,
+  UnitEconomicsCostRulesInput,
+  UnitEconomicsReport
+} from "@bitrix24-reporting/contracts";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
@@ -92,6 +96,45 @@ function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
     },
     rows: [],
     formulaTooltips: [],
+    warnings: []
+  };
+}
+
+function createEmptyUnitEconomicsReport(): UnitEconomicsReport {
+  return {
+    range: {
+      from: "2026-04-01T00:00:00.000Z",
+      to: "2026-04-30T23:59:59.999Z"
+    },
+    summary: {
+      createdDeals: 0,
+      wonDeals: 0,
+      purchasedLeads: 0,
+      attractionRevenue: 0,
+      clubRevenue: 0,
+      leadPurchaseCost: 0,
+      eventCost: 0,
+      ambassadorActivityCost: 0,
+      ctuCertificateCost: 0,
+      contractationCost: 0,
+      otherVariableCost: 0,
+      variableCosts: 0,
+      contributionResult: 0,
+      contributionMargin: null,
+      aboveEbitdaCosts: 0,
+      ebitda: 0,
+      ebitdaMargin: null,
+      belowEbitdaCosts: 0,
+      netProfit: 0,
+      netProfitMargin: null,
+      attractionAverageCheck: null,
+      clubAverageCheck: null,
+      costPerWonDeal: null,
+      costPerCreatedDeal: null
+    },
+    sourceQualityRows: [],
+    managerRows: [],
+    costRows: [],
     warnings: []
   };
 }
@@ -271,6 +314,19 @@ function createCorsTestApp(config?: {
         comparisons: []
       }),
       getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
+      getUnitEconomicsReport: async () => createEmptyUnitEconomicsReport(),
+      getUnitEconomicsSettings: async () => ({
+        articles: [],
+        rules: [],
+        eventParticipantMode: "invited",
+        updatedAt: null
+      }),
+      replaceUnitEconomicsCostRules: async (input: UnitEconomicsCostRulesInput) => ({
+        articles: [],
+        rules: input.rules,
+        eventParticipantMode: input.eventParticipantMode ?? "invited",
+        updatedAt: "2026-06-02T08:00:00.000Z"
+      }),
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
         periodEnd: "2026-04-30T23:59:59.999Z",

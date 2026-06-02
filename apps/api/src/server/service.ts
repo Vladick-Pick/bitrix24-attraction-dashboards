@@ -47,7 +47,11 @@ import type {
   TargetGroupConversionReport,
   TargetGroupConversionReportSnapshot,
   TocFlowReport,
-  TocFlowReportSnapshot
+  TocFlowReportSnapshot,
+  UnitEconomicsCostRulesInput,
+  UnitEconomicsEventParticipantMode,
+  UnitEconomicsReport,
+  UnitEconomicsSettings
 } from "@bitrix24-reporting/contracts";
 
 import {
@@ -67,6 +71,7 @@ import {
 } from "../domain/attraction-managers.js";
 import { buildTocFlowReport } from "../domain/toc-report.js";
 import { buildRevenueVelocityReport } from "../domain/revenue-velocity.js";
+import { buildUnitEconomicsReport } from "../domain/unit-economics.js";
 import { buildConversionEventsReport } from "../domain/conversion-events.js";
 import {
   loadAttractionOntology,
@@ -215,6 +220,17 @@ export interface ReportingService {
     view?: RevenueVelocityView;
     asOf?: string;
   }): Promise<RevenueVelocityReport>;
+  getUnitEconomicsReport(input: {
+    periodDays?: number;
+    range?: ReportRange;
+    compareRanges?: ReportRange[];
+    filters?: ReportFilters;
+    eventParticipantMode?: UnitEconomicsEventParticipantMode;
+  }): Promise<UnitEconomicsReport>;
+  getUnitEconomicsSettings(): Promise<UnitEconomicsSettings>;
+  replaceUnitEconomicsCostRules(
+    input: UnitEconomicsCostRulesInput
+  ): Promise<UnitEconomicsSettings>;
   getSalesPlan(input: {
     periodStart: string;
     periodEnd: string;
@@ -804,6 +820,13 @@ export function createReportingService(
     return typeof repositoryWithPricing.getPricingRules === "function"
       ? repositoryWithPricing.getPricingRules()
       : DEFAULT_PRICING_RULES;
+  };
+  const getUnitEconomicsEventParticipantMode = async () => {
+    const repositoryWithUnitEconomics = input.repository as Partial<SqliteRepository>;
+    return typeof repositoryWithUnitEconomics.getUnitEconomicsEventParticipantMode ===
+      "function"
+      ? repositoryWithUnitEconomics.getUnitEconomicsEventParticipantMode()
+      : "invited";
   };
 
   const filterDealsByFilters = (
@@ -1671,6 +1694,39 @@ export function createReportingService(
       };
     },
 
+    async getUnitEconomicsSettings() {
+      const [articles, rules, eventParticipantMode] = await Promise.all([
+        input.repository.getUnitEconomicsCostArticles(),
+        input.repository.getUnitEconomicsCostRules(),
+        getUnitEconomicsEventParticipantMode()
+      ]);
+
+      return {
+        articles,
+        rules,
+        eventParticipantMode,
+        updatedAt: null
+      };
+    },
+
+    async replaceUnitEconomicsCostRules(settingsInput) {
+      const updatedAt = nowFactory().toISOString();
+      const rules = await input.repository.replaceUnitEconomicsCostRules({
+        ...settingsInput,
+        updatedAt
+      });
+      const articles = await input.repository.getUnitEconomicsCostArticles();
+      const eventParticipantMode =
+        await getUnitEconomicsEventParticipantMode();
+
+      return {
+        articles,
+        rules,
+        eventParticipantMode,
+        updatedAt
+      };
+    },
+
     async getConversionEventTypeSettings() {
       const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
       const [options, settings] = await Promise.all([
@@ -2407,13 +2463,13 @@ export function createReportingService(
         }
 
         const managerId =
-          fact.managerId ?? deal?.assignedById ?? UNASSIGNED_MANAGER_ID;
+          deal?.assignedById ?? fact.managerId ?? UNASSIGNED_MANAGER_ID;
         if (managerIds.size > 0 && !managerIds.has(managerId)) {
           return false;
         }
 
         const sourceKey =
-          fact.sourceId ?? deal?.sourceId ?? UNATTRIBUTED_SOURCE_KEY;
+          deal?.sourceId ?? fact.sourceId ?? UNATTRIBUTED_SOURCE_KEY;
         if (sourceKeys.size > 0 && !sourceKeys.has(sourceKey)) {
           return false;
         }
@@ -2657,6 +2713,121 @@ export function createReportingService(
         compareRanges,
         buildSnapshot
       ) as RevenueVelocityReport;
+    },
+
+    async getUnitEconomicsReport({
+      periodDays,
+      range,
+      compareRanges,
+      filters,
+      eventParticipantMode
+    }) {
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
+      const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
+      const [
+        deals,
+        stageCatalog,
+        stageHistory,
+        wonStageIds,
+        pricingRules,
+        eventVisitFacts,
+        events
+      ] =
+        await Promise.all([
+          input.repository.getAllDeals(),
+          getScopedStageCatalog(true),
+          input.repository.getAllStageHistory(),
+          input.repository.getWonStageIds(),
+          getPricingRules(),
+          typeof repositoryWithEvents.getAllEventVisitFacts === "function"
+            ? repositoryWithEvents.getAllEventVisitFacts()
+            : Promise.resolve([]),
+          typeof repositoryWithEvents.getAllEventSnapshots === "function"
+            ? repositoryWithEvents.getAllEventSnapshots()
+            : Promise.resolve([])
+        ]);
+      const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
+      const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+      const dealsById = new Map(scopedDeals.map((deal) => [deal.id, deal]));
+      const managerIds = new Set(scopedFilters.managerIds ?? []);
+      const sourceKeys = new Set(scopedFilters.sourceKeys ?? []);
+      const scopedEventVisitFacts = eventVisitFacts.filter((fact) => {
+        const deal = fact.dealId ? dealsById.get(fact.dealId) : undefined;
+
+        if (fact.dealId && !deal) {
+          return false;
+        }
+
+        const managerId =
+          deal?.assignedById ?? fact.managerId ?? UNASSIGNED_MANAGER_ID;
+        if (managerIds.size > 0 && !managerIds.has(managerId)) {
+          return false;
+        }
+
+        const sourceKey =
+          deal?.sourceId ?? fact.sourceId ?? UNATTRIBUTED_SOURCE_KEY;
+        if (sourceKeys.size > 0 && !sourceKeys.has(sourceKey)) {
+          return false;
+        }
+
+        return true;
+      });
+      const scopedStageHistory = stageHistory.filter((row) =>
+        scopedDealIds.has(row.ownerId)
+      );
+      const managerDirectory = await ensureManagerDirectory(
+        uniqueStrings([
+          ...scopedDeals.map((deal) => deal.assignedById ?? UNASSIGNED_MANAGER_ID),
+          ...scopedEventVisitFacts.map((fact) => fact.managerId)
+        ])
+      );
+      const buildSnapshot = async (targetRange: ReportRange) => {
+        const [costRules, costFacts, savedEventParticipantMode] = await Promise.all([
+          input.repository.getUnitEconomicsCostRules(),
+          input.repository.getUnitEconomicsCostFacts({
+            periodStart: targetRange.from,
+            periodEnd: targetRange.to
+          }),
+          getUnitEconomicsEventParticipantMode()
+        ]);
+
+        return buildUnitEconomicsReport({
+          range: targetRange,
+          deals: scopedDeals,
+          stageCatalog,
+          stageHistory: scopedStageHistory,
+          eventVisitFacts: scopedEventVisitFacts,
+          events,
+          wonStageIds,
+          pricingRules,
+          costRules,
+          costFacts,
+          eventParticipantMode: eventParticipantMode ?? savedEventParticipantMode,
+          managerDirectory
+        });
+      };
+      const resolvedRange = resolveRange(
+        periodDays,
+        range,
+        input.defaultPeriodDays,
+        nowFactory()
+      );
+      const snapshot = await buildSnapshot(resolvedRange);
+
+      if (!compareRanges?.length) {
+        return snapshot;
+      }
+
+      return {
+        ...snapshot,
+        comparisons: await Promise.all(
+          compareRanges.map(async (compareRange, compareIndex) => ({
+            compareIndex,
+            range: compareRange,
+            snapshot: await buildSnapshot(compareRange)
+          }))
+        )
+      };
     },
 
     async getAttractionOntology() {

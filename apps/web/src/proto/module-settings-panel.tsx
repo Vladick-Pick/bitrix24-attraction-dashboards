@@ -7,6 +7,11 @@ import type {
   DealPricingSettings,
   ManagerWhitelistSettingsData,
   ManagerWhitelistSettingsInput,
+  UnitEconomicsCalculationMethod,
+  UnitEconomicsCostRule,
+  UnitEconomicsCostRulesInput,
+  UnitEconomicsEventParticipantMode,
+  UnitEconomicsSettings,
 } from '@/lib/dashboard-types'
 import { formatAmount, formatInteger } from '@/lib/formatters'
 
@@ -14,6 +19,7 @@ type ModuleSettingsPanelProps = {
   canEdit: boolean
   pricingSettings?: DealPricingSettings | undefined
   conversionEventTypeSettings?: ConversionEventTypeSettingsData | undefined
+  unitEconomicsSettings?: UnitEconomicsSettings | undefined
   managerWhitelistSettings?: ManagerWhitelistSettingsData | undefined
   pricingSettingsLoading?: boolean
   pricingSettingsSaving?: boolean
@@ -21,6 +27,9 @@ type ModuleSettingsPanelProps = {
   conversionEventTypeSettingsLoading?: boolean
   conversionEventTypeSettingsSaving?: boolean
   conversionEventTypeSettingsSaveError?: string | null
+  unitEconomicsSettingsLoading?: boolean
+  unitEconomicsSettingsSaving?: boolean
+  unitEconomicsSettingsSaveError?: string | null
   managerWhitelistSettingsLoading?: boolean
   managerWhitelistSettingsSaving?: boolean
   managerWhitelistSettingsSaveError?: string | null
@@ -29,9 +38,31 @@ type ModuleSettingsPanelProps = {
   onConversionEventTypeSettingsSave?: (
     input: ConversionEventTypeSettingsInput,
   ) => Promise<void>
+  onUnitEconomicsCostRulesSave?: (
+    input: UnitEconomicsCostRulesInput,
+  ) => Promise<void>
   onManagerWhitelistSettingsSave?: (
     input: ManagerWhitelistSettingsInput,
   ) => Promise<void>
+}
+
+const PNL_LEVEL_LABELS: Record<string, string> = {
+  variable_contribution: 'Себестоимость производства',
+  above_ebitda: 'Прямые расходы',
+  below_ebitda: 'Налоги и финсервис',
+}
+
+const CALCULATION_METHOD_LABELS: Record<UnitEconomicsCalculationMethod, string> = {
+  manual_amount: 'Сумма',
+  percent_of_module_revenue: '% от выручки',
+  percent_of_sale: '% от продажи',
+  percent_of_club_membership: '% от членства',
+  amount_per_lead: 'На лид',
+  amount_per_participant: 'На участника',
+  amount_per_contract: 'На won-сделку',
+  amount_per_event: 'На мероприятие',
+  amount_per_period: 'За период',
+  imported_fact: 'Факт',
 }
 
 function getEnabledWhitelistManagerIds(
@@ -66,10 +97,69 @@ function buildManagerWhitelistRows(
     .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
 }
 
+function isPercentUnitEconomicsRule(rule: UnitEconomicsCostRule) {
+  return (
+    rule.calculationMethod === 'percent_of_module_revenue' ||
+    rule.calculationMethod === 'percent_of_sale' ||
+    rule.calculationMethod === 'percent_of_club_membership'
+  )
+}
+
+function isAmountUnitEconomicsRule(rule: UnitEconomicsCostRule) {
+  return (
+    rule.calculationMethod === 'manual_amount' ||
+    rule.calculationMethod === 'amount_per_period'
+  )
+}
+
+function getUnitEconomicsRuleValue(rule: UnitEconomicsCostRule) {
+  if (isPercentUnitEconomicsRule(rule)) {
+    return rule.percent ?? 0
+  }
+
+  if (isAmountUnitEconomicsRule(rule)) {
+    return rule.amount ?? rule.unitPrice ?? 0
+  }
+
+  return rule.unitPrice ?? 0
+}
+
+function buildUnitEconomicsValuePatch(
+  rule: UnitEconomicsCostRule,
+  value: number,
+): Partial<UnitEconomicsCostRule> {
+  if (isPercentUnitEconomicsRule(rule)) {
+    return { percent: value, unitPrice: null, amount: null }
+  }
+
+  if (isAmountUnitEconomicsRule(rule)) {
+    return { amount: value, unitPrice: null, percent: null }
+  }
+
+  return { unitPrice: value, amount: null, percent: null }
+}
+
+function getUnitEconomicsEventScope(
+  rule: UnitEconomicsCostRule,
+  eventNamePattern: string,
+) {
+  if (
+    rule.calculationMethod !== 'amount_per_participant' ||
+    (rule.articleId !== 'demo_events' && rule.articleId !== 'ambassador_activities')
+  ) {
+    return null
+  }
+
+  return eventNamePattern
+    ? `Событие: ${eventNamePattern}`
+    : 'Все остальные конверсионные мероприятия'
+}
+
 export function ModuleSettingsPanel({
   canEdit,
   pricingSettings,
   conversionEventTypeSettings,
+  unitEconomicsSettings,
   managerWhitelistSettings,
   pricingSettingsLoading = false,
   pricingSettingsSaving = false,
@@ -77,12 +167,16 @@ export function ModuleSettingsPanel({
   conversionEventTypeSettingsLoading = false,
   conversionEventTypeSettingsSaving = false,
   conversionEventTypeSettingsSaveError = null,
+  unitEconomicsSettingsLoading = false,
+  unitEconomicsSettingsSaving = false,
+  unitEconomicsSettingsSaveError = null,
   managerWhitelistSettingsLoading = false,
   managerWhitelistSettingsSaving = false,
   managerWhitelistSettingsSaveError = null,
   managerWhitelistSettingsNotice = null,
   onPricingSettingsSave,
   onConversionEventTypeSettingsSave,
+  onUnitEconomicsCostRulesSave,
   onManagerWhitelistSettingsSave,
 }: ModuleSettingsPanelProps) {
   const [draftPricingEdits, setDraftPricingEdits] = useState<
@@ -108,6 +202,34 @@ export function ModuleSettingsPanel({
         .reduce((total, row) => total + row.attractionRevenueAmount, 0),
     [draftPricingRows],
   )
+  const [draftUnitEconomicsEdits, setDraftUnitEconomicsEdits] = useState<
+    Record<string, Partial<UnitEconomicsCostRule>>
+  >({})
+  const [draftEventParticipantMode, setDraftEventParticipantMode] =
+    useState<UnitEconomicsEventParticipantMode | null>(null)
+  const selectedEventParticipantMode =
+    draftEventParticipantMode ?? unitEconomicsSettings?.eventParticipantMode ?? 'invited'
+  const unitEconomicsArticleById = useMemo(
+    () =>
+      new Map(
+        (unitEconomicsSettings?.articles ?? []).map((article) => [
+          article.id,
+          article,
+        ]),
+      ),
+    [unitEconomicsSettings?.articles],
+  )
+  const draftUnitEconomicsRows = useMemo(
+    () =>
+      (unitEconomicsSettings?.rules ?? [])
+        .map((rule) => ({
+          ...rule,
+          ...(draftUnitEconomicsEdits[rule.id] ?? {}),
+        }))
+        .sort((left, right) => left.sortOrder - right.sortOrder),
+    [draftUnitEconomicsEdits, unitEconomicsSettings?.rules],
+  )
+  const enabledUnitEconomicsRows = draftUnitEconomicsRows.filter((row) => row.enabled)
 
   const eventTypeOptions = useMemo(
     () => conversionEventTypeSettings?.options ?? [],
@@ -146,6 +268,23 @@ export function ModuleSettingsPanel({
     }
 
     setDraftPricingEdits((current) => ({
+      ...current,
+      [ruleId]: {
+        ...(current[ruleId] ?? {}),
+        ...patch,
+      },
+    }))
+  }
+
+  function updateUnitEconomicsRule(
+    ruleId: string,
+    patch: Partial<UnitEconomicsCostRule>,
+  ) {
+    if (!canEdit) {
+      return
+    }
+
+    setDraftUnitEconomicsEdits((current) => ({
       ...current,
       [ruleId]: {
         ...(current[ruleId] ?? {}),
@@ -274,6 +413,171 @@ export function ModuleSettingsPanel({
             </button>
           ) : null}
         </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white/80 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase text-slate-500">
+              Расходы и финрезультат
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Правила для закупки лидов, контрактации и операционных статей P&L.
+            </p>
+          </div>
+          <span className="badge-chip badge-neutral">
+            {formatInteger(enabledUnitEconomicsRows.length)} активно
+          </span>
+        </div>
+
+        {unitEconomicsSettingsLoading && draftUnitEconomicsRows.length === 0 ? (
+          <div className="mt-4 text-sm text-slate-500">Загружаю правила расходов.</div>
+        ) : draftUnitEconomicsRows.length === 0 ? (
+          <div className="mt-4 text-sm text-slate-500">Правила расходов пока не настроены.</div>
+        ) : (
+          <>
+            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                Расходы событий
+              </span>
+              {([
+                ['invited', 'Приглашенные'],
+                ['attended', 'Дошедшие'],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={
+                    selectedEventParticipantMode === mode
+                      ? 'btn btn-primary'
+                      : 'btn btn-ghost'
+                  }
+                  aria-pressed={selectedEventParticipantMode === mode}
+                  disabled={!canEdit}
+                  onClick={() => setDraftEventParticipantMode(mode)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+              <div className="grid min-w-[56rem] grid-cols-[minmax(12rem,1fr)_minmax(12rem,1fr)_9rem_10rem_7rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase text-slate-500">
+                <span>Статья</span>
+                <span>Срез</span>
+                <span>Метод</span>
+                <span>Значение</span>
+                <span>Активно</span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {draftUnitEconomicsRows.map((row) => {
+                  const article = unitEconomicsArticleById.get(row.articleId)
+                  const articleName = article?.name ?? row.articleId
+                  const eventNamePattern = row.eventNamePattern?.trim() ?? ''
+                  const eventScope = getUnitEconomicsEventScope(row, eventNamePattern)
+                  const ruleScope = [
+                    row.sourceKey,
+                    row.qualityValue,
+                    eventScope,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                  const inputLabel = `Расход ${articleName} ${ruleScope}`.trim()
+
+                  return (
+                    <div
+                      key={row.id}
+                      className="grid min-w-[56rem] grid-cols-[minmax(12rem,1fr)_minmax(12rem,1fr)_9rem_10rem_7rem] gap-3 px-4 py-3 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-950">{articleName}</div>
+                        <div className="truncate text-xs text-slate-500">
+                          {PNL_LEVEL_LABELS[row.pnlLevel] ?? row.pnlLevel}
+                        </div>
+                      </div>
+                      <div className="min-w-0 self-center text-slate-600">
+                        {ruleScope || 'Общий модуль'}
+                        <div className="truncate text-xs text-slate-500">{row.id}</div>
+                        {row.calculationMethod === 'amount_per_participant' ? (
+                          <input
+                            type="text"
+                            className="field mt-2 h-9"
+                            value={eventNamePattern}
+                            disabled={!canEdit}
+                            onChange={(event) =>
+                              updateUnitEconomicsRule(row.id, {
+                                eventNamePattern:
+                                  event.target.value.trim().length > 0
+                                    ? event.target.value
+                                    : null,
+                              })
+                            }
+                            aria-label={`Паттерн события ${articleName}`}
+                            placeholder="Паттерн события"
+                          />
+                        ) : null}
+                      </div>
+                      <div className="self-center font-medium text-slate-700">
+                        {CALCULATION_METHOD_LABELS[row.calculationMethod]}
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        step={isPercentUnitEconomicsRule(row) ? 0.1 : 1000}
+                        className="field h-10"
+                        value={getUnitEconomicsRuleValue(row)}
+                        disabled={!canEdit}
+                        onChange={(event) => {
+                          const value = Math.max(0, Number(event.target.value) || 0)
+                          updateUnitEconomicsRule(
+                            row.id,
+                            buildUnitEconomicsValuePatch(row, value),
+                          )
+                        }}
+                        aria-label={inputLabel}
+                      />
+                      <label className="flex items-center gap-2 self-center text-sm font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={row.enabled}
+                          disabled={!canEdit}
+                          onChange={(event) =>
+                            updateUnitEconomicsRule(row.id, {
+                              enabled: event.target.checked,
+                            })
+                          }
+                          aria-label={`Активно ${articleName}`}
+                        />
+                        Да
+                      </label>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </>
+        )}
+
+        {unitEconomicsSettingsSaveError ? (
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            {unitEconomicsSettingsSaveError}
+          </div>
+        ) : null}
+        {canEdit ? (
+          <button
+            type="button"
+            className="btn btn-primary mt-4"
+            disabled={unitEconomicsSettingsSaving || draftUnitEconomicsRows.length === 0}
+            onClick={() =>
+              void onUnitEconomicsCostRulesSave?.({
+                rules: draftUnitEconomicsRows,
+                eventParticipantMode: selectedEventParticipantMode,
+              })
+            }
+          >
+            {unitEconomicsSettingsSaving ? 'Сохранение...' : 'Сохранить расходы'}
+          </button>
+        ) : null}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white/80 p-4">

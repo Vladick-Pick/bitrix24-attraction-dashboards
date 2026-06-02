@@ -19,6 +19,8 @@ export interface ReportFilters {
   sourceKeys?: string[]
 }
 
+export type UnitEconomicsEventParticipantMode = 'invited' | 'attended'
+
 export interface LeadgenFunnelStageRow {
   stageId: string
   stageName: string
@@ -1110,6 +1112,198 @@ export interface RevenueVelocityReportSnapshot {
 
 export interface RevenueVelocityReport extends RevenueVelocityReportSnapshot {
   comparisons?: Array<ReportComparison<RevenueVelocityReportSnapshot>>
+}
+
+export type UnitEconomicsPnlLevel =
+  | 'variable_contribution'
+  | 'above_ebitda'
+  | 'below_ebitda'
+
+export type UnitEconomicsCostBehavior = 'fixed' | 'variable' | 'mixed'
+
+export type UnitEconomicsCalculationMethod =
+  | 'manual_amount'
+  | 'percent_of_module_revenue'
+  | 'percent_of_sale'
+  | 'percent_of_club_membership'
+  | 'amount_per_lead'
+  | 'amount_per_participant'
+  | 'amount_per_contract'
+  | 'amount_per_event'
+  | 'amount_per_period'
+  | 'imported_fact'
+
+export type UnitEconomicsCostConfidence =
+  | 'confirmed'
+  | 'imported'
+  | 'manual'
+  | 'inferred'
+  | 'needs_review'
+  | 'conflicting'
+
+export interface UnitEconomicsCostArticle {
+  id: string
+  name: string
+  pnlLevel: UnitEconomicsPnlLevel
+  costBehavior: UnitEconomicsCostBehavior
+  calculationMethod: UnitEconomicsCalculationMethod
+  enabled: boolean
+  sortOrder: number
+  effectiveFrom: string | null
+  effectiveTo: string | null
+  updatedAt: string | null
+}
+
+export interface UnitEconomicsCostRule {
+  id: string
+  articleId: string
+  pnlLevel: UnitEconomicsPnlLevel
+  costBehavior: UnitEconomicsCostBehavior
+  calculationMethod: UnitEconomicsCalculationMethod
+  unitPrice: number | null
+  percent: number | null
+  amount: number | null
+  sourceKey: string | null
+  qualityValue: string | null
+  eventNamePattern?: string | null
+  enabled: boolean
+  effectiveFrom: string
+  effectiveTo: string | null
+  sortOrder: number
+}
+
+export interface UnitEconomicsCostRulesInput {
+  rules: UnitEconomicsCostRule[]
+  eventParticipantMode?: UnitEconomicsEventParticipantMode
+}
+
+export interface UnitEconomicsSettings {
+  articles: UnitEconomicsCostArticle[]
+  rules: UnitEconomicsCostRule[]
+  eventParticipantMode: UnitEconomicsEventParticipantMode
+  updatedAt: string | null
+}
+
+export interface UnitEconomicsSummary {
+  createdDeals: number
+  wonDeals: number
+  purchasedLeads: number
+  attractionRevenue: number
+  clubRevenue: number
+  leadPurchaseCost: number
+  eventCost: number
+  ambassadorActivityCost: number
+  ctuCertificateCost: number
+  contractationCost: number
+  otherVariableCost: number
+  variableCosts: number
+  contributionResult: number
+  contributionMargin: number | null
+  aboveEbitdaCosts: number
+  ebitda: number
+  ebitdaMargin: number | null
+  belowEbitdaCosts: number
+  netProfit: number
+  netProfitMargin: number | null
+  attractionAverageCheck: number | null
+  clubAverageCheck: number | null
+  costPerWonDeal: number | null
+  costPerCreatedDeal: number | null
+}
+
+export interface UnitEconomicsSourceQualityRow {
+  sourceKey: string
+  sourceLabel: string
+  qualityValue: string | null
+  createdDeals: number
+  wonDeals: number
+  purchasedLeads: number
+  attractionRevenue: number
+  clubRevenue: number
+  leadPurchaseCost: number
+  contractationCost: number
+  variableCosts: number
+  financialResult: number
+  margin: number | null
+  warnings: string[]
+}
+
+export interface UnitEconomicsManagerRevenueRow {
+  clubLabel: string | null
+  tariffLabel: string | null
+  wonDeals: number
+  attractionRevenue: number
+  clubRevenue: number
+}
+
+export interface UnitEconomicsManagerCostDetailRow {
+  articleId: string
+  articleLabel: string
+  productLabel: string
+  quantity: number | null
+  unitLabel: string | null
+  unitPrice: number | null
+  percent: number | null
+  amount: number
+  basis: string
+  warnings: string[]
+}
+
+export interface UnitEconomicsManagerRow {
+  managerId: string
+  managerName: string
+  createdDeals: number
+  wonDeals: number
+  purchasedLeads: number
+  attractionRevenue: number
+  clubRevenue: number
+  leadPurchaseCost: number
+  eventCost: number
+  ambassadorActivityCost: number
+  ctuCertificateCost: number
+  contractationCost: number
+  variableCosts: number
+  financialResult: number
+  margin: number | null
+  warnings: string[]
+  revenueRows: UnitEconomicsManagerRevenueRow[]
+  productionCostRows: UnitEconomicsManagerCostDetailRow[]
+  directCostRows: UnitEconomicsManagerCostDetailRow[]
+  taxAndFinanceRows: UnitEconomicsManagerCostDetailRow[]
+}
+
+export interface UnitEconomicsCostRow {
+  articleId: string
+  label: string
+  pnlLevel: UnitEconomicsPnlLevel
+  costBehavior: UnitEconomicsCostBehavior
+  calculationMethod: UnitEconomicsCalculationMethod
+  amount: number
+  quantity: number | null
+  unitPrice: number | null
+  percent: number | null
+  sourceKey: string | null
+  qualityValue: string | null
+  confidence: UnitEconomicsCostConfidence
+  sourceSystem: string
+  warnings: string[]
+}
+
+export interface UnitEconomicsReportSnapshot {
+  range: ReportRange
+  summary: UnitEconomicsSummary
+  sourceQualityRows: UnitEconomicsSourceQualityRow[]
+  managerRows: UnitEconomicsManagerRow[]
+  costRows: UnitEconomicsCostRow[]
+  warnings: string[]
+}
+
+export interface UnitEconomicsReport extends UnitEconomicsReportSnapshot {
+  comparisons?: Array<ReportComparison<UnitEconomicsReportSnapshot>>
+}
+
+export type UnitEconomicsQuery = DashboardQuery & {
+  eventParticipantMode?: UnitEconomicsEventParticipantMode
 }
 
 export type RevenueVelocityQuery = DashboardQuery & {

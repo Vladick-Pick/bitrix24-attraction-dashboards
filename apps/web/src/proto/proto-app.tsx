@@ -2973,8 +2973,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 />
                 <input
                   className="field"
-                  type="email"
-                  placeholder="логин email"
+                  type="text"
+                  placeholder="логин"
                   value={newModuleUser.login}
                   onChange={(event) =>
                     setNewModuleUser((current) => ({

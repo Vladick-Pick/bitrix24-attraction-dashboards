@@ -81,6 +81,12 @@ const envSchema = z
     API_PORT: z.coerce.number().int().positive().default(8787),
     APP_TIMEZONE: z.string().default("Europe/Istanbul"),
     APP_PUBLIC_URL: optionalTrimmedString(),
+    ATTRACTION_AUTO_SYNC_ENABLED: z.enum(["true", "false"]).optional(),
+    ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(30),
     AUTH_MODE: z.enum(["none", "password"]).default("none"),
     BITRIX24_DEAL_CATEGORY_IDS: z.string().default("10"),
     BITRIX24_LEADGEN_US_CATEGORY_ID: z.string().trim().min(1).default("28"),
@@ -199,6 +205,8 @@ export type AppEnv = z.infer<typeof envSchema> & {
   leadgenDatabaseUrl: string;
   reportWonStageIds: string[];
   bitrixEnabled: boolean;
+  attractionAutoSyncEnabled: boolean;
+  attractionAutoSyncIntervalMs: number;
 };
 
 export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
@@ -220,6 +228,11 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     );
   }
 
+  const attractionAutoSyncEnabled =
+    parsed.ATTRACTION_AUTO_SYNC_ENABLED === undefined
+      ? parsed.NODE_ENV === "production"
+      : parsed.ATTRACTION_AUTO_SYNC_ENABLED === "true";
+
   return {
     ...parsed,
     bitrixDealCategoryIds: parsed.BITRIX24_DEAL_CATEGORY_IDS.split(",")
@@ -239,6 +252,9 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
       parsed.BITRIX24_PORTAL_HOST &&
         parsed.BITRIX24_WEBHOOK_USER_ID &&
         parsed.BITRIX24_WEBHOOK_TOKEN
-    )
+    ),
+    attractionAutoSyncEnabled,
+    attractionAutoSyncIntervalMs:
+      parsed.ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1_000
   };
 }

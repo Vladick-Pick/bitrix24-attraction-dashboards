@@ -54,6 +54,40 @@ describe("readEnv", () => {
     expect(readEnv({}).bitrixEnabled).toBe(false);
   });
 
+  it("configures attraction auto sync from production defaults and explicit overrides", () => {
+    expect(readEnv({}).attractionAutoSyncEnabled).toBe(false);
+    expect(readEnv({}).attractionAutoSyncIntervalMs).toBe(30 * 60 * 1_000);
+
+    expect(
+      readEnv({
+        NODE_ENV: "production",
+        AUTH_MODE: "password",
+        SESSION_SECRET: "production-session-secret-with-at-least-32-bytes",
+        APP_PUBLIC_URL: "https://dash.example.com"
+      }).attractionAutoSyncEnabled
+    ).toBe(true);
+
+    expect(
+      readEnv({
+        ATTRACTION_AUTO_SYNC_ENABLED: "true",
+        ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES: "15"
+      })
+    ).toMatchObject({
+      attractionAutoSyncEnabled: true,
+      attractionAutoSyncIntervalMs: 15 * 60 * 1_000
+    });
+
+    expect(
+      readEnv({
+        NODE_ENV: "production",
+        AUTH_MODE: "password",
+        SESSION_SECRET: "production-session-secret-with-at-least-32-bytes",
+        APP_PUBLIC_URL: "https://dash.example.com",
+        ATTRACTION_AUTO_SYNC_ENABLED: "false"
+      }).attractionAutoSyncEnabled
+    ).toBe(false);
+  });
+
   it("derives separate platform, attraction, and leadgen database URLs", () => {
     expect(readEnv({}).platformDatabaseUrl).toBe(
       "file:./data/bitrix24-reporting.db"

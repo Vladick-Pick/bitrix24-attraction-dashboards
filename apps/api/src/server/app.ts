@@ -35,6 +35,7 @@ import type {
   TocFlowReport
 } from "@bitrix24-reporting/contracts";
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
@@ -251,6 +252,11 @@ interface AppConfig {
   trustProxy?: string | boolean | number;
   webStaticDir?: string;
   syncStreamHeartbeatMs?: number;
+  attractionAutoSync?: {
+    enabled?: boolean;
+    intervalMs?: number;
+    initialDelayMs?: number;
+  };
   modules?: Record<string, ModuleService>;
 }
 
@@ -697,6 +703,56 @@ function isOntologySourceLookupError(error: unknown) {
       (error as { code?: unknown }).code === "SOURCE_NOT_READABLE" ||
       (error as { code?: unknown }).code === "SOURCE_OUTSIDE_ALLOWLIST")
   );
+}
+
+function summarizeReportQuery(request: express.Request) {
+  const query = request.query as Record<string, unknown>;
+  return {
+    method: request.method,
+    path: request.path,
+    periodDays: query.periodDays ?? null,
+    hasRange: Boolean(query.from && query.to),
+    compareRangeCount: parseCsvArray(query.compareFrom)?.length ?? 0,
+    managerFilterCount: parseCsvArray(query.managerIds)?.length ?? 0,
+    sourceFilterCount: parseCsvArray(query.sourceKeys)?.length ?? 0,
+    dimension: query.dimension ?? null,
+    view: query.view ?? null,
+    hasAsOf: Boolean(query.asOf)
+  };
+}
+
+function describeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      code:
+        "code" in error && typeof error.code === "string" ? error.code : undefined
+    };
+  }
+
+  return {
+    name: typeof error
+  };
+}
+
+function logJson(
+  level: "info" | "warn" | "error",
+  event: string,
+  payload: Record<string, unknown>
+) {
+  console[level](event, JSON.stringify(payload));
+}
+
+function timingErrorStatusCode(response: express.Response, error: unknown) {
+  if (response.statusCode >= 400) {
+    return response.statusCode;
+  }
+
+  if (error instanceof z.ZodError) {
+    return 400;
+  }
+
+  return 500;
 }
 
 function normalizeProfileField(value: string | null | undefined) {
@@ -1286,6 +1342,140 @@ export function createApp(
     ...Object.entries(config.modules ?? {})
   ]);
 
+  async function sendTimedJson<T>(input: {
+    request: express.Request;
+    response: express.Response;
+    next: express.NextFunction;
+    moduleId: string;
+    route: string;
+    handler: () => Promise<T>;
+  }) {
+    const startedAt = performance.now();
+
+    try {
+      const result = await input.handler();
+      input.response.json(result);
+      logJson("info", "api.report.timing", {
+        moduleId: input.moduleId,
+        route: input.route,
+        statusCode: input.response.statusCode,
+        durationMs: Math.round(performance.now() - startedAt),
+        ...summarizeReportQuery(input.request)
+      });
+    } catch (error) {
+      logJson("warn", "api.report.timing", {
+        moduleId: input.moduleId,
+        route: input.route,
+        statusCode: timingErrorStatusCode(input.response, error),
+        durationMs: Math.round(performance.now() - startedAt),
+        error: describeError(error),
+        ...summarizeReportQuery(input.request)
+      });
+      input.next(error);
+    }
+  }
+
+  function runAttractionAutoSync() {
+    const moduleId = "attraction";
+    const moduleService = moduleServices.get(moduleId) ?? service;
+
+    if (activeSyncByModule.has(moduleId)) {
+      logJson("info", "sync.auto_scheduled.skipped", {
+        moduleId,
+        reason: "SYNC_ALREADY_RUNNING",
+        checkedAt: new Date().toISOString()
+      });
+      return;
+    }
+
+    const startedAt = new Date().toISOString();
+    const startedMs = performance.now();
+    let sync: Promise<ManualSyncSummary>;
+    try {
+      sync = moduleService.performSync();
+    } catch (error) {
+      logJson("error", "sync.auto_scheduled.failed", {
+        moduleId,
+        durationMs: Math.round(performance.now() - startedMs),
+        failedAt: new Date().toISOString(),
+        error: describeError(error)
+      });
+      return;
+    }
+
+    activeSyncByModule.set(moduleId, sync);
+    logJson("info", "sync.auto_scheduled.started", {
+      moduleId,
+      startedAt
+    });
+
+    sync
+      .then((summary) => {
+        logJson("info", "sync.auto_scheduled.completed", {
+          moduleId,
+          syncRunId: summary.syncRunId,
+          mode: summary.mode,
+          dealsSynced: summary.dealsSynced,
+          leadsSynced: summary.leadsSynced,
+          durationMs: Math.round(performance.now() - startedMs),
+          finishedAt: summary.finishedAt
+        });
+      })
+      .catch((error) => {
+        logJson("error", "sync.auto_scheduled.failed", {
+          moduleId,
+          durationMs: Math.round(performance.now() - startedMs),
+          failedAt: new Date().toISOString(),
+          error: describeError(error)
+        });
+      })
+      .finally(() => {
+        if (activeSyncByModule.get(moduleId) === sync) {
+          activeSyncByModule.delete(moduleId);
+        }
+      });
+  }
+
+  function startAttractionAutoSync() {
+    if (!config.attractionAutoSync?.enabled) {
+      return undefined;
+    }
+
+    const intervalMs =
+      config.attractionAutoSync.intervalMs &&
+      Number.isFinite(config.attractionAutoSync.intervalMs) &&
+      config.attractionAutoSync.intervalMs > 0
+        ? config.attractionAutoSync.intervalMs
+        : 30 * 60 * 1_000;
+    const initialDelayMs =
+      config.attractionAutoSync.initialDelayMs !== undefined &&
+      Number.isFinite(config.attractionAutoSync.initialDelayMs) &&
+      config.attractionAutoSync.initialDelayMs >= 0
+        ? config.attractionAutoSync.initialDelayMs
+        : intervalMs;
+
+    let intervalTimer: ReturnType<typeof setInterval> | null = null;
+    const initialTimer = setTimeout(() => {
+      runAttractionAutoSync();
+      intervalTimer = setInterval(runAttractionAutoSync, intervalMs);
+      intervalTimer.unref?.();
+    }, initialDelayMs);
+    initialTimer.unref?.();
+
+    logJson("info", "sync.auto_scheduled.enabled", {
+      moduleId: "attraction",
+      intervalMs,
+      initialDelayMs
+    });
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (intervalTimer) {
+        clearInterval(intervalTimer);
+      }
+    };
+  }
+
   function denyIfMissingAttractionAccess(
     response: express.Response,
     options: { leaderOnly?: boolean } = {}
@@ -1445,6 +1635,11 @@ export function createApp(
     })
   );
   app.use(express.json({ limit: config.jsonBodyLimit ?? "256kb" }));
+
+  const stopAttractionAutoSync = startAttractionAutoSync();
+  if (stopAttractionAutoSync) {
+    app.locals.stopAttractionAutoSync = stopAttractionAutoSync;
+  }
 
   app.post("/api/auth/login", async (request, response, next) => {
     if (!auth) {
@@ -2463,11 +2658,14 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(await service.getDashboard(parseRangeRequest(request.query)));
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "dashboard",
+      handler: () => service.getDashboard(parseRangeRequest(request.query))
+    });
   });
 
   app.get("/api/modules/:moduleId/reports/funnel", async (request, response, next) => {
@@ -2487,18 +2685,21 @@ export function createApp(
       (moduleId === "leadgen" && service.getLeadgenFunnelReport
         ? service
         : undefined);
-    if (!moduleService?.getLeadgenFunnelReport) {
+    const getLeadgenFunnelReport = moduleService?.getLeadgenFunnelReport;
+    if (!getLeadgenFunnelReport) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
 
-    try {
-      response.json(
-        await moduleService.getLeadgenFunnelReport(parseRangeRequest(request.query))
-      );
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId,
+      route: "leadgen.funnel",
+      handler: () =>
+        getLeadgenFunnelReport(parseRangeRequest(request.query))
+    });
   });
 
   app.get(
@@ -2516,20 +2717,22 @@ export function createApp(
       }
 
       const moduleService = moduleServices.get(moduleId);
-      if (!moduleService?.getActivitiesWorkloadReport) {
+      const getActivitiesWorkloadReport =
+        moduleService?.getActivitiesWorkloadReport;
+      if (!getActivitiesWorkloadReport) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
 
-      try {
-        response.json(
-          await moduleService.getActivitiesWorkloadReport(
-            parseRangeRequest(request.query)
-          )
-        );
-      } catch (error) {
-        next(error);
-      }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId,
+        route: "leadgen.activities-workload",
+        handler: () =>
+          getActivitiesWorkloadReport(parseRangeRequest(request.query))
+      });
     }
   );
 
@@ -2548,18 +2751,20 @@ export function createApp(
       }
 
       const moduleService = moduleServices.get(moduleId);
-      if (!moduleService?.getCallsWorkloadReport) {
+      const getCallsWorkloadReport = moduleService?.getCallsWorkloadReport;
+      if (!getCallsWorkloadReport) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
 
-      try {
-        response.json(
-          await moduleService.getCallsWorkloadReport(parseRangeRequest(request.query))
-        );
-      } catch (error) {
-        next(error);
-      }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId,
+        route: "leadgen.calls-workload",
+        handler: () => getCallsWorkloadReport(parseRangeRequest(request.query))
+      });
     }
   );
 
@@ -2570,15 +2775,15 @@ export function createApp(
         return;
       }
 
-      try {
-        response.json(
-          await service.getSourceQualityConversionReport(
-            parseRangeRequest(request.query)
-          )
-        );
-      } catch (error) {
-        next(error);
-      }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "source-quality-conversion",
+        handler: () =>
+          service.getSourceQualityConversionReport(parseRangeRequest(request.query))
+      });
     }
   );
 
@@ -2587,13 +2792,15 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(
-        await service.getActivitiesWorkloadReport(parseRangeRequest(request.query))
-      );
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "activities-workload",
+      handler: () =>
+        service.getActivitiesWorkloadReport(parseRangeRequest(request.query))
+    });
   });
 
   app.get("/api/reports/acquisition-outcomes", async (request, response, next) => {
@@ -2601,13 +2808,15 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(
-        await service.getAcquisitionOutcomesReport(parseRangeRequest(request.query))
-      );
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "acquisition-outcomes",
+      handler: () =>
+        service.getAcquisitionOutcomesReport(parseRangeRequest(request.query))
+    });
   });
 
   app.get(
@@ -2617,15 +2826,15 @@ export function createApp(
         return;
       }
 
-      try {
-        response.json(
-          await service.getTargetGroupConversionReport(
-            parseRangeRequest(request.query)
-          )
-        );
-      } catch (error) {
-        next(error);
-      }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "target-group-conversion",
+        handler: () =>
+          service.getTargetGroupConversionReport(parseRangeRequest(request.query))
+      });
     }
   );
 
@@ -2636,15 +2845,15 @@ export function createApp(
         return;
       }
 
-      try {
-        response.json(
-          await service.getManagerActionOutcomeReport(
-            parseRangeRequest(request.query)
-          )
-        );
-      } catch (error) {
-        next(error);
-      }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "manager-action-outcomes",
+        handler: () =>
+          service.getManagerActionOutcomeReport(parseRangeRequest(request.query))
+      });
     }
   );
 
@@ -2653,13 +2862,14 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(
-        await service.getCallsWorkloadReport(parseRangeRequest(request.query))
-      );
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "calls-workload",
+      handler: () => service.getCallsWorkloadReport(parseRangeRequest(request.query))
+    });
   });
 
   app.get("/api/reports/conversion-events", async (request, response, next) => {
@@ -2667,13 +2877,15 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(
-        await service.getConversionEventsReport(parseRangeRequest(request.query))
-      );
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "conversion-events",
+      handler: () =>
+        service.getConversionEventsReport(parseRangeRequest(request.query))
+    });
   });
 
   app.get("/api/reports/cohort-conversion", async (request, response, next) => {
@@ -2681,13 +2893,15 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(
-        await service.getCohortConversionReport(parseRangeRequest(request.query))
-      );
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "cohort-conversion",
+      handler: () =>
+        service.getCohortConversionReport(parseRangeRequest(request.query))
+    });
   });
 
   app.get("/api/reports/toc-flow", async (request, response, next) => {
@@ -2695,11 +2909,14 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(await service.getTocFlowReport(parseRangeRequest(request.query)));
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "toc-flow",
+      handler: () => service.getTocFlowReport(parseRangeRequest(request.query))
+    });
   });
 
   app.get("/api/reports/revenue-velocity", async (request, response, next) => {
@@ -2707,27 +2924,30 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(
-        await service.getRevenueVelocityReport(
-          parseRevenueVelocityRequest(request.query)
-        )
-      );
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "revenue-velocity",
+      handler: () =>
+        service.getRevenueVelocityReport(parseRevenueVelocityRequest(request.query))
+    });
   });
 
-  app.get("/api/meta", async (_request, response, next) => {
+  app.get("/api/meta", async (request, response, next) => {
     if (denyIfMissingAttractionAccess(response)) {
       return;
     }
 
-    try {
-      response.json(await service.getMeta());
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "meta",
+      handler: () => service.getMeta()
+    });
   });
 
   app.get("/api/ontology", async (_request, response, next) => {
@@ -2836,7 +3056,8 @@ export function createApp(
   app.get("/api/modules/:moduleId/meta", async (request, response, next) => {
     const moduleId = requestModuleId(request);
     const moduleService = moduleServices.get(moduleId);
-    if (!moduleService?.getMeta) {
+    const getMeta = moduleService?.getMeta;
+    if (!getMeta) {
       response.status(404).json(createErrorResponse("NOT_FOUND"));
       return;
     }
@@ -2846,11 +3067,14 @@ export function createApp(
       return;
     }
 
-    try {
-      response.json(await moduleService.getMeta());
-    } catch (error) {
-      next(error);
-    }
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId,
+      route: `${moduleId}.meta`,
+      handler: () => getMeta()
+    });
   });
 
   app.get("/api/sales-plan", async (request, response, next) => {

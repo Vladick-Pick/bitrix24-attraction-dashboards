@@ -445,6 +445,8 @@ export interface CommentStore {
 export interface ProtoRuntimeData {
   managerOptions: PickerOption[]
   sourceOptions: PickerOption[]
+  sceneStatuses?: Record<string, 'idle' | 'loading' | 'ready' | 'error'>
+  sceneErrors?: Record<string, string | null>
   salesDashboard?: DashboardData
   salesPlan?: SalesPlanData
   salesPlanMonth?: SalesPlanData

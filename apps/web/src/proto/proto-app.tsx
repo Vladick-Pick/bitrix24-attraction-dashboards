@@ -88,6 +88,113 @@ type LeadgenWorkloadData = {
 }
 
 type ProtoRoute = 'dashboard' | 'account'
+type SceneLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
+type AttractionSceneLoadKey =
+  | 'sales'
+  | 'activities-calls'
+  | 'cohorts'
+  | 'funnel-flow'
+  | 'ontology'
+
+const initialAttractionSceneStatuses: Record<AttractionSceneLoadKey, SceneLoadStatus> = {
+  sales: 'idle',
+  'activities-calls': 'idle',
+  cohorts: 'idle',
+  'funnel-flow': 'idle',
+  ontology: 'idle',
+}
+
+function getAttractionSceneLoadKey(sceneId: string): AttractionSceneLoadKey {
+  if (sceneId === 'activities-calls') {
+    return 'activities-calls'
+  }
+
+  if (sceneId === 'cohorts') {
+    return 'cohorts'
+  }
+
+  if (sceneId === 'funnel-flow') {
+    return 'funnel-flow'
+  }
+
+  if (sceneId === 'ontology') {
+    return 'ontology'
+  }
+
+  return 'sales'
+}
+
+function getRuntimeSceneStatus(
+  runtimeData: ProtoRuntimeData,
+  sceneKey: AttractionSceneLoadKey,
+) {
+  return runtimeData.sceneStatuses?.[sceneKey] ?? runtimeData.operationalStatus
+}
+
+function getRuntimeSceneError(
+  runtimeData: ProtoRuntimeData,
+  sceneKey: AttractionSceneLoadKey,
+) {
+  return runtimeData.sceneErrors?.[sceneKey] ?? runtimeData.operationalError
+}
+
+function setRuntimeSceneState(
+  runtimeData: ProtoRuntimeData,
+  sceneKey: AttractionSceneLoadKey,
+  status: SceneLoadStatus,
+  error: string | null,
+): ProtoRuntimeData {
+  return {
+    ...runtimeData,
+    operationalStatus: status,
+    operationalError: error,
+    sceneStatuses: {
+      ...initialAttractionSceneStatuses,
+      ...runtimeData.sceneStatuses,
+      [sceneKey]: status,
+    },
+    sceneErrors: {
+      ...runtimeData.sceneErrors,
+      [sceneKey]: error,
+    },
+  }
+}
+
+function resetAttractionReportData(
+  runtimeData: ProtoRuntimeData,
+  salesStatus: SceneLoadStatus,
+): ProtoRuntimeData {
+  return {
+    managerOptions: runtimeData.managerOptions,
+    sourceOptions: runtimeData.sourceOptions,
+    ...(runtimeData.pricingSettings !== undefined
+      ? { pricingSettings: runtimeData.pricingSettings }
+      : {}),
+    ...(runtimeData.conversionEventTypeSettings !== undefined
+      ? { conversionEventTypeSettings: runtimeData.conversionEventTypeSettings }
+      : {}),
+    ...(runtimeData.unitEconomicsSettings !== undefined
+      ? { unitEconomicsSettings: runtimeData.unitEconomicsSettings }
+      : {}),
+    ...(runtimeData.managerWhitelistSettings !== undefined
+      ? { managerWhitelistSettings: runtimeData.managerWhitelistSettings }
+      : {}),
+    ...(runtimeData.salesPlan !== undefined ? { salesPlan: runtimeData.salesPlan } : {}),
+    ...(runtimeData.salesPlanMonth !== undefined
+      ? { salesPlanMonth: runtimeData.salesPlanMonth }
+      : {}),
+    ...(runtimeData.salesPlanQuarter !== undefined
+      ? { salesPlanQuarter: runtimeData.salesPlanQuarter }
+      : {}),
+    operationalStatus: salesStatus,
+    operationalError: null,
+    sceneStatuses: {
+      ...initialAttractionSceneStatuses,
+      sales: salesStatus,
+    },
+    sceneErrors: {},
+  }
+}
 
 const notificationLabels: Record<CommentNotification['status'], string> = {
   queued: 'В очереди',
@@ -1222,6 +1329,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     operationalStatus: 'idle',
     operationalError: null,
   })
+  const isMountedRef = useRef(true)
+  const runtimeDataRef = useRef(runtimeData)
   const [leadgenReport, setLeadgenReport] = useState<LeadgenFunnelReport | null>(null)
   const [leadgenWorkload, setLeadgenWorkload] = useState<LeadgenWorkloadData | null>(null)
   const [leadgenReportStatus, setLeadgenReportStatus] = useState<'idle' | 'loading' | 'error'>(
@@ -1348,6 +1457,16 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     })
   }, [currentUser])
 
+  useEffect(() => {
+    runtimeDataRef.current = runtimeData
+  }, [runtimeData])
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
   const availableModules = useMemo(() => accountUser?.modules ?? [], [accountUser])
   const activeModule = useMemo(
     () =>
@@ -1421,30 +1540,47 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     () => scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0]!,
     [activeSceneId],
   )
+  const activeAttractionSceneLoadKey = getAttractionSceneLoadKey(activeScene.id)
+  const activeAttractionSceneStatus = getRuntimeSceneStatus(
+    runtimeData,
+    activeAttractionSceneLoadKey,
+  )
+  const activeAttractionSceneError = getRuntimeSceneError(
+    runtimeData,
+    activeAttractionSceneLoadKey,
+  )
+  const activeRuntimeData = useMemo(
+    () => ({
+      ...runtimeData,
+      operationalStatus: activeAttractionSceneStatus,
+      operationalError: activeAttractionSceneError,
+    }),
+    [activeAttractionSceneError, activeAttractionSceneStatus, runtimeData],
+  )
   const activeSceneKpis = useMemo(() => {
-    if (runtimeData.operationalStatus !== 'ready' && activeScene.id !== 'sales') {
+    if (activeRuntimeData.operationalStatus !== 'ready' && activeScene.id !== 'sales') {
       return []
     }
 
-    if (activeScene.id === 'activities-calls' && runtimeData.activitiesCalls) {
-      return runtimeData.activitiesCalls.kpis
+    if (activeScene.id === 'activities-calls' && activeRuntimeData.activitiesCalls) {
+      return activeRuntimeData.activitiesCalls.kpis
     }
 
-    if (activeScene.id === 'cohorts' && runtimeData.cohorts) {
-      return runtimeData.cohorts.kpis
+    if (activeScene.id === 'cohorts' && activeRuntimeData.cohorts) {
+      return activeRuntimeData.cohorts.kpis
     }
 
-    if (activeScene.id === 'funnel-flow' && runtimeData.tocFlow) {
-      return runtimeData.tocFlow.kpis
+    if (activeScene.id === 'funnel-flow' && activeRuntimeData.tocFlow) {
+      return activeRuntimeData.tocFlow.kpis
     }
 
     return activeScene.kpis
   }, [
     activeScene,
-    runtimeData.activitiesCalls,
-    runtimeData.cohorts,
-    runtimeData.operationalStatus,
-    runtimeData.tocFlow,
+    activeRuntimeData.activitiesCalls,
+    activeRuntimeData.cohorts,
+    activeRuntimeData.operationalStatus,
+    activeRuntimeData.tocFlow,
   ])
   const visibleSceneKpis = useMemo(
     () => getVisibleSceneKpis(activeScene.id, activeSceneKpis),
@@ -1499,7 +1635,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     : availableManagerOptions
   const isReportLoading = isLeadgenModule
     ? leadgenReportStatus === 'loading'
-    : runtimeData.operationalStatus === 'loading'
+    : activeRuntimeData.operationalStatus === 'loading'
+  const salesSceneStatus = getRuntimeSceneStatus(runtimeData, 'sales')
 
   function navigateToAccount() {
     writeProtoRoute('account')
@@ -1542,7 +1679,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
     target.scrollIntoView({ behavior: 'smooth', block: 'start' })
     setPendingScrollTarget(null)
-  }, [activeSceneId, pendingScrollTarget, runtimeData.operationalStatus])
+  }, [activeSceneId, activeRuntimeData.operationalStatus, pendingScrollTarget])
 
   const refreshCommentNotifications = useCallback(async () => {
     try {
@@ -1695,19 +1832,37 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setConversionEventTypeSettingsLoading(true)
         setUnitEconomicsSettingsLoading(true)
         setManagerWhitelistSettingsLoading(true)
+        setRuntimeData((current) => resetAttractionReportData(current, 'loading'))
         const [
           meta,
           pricingSettings,
           conversionEventTypeSettings,
           unitEconomicsSettings,
           managerWhitelistSettings,
+          dashboard,
+          monthDashboard,
+          quarterDashboard,
         ] = await Promise.all([
           apiClient.getMeta(activeModuleId),
           apiClient.getPricingSettings(),
           apiClient.getConversionEventTypeSettings(),
           apiClient.getUnitEconomicsSettings(),
           apiClient.getManagerWhitelistSettings(),
+          apiClient.getDashboard(query),
+          apiClient.getDashboard(
+            buildDashboardQueryForDateRange(
+              appliedFilters,
+              resolveMonthDateRange(appliedFilters),
+            ),
+          ),
+          apiClient.getDashboard(
+            buildDashboardQueryForDateRange(
+              appliedFilters,
+              resolveQuarterDateRange(salesPlanQuarter),
+            ),
+          ),
         ])
+
         if (cancelled || runtimeRequestRef.current !== requestId) {
           return
         }
@@ -1726,131 +1881,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setLastSync(meta.lastSync)
         setSyncWarning(resolveSyncHealthWarning(meta))
 
-        const monthQuery = buildDashboardQueryForDateRange(
-          appliedFilters,
-          resolveMonthDateRange(appliedFilters),
-        )
-        const quarterQuery = buildDashboardQueryForDateRange(
-          appliedFilters,
-          resolveQuarterDateRange(salesPlanQuarter),
-        )
-        const [
-          dashboard,
-          monthDashboard,
-          quarterDashboard,
-          activities,
-          calls,
-          acquisitionOutcomes,
-          targetGroupConversion,
-          managerActionOutcomes,
-          conversionEvents,
-          cohort,
-          toc,
-          ontology,
-        ] = await Promise.all([
-          apiClient.getDashboard(query),
-          apiClient.getDashboard(monthQuery),
-          apiClient.getDashboard(quarterQuery),
-          apiClient.getActivitiesWorkloadReport(query),
-          apiClient.getCallsWorkloadReport(query),
-          apiClient.getAcquisitionOutcomesReport(query),
-          apiClient.getTargetGroupConversionReport(query),
-          apiClient.getManagerActionOutcomeReport(query),
-          apiClient.getConversionEventsReport(query),
-          apiClient.getCohortConversionReport(query),
-          apiClient.getTocFlowReport(query),
-          loadAttractionOntologySafely(),
-        ])
-
-        if (cancelled || runtimeRequestRef.current !== requestId) {
-          return
-        }
-
-        const managerBreakdownIds =
-          appliedFilters.managers.length > 0
-            ? appliedFilters.managers
-            : activities.managerRows
-                .filter((row) => row.dealCount > 0)
-                .sort((left, right) => right.dealCount - left.dealCount)
-                .map((row) => row.managerId)
-                .slice(0, 5)
-        const sourceBreakdownKeys =
-          appliedFilters.sources.length > 0
-            ? appliedFilters.sources
-            : meta.sourceCatalog.map((entry) => entry.key)
-        const tocManagerBreakdownIds =
-          appliedFilters.managers.length > 0
-            ? appliedFilters.managers
-            : (managerPickerOptions.length > 0 ? managerPickerOptions : managerOptions).map(
-                (option) => option.id,
-              )
-
-        const [managerBreakdowns, sourceBreakdowns, tocManagerBreakdowns] = await Promise.all([
-          Promise.all(
-            managerBreakdownIds.map(async (managerId) => {
-              const report = await apiClient.getCohortConversionReport({
-                ...query,
-                managerIds: [managerId],
-                compareRanges: [],
-              })
-
-              return {
-                key: managerId,
-                label:
-                  meta.managerCatalog.find((entry) => entry.id === managerId)?.name ??
-                  managerId,
-                report,
-              }
-            }),
-          ),
-          Promise.all(
-            sourceBreakdownKeys.map(async (sourceKey) => {
-              const report = await apiClient.getCohortConversionReport({
-                ...query,
-                sourceKeys: [sourceKey],
-                compareRanges: [],
-              })
-
-              return {
-                key: sourceKey,
-                label:
-                  meta.sourceCatalog.find((entry) => entry.key === sourceKey)?.label ??
-                  sourceKey,
-                report,
-              }
-            }),
-          ),
-          Promise.all(
-            tocManagerBreakdownIds.map(async (managerId) => {
-              const report = await apiClient.getTocFlowReport({
-                ...query,
-                managerIds: [managerId],
-                compareRanges: query.compareRanges ?? [],
-              })
-              const label =
-                managerPickerOptions.find((entry) => entry.id === managerId)?.label ??
-                meta.managerCatalog.find((entry) => entry.id === managerId)?.name ??
-                managerId
-
-              return {
-                key: managerId,
-                label,
-                report,
-              }
-            }),
-          ),
-        ])
-
-        if (cancelled || runtimeRequestRef.current !== requestId) {
-          return
-        }
-
         setRuntimeData((current) => {
           const shouldUseFetchedManagerWhitelistSettings =
             managerWhitelistSettingsRevisionRef.current ===
             managerWhitelistSettingsRevisionAtRequestStart
 
           return {
+            ...current,
             managerOptions: managerPickerOptions,
             sourceOptions: sourcePickerOptions,
             ...(current.salesPlan ? { salesPlan: current.salesPlan } : {}),
@@ -1865,23 +1902,18 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             salesDashboard: dashboard,
             salesPlanMonthDashboard: monthDashboard,
             salesPlanQuarterDashboard: quarterDashboard,
-            activitiesWorkload: activities,
-            callsWorkload: calls,
-            activitiesCalls: mapActivitiesCallsSceneData({ activities, calls }),
-            acquisitionOutcomes,
-            targetGroupConversion,
-            managerActionOutcomes,
-            conversionEvents,
-            ...(ontology ? { attractionOntology: ontology } : {}),
             ...(current.revenueVelocity ? { revenueVelocity: current.revenueVelocity } : {}),
-            cohorts: mapCohortSceneData({
-              report: cohort,
-              managerBreakdowns,
-              sourceBreakdowns,
-            }),
-            tocFlow: mapTocFlowSceneData({ report: toc, managerBreakdowns: tocManagerBreakdowns }),
             operationalStatus: 'ready',
             operationalError: null,
+            sceneStatuses: {
+              ...initialAttractionSceneStatuses,
+              ...current.sceneStatuses,
+              sales: 'ready',
+            },
+            sceneErrors: {
+              ...current.sceneErrors,
+              sales: null,
+            },
           }
         })
       } catch (error) {
@@ -1889,12 +1921,17 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           return
         }
 
-        setRuntimeData((current) => ({
-          ...current,
-          operationalStatus: 'error',
-          operationalError:
-            error instanceof Error ? error.message : 'Не удалось загрузить live-данные',
-        }))
+        const message =
+          error instanceof Error ? error.message : 'Не удалось загрузить live-данные'
+        setRuntimeData((current) =>
+          isLeadgenModule
+            ? {
+                ...current,
+                operationalStatus: 'error',
+                operationalError: message,
+              }
+            : setRuntimeSceneState(current, 'sales', 'error', message),
+        )
         if (isLeadgenModule) {
           setLeadgenReportStatus('error')
           setLeadgenWorkload(null)
@@ -1915,6 +1952,239 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       cancelled = true
     }
   }, [activeModuleId, appliedFilters, isLeadgenModule, salesPlanQuarter])
+
+  useEffect(() => {
+    if (isLeadgenModule || activeAttractionSceneLoadKey === 'sales') {
+      return
+    }
+
+    if (salesSceneStatus !== 'ready') {
+      return
+    }
+
+    const currentRuntimeData = runtimeDataRef.current
+    const currentSceneStatus = getRuntimeSceneStatus(
+      currentRuntimeData,
+      activeAttractionSceneLoadKey,
+    )
+    if (currentSceneStatus === 'loading' || currentSceneStatus === 'ready') {
+      return
+    }
+
+    const requestId = runtimeRequestRef.current
+    const query = buildDashboardQueryFromProtoFilters(appliedFilters)
+    const currentManagerOptions =
+      currentRuntimeData.managerOptions.length > 0
+        ? currentRuntimeData.managerOptions
+        : managerOptions
+    const currentSourceOptions =
+      currentRuntimeData.sourceOptions.length > 0
+        ? currentRuntimeData.sourceOptions
+        : sourceOptions
+
+    async function loadActiveAttractionScene() {
+      setRuntimeData((current) =>
+        setRuntimeSceneState(current, activeAttractionSceneLoadKey, 'loading', null),
+      )
+
+      try {
+        if (activeAttractionSceneLoadKey === 'activities-calls') {
+          const [
+            activities,
+            calls,
+            acquisitionOutcomes,
+            targetGroupConversion,
+            conversionEvents,
+          ] = await Promise.all([
+            apiClient.getActivitiesWorkloadReport(query),
+            apiClient.getCallsWorkloadReport(query),
+            apiClient.getAcquisitionOutcomesReport(query),
+            apiClient.getTargetGroupConversionReport(query),
+            apiClient.getConversionEventsReport(query),
+          ])
+
+          if (!isMountedRef.current || runtimeRequestRef.current !== requestId) {
+            return
+          }
+
+          setRuntimeData((current) =>
+            setRuntimeSceneState(
+              {
+                ...current,
+                activitiesWorkload: activities,
+                callsWorkload: calls,
+                activitiesCalls: mapActivitiesCallsSceneData({ activities, calls }),
+                acquisitionOutcomes,
+                targetGroupConversion,
+                conversionEvents,
+              },
+              activeAttractionSceneLoadKey,
+              'ready',
+              null,
+            ),
+          )
+          return
+        }
+
+        if (activeAttractionSceneLoadKey === 'cohorts') {
+          const managerBreakdownIds =
+            appliedFilters.managers.length > 0
+              ? appliedFilters.managers
+              : currentManagerOptions.map((option) => option.id).slice(0, 5)
+          const sourceBreakdownKeys =
+            appliedFilters.sources.length > 0
+              ? appliedFilters.sources
+              : currentSourceOptions.map((option) => option.id)
+          const [cohort, managerActionOutcomes, managerBreakdowns, sourceBreakdowns] =
+            await Promise.all([
+              apiClient.getCohortConversionReport(query),
+              apiClient.getManagerActionOutcomeReport(query),
+              Promise.all(
+                managerBreakdownIds.map(async (managerId) => {
+                  const report = await apiClient.getCohortConversionReport({
+                    ...query,
+                    managerIds: [managerId],
+                    compareRanges: [],
+                  })
+
+                  return {
+                    key: managerId,
+                    label:
+                      currentManagerOptions.find((entry) => entry.id === managerId)?.label ??
+                      managerId,
+                    report,
+                  }
+                }),
+              ),
+              Promise.all(
+                sourceBreakdownKeys.map(async (sourceKey) => {
+                  const report = await apiClient.getCohortConversionReport({
+                    ...query,
+                    sourceKeys: [sourceKey],
+                    compareRanges: [],
+                  })
+
+                  return {
+                    key: sourceKey,
+                    label:
+                      currentSourceOptions.find((entry) => entry.id === sourceKey)?.label ??
+                      sourceKey,
+                    report,
+                  }
+                }),
+              ),
+            ])
+
+          if (!isMountedRef.current || runtimeRequestRef.current !== requestId) {
+            return
+          }
+
+          setRuntimeData((current) =>
+            setRuntimeSceneState(
+              {
+                ...current,
+                managerActionOutcomes,
+                cohorts: mapCohortSceneData({
+                  report: cohort,
+                  managerBreakdowns,
+                  sourceBreakdowns,
+                }),
+              },
+              activeAttractionSceneLoadKey,
+              'ready',
+              null,
+            ),
+          )
+          return
+        }
+
+        if (activeAttractionSceneLoadKey === 'funnel-flow') {
+          const tocManagerBreakdownIds =
+            appliedFilters.managers.length > 0
+              ? appliedFilters.managers
+              : currentManagerOptions.map((option) => option.id)
+          const [toc, tocManagerBreakdowns] = await Promise.all([
+            apiClient.getTocFlowReport(query),
+            Promise.all(
+              tocManagerBreakdownIds.map(async (managerId) => {
+                const report = await apiClient.getTocFlowReport({
+                  ...query,
+                  managerIds: [managerId],
+                  compareRanges: query.compareRanges ?? [],
+                })
+                const label =
+                  currentManagerOptions.find((entry) => entry.id === managerId)?.label ??
+                  managerId
+
+                return {
+                  key: managerId,
+                  label,
+                  report,
+                }
+              }),
+            ),
+          ])
+
+          if (!isMountedRef.current || runtimeRequestRef.current !== requestId) {
+            return
+          }
+
+          setRuntimeData((current) =>
+            setRuntimeSceneState(
+              {
+                ...current,
+                tocFlow: mapTocFlowSceneData({
+                  report: toc,
+                  managerBreakdowns: tocManagerBreakdowns,
+                }),
+              },
+              activeAttractionSceneLoadKey,
+              'ready',
+              null,
+            ),
+          )
+          return
+        }
+
+        const ontology = await loadAttractionOntologySafely()
+        if (!isMountedRef.current || runtimeRequestRef.current !== requestId) {
+          return
+        }
+
+        setRuntimeData((current) =>
+          setRuntimeSceneState(
+            {
+              ...current,
+              ...(ontology ? { attractionOntology: ontology } : {}),
+            },
+            activeAttractionSceneLoadKey,
+            'ready',
+            null,
+          ),
+        )
+      } catch (error) {
+        if (!isMountedRef.current || runtimeRequestRef.current !== requestId) {
+          return
+        }
+
+        setRuntimeData((current) =>
+          setRuntimeSceneState(
+            current,
+            activeAttractionSceneLoadKey,
+            'error',
+            error instanceof Error ? error.message : 'Не удалось загрузить live-данные',
+          ),
+        )
+      }
+    }
+
+    void loadActiveAttractionScene()
+  }, [
+    activeAttractionSceneLoadKey,
+    appliedFilters,
+    isLeadgenModule,
+    salesSceneStatus,
+  ])
 
   useEffect(() => {
     void refreshCommentNotifications()
@@ -3283,12 +3553,12 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                       ? 'Ошибка leadgen'
                       : 'Leadgen API'
                   : activeScene.id === 'sales'
-                  ? runtimeData.salesDashboard
+                  ? activeRuntimeData.salesDashboard
                     ? 'Sales report live'
                     : 'Sales loading'
-                  : runtimeData.operationalStatus === 'loading'
+                  : activeRuntimeData.operationalStatus === 'loading'
                     ? 'Загрузка live'
-                    : runtimeData.operationalStatus === 'error'
+                    : activeRuntimeData.operationalStatus === 'error'
                       ? 'Ошибка live'
                       : 'Live API'}
               </span>
@@ -3607,19 +3877,19 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               </section>
             ) : null}
 
-            {runtimeData.operationalError ? (
+            {activeRuntimeData.operationalError ? (
               <div
                 role="alert"
                 className="panel border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
               >
-                {runtimeData.operationalError}
+                {activeRuntimeData.operationalError}
               </div>
             ) : null}
 
             <ActiveSceneComponent
               commentMode={commentMode}
               filters={appliedFilters}
-              runtimeData={runtimeData}
+              runtimeData={activeRuntimeData}
               salesPlanQuarter={salesPlanQuarter}
               salesPlanLoading={salesPlanLoading}
               salesPlanSaving={salesPlanSaving}

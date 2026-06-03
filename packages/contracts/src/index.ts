@@ -1724,6 +1724,27 @@ export interface ManualSyncSummary {
   diagnostics: string[];
 }
 
+export type SyncRunStatus = "running" | "success" | "failed";
+
+export interface SyncRunLogEntry {
+  id: number;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  status: SyncRunStatus;
+  mode: "full" | "delta";
+  modifiedAfter: string | null;
+  scopeKey: string | null;
+  leadsSynced: number;
+  dealsSynced: number;
+  dealBreakdown: SyncDealChangeBreakdown;
+  diagnostics: string[];
+}
+
+export interface SyncRunHistoryResponse {
+  runs: SyncRunLogEntry[];
+}
+
 export interface SnapshotStats {
   deals: number;
   activities: number;

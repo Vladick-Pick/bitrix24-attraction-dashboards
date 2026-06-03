@@ -86,7 +86,7 @@ const envSchema = z
       .number()
       .int()
       .positive()
-      .default(30),
+      .default(60),
     AUTH_MODE: z.enum(["none", "password"]).default("none"),
     BITRIX24_DEAL_CATEGORY_IDS: z.string().default("10"),
     BITRIX24_LEADGEN_US_CATEGORY_ID: z.string().trim().min(1).default("28"),

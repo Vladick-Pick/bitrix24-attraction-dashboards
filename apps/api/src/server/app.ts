@@ -31,6 +31,7 @@ import type {
   SyncDealChangeBreakdown,
   SyncHealth,
   SyncProgressEvent,
+  SyncRunHistoryResponse,
   TargetGroupConversionReport,
   TocFlowReport,
   UnitEconomicsCostRulesInput,
@@ -169,6 +170,7 @@ interface AppService {
     input: ManagerWhitelistSettingsInput
   ): Promise<ManagerWhitelistSettingsData>;
   getMeta(): Promise<MetaResponse>;
+  getSyncRuns?(input?: { limit?: number }): Promise<SyncRunHistoryResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
   }): Promise<ManualSyncSummary>;
@@ -371,6 +373,10 @@ const reportQuerySchema = z
 
 const updateWonStagesSchema = z.object({
   stageIds: z.array(z.string().min(1)).min(1)
+});
+
+const syncRunHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(5)
 });
 
 const protoCommentAnchorSchema = z.object({
@@ -1500,7 +1506,7 @@ export function createApp(
       Number.isFinite(config.attractionAutoSync.intervalMs) &&
       config.attractionAutoSync.intervalMs > 0
         ? config.attractionAutoSync.intervalMs
-        : 30 * 60 * 1_000;
+        : 60 * 60 * 1_000;
     const initialDelayMs =
       config.attractionAutoSync.initialDelayMs !== undefined &&
       Number.isFinite(config.attractionAutoSync.initialDelayMs) &&
@@ -3018,6 +3024,24 @@ export function createApp(
       route: "meta",
       handler: () => service.getMeta()
     });
+  });
+
+  app.get("/api/sync-runs", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
+    if (!service.getSyncRuns) {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+      return;
+    }
+
+    try {
+      const query = syncRunHistoryQuerySchema.parse(request.query);
+      response.json(await service.getSyncRuns({ limit: query.limit }));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/ontology", async (_request, response, next) => {

@@ -50,6 +50,7 @@ import type {
   SnapshotStats,
   SyncChangeSummary,
   SyncProgressEvent,
+  SyncRunHistoryResponse,
   SyncSummary,
   TargetGroupConversionReport,
   TargetGroupConversionReportSnapshot,
@@ -1223,6 +1224,38 @@ function normalizeSyncSummary(value: unknown): SyncSummary {
     snapshotAfter: normalizeSnapshotStats(data.snapshotAfter),
     changes: normalizeSyncChanges(data.changes),
     diagnostics: asArray(data.diagnostics, (entry) => asString(entry)).filter(Boolean),
+  }
+}
+
+function normalizeSyncRunHistory(value: unknown): SyncRunHistoryResponse {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    runs: asArray(data.runs, (entry) => {
+      const row = isRecord(entry) ? entry : {}
+      const status =
+        row.status === 'running' || row.status === 'success' || row.status === 'failed'
+          ? row.status
+          : 'failed'
+
+      return {
+        id: asNumber(row.id),
+        startedAt: asString(row.startedAt),
+        finishedAt: asNullableString(row.finishedAt),
+        durationMs: asNullableNumber(row.durationMs),
+        status,
+        mode: row.mode === 'full' ? 'full' : 'delta',
+        modifiedAfter: asNullableString(row.modifiedAfter),
+        scopeKey: asNullableString(row.scopeKey),
+        leadsSynced: asNumber(row.leadsSynced),
+        dealsSynced: asNumber(row.dealsSynced),
+        dealBreakdown: normalizeSyncChanges({
+          deals: row.dealsSynced,
+          dealBreakdown: isRecord(row.dealBreakdown) ? row.dealBreakdown : undefined,
+        }).dealBreakdown,
+        diagnostics: asArray(row.diagnostics, (item) => asString(item)).filter(Boolean),
+      }
+    }),
   }
 }
 
@@ -3182,6 +3215,15 @@ export const apiClient = {
       buildUrl(buildModulePath(moduleId, '/api/meta')),
       { method: 'GET' },
       normalizeMeta,
+    )
+  },
+  async getSyncRuns(options: { limit?: number } = {}) {
+    return requestJson(
+      buildUrl('/api/sync-runs', {
+        limit: options.limit,
+      }),
+      { method: 'GET' },
+      normalizeSyncRunHistory,
     )
   },
   async getAttractionOntology(moduleId = 'attraction') {

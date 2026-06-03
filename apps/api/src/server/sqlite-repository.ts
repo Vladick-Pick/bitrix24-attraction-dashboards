@@ -29,6 +29,7 @@ import type {
   StageCatalogEntry,
   StageHistorySnapshot,
   SyncDealChangeBreakdown,
+  SyncRunLogEntry,
   UnitEconomicsCostArticle,
   UnitEconomicsCostFact,
   UnitEconomicsCostRule,
@@ -335,6 +336,10 @@ export interface SqliteRepository {
     diagnostics?: string[];
     modifiedAfter: string | null;
   }): Promise<void>;
+  listSyncRuns(input?: {
+    limit?: number;
+    scopeKey?: string | null;
+  }): Promise<SyncRunLogEntry[]>;
   getAllLeads(): Promise<LeadSnapshot[]>;
   getAllDeals(): Promise<DealSnapshot[]>;
   getAllStageHistory(): Promise<StageHistorySnapshot[]>;
@@ -623,6 +628,52 @@ function parseDealBreakdown(
   } catch {
     return buildLegacyDealBreakdown(fallbackTotal);
   }
+}
+
+function parseDiagnostics(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.map(String).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function normalizeSyncRunStatus(value: string): SyncRunLogEntry["status"] {
+  if (value === "running" || value === "success" || value === "failed") {
+    return value;
+  }
+
+  return "failed";
+}
+
+function normalizeSyncRunMode(value: string): SyncRunLogEntry["mode"] {
+  return value === "full" ? "full" : "delta";
+}
+
+function calculateSyncRunDurationMs(input: {
+  startedAt: string;
+  finishedAt: string | null;
+}) {
+  if (!input.finishedAt) {
+    return null;
+  }
+
+  const startedAtMs = Date.parse(input.startedAt);
+  const finishedAtMs = Date.parse(input.finishedAt);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(finishedAtMs)) {
+    return null;
+  }
+
+  return Math.max(0, finishedAtMs - startedAtMs);
 }
 
 export function createSqliteRepository(
@@ -4002,6 +4053,77 @@ export function createSqliteRepository(
           inputRow.syncRunId
         );
       return Promise.resolve();
+    },
+
+    async listSyncRuns(inputRow = {}) {
+      const safeLimit = Math.max(
+        1,
+        Math.min(
+          100,
+          Number.isFinite(inputRow.limit) ? Math.trunc(inputRow.limit ?? 5) : 5
+        )
+      );
+      const scopeKey = inputRow.scopeKey?.trim() || null;
+      const scopeClause = scopeKey
+        ? "WHERE scope_key = ? OR scope_key LIKE ?"
+        : "";
+      const values: Array<string | number> = scopeKey
+        ? [scopeKey, `${scopeKey}:assigned:%`, safeLimit]
+        : [safeLimit];
+      const rows = database
+        .prepare(
+          `SELECT
+            id,
+            started_at AS startedAt,
+            finished_at AS finishedAt,
+            status,
+            mode,
+            modified_after AS modifiedAfter,
+            scope_key AS scopeKey,
+            leads_synced AS leadsSynced,
+            deals_synced AS dealsSynced,
+            deal_breakdown_json AS dealBreakdownJson,
+            diagnostics_json AS diagnosticsJson
+          FROM sync_runs
+          ${scopeClause}
+          ORDER BY id DESC
+          LIMIT ?`
+        )
+        .all(...values) as Array<{
+        id: number;
+        startedAt: string;
+        finishedAt: string | null;
+        status: string;
+        mode: string;
+        modifiedAfter: string | null;
+        scopeKey: string | null;
+        leadsSynced: number | null;
+        dealsSynced: number | null;
+        dealBreakdownJson: string | null;
+        diagnosticsJson: string | null;
+      }>;
+
+      return rows.map((row) => {
+        const dealsSynced = Number(row.dealsSynced ?? 0);
+
+        return {
+          id: Number(row.id),
+          startedAt: row.startedAt,
+          finishedAt: row.finishedAt,
+          durationMs: calculateSyncRunDurationMs({
+            startedAt: row.startedAt,
+            finishedAt: row.finishedAt
+          }),
+          status: normalizeSyncRunStatus(row.status),
+          mode: normalizeSyncRunMode(row.mode),
+          modifiedAfter: row.modifiedAfter,
+          scopeKey: row.scopeKey,
+          leadsSynced: Number(row.leadsSynced ?? 0),
+          dealsSynced,
+          dealBreakdown: parseDealBreakdown(row.dealBreakdownJson, dealsSynced),
+          diagnostics: parseDiagnostics(row.diagnosticsJson)
+        };
+      });
     },
 
     async getAllLeads() {

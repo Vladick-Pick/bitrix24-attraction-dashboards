@@ -2827,6 +2827,74 @@ describe("createReportingService", () => {
     ]);
   });
 
+  it("loads the sync journal by attraction category scope instead of current manager whitelist scope", async () => {
+    const listSyncRunCalls: unknown[] = [];
+    const repository = {
+      getManagerWhitelistSettings: async () => [
+        {
+          moduleKey: "attraction",
+          managerId: "78",
+          managerName: "Егоров Андрей",
+          enabled: true,
+          sortOrder: 0,
+          updatedAt: "2026-06-01T10:00:00.000Z"
+        }
+      ],
+      listSyncRuns: async (input: unknown) => {
+        listSyncRunCalls.push(input);
+        return [
+          {
+            id: 42,
+            startedAt: "2026-06-03T06:00:00.000Z",
+            finishedAt: "2026-06-03T06:01:00.000Z",
+            durationMs: 60_000,
+            status: "success" as const,
+            mode: "delta" as const,
+            modifiedAfter: "2026-06-03T05:00:00.000Z",
+            scopeKey: "category:10:assigned:72,78,7824",
+            leadsSynced: 0,
+            dealsSynced: 3,
+            dealBreakdown: {
+              total: 3,
+              created: 0,
+              updated: 3,
+              closed: 0,
+              reopened: 0,
+              unchanged: 0
+            },
+            diagnostics: []
+          }
+        ];
+      }
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-06-03T12:00:00.000Z")
+    });
+
+    await expect(service.getSyncRuns({ limit: 5 })).resolves.toMatchObject({
+      runs: [
+        {
+          id: 42,
+          scopeKey: "category:10:assigned:72,78,7824"
+        }
+      ]
+    });
+    expect(listSyncRunCalls).toEqual([
+      {
+        limit: 5,
+        scopeKey: "category:10"
+      }
+    ]);
+  });
+
   it("marks the sync run failed when analytics fact rebuild fails", async () => {
     const finishCalls: unknown[] = [];
     const failCalls: unknown[] = [];

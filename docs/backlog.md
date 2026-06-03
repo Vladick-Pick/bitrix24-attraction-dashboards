@@ -62,6 +62,7 @@ This file mirrors the GitHub Issues backlog. GitHub Issues are the source of tru
 ### Financial result by source, quality, and events
 - Area: sales, activities
 - Problem: comments ask for lead acquisition cost, event cost, and earnings.
+- Spec: [Unit Economics And Financial Result For Attraction](./plans/2026-06-02-unit-economics-financial-result.md).
 - Expected behavior: add financial-result block showing costs and earned amount by source/quality/event.
 - Acceptance criteria:
   - Shows lead purchase cost by source and quality.

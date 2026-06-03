@@ -1406,6 +1406,168 @@ describe("createReportingService", () => {
     ]);
   });
 
+  it("scopes unit economics event costs by deal manager instead of visit owner", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "1",
+          title: null,
+          contactId: null,
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:UC_61CBCU",
+          stageSemanticId: "P",
+          opportunity: 1_100_000,
+          assignedById: "78",
+          sourceId: "8",
+          qualityValue: "3.1 Готов ко встрече с представителем клуба",
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: "ClubFirst Russia",
+          meetingTypeValue: null,
+          meetingDateValue: null,
+          tariffValue: "Федеральный",
+          conversionEventValue: null,
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-05-20T09:00:00.000Z",
+          dateModify: "2026-05-28T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:UC_61CBCU",
+          name: "Активация (Встреча проведена)",
+          semanticId: "P",
+          sortOrder: 50
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "8",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getWonStageIds: async () => ["C10:WON"],
+      getAllStageHistory: async () => [],
+      getAllEventVisitFacts: async () => [
+        {
+          visitId: "457300",
+          eventId: "31148",
+          dealId: "1",
+          contactId: null,
+          leadId: null,
+          managerId: "1",
+          sourceId: "8",
+          currentStageId: "C10:UC_61CBCU",
+          currentStageName: "Активация (Встреча проведена)",
+          invitedAt: "2026-05-28T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: null,
+          refusedAt: "2026-05-28T12:00:00.000Z",
+          finalStatus: "refused",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          stageIdAtEvent: "C10:UC_61CBCU",
+          linkConfidence: "high",
+          linkReason: "event_visit_deal",
+          payloadJson: JSON.stringify({
+            eventName:
+              "МСК Бизнес-диалог: Виктор Найшуллер 28.05.26 Виктор Найшуллер оффлайн"
+          })
+        }
+      ],
+      getAllEventSnapshots: async () => [
+        {
+          eventId: "31148",
+          entityTypeId: 1036,
+          categoryId: null,
+          title:
+            "МСК Бизнес-диалог: Виктор Найшуллер 28.05.26 Виктор Найшуллер оффлайн",
+          eventDate: "2026-05-28T00:00:00.000Z",
+          startAt: null,
+          endAt: null,
+          stageId: "SUCCESS",
+          stageName: "Проведено",
+          status: "completed",
+          eventTypeId: null,
+          eventTypeLabel: null,
+          formatId: null,
+          createdTime: "2026-05-20T00:00:00.000Z",
+          updatedTime: "2026-05-28T00:00:00.000Z"
+        }
+      ],
+      getUnitEconomicsCostRules: async () => [
+        {
+          id: "other-event-participant",
+          articleId: "demo_events",
+          pnlLevel: "above_ebitda",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_participant",
+          unitPrice: 15_000,
+          percent: null,
+          amount: null,
+          sourceKey: null,
+          qualityValue: null,
+          eventNamePattern: null,
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 10
+        }
+      ],
+      getUnitEconomicsCostFacts: async () => [],
+      getPricingRules: async () => [],
+      getManagerDirectory: async () => [],
+      upsertManagerDirectory: async () => 1
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-05-31T12:00:00.000Z")
+    });
+
+    const report = await service.getUnitEconomicsReport({
+      range: {
+        from: "2026-05-25T00:00:00.000Z",
+        to: "2026-06-01T00:00:00.000Z"
+      },
+      filters: {
+        managerIds: ["78"]
+      },
+      eventParticipantMode: "invited"
+    });
+
+    expect(report.summary.eventCost).toBe(15_000);
+    expect(report.managerRows).toEqual([
+      expect.objectContaining({
+        managerId: "78",
+        eventCost: 15_000,
+        directCostRows: [
+          expect.objectContaining({
+            articleId: "demo_events",
+            amount: 15_000,
+            basis: "Приглашенные участники периода"
+          })
+        ]
+      })
+    ]);
+  });
+
   it("keeps source labels available when scoping activities SLA", async () => {
     const repository = {
       getAllDeals: async () => [

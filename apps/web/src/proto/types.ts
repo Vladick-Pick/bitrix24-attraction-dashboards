@@ -17,6 +17,7 @@ import type {
   SalesPlanQuarterData,
   SalesPlanQuarterDraftRow,
   TargetGroupConversionReport,
+  UnitEconomicsSettings,
 } from '@/lib/dashboard-types'
 
 export interface ProtoComment {
@@ -452,6 +453,7 @@ export interface ProtoRuntimeData {
   salesPlanQuarterDashboard?: DashboardData
   pricingSettings?: DealPricingSettings
   conversionEventTypeSettings?: ConversionEventTypeSettingsData
+  unitEconomicsSettings?: UnitEconomicsSettings
   managerWhitelistSettings?: ManagerWhitelistSettingsData
   activitiesWorkload?: ActivitiesWorkloadReport
   callsWorkload?: CallsWorkloadReport

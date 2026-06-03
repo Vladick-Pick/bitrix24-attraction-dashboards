@@ -13,7 +13,9 @@ import type {
   SourceQualityConversionReport,
   StageCatalogEntry,
   TargetGroupConversionReport,
-  TocFlowReport
+  TocFlowReport,
+  UnitEconomicsCostRulesInput,
+  UnitEconomicsReport
 } from "@bitrix24-reporting/contracts";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
@@ -171,6 +173,45 @@ function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
     },
     rows: [],
     formulaTooltips: [],
+    warnings: []
+  };
+}
+
+function createEmptyUnitEconomicsReport(): UnitEconomicsReport {
+  return {
+    range: {
+      from: "2026-04-01T00:00:00.000Z",
+      to: "2026-04-30T23:59:59.999Z"
+    },
+    summary: {
+      createdDeals: 0,
+      wonDeals: 0,
+      purchasedLeads: 0,
+      attractionRevenue: 0,
+      clubRevenue: 0,
+      leadPurchaseCost: 0,
+      eventCost: 0,
+      ambassadorActivityCost: 0,
+      ctuCertificateCost: 0,
+      contractationCost: 0,
+      otherVariableCost: 0,
+      variableCosts: 0,
+      contributionResult: 0,
+      contributionMargin: null,
+      aboveEbitdaCosts: 0,
+      ebitda: 0,
+      ebitdaMargin: null,
+      belowEbitdaCosts: 0,
+      netProfit: 0,
+      netProfitMargin: null,
+      attractionAverageCheck: null,
+      clubAverageCheck: null,
+      costPerWonDeal: null,
+      costPerCreatedDeal: null
+    },
+    sourceQualityRows: [],
+    managerRows: [],
+    costRows: [],
     warnings: []
   };
 }
@@ -497,6 +538,61 @@ function createTestApp(
       cohortStatusRows: []
     }),
     getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
+    getUnitEconomicsReport: async () => createEmptyUnitEconomicsReport(),
+    getUnitEconomicsSettings: async () => ({
+      articles: [
+        {
+          id: "lead_purchase",
+          name: "Закупка лидов",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_lead",
+          enabled: true,
+          sortOrder: 10,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          updatedAt: null
+        },
+        {
+          id: "contractation",
+          name: "Контрактация",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_contract",
+          enabled: true,
+          sortOrder: 50,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          updatedAt: null
+        }
+      ],
+      rules: [
+        {
+          id: "contractation-per-won-default",
+          articleId: "contractation",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_contract",
+          unitPrice: 5_000,
+          percent: null,
+          amount: null,
+          sourceKey: null,
+          qualityValue: null,
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 10
+        }
+      ],
+      eventParticipantMode: "invited",
+      updatedAt: null
+    }),
+    replaceUnitEconomicsCostRules: async (input: UnitEconomicsCostRulesInput) => ({
+      articles: [],
+      rules: input.rules,
+      eventParticipantMode: input.eventParticipantMode ?? "invited",
+      updatedAt: "2026-06-02T08:00:00.000Z"
+    }),
     getPricingSettings: async () => ({
       rules: [
         {
@@ -775,6 +871,64 @@ describe("createApp", () => {
     });
   });
 
+  it("returns unit economics report", async () => {
+    let receivedInput: unknown = null;
+    const app = createTestApp({
+      getUnitEconomicsReport: async (input) => {
+        receivedInput = input;
+        return {
+          ...createEmptyUnitEconomicsReport(),
+          summary: {
+            ...createEmptyUnitEconomicsReport().summary,
+            createdDeals: 3,
+            wonDeals: 2,
+            purchasedLeads: 2,
+            attractionRevenue: 600000,
+            leadPurchaseCost: 80000,
+            contractationCost: 10000,
+            variableCosts: 90000,
+            contributionResult: 510000,
+            aboveEbitdaCosts: 91500,
+            ebitda: 418500,
+            netProfit: 418500
+          }
+        };
+      }
+    });
+
+    await expect(
+      request(app)
+        .get(
+          "/api/reports/unit-economics?from=2026-04-01T00:00:00.000Z&to=2026-04-30T23:59:59.999Z&sourceKeys=LEADGEN_US"
+        )
+        .expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        summary: {
+          createdDeals: 3,
+          wonDeals: 2,
+          purchasedLeads: 2,
+          attractionRevenue: 600000,
+          leadPurchaseCost: 80000,
+          contractationCost: 10000,
+          variableCosts: 90000,
+          contributionResult: 510000,
+          ebitda: 418500
+        }
+      }
+    });
+
+    expect(receivedInput).toEqual({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      filters: {
+        sourceKeys: ["LEADGEN_US"]
+      }
+    });
+  });
+
   it("reads and saves pricing settings", async () => {
     const app = createTestApp();
 
@@ -817,6 +971,75 @@ describe("createApp", () => {
           }
         ],
         updatedAt: "2026-04-29T10:00:00.000Z"
+      }
+    });
+  });
+
+  it("reads and saves unit economics cost rules", async () => {
+    const app = createTestApp();
+
+    await expect(
+      request(app).get("/api/settings/unit-economics").expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        articles: [
+          {
+            id: "lead_purchase",
+            name: "Закупка лидов",
+            calculationMethod: "amount_per_lead"
+          },
+          {
+            id: "contractation",
+            name: "Контрактация",
+            calculationMethod: "amount_per_contract"
+          }
+        ],
+        rules: [
+          {
+            id: "contractation-per-won-default",
+            articleId: "contractation",
+            unitPrice: 5000
+          }
+        ]
+      }
+    });
+
+    await expect(
+      request(app)
+        .put("/api/settings/unit-economics/cost-rules")
+        .send({
+          rules: [
+            {
+              id: "leadgen-ready-to-meet",
+              articleId: "lead_purchase",
+              pnlLevel: "variable_contribution",
+              costBehavior: "variable",
+              calculationMethod: "amount_per_lead",
+              unitPrice: 40000,
+              percent: null,
+              amount: null,
+              sourceKey: "LEADGEN_US",
+              qualityValue: "Готов к встрече",
+              enabled: true,
+              effectiveFrom: "2026-01-01",
+              effectiveTo: null,
+              sortOrder: 10
+            }
+          ]
+        })
+        .expect(200)
+    ).resolves.toMatchObject({
+      body: {
+        rules: [
+          {
+            id: "leadgen-ready-to-meet",
+            articleId: "lead_purchase",
+            sourceKey: "LEADGEN_US",
+            qualityValue: "Готов к встрече",
+            unitPrice: 40000
+          }
+        ],
+        updatedAt: "2026-06-02T08:00:00.000Z"
       }
     });
   });
@@ -1213,6 +1436,19 @@ describe("createApp", () => {
         receivedRevenueVelocityInput = input;
         return revenueVelocityReport;
       },
+      getUnitEconomicsReport: async () => createEmptyUnitEconomicsReport(),
+      getUnitEconomicsSettings: async () => ({
+        articles: [],
+        rules: [],
+        eventParticipantMode: "invited",
+        updatedAt: null
+      }),
+      replaceUnitEconomicsCostRules: async (input: UnitEconomicsCostRulesInput) => ({
+        articles: [],
+        rules: input.rules,
+        eventParticipantMode: input.eventParticipantMode ?? "invited",
+        updatedAt: "2026-06-02T08:00:00.000Z"
+      }),
       getLeadgenFunnelReport: async (input: unknown) => {
         receivedLeadgenFunnelInput = input;
         return leadgenFunnelReport;
@@ -2167,6 +2403,19 @@ describe("createApp", () => {
         comparisons: []
       }),
       getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
+      getUnitEconomicsReport: async () => createEmptyUnitEconomicsReport(),
+      getUnitEconomicsSettings: async () => ({
+        articles: [],
+        rules: [],
+        eventParticipantMode: "invited",
+        updatedAt: null
+      }),
+      replaceUnitEconomicsCostRules: async (input: UnitEconomicsCostRulesInput) => ({
+        articles: [],
+        rules: input.rules,
+        eventParticipantMode: input.eventParticipantMode ?? "invited",
+        updatedAt: "2026-06-02T08:00:00.000Z"
+      }),
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
         periodEnd: "2026-04-30T23:59:59.999Z",
@@ -2566,6 +2815,19 @@ describe("createApp", () => {
         rows: []
       }),
       getRevenueVelocityReport: async () => createEmptyRevenueVelocityReport(),
+      getUnitEconomicsReport: async () => createEmptyUnitEconomicsReport(),
+      getUnitEconomicsSettings: async () => ({
+        articles: [],
+        rules: [],
+        eventParticipantMode: "invited",
+        updatedAt: null
+      }),
+      replaceUnitEconomicsCostRules: async (input: UnitEconomicsCostRulesInput) => ({
+        articles: [],
+        rules: input.rules,
+        eventParticipantMode: input.eventParticipantMode ?? "invited",
+        updatedAt: "2026-06-02T08:00:00.000Z"
+      }),
       getSalesPlan: async () => ({
         periodStart: "2026-04-01T00:00:00.000Z",
         periodEnd: "2026-04-30T23:59:59.999Z",

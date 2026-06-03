@@ -28,10 +28,18 @@ import type {
   SnapshotStats,
   StageCatalogEntry,
   StageHistorySnapshot,
-  SyncDealChangeBreakdown
+  SyncDealChangeBreakdown,
+  UnitEconomicsCostArticle,
+  UnitEconomicsCostFact,
+  UnitEconomicsCostRule,
+  UnitEconomicsEventParticipantMode
 } from "@bitrix24-reporting/contracts";
 
 import { DEFAULT_PRICING_RULES } from "../domain/deal-economics.js";
+import {
+  DEFAULT_UNIT_ECONOMICS_COST_ARTICLES,
+  DEFAULT_UNIT_ECONOMICS_COST_RULES
+} from "../domain/unit-economics.js";
 import { ATTRACTION_MANAGER_CATALOG } from "../domain/attraction-managers.js";
 import { sanitizeRefusalReasonDetail } from "../domain/refusal-detail.js";
 
@@ -99,6 +107,17 @@ export interface ReplaceSalesPlanPeriodsInput {
 export interface ReplacePricingRulesInput {
   updatedAt: string;
   rules: DealPricingRuleInput[];
+}
+
+export interface ReplaceUnitEconomicsCostRulesInput {
+  updatedAt: string;
+  rules: UnitEconomicsCostRule[];
+  eventParticipantMode?: UnitEconomicsEventParticipantMode;
+}
+
+export interface UnitEconomicsCostFactsQuery {
+  periodStart?: string | null;
+  periodEnd?: string | null;
 }
 
 export interface ReplaceManagerWhitelistSettingsInput {
@@ -340,6 +359,16 @@ export interface SqliteRepository {
   replaceSalesPlanPeriods(input: ReplaceSalesPlanPeriodsInput): Promise<void>;
   getPricingRules(): Promise<DealPricingRule[]>;
   replacePricingRules(input: ReplacePricingRulesInput): Promise<DealPricingRule[]>;
+  getUnitEconomicsCostArticles(): Promise<UnitEconomicsCostArticle[]>;
+  getUnitEconomicsCostRules(): Promise<UnitEconomicsCostRule[]>;
+  replaceUnitEconomicsCostRules(
+    input: ReplaceUnitEconomicsCostRulesInput
+  ): Promise<UnitEconomicsCostRule[]>;
+  getUnitEconomicsEventParticipantMode(): Promise<UnitEconomicsEventParticipantMode>;
+  getUnitEconomicsCostFacts(
+    query?: UnitEconomicsCostFactsQuery
+  ): Promise<UnitEconomicsCostFact[]>;
+  upsertUnitEconomicsCostFacts(rows: UnitEconomicsCostFact[]): Promise<number>;
   getProtoComments(): Promise<ProtoCommentStore>;
   replaceProtoComments(input: ProtoCommentStore): Promise<ProtoCommentStore>;
   getDashboardComments(moduleId: string): Promise<{
@@ -945,6 +974,78 @@ export function createSqliteRepository(
       updated_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS unit_economics_cost_articles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      pnl_level TEXT NOT NULL,
+      cost_behavior TEXT NOT NULL,
+      calculation_method TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      sort_order INTEGER NOT NULL,
+      effective_from TEXT,
+      effective_to TEXT,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS unit_economics_cost_rules (
+      id TEXT PRIMARY KEY,
+      article_id TEXT NOT NULL,
+      pnl_level TEXT NOT NULL,
+      cost_behavior TEXT NOT NULL,
+      calculation_method TEXT NOT NULL,
+      unit_price REAL,
+      percent REAL,
+      amount REAL,
+      source_key TEXT,
+      quality_value TEXT,
+      event_name_pattern TEXT,
+      enabled INTEGER NOT NULL,
+      effective_from TEXT NOT NULL,
+      effective_to TEXT,
+      sort_order INTEGER NOT NULL,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS unit_economics_cost_facts (
+      id TEXT PRIMARY KEY,
+      article_id TEXT NOT NULL,
+      pnl_level TEXT NOT NULL,
+      cost_behavior TEXT NOT NULL,
+      calculation_method TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL,
+      quantity REAL,
+      source_system TEXT NOT NULL,
+      source_reference TEXT,
+      confidence TEXT NOT NULL,
+      status TEXT NOT NULL,
+      comment TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS unit_economics_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      event_participant_mode TEXT NOT NULL DEFAULT 'invited',
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS unit_economics_import_batches (
+      id TEXT PRIMARY KEY,
+      source_system TEXT NOT NULL,
+      source_label TEXT NOT NULL,
+      file_name TEXT,
+      row_count INTEGER NOT NULL,
+      accepted_count INTEGER NOT NULL,
+      rejected_count INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      warnings_json TEXT NOT NULL,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS proto_comment_store (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       updated_at TEXT
@@ -1012,6 +1113,12 @@ export function createSqliteRepository(
       ON call_snapshots (crm_activity_id);
     CREATE INDEX IF NOT EXISTS idx_proto_comments_scene_status
       ON proto_comments (scene_id, status);
+    CREATE INDEX IF NOT EXISTS idx_unit_economics_cost_articles_sort
+      ON unit_economics_cost_articles (enabled, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_unit_economics_cost_rules_active
+      ON unit_economics_cost_rules (enabled, effective_from, effective_to, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_unit_economics_cost_facts_period
+      ON unit_economics_cost_facts (period_start, period_end, status);
   `);
 
   ensureColumn(database, "deal_snapshots", "source_id", "TEXT");
@@ -1027,6 +1134,14 @@ export function createSqliteRepository(
   ensureColumn(database, "deal_snapshots", "refusal_reason_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_detail", "TEXT");
   ensureColumn(database, "conversion_event_visit_snapshots", "event_id", "TEXT");
+  ensureColumn(database, "unit_economics_cost_rules", "event_name_pattern", "TEXT");
+  ensureColumn(
+    database,
+    "unit_economics_settings",
+    "event_participant_mode",
+    "TEXT NOT NULL DEFAULT 'invited'"
+  );
+  ensureColumn(database, "unit_economics_settings", "updated_at", "TEXT");
   ensureColumn(database, "stage_catalog", "sort_order", "INTEGER");
   ensureColumn(database, "sync_runs", "scope_key", "TEXT");
   ensureColumn(database, "sync_runs", "deal_breakdown_json", "TEXT");
@@ -1124,6 +1239,265 @@ export function createSqliteRepository(
     );
     seedPricingTransaction(DEFAULT_PRICING_RULES);
   }
+
+  const existingUnitEconomicsArticles = database
+    .prepare("SELECT COUNT(*) AS count FROM unit_economics_cost_articles")
+    .get() as { count: number };
+
+  if (existingUnitEconomicsArticles.count === 0) {
+    const seedArticle = database.prepare(`
+      INSERT INTO unit_economics_cost_articles (
+        id,
+        name,
+        pnl_level,
+        cost_behavior,
+        calculation_method,
+        enabled,
+        sort_order,
+        effective_from,
+        effective_to,
+        updated_at
+      ) VALUES (
+        @id,
+        @name,
+        @pnlLevel,
+        @costBehavior,
+        @calculationMethod,
+        @enabled,
+        @sortOrder,
+        @effectiveFrom,
+        @effectiveTo,
+        @updatedAt
+      )
+    `);
+    const seedArticlesTransaction = database.transaction(
+      (articles: UnitEconomicsCostArticle[]) => {
+        for (const article of articles) {
+          seedArticle.run({
+            ...article,
+            enabled: article.enabled ? 1 : 0
+          });
+        }
+      }
+    );
+    seedArticlesTransaction(DEFAULT_UNIT_ECONOMICS_COST_ARTICLES);
+  }
+
+  const existingUnitEconomicsRules = database
+    .prepare("SELECT COUNT(*) AS count FROM unit_economics_cost_rules")
+    .get() as { count: number };
+
+  if (existingUnitEconomicsRules.count === 0) {
+    const seedRule = database.prepare(`
+      INSERT INTO unit_economics_cost_rules (
+        id,
+        article_id,
+        pnl_level,
+        cost_behavior,
+        calculation_method,
+        unit_price,
+        percent,
+        amount,
+        source_key,
+        quality_value,
+        event_name_pattern,
+        enabled,
+        effective_from,
+        effective_to,
+        sort_order,
+        updated_at
+      ) VALUES (
+        @id,
+        @articleId,
+        @pnlLevel,
+        @costBehavior,
+        @calculationMethod,
+        @unitPrice,
+        @percent,
+        @amount,
+        @sourceKey,
+        @qualityValue,
+        @eventNamePattern,
+        @enabled,
+        @effectiveFrom,
+        @effectiveTo,
+        @sortOrder,
+        @updatedAt
+      )
+    `);
+    const seedRulesTransaction = database.transaction(
+      (rules: UnitEconomicsCostRule[]) => {
+        for (const rule of rules) {
+          seedRule.run({
+            ...rule,
+            eventNamePattern: rule.eventNamePattern ?? null,
+            enabled: rule.enabled ? 1 : 0,
+            updatedAt: null
+          });
+        }
+      }
+    );
+    seedRulesTransaction(DEFAULT_UNIT_ECONOMICS_COST_RULES);
+  }
+
+  const insertMissingUnitEconomicsArticle = database.prepare(`
+    INSERT OR IGNORE INTO unit_economics_cost_articles (
+      id,
+      name,
+      pnl_level,
+      cost_behavior,
+      calculation_method,
+      enabled,
+      sort_order,
+      effective_from,
+      effective_to,
+      updated_at
+    ) VALUES (
+      @id,
+      @name,
+      @pnlLevel,
+      @costBehavior,
+      @calculationMethod,
+      @enabled,
+      @sortOrder,
+      @effectiveFrom,
+      @effectiveTo,
+      @updatedAt
+    )
+  `);
+  const insertMissingUnitEconomicsRule = database.prepare(`
+    INSERT OR IGNORE INTO unit_economics_cost_rules (
+      id,
+      article_id,
+      pnl_level,
+      cost_behavior,
+      calculation_method,
+      unit_price,
+      percent,
+      amount,
+      source_key,
+      quality_value,
+      event_name_pattern,
+      enabled,
+      effective_from,
+      effective_to,
+      sort_order,
+      updated_at
+    ) VALUES (
+      @id,
+      @articleId,
+      @pnlLevel,
+      @costBehavior,
+      @calculationMethod,
+      @unitPrice,
+      @percent,
+      @amount,
+      @sourceKey,
+      @qualityValue,
+      @eventNamePattern,
+      @enabled,
+      @effectiveFrom,
+      @effectiveTo,
+      @sortOrder,
+      @updatedAt
+    )
+  `);
+  const ensureUnitEconomicsDefaultsTransaction = database.transaction(() => {
+    for (const article of DEFAULT_UNIT_ECONOMICS_COST_ARTICLES) {
+      insertMissingUnitEconomicsArticle.run({
+        ...article,
+        enabled: article.enabled ? 1 : 0
+      });
+    }
+
+    for (const rule of DEFAULT_UNIT_ECONOMICS_COST_RULES) {
+      insertMissingUnitEconomicsRule.run({
+        ...rule,
+        eventNamePattern: rule.eventNamePattern ?? null,
+        enabled: rule.enabled ? 1 : 0,
+        updatedAt: null
+      });
+    }
+  });
+  ensureUnitEconomicsDefaultsTransaction();
+
+  database
+    .prepare(
+      `
+      UPDATE unit_economics_cost_articles
+      SET pnl_level = 'variable_contribution'
+      WHERE id IN ('demo_events', 'ambassador_activities')
+        AND pnl_level = 'above_ebitda'
+    `
+    )
+    .run();
+  database
+    .prepare(
+      `
+      UPDATE unit_economics_cost_rules
+      SET pnl_level = 'variable_contribution'
+      WHERE article_id IN ('demo_events', 'ambassador_activities')
+        AND calculation_method = 'amount_per_participant'
+        AND pnl_level = 'above_ebitda'
+    `
+    )
+    .run();
+  database
+    .prepare(
+      `
+      INSERT OR IGNORE INTO unit_economics_settings (
+        id,
+        event_participant_mode,
+        updated_at
+      ) VALUES (
+        1,
+        'invited',
+        NULL
+      )
+    `
+    )
+    .run();
+  database
+    .prepare(
+      `
+      UPDATE unit_economics_cost_rules
+      SET unit_price = 20000,
+        enabled = 1
+      WHERE id = 'leadgen-us-ready-to-meet-default'
+        AND article_id = 'lead_purchase'
+        AND calculation_method = 'amount_per_lead'
+        AND source_key = 'Лидген УС'
+        AND quality_value = 'Готов к встрече'
+        AND unit_price = 0
+        AND enabled = 0
+    `
+    )
+    .run();
+  database
+    .prepare(
+      `
+      UPDATE unit_economics_cost_rules
+      SET unit_price = 5000
+      WHERE id = 'guest-meeting-participant-default'
+        AND article_id = 'demo_events'
+        AND calculation_method = 'amount_per_participant'
+        AND event_name_pattern = 'Гостевая встреча'
+        AND unit_price = 15000
+    `
+    )
+    .run();
+  database
+    .prepare(
+      `
+      DELETE FROM unit_economics_cost_rules
+      WHERE id = 'pau-participant-default'
+        AND article_id = 'ambassador_activities'
+        AND calculation_method = 'amount_per_participant'
+        AND event_name_pattern = 'ПАУ'
+        AND unit_price = 5000
+    `
+    )
+    .run();
 
   const existingManagerWhitelist = database
     .prepare(
@@ -1947,6 +2321,96 @@ export function createSqliteRepository(
       @updatedAt
     )
   `);
+  const insertUnitEconomicsCostRuleStatement = database.prepare(`
+    INSERT INTO unit_economics_cost_rules (
+      id,
+      article_id,
+      pnl_level,
+      cost_behavior,
+      calculation_method,
+      unit_price,
+      percent,
+        amount,
+        source_key,
+        quality_value,
+        event_name_pattern,
+        enabled,
+      effective_from,
+      effective_to,
+      sort_order,
+      updated_at
+    ) VALUES (
+      @id,
+      @articleId,
+      @pnlLevel,
+      @costBehavior,
+      @calculationMethod,
+      @unitPrice,
+      @percent,
+        @amount,
+        @sourceKey,
+        @qualityValue,
+        @eventNamePattern,
+        @enabled,
+      @effectiveFrom,
+      @effectiveTo,
+      @sortOrder,
+      @updatedAt
+    )
+  `);
+  const upsertUnitEconomicsCostFactStatement = database.prepare(`
+    INSERT INTO unit_economics_cost_facts (
+      id,
+      article_id,
+      pnl_level,
+      cost_behavior,
+      calculation_method,
+      period_start,
+      period_end,
+      amount,
+      currency,
+      quantity,
+      source_system,
+      source_reference,
+      confidence,
+      status,
+      comment,
+      updated_at
+    ) VALUES (
+      @id,
+      @articleId,
+      @pnlLevel,
+      @costBehavior,
+      @calculationMethod,
+      @periodStart,
+      @periodEnd,
+      @amount,
+      @currency,
+      @quantity,
+      @sourceSystem,
+      @sourceReference,
+      @confidence,
+      @status,
+      @comment,
+      @updatedAt
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      article_id = excluded.article_id,
+      pnl_level = excluded.pnl_level,
+      cost_behavior = excluded.cost_behavior,
+      calculation_method = excluded.calculation_method,
+      period_start = excluded.period_start,
+      period_end = excluded.period_end,
+      amount = excluded.amount,
+      currency = excluded.currency,
+      quantity = excluded.quantity,
+      source_system = excluded.source_system,
+      source_reference = excluded.source_reference,
+      confidence = excluded.confidence,
+      status = excluded.status,
+      comment = excluded.comment,
+      updated_at = excluded.updated_at
+  `);
   const insertProtoCommentStatement = database.prepare(`
     INSERT INTO proto_comments (
       id,
@@ -2142,6 +2606,57 @@ export function createSqliteRepository(
           updatedAt: input.updatedAt
         });
       });
+    }
+  );
+  const replaceUnitEconomicsCostRulesTransaction = database.transaction(
+    (input: ReplaceUnitEconomicsCostRulesInput) => {
+      database.exec("DELETE FROM unit_economics_cost_rules");
+
+      input.rules.forEach((rule, index) => {
+        insertUnitEconomicsCostRuleStatement.run({
+          ...rule,
+          eventNamePattern: rule.eventNamePattern ?? null,
+          enabled: rule.enabled ? 1 : 0,
+          sortOrder: rule.sortOrder ?? index * 10,
+          updatedAt: input.updatedAt
+        });
+      });
+
+      if (input.eventParticipantMode) {
+        database
+          .prepare(
+            `
+            INSERT INTO unit_economics_settings (
+              id,
+              event_participant_mode,
+              updated_at
+            ) VALUES (
+              1,
+              @eventParticipantMode,
+              @updatedAt
+            )
+            ON CONFLICT(id) DO UPDATE SET
+              event_participant_mode = excluded.event_participant_mode,
+              updated_at = excluded.updated_at
+          `
+          )
+          .run({
+            eventParticipantMode: input.eventParticipantMode,
+            updatedAt: input.updatedAt
+          });
+      }
+    }
+  );
+  const upsertUnitEconomicsCostFactsTransaction = database.transaction(
+    (rows: UnitEconomicsCostFact[]) => {
+      const updatedAt = new Date().toISOString();
+
+      for (const row of rows) {
+        upsertUnitEconomicsCostFactStatement.run({
+          ...row,
+          updatedAt
+        });
+      }
     }
   );
   const replaceProtoCommentsTransaction = database.transaction(
@@ -3959,6 +4474,119 @@ export function createSqliteRepository(
     async replacePricingRules(input) {
       replacePricingRulesTransaction(input);
       return this.getPricingRules();
+    },
+
+    async getUnitEconomicsCostArticles() {
+      const rows = database
+        .prepare(
+          `SELECT
+            id,
+            name,
+            pnl_level AS pnlLevel,
+            cost_behavior AS costBehavior,
+            calculation_method AS calculationMethod,
+            enabled,
+            sort_order AS sortOrder,
+            effective_from AS effectiveFrom,
+            effective_to AS effectiveTo,
+            updated_at AS updatedAt
+          FROM unit_economics_cost_articles
+          ORDER BY sort_order ASC, id ASC`
+        )
+        .all() as Array<
+        Omit<UnitEconomicsCostArticle, "enabled"> & { enabled: number }
+      >;
+
+      return rows.map((row) => ({
+        ...row,
+        enabled: Boolean(row.enabled)
+      }));
+    },
+
+    async getUnitEconomicsCostRules() {
+      const rows = database
+        .prepare(
+          `SELECT
+            id,
+            article_id AS articleId,
+            pnl_level AS pnlLevel,
+            cost_behavior AS costBehavior,
+            calculation_method AS calculationMethod,
+            unit_price AS unitPrice,
+            percent,
+            amount,
+            source_key AS sourceKey,
+            quality_value AS qualityValue,
+            event_name_pattern AS eventNamePattern,
+            enabled,
+            effective_from AS effectiveFrom,
+            effective_to AS effectiveTo,
+            sort_order AS sortOrder
+          FROM unit_economics_cost_rules
+          ORDER BY sort_order ASC, id ASC`
+        )
+        .all() as Array<
+        Omit<UnitEconomicsCostRule, "enabled"> & { enabled: number }
+      >;
+
+      return rows.map((row) => ({
+        ...row,
+        enabled: Boolean(row.enabled)
+      }));
+    },
+
+    async getUnitEconomicsEventParticipantMode() {
+      const row = database
+        .prepare(
+          `SELECT event_participant_mode AS eventParticipantMode
+          FROM unit_economics_settings
+          WHERE id = 1`
+        )
+        .get() as { eventParticipantMode: string } | undefined;
+
+      return row?.eventParticipantMode === "attended" ? "attended" : "invited";
+    },
+
+    async replaceUnitEconomicsCostRules(input) {
+      replaceUnitEconomicsCostRulesTransaction(input);
+      return this.getUnitEconomicsCostRules();
+    },
+
+    async getUnitEconomicsCostFacts(query = {}) {
+      const hasRange = Boolean(query.periodStart && query.periodEnd);
+      const sql = `SELECT
+          id,
+          article_id AS articleId,
+          pnl_level AS pnlLevel,
+          cost_behavior AS costBehavior,
+          calculation_method AS calculationMethod,
+          period_start AS periodStart,
+          period_end AS periodEnd,
+          amount,
+          currency,
+          quantity,
+          source_system AS sourceSystem,
+          source_reference AS sourceReference,
+          confidence,
+          status,
+          comment
+        FROM unit_economics_cost_facts
+        ${
+          hasRange
+            ? "WHERE period_start <= @periodEnd AND period_end >= @periodStart"
+            : ""
+        }
+        ORDER BY period_start ASC, article_id ASC, id ASC`;
+
+      return database.prepare(sql).all({
+        periodStart: query.periodStart ?? null,
+        periodEnd: query.periodEnd ?? null
+      }) as UnitEconomicsCostFact[];
+    },
+
+    async upsertUnitEconomicsCostFacts(rows) {
+      upsertUnitEconomicsCostFactsTransaction(rows);
+      return rows.length;
     },
 
     async getProtoComments() {

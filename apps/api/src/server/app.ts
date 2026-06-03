@@ -32,7 +32,11 @@ import type {
   SyncHealth,
   SyncProgressEvent,
   TargetGroupConversionReport,
-  TocFlowReport
+  TocFlowReport,
+  UnitEconomicsCostRulesInput,
+  UnitEconomicsEventParticipantMode,
+  UnitEconomicsSettings,
+  UnitEconomicsReport
 } from "@bitrix24-reporting/contracts";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
@@ -92,6 +96,7 @@ interface RangeRequest {
     managerIds?: string[];
     sourceKeys?: string[];
   };
+  eventParticipantMode?: UnitEconomicsEventParticipantMode;
 }
 
 interface RevenueVelocityRequest extends RangeRequest {
@@ -130,6 +135,11 @@ interface AppService {
   getRevenueVelocityReport(
     input: RevenueVelocityRequest
   ): Promise<RevenueVelocityReport>;
+  getUnitEconomicsReport(input: RangeRequest): Promise<UnitEconomicsReport>;
+  getUnitEconomicsSettings(): Promise<UnitEconomicsSettings>;
+  replaceUnitEconomicsCostRules(
+    input: UnitEconomicsCostRulesInput
+  ): Promise<UnitEconomicsSettings>;
   getSalesPlan(input: {
     periodStart: string;
     periodEnd: string;
@@ -301,7 +311,8 @@ const reportQuerySchema = z
       z.array(z.string().datetime({ offset: true })).optional()
     ),
     managerIds: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
-    sourceKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional())
+    sourceKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
+    eventParticipantMode: z.enum(["invited", "attended"]).optional()
   })
   .superRefine((value, context) => {
     const hasFrom = Boolean(value.from);
@@ -599,6 +610,40 @@ const pricingSettingsBodySchema = z.object({
   )
 });
 
+const unitEconomicsCostRulesBodySchema = z.object({
+  eventParticipantMode: z.enum(["invited", "attended"]).optional(),
+  rules: z.array(
+    z.object({
+      id: z.string().trim().min(1),
+      articleId: z.string().trim().min(1),
+      pnlLevel: z.enum(["variable_contribution", "above_ebitda", "below_ebitda"]),
+      costBehavior: z.enum(["fixed", "variable", "mixed"]),
+      calculationMethod: z.enum([
+        "manual_amount",
+        "percent_of_module_revenue",
+        "percent_of_sale",
+        "percent_of_club_membership",
+        "amount_per_lead",
+        "amount_per_participant",
+        "amount_per_contract",
+        "amount_per_event",
+        "amount_per_period",
+        "imported_fact"
+      ]),
+      unitPrice: z.number().finite().nonnegative().nullable(),
+      percent: z.number().finite().nonnegative().nullable(),
+      amount: z.number().finite().nonnegative().nullable(),
+      sourceKey: z.string().trim().min(1).nullable(),
+      qualityValue: z.string().trim().min(1).nullable(),
+      eventNamePattern: z.string().trim().min(1).nullable().optional(),
+      enabled: z.boolean(),
+      effectiveFrom: z.string().trim().min(1),
+      effectiveTo: z.string().trim().min(1).nullable(),
+      sortOrder: z.number().int().nonnegative()
+    })
+  )
+});
+
 const conversionEventTypeSettingsBodySchema = z.object({
   eventTypeIds: z.array(z.string().trim().min(1))
 });
@@ -643,7 +688,10 @@ function parseRangeRequest(query: unknown): RangeRequest {
         to: parsed.to
       },
       ...(compareRanges.length > 0 ? { compareRanges } : {}),
-      ...(filters ? { filters } : {})
+      ...(filters ? { filters } : {}),
+      ...(parsed.eventParticipantMode
+        ? { eventParticipantMode: parsed.eventParticipantMode }
+        : {})
     };
   }
 
@@ -651,13 +699,19 @@ function parseRangeRequest(query: unknown): RangeRequest {
     return {
       periodDays: parsed.periodDays,
       ...(compareRanges.length > 0 ? { compareRanges } : {}),
-      ...(filters ? { filters } : {})
+      ...(filters ? { filters } : {}),
+      ...(parsed.eventParticipantMode
+        ? { eventParticipantMode: parsed.eventParticipantMode }
+        : {})
     };
   }
 
   return {
     ...(compareRanges.length > 0 ? { compareRanges } : {}),
-    ...(filters ? { filters } : {})
+    ...(filters ? { filters } : {}),
+    ...(parsed.eventParticipantMode
+      ? { eventParticipantMode: parsed.eventParticipantMode }
+      : {})
   };
 }
 
@@ -2935,6 +2989,22 @@ export function createApp(
     });
   });
 
+  app.get("/api/reports/unit-economics", async (request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
+    await sendTimedJson({
+      request,
+      response,
+      next,
+      moduleId: "attraction",
+      route: "unit-economics",
+      handler: () =>
+        service.getUnitEconomicsReport(parseRangeRequest(request.query))
+    });
+  });
+
   app.get("/api/meta", async (request, response, next) => {
     if (denyIfMissingAttractionAccess(response)) {
       return;
@@ -3192,6 +3262,43 @@ export function createApp(
       next(error);
     }
   });
+
+  app.get("/api/settings/unit-economics", async (_request, response, next) => {
+    if (denyIfMissingAttractionAccess(response)) {
+      return;
+    }
+
+    try {
+      response.json(await service.getUnitEconomicsSettings());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put(
+    "/api/settings/unit-economics/cost-rules",
+    async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+        return;
+      }
+
+      try {
+        const payload = unitEconomicsCostRulesBodySchema.parse(request.body);
+        const normalizedPayload: UnitEconomicsCostRulesInput = {
+          ...(payload.eventParticipantMode
+            ? { eventParticipantMode: payload.eventParticipantMode }
+            : {}),
+          rules: payload.rules.map((rule) => ({
+            ...rule,
+            eventNamePattern: rule.eventNamePattern ?? null
+          }))
+        };
+        response.json(await service.replaceUnitEconomicsCostRules(normalizedPayload));
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
 
   app.get("/api/settings/conversion-event-types", async (_request, response, next) => {
     if (denyIfMissingAttractionAccess(response)) {

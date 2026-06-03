@@ -349,6 +349,11 @@ const EMPTY_SNAPSHOT_STATS = {
   calls: 0,
   stageHistory: 0
 };
+type DealStageFacts = Awaited<ReturnType<SqliteRepository["getAllDealStageFacts"]>>;
+type DealTouchpointFacts = Awaited<
+  ReturnType<SqliteRepository["getAllDealTouchpointFacts"]>
+>;
+type EventVisitFacts = Awaited<ReturnType<SqliteRepository["getAllEventVisitFacts"]>>;
 
 function addHours(date: Date, hours: number) {
   const copy = new Date(date);
@@ -821,6 +826,67 @@ export function createReportingService(
       ? repositoryWithPricing.getPricingRules()
       : DEFAULT_PRICING_RULES;
   };
+  const reportInputCache: {
+    dealStageFacts?: Promise<DealStageFacts>;
+    dealTouchpointFacts?: Promise<DealTouchpointFacts>;
+    eventVisitFacts?: Promise<EventVisitFacts>;
+  } = {};
+  const clearReportInputCache = () => {
+    delete reportInputCache.dealStageFacts;
+    delete reportInputCache.dealTouchpointFacts;
+    delete reportInputCache.eventVisitFacts;
+  };
+  const getCachedDealStageFacts = () => {
+    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
+    if (typeof repositoryWithFacts.getAllDealStageFacts !== "function") {
+      return Promise.resolve([] as DealStageFacts);
+    }
+    if (!reportInputCache.dealStageFacts) {
+      let promise: Promise<DealStageFacts>;
+      promise = repositoryWithFacts.getAllDealStageFacts().catch((error) => {
+        if (reportInputCache.dealStageFacts === promise) {
+          delete reportInputCache.dealStageFacts;
+        }
+        throw error;
+      });
+      reportInputCache.dealStageFacts = promise;
+    }
+    return reportInputCache.dealStageFacts;
+  };
+  const getCachedDealTouchpointFacts = () => {
+    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
+    if (typeof repositoryWithFacts.getAllDealTouchpointFacts !== "function") {
+      return Promise.resolve([] as DealTouchpointFacts);
+    }
+    if (!reportInputCache.dealTouchpointFacts) {
+      let promise: Promise<DealTouchpointFacts>;
+      promise = repositoryWithFacts.getAllDealTouchpointFacts().catch((error) => {
+        if (reportInputCache.dealTouchpointFacts === promise) {
+          delete reportInputCache.dealTouchpointFacts;
+        }
+        throw error;
+      });
+      reportInputCache.dealTouchpointFacts = promise;
+    }
+    return reportInputCache.dealTouchpointFacts;
+  };
+  const getCachedEventVisitFacts = () => {
+    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
+    if (typeof repositoryWithFacts.getAllEventVisitFacts !== "function") {
+      return Promise.resolve([] as EventVisitFacts);
+    }
+    if (!reportInputCache.eventVisitFacts) {
+      let promise: Promise<EventVisitFacts>;
+      promise = repositoryWithFacts.getAllEventVisitFacts().catch((error) => {
+        if (reportInputCache.eventVisitFacts === promise) {
+          delete reportInputCache.eventVisitFacts;
+        }
+        throw error;
+      });
+      reportInputCache.eventVisitFacts = promise;
+    }
+    return reportInputCache.eventVisitFacts;
+  };
   const getUnitEconomicsEventParticipantMode = async () => {
     const repositoryWithUnitEconomics = input.repository as Partial<SqliteRepository>;
     return typeof repositoryWithUnitEconomics.getUnitEconomicsEventParticipantMode ===
@@ -999,6 +1065,7 @@ export function createReportingService(
     if (typeof repositoryWithFacts.replaceAnalyticsFacts !== "function") {
       return null;
     }
+    clearReportInputCache();
 
     const [
       deals,
@@ -1072,12 +1139,17 @@ export function createReportingService(
       })
     ];
 
-    const baseCounts = await repositoryWithFacts.replaceAnalyticsFacts({
-      identityLinks,
-      dealStageFacts: stageFacts,
-      dealTouchpointFacts: touchpointFacts,
-      eventVisitFacts
-    });
+    let baseCounts: Awaited<ReturnType<SqliteRepository["replaceAnalyticsFacts"]>>;
+    try {
+      baseCounts = await repositoryWithFacts.replaceAnalyticsFacts({
+        identityLinks,
+        dealStageFacts: stageFacts,
+        dealTouchpointFacts: touchpointFacts,
+        eventVisitFacts
+      });
+    } finally {
+      clearReportInputCache();
+    }
 
     return {
       ...baseCounts,
@@ -1092,18 +1164,21 @@ export function createReportingService(
     meetingDateChanges?: Awaited<
       ReturnType<NonNullable<SqliteRepository["getAllDealMeetingDateChanges"]>>
     >;
+  }, options?: {
+    includeTouchpointFacts?: boolean;
+    includeEventVisitFacts?: boolean;
   }) => {
-    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
+    const includeTouchpointFacts =
+      options?.includeTouchpointFacts ??
+      Boolean(fallback.activities || fallback.calls || fallback.meetingDateChanges);
     const [stageFacts, touchpointFacts, eventVisitFacts] = await Promise.all([
-      typeof repositoryWithFacts.getAllDealStageFacts === "function"
-        ? repositoryWithFacts.getAllDealStageFacts()
-        : Promise.resolve([]),
-      typeof repositoryWithFacts.getAllDealTouchpointFacts === "function"
-        ? repositoryWithFacts.getAllDealTouchpointFacts()
-        : Promise.resolve([]),
-      typeof repositoryWithFacts.getAllEventVisitFacts === "function"
-        ? repositoryWithFacts.getAllEventVisitFacts()
-        : Promise.resolve([])
+      getCachedDealStageFacts(),
+      includeTouchpointFacts
+        ? getCachedDealTouchpointFacts()
+        : Promise.resolve([] as DealTouchpointFacts),
+      options?.includeEventVisitFacts
+        ? getCachedEventVisitFacts()
+        : Promise.resolve([] as EventVisitFacts)
     ]);
     const hasStageFacts = stageFacts.length > 0;
     const hasTouchpointFacts = touchpointFacts.length > 0;
@@ -1990,6 +2065,9 @@ export function createReportingService(
         activities,
         calls,
         meetingDateChanges
+      }, {
+        includeTouchpointFacts: true,
+        includeEventVisitFacts: true
       });
       const reportStageHistory = canonical.stageHistory;
       const reportActivities = canonical.activities ?? activities;
@@ -2407,7 +2485,6 @@ export function createReportingService(
         stageCatalog,
         stageHistory,
         visits,
-        eventVisitFacts,
         events,
         eventTypeSettings
       ] =
@@ -2416,9 +2493,6 @@ export function createReportingService(
         getScopedStageCatalog(true),
         input.repository.getAllStageHistory(),
         input.repository.getAllConversionEventVisits(),
-        typeof repositoryWithEvents.getAllEventVisitFacts === "function"
-          ? repositoryWithEvents.getAllEventVisitFacts()
-          : Promise.resolve([]),
         typeof repositoryWithEvents.getAllEventSnapshots === "function"
           ? repositoryWithEvents.getAllEventSnapshots()
           : Promise.resolve([]),
@@ -2426,8 +2500,12 @@ export function createReportingService(
           ? repositoryWithEvents.getModuleEventTypeSettings("attraction")
           : Promise.resolve([])
       ]);
-      const canonical = await loadCanonicalReportInputs({ stageHistory });
+      const canonical = await loadCanonicalReportInputs(
+        { stageHistory },
+        { includeEventVisitFacts: true }
+      );
       const reportStageHistory = canonical.stageHistory;
+      const eventVisitFacts = canonical.eventVisitFacts;
       const sourceLabels = buildSourceLabelMap(stageCatalog);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
@@ -2889,47 +2967,52 @@ export function createReportingService(
     },
 
     async performSync(syncInput) {
-      const assignedByIds = await getAttractionManagerScope();
-      const summary = await performManualSync({
-        categoryIds: input.dealCategoryIds,
-        qualityFieldName: input.qualityFieldName,
-        client: input.client,
-        repository: input.repository,
-        now: () => nowFactory().toISOString(),
-        assignedByIds,
-        ...(syncInput?.onProgress ? { onProgress: syncInput.onProgress } : {}),
-        ...(input.bootstrapLookbackDays
-          ? { bootstrapLookbackDays: input.bootstrapLookbackDays }
-          : {}),
-        ...(input.tariffFieldName
-          ? { tariffFieldName: input.tariffFieldName }
-          : {}),
-        ...(input.businessClubFieldName
-          ? { businessClubFieldName: input.businessClubFieldName }
-          : {}),
-        ...(input.targetGroupFieldName
-          ? { targetGroupFieldName: input.targetGroupFieldName }
-          : {}),
-        ...(input.meetingTypeFieldName
-          ? { meetingTypeFieldName: input.meetingTypeFieldName }
-          : {}),
-        ...(input.meetingDateFieldName
-          ? { meetingDateFieldName: input.meetingDateFieldName }
-          : {}),
-        ...(input.contactTargetGroupFieldName
-          ? { contactTargetGroupFieldName: input.contactTargetGroupFieldName }
-          : {}),
-        ...(input.legacyContactTargetGroupFieldName
-          ? {
-              legacyContactTargetGroupFieldName:
-                input.legacyContactTargetGroupFieldName
+      clearReportInputCache();
+      try {
+        const assignedByIds = await getAttractionManagerScope();
+        const summary = await performManualSync({
+          categoryIds: input.dealCategoryIds,
+          qualityFieldName: input.qualityFieldName,
+          client: input.client,
+          repository: input.repository,
+          now: () => nowFactory().toISOString(),
+          assignedByIds,
+          ...(syncInput?.onProgress ? { onProgress: syncInput.onProgress } : {}),
+          ...(input.bootstrapLookbackDays
+            ? { bootstrapLookbackDays: input.bootstrapLookbackDays }
+            : {}),
+          ...(input.tariffFieldName
+            ? { tariffFieldName: input.tariffFieldName }
+            : {}),
+          ...(input.businessClubFieldName
+            ? { businessClubFieldName: input.businessClubFieldName }
+            : {}),
+          ...(input.targetGroupFieldName
+            ? { targetGroupFieldName: input.targetGroupFieldName }
+            : {}),
+          ...(input.meetingTypeFieldName
+            ? { meetingTypeFieldName: input.meetingTypeFieldName }
+            : {}),
+          ...(input.meetingDateFieldName
+            ? { meetingDateFieldName: input.meetingDateFieldName }
+            : {}),
+          ...(input.contactTargetGroupFieldName
+            ? { contactTargetGroupFieldName: input.contactTargetGroupFieldName }
+            : {}),
+          ...(input.legacyContactTargetGroupFieldName
+            ? {
+                legacyContactTargetGroupFieldName:
+                  input.legacyContactTargetGroupFieldName
+            }
+            : {}),
+          afterPersist: async () => {
+            await rebuildAnalyticsFacts();
           }
-          : {}),
-        afterPersist: async () => {
-          await rebuildAnalyticsFacts();
-        }
-      });
-      return summary;
+        });
+        return summary;
+      } finally {
+        clearReportInputCache();
+      }
     },
 
     rebuildAnalyticsFacts() {

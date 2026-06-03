@@ -188,6 +188,10 @@ const app = createApp(service, {
       : env.TRUST_PROXY === "false"
         ? false
         : env.TRUST_PROXY,
+  attractionAutoSync: {
+    enabled: env.attractionAutoSyncEnabled && env.bitrixEnabled,
+    intervalMs: env.attractionAutoSyncIntervalMs
+  },
   ...(env.WEB_STATIC_DIR ? { webStaticDir: env.WEB_STATIC_DIR } : {})
 });
 
@@ -196,6 +200,7 @@ const server = app.listen(env.API_PORT, env.API_HOST, () => {
 });
 
 process.on("SIGINT", () => {
+  app.locals.stopAttractionAutoSync?.();
   for (const repository of repositories) {
     repository.close();
   }

@@ -278,6 +278,11 @@ function createTestApp(
     webOrigin?: string;
     apiAuthToken?: string;
     syncStreamHeartbeatMs?: number;
+    attractionAutoSync?: {
+      enabled?: boolean;
+      intervalMs?: number;
+      initialDelayMs?: number;
+    };
     modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
     protoComments?: {
       getProtoComments(): Promise<{
@@ -684,6 +689,11 @@ function createTestApp(
         webOrigin?: string;
         apiAuthToken?: string;
         syncStreamHeartbeatMs?: number;
+        attractionAutoSync?: {
+          enabled?: boolean;
+          intervalMs?: number;
+          initialDelayMs?: number;
+        };
         modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
         protoComments?: {
           getProtoComments(): Promise<{
@@ -2516,6 +2526,103 @@ describe("createApp", () => {
       });
 
     expect(calls).toEqual(["leadgen"]);
+  });
+
+  it("runs attraction auto sync only for the attraction module on the configured interval", async () => {
+    vi.useFakeTimers();
+    const calls: string[] = [];
+    const app = createTestApp(
+      {
+        performSync: async () => {
+          calls.push("root-attraction");
+          return createSyncSummary({ syncRunId: 10, dealsSynced: 10 });
+        }
+      },
+      {
+        attractionAutoSync: {
+          enabled: true,
+          intervalMs: 1_000,
+          initialDelayMs: 1_000
+        },
+        modules: {
+          attraction: {
+            performSync: async () => {
+              calls.push("attraction");
+              return createSyncSummary({ syncRunId: 18, dealsSynced: 4 });
+            }
+          },
+          leadgen: {
+            performSync: async () => {
+              calls.push("leadgen");
+              return createSyncSummary({ syncRunId: 28, dealsSynced: 3 });
+            }
+          }
+        }
+      }
+    );
+
+    try {
+      await vi.advanceTimersByTimeAsync(999);
+      expect(calls).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls).toEqual(["attraction"]);
+    } finally {
+      app.locals.stopAttractionAutoSync?.();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps manual attraction sync locked out while auto sync is running", async () => {
+    vi.useFakeTimers();
+    let resolveSync!: (value: ReturnType<typeof createSyncSummary>) => void;
+    let keepFirstSyncPending = true;
+    const performSync = vi.fn(() => {
+      if (!keepFirstSyncPending) {
+        return Promise.resolve(createSyncSummary({ syncRunId: 32 }));
+      }
+
+      return new Promise<ReturnType<typeof createSyncSummary>>((resolve) => {
+        resolveSync = (value) => {
+          keepFirstSyncPending = false;
+          resolve(value);
+        };
+      });
+    });
+    const app = createTestApp(
+      {
+        performSync
+      },
+      {
+        attractionAutoSync: {
+          enabled: true,
+          intervalMs: 1_000,
+          initialDelayMs: 1_000
+        }
+      }
+    );
+
+    try {
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(performSync).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(performSync).toHaveBeenCalledTimes(1);
+
+      await request(app)
+        .post("/api/sync")
+        .expect(409)
+        .expect(({ body }) => {
+          expect(body.error).toBe("SYNC_ALREADY_RUNNING");
+        });
+
+      resolveSync(createSyncSummary({ syncRunId: 31 }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(performSync).toHaveBeenCalledTimes(2);
+    } finally {
+      app.locals.stopAttractionAutoSync?.();
+      vi.useRealTimers();
+    }
   });
 
   it("streams sync progress events when requested by the web client", async () => {

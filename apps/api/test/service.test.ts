@@ -1680,6 +1680,192 @@ describe("createReportingService", () => {
     ]);
   });
 
+  it("does not read touchpoint or event facts for stage-only reports", async () => {
+    let stageFactReads = 0;
+    let touchpointFactReads = 0;
+    let eventVisitFactReads = 0;
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          opportunity: 10000,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-04-05T10:00:00.000Z",
+          dateModify: "2026-04-05T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:NEW",
+          name: "Новая",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:WON",
+          name: "Успех",
+          semanticId: "S",
+          sortOrder: 20
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getWonStageIds: async () => ["C10:WON"],
+      getAllStageHistory: async () => [],
+      getAllDealStageFacts: async () => {
+        stageFactReads += 1;
+        return [];
+      },
+      getAllDealTouchpointFacts: async () => {
+        touchpointFactReads += 1;
+        return [];
+      },
+      getAllEventVisitFacts: async () => {
+        eventVisitFactReads += 1;
+        return [];
+      }
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T12:00:00.000Z")
+    });
+
+    await service.getCohortConversionReport({ filters: { managerIds: ["78"] } });
+    await service.getTocFlowReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      filters: { managerIds: ["78"] }
+    });
+
+    expect(stageFactReads).toBe(1);
+    expect(touchpointFactReads).toBe(0);
+    expect(eventVisitFactReads).toBe(0);
+  });
+
+  it("coalesces canonical fact reads across parallel workload reports", async () => {
+    let stageFactReads = 0;
+    let touchpointFactReads = 0;
+    let eventVisitFactReads = 0;
+    const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:NEW",
+          stageSemanticId: "P",
+          opportunity: 10000,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-04-05T10:00:00.000Z",
+          dateModify: "2026-04-05T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:NEW",
+          name: "Новая",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllCalls: async () => [],
+      getManagerDirectory: async () => [],
+      upsertManagerDirectory: async () => 0,
+      getAllDealStageFacts: async () => {
+        stageFactReads += 1;
+        await delay();
+        return [];
+      },
+      getAllDealTouchpointFacts: async () => {
+        touchpointFactReads += 1;
+        await delay();
+        return [];
+      },
+      getAllEventVisitFacts: async () => {
+        eventVisitFactReads += 1;
+        await delay();
+        return [];
+      }
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-10T12:00:00.000Z")
+    });
+    const range = {
+      from: "2026-04-01T00:00:00.000Z",
+      to: "2026-04-30T23:59:59.999Z"
+    };
+
+    await Promise.all([
+      service.getActivitiesWorkloadReport({ range, filters: { managerIds: ["78"] } }),
+      service.getCallsWorkloadReport({ range, filters: { managerIds: ["78"] } })
+    ]);
+
+    expect(stageFactReads).toBe(1);
+    expect(touchpointFactReads).toBe(1);
+    expect(eventVisitFactReads).toBe(1);
+  });
+
   it("builds the cohort report from the latest twelve calendar months regardless of selected ranges", async () => {
     const repository = {
       getAllDeals: async () => [

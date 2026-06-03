@@ -62,6 +62,8 @@ PLATFORM_DATABASE_URL=file:/app/data/bitrix24-reporting.db
 ATTRACTION_DATABASE_URL=file:/app/data/bitrix24-attraction.db
 LEADGEN_DATABASE_URL=file:/app/data/bitrix24-leadgen.db
 JSON_BODY_LIMIT=256kb
+ATTRACTION_AUTO_SYNC_ENABLED=true
+ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES=30
 
 BITRIX24_PORTAL_HOST=<portal>.bitrix24.ru
 BITRIX24_WEBHOOK_USER_ID=<user-id>

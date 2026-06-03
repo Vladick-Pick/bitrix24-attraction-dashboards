@@ -21,6 +21,17 @@ import { createCompareRange, ProtoApp } from '@/proto/proto-app'
 import { createDefaultFilters } from '@/proto/scenes'
 import type { AuthUser, PaperclipThreadEntry } from '@/proto/types'
 
+function createDeferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined
+  let reject: (reason?: unknown) => void = () => undefined
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return { promise, resolve, reject }
+}
+
 function formatExpectedDateTime(value: string) {
   return new Date(value).toLocaleString('ru-RU', { hour12: false })
 }
@@ -1873,6 +1884,74 @@ describe('ProtoApp', () => {
     )
   })
 
+  it('loads heavyweight attraction scenes only after opening their tabs', async () => {
+    render(<ProtoApp />)
+
+    await waitFor(() => expect(apiClient.getDashboard).toHaveBeenCalled())
+    expect(apiClient.getActivitiesWorkloadReport).not.toHaveBeenCalled()
+    expect(apiClient.getCallsWorkloadReport).not.toHaveBeenCalled()
+    expect(apiClient.getCohortConversionReport).not.toHaveBeenCalled()
+    expect(apiClient.getManagerActionOutcomeReport).not.toHaveBeenCalled()
+    expect(apiClient.getTocFlowReport).not.toHaveBeenCalled()
+    expect(apiClient.getAttractionOntology).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /^отчет активности$/i }))
+    await waitFor(() => expect(apiClient.getActivitiesWorkloadReport).toHaveBeenCalled())
+    expect(apiClient.getCallsWorkloadReport).toHaveBeenCalled()
+    expect(apiClient.getCohortConversionReport).not.toHaveBeenCalled()
+    expect(apiClient.getManagerActionOutcomeReport).not.toHaveBeenCalled()
+    expect(apiClient.getTocFlowReport).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /^когортный отчет$/i }))
+    await waitFor(() => expect(apiClient.getCohortConversionReport).toHaveBeenCalled())
+    expect(apiClient.getManagerActionOutcomeReport).toHaveBeenCalled()
+    expect(apiClient.getTocFlowReport).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /^движение по воронке$/i }))
+    await waitFor(() => expect(apiClient.getTocFlowReport).toHaveBeenCalled())
+  })
+
+  it('finishes a lazy attraction scene request after leaving and returning to its tab', async () => {
+    const activitiesDeferred = createDeferred<
+      Awaited<ReturnType<typeof apiClient.getActivitiesWorkloadReport>>
+    >()
+    vi.mocked(apiClient.getActivitiesWorkloadReport).mockImplementationOnce(
+      async () => activitiesDeferred.promise,
+    )
+
+    render(<ProtoApp />)
+
+    await waitFor(() => expect(apiClient.getDashboard).toHaveBeenCalled())
+    await userEvent.click(screen.getByRole('button', { name: /^отчет активности$/i }))
+    await waitFor(() => expect(apiClient.getActivitiesWorkloadReport).toHaveBeenCalledTimes(1))
+    expect(
+      await screen.findByText(/загружаю live-данные отч[её]та активности/i),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^отчет по продажам$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^отчет активности$/i }))
+
+    activitiesDeferred.resolve({
+      range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+      totalDealCount: 0,
+      totalCreatedCount: 0,
+      totalRescheduledCount: 0,
+      totalClosedCount: 0,
+      totalMeetingCount: 0,
+      warnings: [],
+      conversionEventRows: [],
+      managerRows: [],
+      comparisons: [],
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/загружаю live-данные отч[её]та активности/i),
+      ).not.toBeInTheDocument()
+    })
+    expect(apiClient.getActivitiesWorkloadReport).toHaveBeenCalledTimes(1)
+  })
+
   it('lets module leaders edit and save unit economics cost rules', async () => {
     const leader: AuthUser = {
       id: 1,
@@ -2693,6 +2772,8 @@ describe('ProtoApp', () => {
     })
 
     render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^когортный отчет$/i }))
 
     await waitFor(() => {
       const sourceCalls = vi.mocked(apiClient.getCohortConversionReport).mock.calls
@@ -4536,7 +4617,7 @@ describe('ProtoApp', () => {
     expect(await screen.findByText('Потапова Мария')).toBeInTheDocument()
     expect(within(screen.getByLabelText('KPI продаж')).getAllByText('1').length).toBeGreaterThan(0)
     expect(apiClient.getDashboard).toHaveBeenCalled()
-    expect(apiClient.getCallsWorkloadReport).toHaveBeenCalled()
+    expect(apiClient.getCallsWorkloadReport).not.toHaveBeenCalled()
     expect(screen.queryByText(/live-данные недоступны/i)).not.toBeInTheDocument()
   })
 

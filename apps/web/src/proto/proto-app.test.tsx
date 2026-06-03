@@ -71,6 +71,9 @@ vi.mock('@/lib/api-client', () => ({
         warnings: [],
       },
     })),
+    getSyncRuns: vi.fn(async () => ({
+      runs: [],
+    })),
     getDashboard: vi.fn(async () => ({
       salesSummary: {
         salesCount: 0,
@@ -4445,6 +4448,52 @@ describe('ProtoApp', () => {
     const [query] = vi.mocked(apiClient.getDashboard).mock.calls.at(-1)!
     expect(query.preset).toBe('custom')
     expect('from' in query ? query.from : '').not.toContain('2026-01-01')
+  })
+
+  it('shows the recent attraction sync journal in the dashboard header', async () => {
+    vi.mocked(apiClient.getSyncRuns).mockResolvedValueOnce({
+      runs: [
+        {
+          id: 42,
+          startedAt: '2026-06-03T06:00:00.000Z',
+          finishedAt: '2026-06-03T06:01:00.000Z',
+          durationMs: 60000,
+          status: 'failed',
+          mode: 'delta',
+          modifiedAfter: '2026-06-03T05:00:00.000Z',
+          scopeKey: 'category:10:assigned:78',
+          leadsSynced: 0,
+          dealsSynced: 4,
+          dealBreakdown: {
+            total: 4,
+            created: 1,
+            updated: 2,
+            closed: 1,
+            reopened: 0,
+            unchanged: 0,
+          },
+          diagnostics: ['SYNC_FAILED', 'error=API_FAIL'],
+        },
+      ],
+    })
+
+    render(<ProtoApp />)
+
+    expect(await screen.findByText('Журнал синхронизаций')).toBeInTheDocument()
+    expect(screen.getByText(/автосинхронизация: привлечение раз в час/i)).toBeInTheDocument()
+    expect(screen.getByText('Ошибка')).toBeInTheDocument()
+    expect(screen.getByText(/SYNC_FAILED · error=API_FAIL/)).toBeInTheDocument()
+  })
+
+  it('keeps the attraction dashboard usable when the sync journal fails to load', async () => {
+    vi.mocked(apiClient.getSyncRuns).mockRejectedValueOnce(new Error('Журнал недоступен'))
+
+    render(<ProtoApp />)
+
+    expect(await screen.findByText('В выбранном периоде нет выигранных сделок.')).toBeInTheDocument()
+    expect(screen.getByText('Журнал синхронизаций')).toBeInTheDocument()
+    expect(screen.getByText('Пока нет записей журнала')).toBeInTheDocument()
+    expect(screen.queryByText('Журнал недоступен')).not.toBeInTheDocument()
   })
 
   it('shows filter apply loading state and applies the visible date field values', async () => {

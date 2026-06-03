@@ -85,6 +85,9 @@ vi.mock('@/lib/api-client', () => ({
         warnings: [],
       },
     })),
+    getSyncRuns: vi.fn(async () => ({
+      runs: [],
+    })),
     getDashboard: vi.fn(async () => ({
       salesSummary: {
         salesCount: 0,

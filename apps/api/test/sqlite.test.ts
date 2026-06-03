@@ -1345,6 +1345,114 @@ describe("createSqliteRepository", () => {
     });
   });
 
+  it("lists recent sync runs as an attraction-scoped durable sync journal", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    const attractionRunId = await repository.createSyncRun({
+      startedAt: "2026-06-03T06:00:00.000Z",
+      mode: "delta",
+      modifiedAfter: "2026-06-03T05:00:00.000Z",
+      scopeKey: "category:10:assigned:78"
+    });
+    await repository.finishSyncRun({
+      syncRunId: attractionRunId,
+      finishedAt: "2026-06-03T06:02:30.000Z",
+      status: "success",
+      leadsSynced: 0,
+      dealsSynced: 12,
+      dealBreakdown: {
+        total: 12,
+        created: 2,
+        updated: 8,
+        closed: 1,
+        reopened: 0,
+        unchanged: 1
+      },
+      diagnostics: ["activityBindingError=Error"],
+      modifiedAfter: "2026-06-03T05:00:00.000Z"
+    });
+
+    const changedWhitelistRunId = await repository.createSyncRun({
+      startedAt: "2026-06-03T06:30:00.000Z",
+      mode: "delta",
+      modifiedAfter: "2026-06-03T06:00:00.000Z",
+      scopeKey: "category:10:assigned:72,78,7824"
+    });
+    await repository.finishSyncRun({
+      syncRunId: changedWhitelistRunId,
+      finishedAt: "2026-06-03T06:31:00.000Z",
+      status: "success",
+      leadsSynced: 0,
+      dealsSynced: 3,
+      dealBreakdown: {
+        total: 3,
+        created: 0,
+        updated: 3,
+        closed: 0,
+        reopened: 0,
+        unchanged: 0
+      },
+      diagnostics: ["scopeExpansionManagers=3"],
+      modifiedAfter: "2026-06-03T06:00:00.000Z"
+    });
+
+    const leadgenRunId = await repository.createSyncRun({
+      startedAt: "2026-06-03T07:00:00.000Z",
+      mode: "full",
+      modifiedAfter: null,
+      scopeKey: "category:28:assigned:501"
+    });
+    await repository.failSyncRun({
+      syncRunId: leadgenRunId,
+      finishedAt: "2026-06-03T07:01:00.000Z",
+      status: "failed",
+      diagnostics: ["SYNC_FAILED", "error=API_FAIL"]
+    });
+
+    await expect(
+      repository.listSyncRuns({
+        limit: 5,
+        scopeKey: "category:10"
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: changedWhitelistRunId,
+        status: "success",
+        startedAt: "2026-06-03T06:30:00.000Z",
+        scopeKey: "category:10:assigned:72,78,7824",
+        dealsSynced: 3,
+        diagnostics: ["scopeExpansionManagers=3"]
+      }),
+      expect.objectContaining({
+        id: attractionRunId,
+        status: "success",
+        startedAt: "2026-06-03T06:00:00.000Z",
+        finishedAt: "2026-06-03T06:02:30.000Z",
+        durationMs: 150_000,
+        mode: "delta",
+        modifiedAfter: "2026-06-03T05:00:00.000Z",
+        scopeKey: "category:10:assigned:78",
+        leadsSynced: 0,
+        dealsSynced: 12,
+        diagnostics: ["activityBindingError=Error"],
+        dealBreakdown: {
+          total: 12,
+          created: 2,
+          updated: 8,
+          closed: 1,
+          reopened: 0,
+          unchanged: 1
+        }
+      })
+    ]);
+  });
+
   it("rolls back snapshot writes when the transaction callback throws", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

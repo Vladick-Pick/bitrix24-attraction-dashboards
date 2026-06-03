@@ -44,6 +44,7 @@ import type {
   SyncHealthIssue,
   SyncDealChangeBreakdown,
   SyncProgressEvent,
+  SyncRunHistoryResponse,
   TargetGroupConversionReport,
   TargetGroupConversionReportSnapshot,
   TocFlowReport,
@@ -275,6 +276,7 @@ export interface ReportingService {
     snapshotStats: SnapshotStats;
     syncHealth: SyncHealth;
   }>;
+  getSyncRuns(input?: { limit?: number }): Promise<SyncRunHistoryResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
   }): Promise<ManualSyncSummary>;
@@ -2963,6 +2965,17 @@ export function createReportingService(
         lastSync,
         snapshotStats,
         syncHealth
+      };
+    },
+
+    async getSyncRuns(syncInput = {}) {
+      const scopeKey = buildCategoryScopeKey(input.dealCategoryIds);
+
+      return {
+        runs: await input.repository.listSyncRuns({
+          ...(syncInput.limit === undefined ? {} : { limit: syncInput.limit }),
+          scopeKey
+        })
       };
     },
 

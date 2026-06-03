@@ -1298,6 +1298,70 @@ describe('apiClient', () => {
     })
   })
 
+  it('loads and normalizes the attraction sync journal', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        runs: [
+          {
+            id: 42,
+            startedAt: '2026-06-03T06:00:00.000Z',
+            finishedAt: '2026-06-03T06:01:00.000Z',
+            durationMs: 60000,
+            status: 'success',
+            mode: 'delta',
+            modifiedAfter: '2026-06-03T05:00:00.000Z',
+            scopeKey: 'category:10:assigned:78',
+            leadsSynced: 0,
+            dealsSynced: 4,
+            dealBreakdown: {
+              total: 4,
+              created: 1,
+              updated: 2,
+              closed: 1,
+              reopened: 0,
+              unchanged: 0,
+            },
+            diagnostics: ['activityBindingError=Error'],
+          },
+        ],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(apiClient.getSyncRuns({ limit: 5 })).resolves.toEqual({
+      runs: [
+        {
+          id: 42,
+          startedAt: '2026-06-03T06:00:00.000Z',
+          finishedAt: '2026-06-03T06:01:00.000Z',
+          durationMs: 60000,
+          status: 'success',
+          mode: 'delta',
+          modifiedAfter: '2026-06-03T05:00:00.000Z',
+          scopeKey: 'category:10:assigned:78',
+          leadsSynced: 0,
+          dealsSynced: 4,
+          dealBreakdown: {
+            total: 4,
+            created: 1,
+            updated: 2,
+            closed: 1,
+            reopened: 0,
+            unchanged: 0,
+          },
+          diagnostics: ['activityBindingError=Error'],
+        },
+      ],
+    })
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const parsedUrl = new URL(url, window.location.origin)
+    expect(parsedUrl.pathname).toBe('/api/sync-runs')
+    expect(parsedUrl.searchParams.get('limit')).toBe('5')
+  })
+
   it('loads and normalizes attraction ontology data', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

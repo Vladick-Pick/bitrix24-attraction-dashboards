@@ -35,6 +35,8 @@ import type {
   SyncChangeSummary,
   SyncDealChangeBreakdown,
   SyncProgressEvent,
+  SyncRunHistoryResponse,
+  SyncRunLogEntry,
   SyncSummary,
   UnitEconomicsCostRulesInput,
 } from '@/lib/dashboard-types'
@@ -311,6 +313,14 @@ async function loadAttractionOntologySafely() {
   }
 }
 
+async function loadSyncRunsSafely(): Promise<SyncRunHistoryResponse> {
+  try {
+    return await apiClient.getSyncRuns({ limit: 5 })
+  } catch {
+    return { runs: [] }
+  }
+}
+
 function DevelopmentReadyReport({
   report,
   status,
@@ -441,6 +451,42 @@ function formatCount(value: number) {
 
 function formatSyncMode(value: 'full' | 'delta' | undefined) {
   return value === 'full' ? 'full' : 'delta'
+}
+
+function formatDurationMs(value: number | null) {
+  if (value === null) {
+    return '-'
+  }
+
+  const totalSeconds = Math.round(value / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes === 0) {
+    return `${seconds} сек`
+  }
+
+  return `${minutes} мин ${seconds} сек`
+}
+
+function formatSyncRunStatus(value: SyncRunLogEntry['status']) {
+  if (value === 'success') {
+    return 'Успех'
+  }
+
+  if (value === 'failed') {
+    return 'Ошибка'
+  }
+
+  return 'В работе'
+}
+
+function formatSyncRunDiagnostics(run: SyncRunLogEntry) {
+  return run.diagnostics.length > 0
+    ? run.diagnostics.join(' · ')
+    : formatDealBreakdown({
+        deals: run.dealsSynced,
+        dealBreakdown: run.dealBreakdown,
+      })
 }
 
 function resolveDealBreakdown(
@@ -1379,6 +1425,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [createdCredentials, setCreatedCredentials] = useState<string | null>(null)
   const [snapshotStats, setSnapshotStats] = useState<SnapshotStats | null>(null)
   const [lastSync, setLastSync] = useState<LastSyncSummary | null>(null)
+  const [syncRuns, setSyncRuns] = useState<SyncRunLogEntry[]>([])
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [draftComment, setDraftComment] = useState<{
@@ -1510,6 +1557,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     setSyncError(null)
     setSnapshotStats(null)
     setLastSync(null)
+    setSyncRuns([])
     setSyncWarning(null)
   }, [])
 
@@ -1805,6 +1853,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           })
           setSnapshotStats(meta.snapshotStats)
           setLastSync(meta.lastSync)
+          setSyncRuns([])
           setSyncWarning(resolveSyncHealthWarning(meta))
           setLeadgenReportStatus('idle')
           setRuntimeData({
@@ -1835,6 +1884,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setRuntimeData((current) => resetAttractionReportData(current, 'loading'))
         const [
           meta,
+          syncJournal,
           pricingSettings,
           conversionEventTypeSettings,
           unitEconomicsSettings,
@@ -1844,6 +1894,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           quarterDashboard,
         ] = await Promise.all([
           apiClient.getMeta(activeModuleId),
+          loadSyncRunsSafely(),
           apiClient.getPricingSettings(),
           apiClient.getConversionEventTypeSettings(),
           apiClient.getUnitEconomicsSettings(),
@@ -1879,6 +1930,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         }))
         setSnapshotStats(meta.snapshotStats)
         setLastSync(meta.lastSync)
+        setSyncRuns(syncJournal.runs)
         setSyncWarning(resolveSyncHealthWarning(meta))
 
         setRuntimeData((current) => {
@@ -2298,9 +2350,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   }, [isLeadgenModule, salesPlanQuarter])
 
   async function refreshSyncMeta(moduleId = activeModuleId) {
-    const meta = await apiClient.getMeta(moduleId)
+    const [meta, syncJournal] =
+      moduleId === 'attraction'
+        ? await Promise.all([apiClient.getMeta(moduleId), loadSyncRunsSafely()])
+        : [await apiClient.getMeta(moduleId), { runs: [] }]
     setSnapshotStats(meta.snapshotStats)
     setLastSync(meta.lastSync)
+    setSyncRuns(syncJournal.runs)
     setSyncWarning(resolveSyncHealthWarning(meta))
   }
 
@@ -3656,6 +3712,50 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 style={{ width: `${syncProgress?.progress ?? 0}%` }}
               />
             </div>
+            {!isLeadgenModule ? (
+              <div className="sync-journal" aria-label="Журнал синхронизаций">
+                <div className="sync-journal-head">
+                  <div>
+                    <div className="sync-strip-label">Журнал синхронизаций</div>
+                    <div className="sync-strip-meta">Автосинхронизация: Привлечение раз в час</div>
+                  </div>
+                </div>
+                {syncRuns.length > 0 ? (
+                  <div className="sync-journal-table-wrap">
+                    <table className="sync-journal-table">
+                      <thead>
+                        <tr>
+                          <th>Старт</th>
+                          <th>Статус</th>
+                          <th>Режим</th>
+                          <th>Сделки</th>
+                          <th>Длительность</th>
+                          <th>Диагностика</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {syncRuns.map((run) => (
+                          <tr key={run.id}>
+                            <td>{formatDateTime(run.startedAt)}</td>
+                            <td>
+                              <span className={cn('sync-run-status', `sync-run-status-${run.status}`)}>
+                                {formatSyncRunStatus(run.status)}
+                              </span>
+                            </td>
+                            <td>{formatSyncMode(run.mode)}</td>
+                            <td>{formatCount(run.dealsSynced)}</td>
+                            <td>{formatDurationMs(run.durationMs)}</td>
+                            <td>{formatSyncRunDiagnostics(run)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="sync-strip-meta mt-2">Пока нет записей журнала</div>
+                )}
+              </div>
+            ) : null}
             {syncWarning ? (
               <div className="sync-notice sync-notice-warning">{syncWarning}</div>
             ) : null}

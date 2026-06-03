@@ -351,6 +351,74 @@ tbody tr:hover {
   transition: width 220ms ease;
 }
 
+.sync-journal {
+  margin-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
+  padding-top: 0.75rem;
+}
+
+.sync-journal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.sync-journal-table-wrap {
+  margin-top: 0.55rem;
+  overflow-x: auto;
+}
+
+.sync-journal-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.sync-journal-table th {
+  color: var(--ink-500);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 0.35rem 0.45rem;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.sync-journal-table td {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  color: var(--ink-700);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  padding: 0.42rem 0.45rem;
+  vertical-align: top;
+}
+
+.sync-run-status {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.25rem 0.45rem;
+}
+
+.sync-run-status-success {
+  background: var(--good-bg);
+  color: var(--good-fg);
+}
+
+.sync-run-status-running {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+}
+
+.sync-run-status-failed {
+  background: var(--bad-bg);
+  color: var(--bad-fg);
+}
+
 .sync-notice {
   border-radius: 10px;
   font-size: 0.82rem;

@@ -54,9 +54,9 @@ describe("readEnv", () => {
     expect(readEnv({}).bitrixEnabled).toBe(false);
   });
 
-  it("configures attraction auto sync from production defaults and explicit overrides", () => {
+  it("configures hourly attraction auto sync from production defaults and explicit overrides", () => {
     expect(readEnv({}).attractionAutoSyncEnabled).toBe(false);
-    expect(readEnv({}).attractionAutoSyncIntervalMs).toBe(30 * 60 * 1_000);
+    expect(readEnv({}).attractionAutoSyncIntervalMs).toBe(60 * 60 * 1_000);
 
     expect(
       readEnv({

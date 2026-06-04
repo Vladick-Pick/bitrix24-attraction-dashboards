@@ -65,6 +65,12 @@ import type {
   PaperclipIssueClient,
   PaperclipIssueComment
 } from "./paperclip-client.js";
+import type { TelegramMessageSender } from "./telegram-client.js";
+import {
+  buildDailyActivityReportRange,
+  buildTelegramActivityReportMessages,
+  getNextDailyActivityReportDelayMs
+} from "./telegram-activity-report.js";
 
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
@@ -268,6 +274,15 @@ interface AppConfig {
     enabled?: boolean;
     intervalMs?: number;
     initialDelayMs?: number;
+  };
+  telegramActivityReport?: {
+    enabled?: boolean;
+    chatId?: string;
+    chatIds?: string[];
+    time?: string;
+    timezone?: string;
+    retryDelayMs?: number;
+    sender?: TelegramMessageSender;
   };
   modules?: Record<string, ModuleService>;
 }
@@ -1536,6 +1551,187 @@ export function createApp(
     };
   }
 
+  function startTelegramActivityReport() {
+    if (!config.telegramActivityReport?.enabled) {
+      return undefined;
+    }
+
+    const sender = config.telegramActivityReport.sender;
+    const chatIds = Array.from(
+      new Set([
+        ...(config.telegramActivityReport.chatIds ?? []),
+        config.telegramActivityReport.chatId ?? ""
+      ])
+    )
+      .map((chatId) => chatId.trim())
+      .filter(Boolean);
+    if (!sender || chatIds.length === 0) {
+      throw new Error(
+        "Telegram activity report requires chatIds and sender when enabled."
+      );
+    }
+    const telegramSender = sender;
+    const telegramChatIds = chatIds;
+
+    const moduleId = "attraction";
+    const reportTime = config.telegramActivityReport.time ?? "20:00";
+    const timezone = config.telegramActivityReport.timezone ?? "Europe/Istanbul";
+    const retryDelayMs =
+      config.telegramActivityReport.retryDelayMs !== undefined &&
+      Number.isFinite(config.telegramActivityReport.retryDelayMs) &&
+      config.telegramActivityReport.retryDelayMs >= 0
+        ? config.telegramActivityReport.retryDelayMs
+        : 30_000;
+    let scheduleTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeReport: Promise<void> | null = null;
+
+    async function sendMessages(input: {
+      messages: string[];
+      attempt: number;
+      startedMs: number;
+      range: { from: string; to: string };
+    }): Promise<void> {
+      try {
+        for (const chatId of telegramChatIds) {
+          for (const text of input.messages) {
+            await telegramSender.sendMessage({ chatId, text });
+          }
+        }
+
+        logJson("info", "telegram.activity_report.sent", {
+          moduleId,
+          attempt: input.attempt,
+          recipientCount: telegramChatIds.length,
+          messageCount: input.messages.length,
+          rangeFrom: input.range.from,
+          rangeTo: input.range.to,
+          durationMs: Math.round(performance.now() - input.startedMs),
+          sentAt: new Date().toISOString()
+        });
+      } catch (error) {
+        if (input.attempt === 0) {
+          logJson("warn", "telegram.activity_report.retried", {
+            moduleId,
+            retryDelayMs,
+            error: describeError(error)
+          });
+
+          await new Promise<void>((resolve) => {
+            retryTimer = setTimeout(() => {
+              retryTimer = null;
+              sendMessages({
+                ...input,
+                attempt: input.attempt + 1
+              }).finally(resolve);
+            }, retryDelayMs);
+            retryTimer.unref?.();
+          });
+          return;
+        }
+
+        logJson("error", "telegram.activity_report.failed", {
+          moduleId,
+          attempt: input.attempt,
+          durationMs: Math.round(performance.now() - input.startedMs),
+          failedAt: new Date().toISOString(),
+          error: describeError(error)
+        });
+      }
+    }
+
+    function runTelegramActivityReport() {
+      if (activeReport) {
+        logJson("info", "telegram.activity_report.skipped", {
+          moduleId,
+          reason: "REPORT_ALREADY_RUNNING",
+          checkedAt: new Date().toISOString()
+        });
+        return;
+      }
+
+      const startedMs = performance.now();
+      const now = new Date();
+      const range = buildDailyActivityReportRange({
+        now,
+        timezone,
+        reportTime
+      });
+      const moduleService = moduleServices.get(moduleId) ?? service;
+      const getActivitiesWorkloadReport =
+        moduleService.getActivitiesWorkloadReport ??
+        service.getActivitiesWorkloadReport;
+      const getCallsWorkloadReport =
+        moduleService.getCallsWorkloadReport ?? service.getCallsWorkloadReport;
+      const getMeta = moduleService.getMeta ?? service.getMeta;
+      const report = Promise.all([
+        getActivitiesWorkloadReport({ range }),
+        getCallsWorkloadReport({ range }),
+        getMeta()
+      ])
+        .then(([activities, calls, meta]) =>
+          sendMessages({
+            messages: buildTelegramActivityReportMessages({
+              moduleName: "Привлечение",
+              timezone,
+              now,
+              lastSyncFinishedAt: meta.lastSync?.finishedAt ?? null,
+              managerCatalog: meta.managerCatalog,
+              activities,
+              calls
+            }),
+            attempt: 0,
+            startedMs,
+            range
+          })
+        )
+        .catch((error) => {
+          logJson("error", "telegram.activity_report.failed", {
+            moduleId,
+            durationMs: Math.round(performance.now() - startedMs),
+            failedAt: new Date().toISOString(),
+            error: describeError(error)
+          });
+        });
+
+      activeReport = report;
+      report.finally(() => {
+        if (activeReport === report) {
+          activeReport = null;
+        }
+      });
+    }
+
+    function scheduleNextRun() {
+      const delayMs = getNextDailyActivityReportDelayMs({
+        now: new Date(),
+        timezone,
+        reportTime
+      });
+      scheduleTimer = setTimeout(() => {
+        runTelegramActivityReport();
+        scheduleNextRun();
+      }, delayMs);
+      scheduleTimer.unref?.();
+    }
+
+    scheduleNextRun();
+    logJson("info", "telegram.activity_report.enabled", {
+      moduleId,
+      reportTime,
+      timezone
+    });
+
+    return () => {
+      if (scheduleTimer) {
+        clearTimeout(scheduleTimer);
+      }
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+    };
+  }
+
   function denyIfMissingAttractionAccess(
     response: express.Response,
     options: { leaderOnly?: boolean } = {}
@@ -1699,6 +1895,10 @@ export function createApp(
   const stopAttractionAutoSync = startAttractionAutoSync();
   if (stopAttractionAutoSync) {
     app.locals.stopAttractionAutoSync = stopAttractionAutoSync;
+  }
+  const stopTelegramActivityReport = startTelegramActivityReport();
+  if (stopTelegramActivityReport) {
+    app.locals.stopTelegramActivityReport = stopTelegramActivityReport;
   }
 
   app.post("/api/auth/login", async (request, response, next) => {

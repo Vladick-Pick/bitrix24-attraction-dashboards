@@ -241,6 +241,55 @@ function createSyncSummary(
   };
 }
 
+function createEmptyActivitiesWorkloadReport(
+  range = {
+    from: "2026-06-04T00:00:00.000+03:00",
+    to: "2026-06-04T20:00:00.000+03:00"
+  }
+): ActivitiesWorkloadReport {
+  return {
+    range,
+    totalDealCount: 0,
+    totalCreatedCount: 0,
+    totalRescheduledCount: 0,
+    totalClosedCount: 0,
+    totalMeetingCount: 0,
+    warnings: [],
+    conversionEventRows: [],
+    managerRows: [],
+    comparisons: []
+  };
+}
+
+function createEmptyCallsWorkloadReport(
+  range = {
+    from: "2026-06-04T00:00:00.000+03:00",
+    to: "2026-06-04T20:00:00.000+03:00"
+  }
+): CallsWorkloadReport {
+  return {
+    range,
+    totalDealCount: 0,
+    totalCalls: 0,
+    totalIncomingCalls: 0,
+    totalMissedIncomingCalls: 0,
+    totalOutgoingCalls: 0,
+    totalOtherOutgoingCalls: 0,
+    totalConnectedCalls: 0,
+    totalFailedCalls: 0,
+    totalCallsOverThirtySeconds: 0,
+    totalConnectedCallsOverThirtySeconds: 0,
+    allCalls: emptyCallPopulation,
+    linkedDealCalls: {
+      ...emptyCallPopulation,
+      totalDealCount: 0
+    },
+    warnings: [],
+    managerRows: [],
+    comparisons: []
+  };
+}
+
 function createEmptySalesPlanQuarter(input: { year: number; quarter: number }) {
   return {
     year: input.year,
@@ -282,6 +331,17 @@ function createTestApp(
       enabled?: boolean;
       intervalMs?: number;
       initialDelayMs?: number;
+    };
+    telegramActivityReport?: {
+      enabled?: boolean;
+      chatId?: string;
+      chatIds?: string[];
+      time?: string;
+      timezone?: string;
+      retryDelayMs?: number;
+      sender?: {
+        sendMessage(input: { chatId: string; text: string }): Promise<void>;
+      };
     };
     modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
     protoComments?: {
@@ -696,6 +756,17 @@ function createTestApp(
           enabled?: boolean;
           intervalMs?: number;
           initialDelayMs?: number;
+        };
+        telegramActivityReport?: {
+          enabled?: boolean;
+          chatId?: string;
+          chatIds?: string[];
+          time?: string;
+          timezone?: string;
+          retryDelayMs?: number;
+          sender?: {
+            sendMessage(input: { chatId: string; text: string }): Promise<void>;
+          };
         };
         modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
         protoComments?: {
@@ -2646,6 +2717,149 @@ describe("createApp", () => {
       expect(performSync).toHaveBeenCalledTimes(1);
     } finally {
       app.locals.stopAttractionAutoSync?.();
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends the daily telegram activity report at the configured local time", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-04T16:59:59.000Z"));
+    const expectedRange = {
+      from: "2026-06-04T00:00:00.000+03:00",
+      to: "2026-06-04T20:00:00.000+03:00"
+    };
+    const activityInputs: unknown[] = [];
+    const callInputs: unknown[] = [];
+    const sendMessage = vi.fn(async (_input: { chatId: string; text: string }) => {
+      return undefined;
+    });
+    const app = createTestApp(
+      {
+        getActivitiesWorkloadReport: async (input: unknown) => {
+          activityInputs.push(input);
+          return createEmptyActivitiesWorkloadReport(expectedRange);
+        },
+        getCallsWorkloadReport: async (input: unknown) => {
+          callInputs.push(input);
+          return createEmptyCallsWorkloadReport(expectedRange);
+        },
+        getMeta: async () => ({
+          stageCatalog: [],
+          managerCatalog: [],
+          sourceCatalog: [],
+          wonStageIds: [],
+          defaultPeriodDays: 30,
+          lastSync: {
+            finishedAt: "2026-06-04T16:40:00.000Z",
+            leadsSynced: 0,
+            dealsSynced: 31,
+            mode: "delta" as const,
+            dealBreakdown: emptyDealBreakdown
+          },
+          snapshotStats: emptySnapshotStats,
+          syncHealth: {
+            status: "ready" as const,
+            blocking: false,
+            checkedAt: "2026-06-04T16:40:00.000Z",
+            lastSuccessfulSync: "2026-06-04T16:40:00.000Z",
+            issues: [],
+            warnings: []
+          }
+        })
+      },
+      {
+        telegramActivityReport: {
+          enabled: true,
+          chatIds: ["101", "202"],
+          time: "20:00",
+          timezone: "Europe/Istanbul",
+          sender: { sendMessage }
+        }
+      }
+    );
+
+    try {
+      await vi.advanceTimersByTimeAsync(999);
+      expect(sendMessage).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(activityInputs).toEqual([{ range: expectedRange }]);
+      expect(callInputs).toEqual([{ range: expectedRange }]);
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(sendMessage).toHaveBeenNthCalledWith(1, {
+        chatId: "101",
+        text: expect.stringContaining("Активность: Привлечение за 04.06.2026")
+      });
+      expect(sendMessage).toHaveBeenNthCalledWith(2, {
+        chatId: "202",
+        text: expect.stringContaining("Активность: Привлечение за 04.06.2026")
+      });
+    } finally {
+      app.locals.stopTelegramActivityReport?.();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not schedule the telegram activity report when disabled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-04T16:59:59.000Z"));
+    const sendMessage = vi.fn(async (_input: { chatId: string; text: string }) => {
+      return undefined;
+    });
+    const getActivitiesWorkloadReport = vi.fn(async () =>
+      createEmptyActivitiesWorkloadReport()
+    );
+    const app = createTestApp(
+      { getActivitiesWorkloadReport },
+      {
+        telegramActivityReport: {
+          enabled: false,
+          chatId: "-10042",
+          time: "20:00",
+          timezone: "Europe/Istanbul",
+          sender: { sendMessage }
+        }
+      }
+    );
+
+    try {
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1_000);
+      expect(getActivitiesWorkloadReport).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+    } finally {
+      app.locals.stopTelegramActivityReport?.();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a failed telegram activity report send once", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-04T16:59:59.000Z"));
+    const sendMessage = vi
+      .fn(async (_input: { chatId: string; text: string }) => undefined)
+      .mockRejectedValueOnce(new Error("telegram unavailable"));
+    const app = createTestApp(undefined, {
+      telegramActivityReport: {
+        enabled: true,
+        chatId: "-10042",
+        time: "20:00",
+        timezone: "Europe/Istanbul",
+        retryDelayMs: 250,
+        sender: { sendMessage }
+      }
+    });
+
+    try {
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(249);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+    } finally {
+      app.locals.stopTelegramActivityReport?.();
       vi.useRealTimers();
     }
   });

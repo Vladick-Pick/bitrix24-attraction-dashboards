@@ -20,6 +20,7 @@ const ALLOWED_BITRIX_CUSTOM_FIELDS = new Set([
   "UF_CRM_1712252375",
   "UF_CRM_1691070302"
 ]);
+const REPORT_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function assertAllowedCustomField(value: string) {
   if (!ALLOWED_BITRIX_CUSTOM_FIELDS.has(value)) {
@@ -38,6 +39,13 @@ function optionalTrimmedString() {
     emptyStringToUndefined,
     z.string().trim().min(1).optional()
   );
+}
+
+function parseCsv(value: string | undefined) {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function canonicalDatabaseUrl(databaseUrl: string) {
@@ -139,6 +147,15 @@ const envSchema = z
     TRUST_PROXY: z
       .union([z.literal("loopback"), z.literal("false"), z.literal("true")])
       .default("loopback"),
+    TELEGRAM_ACTIVITY_REPORT_ENABLED: z.enum(["true", "false"]).default("false"),
+    TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN: optionalTrimmedString(),
+    TELEGRAM_ACTIVITY_REPORT_CHAT_ID: optionalTrimmedString(),
+    TELEGRAM_ACTIVITY_REPORT_CHAT_IDS: optionalTrimmedString(),
+    TELEGRAM_ACTIVITY_REPORT_TIME: z
+      .string()
+      .trim()
+      .regex(REPORT_TIME_PATTERN, "TELEGRAM_ACTIVITY_REPORT_TIME must be HH:mm")
+      .default("20:00"),
     WEB_STATIC_DIR: optionalTrimmedString(),
     WEB_ORIGIN: z.string().default("http://localhost:5173")
   })
@@ -194,6 +211,29 @@ const envSchema = z
         });
       }
     }
+
+    if (value.TELEGRAM_ACTIVITY_REPORT_ENABLED === "true") {
+      if (!value.TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN"],
+          message:
+            "TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN must be configured when TELEGRAM_ACTIVITY_REPORT_ENABLED=true."
+        });
+      }
+
+      if (
+        !value.TELEGRAM_ACTIVITY_REPORT_CHAT_ID &&
+        !value.TELEGRAM_ACTIVITY_REPORT_CHAT_IDS
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["TELEGRAM_ACTIVITY_REPORT_CHAT_IDS"],
+          message:
+            "TELEGRAM_ACTIVITY_REPORT_CHAT_IDS or TELEGRAM_ACTIVITY_REPORT_CHAT_ID must be configured when TELEGRAM_ACTIVITY_REPORT_ENABLED=true."
+        });
+      }
+    }
   });
 
 export type AppEnv = z.infer<typeof envSchema> & {
@@ -207,6 +247,9 @@ export type AppEnv = z.infer<typeof envSchema> & {
   bitrixEnabled: boolean;
   attractionAutoSyncEnabled: boolean;
   attractionAutoSyncIntervalMs: number;
+  telegramActivityReportEnabled: boolean;
+  telegramActivityReportChatIds: string[];
+  telegramActivityReportTime: string;
 };
 
 export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
@@ -232,6 +275,12 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     parsed.ATTRACTION_AUTO_SYNC_ENABLED === undefined
       ? parsed.NODE_ENV === "production"
       : parsed.ATTRACTION_AUTO_SYNC_ENABLED === "true";
+  const telegramActivityReportChatIds = Array.from(
+    new Set([
+      ...parseCsv(parsed.TELEGRAM_ACTIVITY_REPORT_CHAT_IDS),
+      ...parseCsv(parsed.TELEGRAM_ACTIVITY_REPORT_CHAT_ID)
+    ])
+  );
 
   return {
     ...parsed,
@@ -255,6 +304,10 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     ),
     attractionAutoSyncEnabled,
     attractionAutoSyncIntervalMs:
-      parsed.ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1_000
+      parsed.ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1_000,
+    telegramActivityReportEnabled:
+      parsed.TELEGRAM_ACTIVITY_REPORT_ENABLED === "true",
+    telegramActivityReportChatIds,
+    telegramActivityReportTime: parsed.TELEGRAM_ACTIVITY_REPORT_TIME
   };
 }

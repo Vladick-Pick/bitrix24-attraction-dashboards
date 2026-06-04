@@ -88,6 +88,57 @@ describe("readEnv", () => {
     ).toBe(false);
   });
 
+  it("keeps telegram activity reports disabled by default and validates enabled delivery config", () => {
+    expect(readEnv({})).toMatchObject({
+      telegramActivityReportEnabled: false,
+      telegramActivityReportTime: "20:00",
+      telegramActivityReportChatIds: []
+    });
+
+    expect(() =>
+      readEnv({
+        TELEGRAM_ACTIVITY_REPORT_ENABLED: "true"
+      })
+    ).toThrow(/TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN/i);
+
+    expect(() =>
+      readEnv({
+        TELEGRAM_ACTIVITY_REPORT_ENABLED: "true",
+        TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN: "telegram-token"
+      })
+    ).toThrow(/TELEGRAM_ACTIVITY_REPORT_CHAT_IDS/i);
+
+    expect(
+      readEnv({
+        TELEGRAM_ACTIVITY_REPORT_ENABLED: "true",
+        TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ACTIVITY_REPORT_CHAT_IDS: "111, 222",
+        TELEGRAM_ACTIVITY_REPORT_TIME: "20:30"
+      })
+    ).toMatchObject({
+      telegramActivityReportEnabled: true,
+      TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN: "telegram-token",
+      telegramActivityReportChatIds: ["111", "222"],
+      telegramActivityReportTime: "20:30"
+    });
+
+    expect(
+      readEnv({
+        TELEGRAM_ACTIVITY_REPORT_ENABLED: "true",
+        TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ACTIVITY_REPORT_CHAT_ID: "-10042"
+      }).telegramActivityReportChatIds
+    ).toEqual(["-10042"]);
+  });
+
+  it("rejects invalid telegram activity report time", () => {
+    expect(() =>
+      readEnv({
+        TELEGRAM_ACTIVITY_REPORT_TIME: "24:00"
+      })
+    ).toThrow(/TELEGRAM_ACTIVITY_REPORT_TIME/i);
+  });
+
   it("derives separate platform, attraction, and leadgen database URLs", () => {
     expect(readEnv({}).platformDatabaseUrl).toBe(
       "file:./data/bitrix24-reporting.db"

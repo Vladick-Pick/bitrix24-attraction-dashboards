@@ -6,6 +6,7 @@ import { createLeadgenService } from "./server/leadgen-service.js";
 import { PaperclipClient } from "./server/paperclip-client.js";
 import { createSqliteRepository } from "./server/sqlite-repository.js";
 import { createReportingService } from "./server/service.js";
+import { TelegramBotClient } from "./server/telegram-client.js";
 
 const env = readEnv();
 const platformRepository = createSqliteRepository({
@@ -169,6 +170,12 @@ const paperclip =
         reworkCommentMode: env.PAPERCLIP_REWORK_COMMENT_MODE
       })
     : undefined;
+const telegramActivityReportSender =
+  env.telegramActivityReportEnabled && env.TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN
+    ? new TelegramBotClient({
+        botToken: env.TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN
+      })
+    : undefined;
 const app = createApp(service, {
   webOrigin: env.WEB_ORIGIN,
   ...(env.API_AUTH_TOKEN ? { apiAuthToken: env.API_AUTH_TOKEN } : {}),
@@ -192,6 +199,15 @@ const app = createApp(service, {
     enabled: env.attractionAutoSyncEnabled && env.bitrixEnabled,
     intervalMs: env.attractionAutoSyncIntervalMs
   },
+  telegramActivityReport: {
+    enabled: env.telegramActivityReportEnabled,
+    time: env.telegramActivityReportTime,
+    timezone: env.APP_TIMEZONE,
+    chatIds: env.telegramActivityReportChatIds,
+    ...(telegramActivityReportSender
+      ? { sender: telegramActivityReportSender }
+      : {})
+  },
   ...(env.WEB_STATIC_DIR ? { webStaticDir: env.WEB_STATIC_DIR } : {})
 });
 
@@ -201,6 +217,7 @@ const server = app.listen(env.API_PORT, env.API_HOST, () => {
 
 process.on("SIGINT", () => {
   app.locals.stopAttractionAutoSync?.();
+  app.locals.stopTelegramActivityReport?.();
   for (const repository of repositories) {
     repository.close();
   }

@@ -1,0 +1,282 @@
+import type {
+  ActivitiesWorkloadReport,
+  CallsWorkloadReport
+} from "@bitrix24-reporting/contracts";
+import { describe, expect, it } from "vitest";
+
+import {
+  buildDailyActivityReportRange,
+  buildTelegramActivityReportMessages
+} from "../src/server/telegram-activity-report";
+
+const emptyCallPopulation = {
+  totalCalls: 0,
+  incomingCalls: 0,
+  missedIncomingCalls: 0,
+  outgoingCalls: 0,
+  otherOutgoingCalls: 0,
+  connectedCalls: 0,
+  failedCalls: 0,
+  callsOverThirtySeconds: 0,
+  connectedCallsOverThirtySeconds: 0,
+  averageDurationSeconds: 0
+};
+
+const emptyLinkedDealCalls = {
+  ...emptyCallPopulation,
+  dealCount: 0,
+  averageCallsPerDeal: 0,
+  stageBreakdown: []
+};
+
+function createActivitiesReport(
+  managerRows: ActivitiesWorkloadReport["managerRows"]
+): ActivitiesWorkloadReport {
+  return {
+    range: {
+      from: "2026-06-04T00:00:00.000+03:00",
+      to: "2026-06-04T20:00:00.000+03:00"
+    },
+    totalDealCount: 0,
+    totalCreatedCount: managerRows.reduce(
+      (total, row) => total + row.createdCount,
+      0
+    ),
+    totalRescheduledCount: 0,
+    totalClosedCount: managerRows.reduce(
+      (total, row) => total + row.closedCount,
+      0
+    ),
+    totalMeetingCount: managerRows.reduce(
+      (total, row) => total + row.meetingCount,
+      0
+    ),
+    warnings: [],
+    conversionEventRows: [],
+    managerRows,
+    comparisons: []
+  };
+}
+
+function createCallsReport(
+  managerRows: CallsWorkloadReport["managerRows"]
+): CallsWorkloadReport {
+  return {
+    range: {
+      from: "2026-06-04T00:00:00.000+03:00",
+      to: "2026-06-04T20:00:00.000+03:00"
+    },
+    totalDealCount: 0,
+    totalCalls: managerRows.reduce((total, row) => total + row.totalCalls, 0),
+    totalIncomingCalls: managerRows.reduce(
+      (total, row) => total + row.incomingCalls,
+      0
+    ),
+    totalMissedIncomingCalls: managerRows.reduce(
+      (total, row) => total + row.missedIncomingCalls,
+      0
+    ),
+    totalOutgoingCalls: managerRows.reduce(
+      (total, row) => total + row.outgoingCalls,
+      0
+    ),
+    totalOtherOutgoingCalls: managerRows.reduce(
+      (total, row) => total + row.otherOutgoingCalls,
+      0
+    ),
+    totalConnectedCalls: managerRows.reduce(
+      (total, row) => total + row.connectedCalls,
+      0
+    ),
+    totalFailedCalls: managerRows.reduce(
+      (total, row) => total + row.failedCalls,
+      0
+    ),
+    totalCallsOverThirtySeconds: 0,
+    totalConnectedCallsOverThirtySeconds: 0,
+    allCalls: emptyCallPopulation,
+    linkedDealCalls: {
+      ...emptyCallPopulation,
+      totalDealCount: 0
+    },
+    warnings: [],
+    managerRows,
+    comparisons: []
+  };
+}
+
+function createActivityRow(
+  input: Partial<ActivitiesWorkloadReport["managerRows"][number]> & {
+    managerId: string;
+    managerName: string;
+  }
+): ActivitiesWorkloadReport["managerRows"][number] {
+  return {
+    managerId: input.managerId,
+    managerName: input.managerName,
+    dealCount: 0,
+    createdCount: input.createdCount ?? 0,
+    rescheduledCount: 0,
+    closedCount: input.closedCount ?? 0,
+    meetingCount: input.meetingCount ?? 0,
+    averageCreatedPerDeal: 0,
+    averageRescheduledPerDeal: 0,
+    averageClosedPerDeal: 0,
+    averageMeetingsPerDeal: 0,
+    meetingTypeBreakdown: [],
+    businessClubBreakdown: [],
+    meetingBusinessClubBreakdown: [],
+    slaMetrics: [],
+    stageBreakdown: []
+  };
+}
+
+function createCallRow(
+  input: Partial<CallsWorkloadReport["managerRows"][number]> & {
+    managerId: string;
+    managerName: string;
+  }
+): CallsWorkloadReport["managerRows"][number] {
+  return {
+    managerId: input.managerId,
+    managerName: input.managerName,
+    dealCount: 0,
+    totalCalls: input.totalCalls ?? 0,
+    incomingCalls: input.incomingCalls ?? 0,
+    missedIncomingCalls: input.missedIncomingCalls ?? 0,
+    outgoingCalls: input.outgoingCalls ?? 0,
+    otherOutgoingCalls: input.otherOutgoingCalls ?? 0,
+    connectedCalls: input.connectedCalls ?? 0,
+    failedCalls: input.failedCalls ?? 0,
+    callsOverThirtySeconds: 0,
+    connectedCallsOverThirtySeconds: 0,
+    averageCallsPerDeal: 0,
+    averageDurationSeconds: 0,
+    allCalls: emptyCallPopulation,
+    linkedDealCalls: emptyLinkedDealCalls,
+    stageBreakdown: []
+  };
+}
+
+describe("telegram activity report", () => {
+  it("builds the current local day range up to the scheduled send time", () => {
+    expect(
+      buildDailyActivityReportRange({
+        now: new Date("2026-06-04T17:00:00.000Z"),
+        timezone: "Europe/Istanbul",
+        reportTime: "20:00"
+      })
+    ).toEqual({
+      from: "2026-06-04T00:00:00.000+03:00",
+      to: "2026-06-04T20:00:00.000+03:00"
+    });
+  });
+
+  it("formats grouped metric sections, excludes Kakulia and counts only outgoing calls", () => {
+    const messages = buildTelegramActivityReportMessages({
+      moduleName: "Привлечение",
+      timezone: "Europe/Istanbul",
+      now: new Date("2026-06-04T17:00:00.000Z"),
+      lastSyncFinishedAt: "2026-06-04T16:40:00.000Z",
+      managerCatalog: [
+        { id: "1", name: "Анна" },
+        { id: "2", name: "Борис" },
+        { id: "3", name: "Какулия Илья" }
+      ],
+      activities: createActivitiesReport([
+        createActivityRow({
+          managerId: "1",
+          managerName: "Анна",
+          createdCount: 3,
+          closedCount: 2,
+          meetingCount: 1
+        }),
+        createActivityRow({
+          managerId: "3",
+          managerName: "Какулия Илья",
+          createdCount: 10,
+          closedCount: 9,
+          meetingCount: 4
+        })
+      ]),
+      calls: createCallsReport([
+        createCallRow({
+          managerId: "1",
+          managerName: "Анна",
+          totalCalls: 5,
+          incomingCalls: 1,
+          outgoingCalls: 3,
+          missedIncomingCalls: 1,
+          connectedCalls: 4,
+          failedCalls: 1
+        }),
+        createCallRow({
+          managerId: "3",
+          managerName: "Какулия Илья",
+          totalCalls: 8,
+          incomingCalls: 2,
+          outgoingCalls: 6,
+          missedIncomingCalls: 0,
+          connectedCalls: 6,
+          failedCalls: 2
+        })
+      ])
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("Активность: Привлечение за 04.06.2026");
+    expect(messages[0]).toContain("Последний sync: 04.06.2026, 19:40");
+    expect(messages[0]).toContain(
+      [
+        "Итого:",
+        "Задачи: 3",
+        "Закрыто задач: 2",
+        "Исходящие звонки: 3",
+        "Встречи: 1"
+      ].join("\n")
+    );
+    expect(messages[0]).toContain(
+      ["Задачи:", "Анна - 3", "Борис - 0"].join("\n")
+    );
+    expect(messages[0]).toContain(
+      ["Закрыто задач:", "Анна - 2", "Борис - 0"].join("\n")
+    );
+    expect(messages[0]).toContain(
+      [
+        "Исходящие звонки:",
+        "Анна - 3",
+        "Борис - 0"
+      ].join("\n")
+    );
+    expect(messages[0]).toContain(
+      ["Встречи:", "Анна - 1", "Борис - 0"].join("\n")
+    );
+    expect(messages[0]).not.toContain("Какулия");
+    expect(messages[0]).not.toContain("входящие");
+    expect(messages[0]).not.toContain("пропущенные");
+  });
+
+  it("splits long reports without dropping employee rows", () => {
+    const managerRows = Array.from({ length: 8 }, (_, index) =>
+      createActivityRow({
+        managerId: String(index + 1),
+        managerName: `Менеджер ${index + 1}`,
+        createdCount: index + 1
+      })
+    );
+    const messages = buildTelegramActivityReportMessages({
+      moduleName: "Привлечение",
+      timezone: "Europe/Istanbul",
+      now: new Date("2026-06-04T17:00:00.000Z"),
+      lastSyncFinishedAt: null,
+      activities: createActivitiesReport(managerRows),
+      calls: createCallsReport([]),
+      maxMessageLength: 320
+    });
+
+    expect(messages.length).toBeGreaterThan(1);
+    expect(messages.every((message) => message.length <= 320)).toBe(true);
+    expect(messages.join("\n")).toContain("Менеджер 1 - 1");
+    expect(messages.join("\n")).toContain("Менеджер 8 - 8");
+  });
+});

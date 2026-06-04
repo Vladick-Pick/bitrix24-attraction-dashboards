@@ -351,10 +351,55 @@ tbody tr:hover {
   transition: width 220ms ease;
 }
 
+.sync-journal-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.sync-journal-toggle {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(99, 115, 140, 0.24);
+  border-radius: 999px;
+  color: var(--ink-500);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 0.35rem;
+  line-height: 1;
+  padding: 0.32rem 0.58rem;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.sync-journal-toggle:hover,
+.sync-journal-toggle:focus-visible {
+  background: #fff;
+  border-color: rgba(37, 99, 235, 0.32);
+  color: #1d4ed8;
+}
+
+.sync-journal-count {
+  align-items: center;
+  background: rgba(37, 99, 235, 0.1);
+  border-radius: 999px;
+  color: #1d4ed8;
+  display: inline-flex;
+  font-size: 0.68rem;
+  justify-content: center;
+  min-width: 1.15rem;
+  padding: 0.16rem 0.34rem;
+}
+
 .sync-journal {
-  margin-top: 0.75rem;
-  border-top: 1px solid rgba(148, 163, 184, 0.24);
-  padding-top: 0.75rem;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  margin-top: 0.55rem;
+  padding: 0.65rem;
 }
 
 .sync-journal-head {
@@ -366,7 +411,8 @@ tbody tr:hover {
 
 .sync-journal-table-wrap {
   margin-top: 0.55rem;
-  overflow-x: auto;
+  max-height: 14rem;
+  overflow: auto;
 }
 
 .sync-journal-table {

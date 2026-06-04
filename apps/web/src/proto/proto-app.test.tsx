@@ -4450,7 +4450,7 @@ describe('ProtoApp', () => {
     expect('from' in query ? query.from : '').not.toContain('2026-01-01')
   })
 
-  it('shows the recent attraction sync journal in the dashboard header', async () => {
+  it('keeps the recent attraction sync journal collapsed until explicitly opened', async () => {
     vi.mocked(apiClient.getSyncRuns).mockResolvedValueOnce({
       runs: [
         {
@@ -4479,9 +4479,19 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp />)
 
-    expect(await screen.findByText('Журнал синхронизаций')).toBeInTheDocument()
+    const journalToggle = await screen.findByRole('button', { name: /журнал синхронизаций/i })
+    expect(journalToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(apiClient.getSyncRuns).not.toHaveBeenCalled()
+    expect(screen.queryByText(/автосинхронизация: привлечение раз в час/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Ошибка')).not.toBeInTheDocument()
+    expect(screen.queryByText(/SYNC_FAILED · error=API_FAIL/)).not.toBeInTheDocument()
+
+    await userEvent.click(journalToggle)
+
+    await waitFor(() => expect(apiClient.getSyncRuns).toHaveBeenCalledTimes(1))
+    expect(journalToggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText(/автосинхронизация: привлечение раз в час/i)).toBeInTheDocument()
-    expect(screen.getByText('Ошибка')).toBeInTheDocument()
+    expect(await screen.findByText('Ошибка')).toBeInTheDocument()
     expect(screen.getByText(/SYNC_FAILED · error=API_FAIL/)).toBeInTheDocument()
   })
 
@@ -4491,9 +4501,16 @@ describe('ProtoApp', () => {
     render(<ProtoApp />)
 
     expect(await screen.findByText('В выбранном периоде нет выигранных сделок.')).toBeInTheDocument()
-    expect(screen.getByText('Журнал синхронизаций')).toBeInTheDocument()
-    expect(screen.getByText('Пока нет записей журнала')).toBeInTheDocument()
+    const journalToggle = screen.getByRole('button', { name: /журнал синхронизаций/i })
+    expect(journalToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(apiClient.getSyncRuns).not.toHaveBeenCalled()
+    expect(screen.queryByText('Пока нет записей журнала')).not.toBeInTheDocument()
     expect(screen.queryByText('Журнал недоступен')).not.toBeInTheDocument()
+
+    await userEvent.click(journalToggle)
+
+    await waitFor(() => expect(apiClient.getSyncRuns).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('Пока нет записей журнала')).toBeInTheDocument()
   })
 
   it('shows filter apply loading state and applies the visible date field values', async () => {

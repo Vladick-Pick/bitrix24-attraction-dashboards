@@ -1426,6 +1426,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [snapshotStats, setSnapshotStats] = useState<SnapshotStats | null>(null)
   const [lastSync, setLastSync] = useState<LastSyncSummary | null>(null)
   const [syncRuns, setSyncRuns] = useState<SyncRunLogEntry[]>([])
+  const [syncJournalOpen, setSyncJournalOpen] = useState(false)
+  const [syncJournalStatus, setSyncJournalStatus] = useState<'idle' | 'loading' | 'ready'>(
+    'idle',
+  )
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [draftComment, setDraftComment] = useState<{
@@ -1446,6 +1450,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const rangeStartInputRef = useRef<HTMLInputElement>(null)
   const rangeEndInputRef = useRef<HTMLInputElement>(null)
   const runtimeRequestRef = useRef(0)
+  const syncJournalRequestRef = useRef(0)
   const managerWhitelistSettingsRevisionRef = useRef(0)
   const commentSaveInFlightRef = useRef(false)
   const commentReworkInFlightRef = useRef(false)
@@ -1761,6 +1766,34 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     })
   }, [commentNotifications])
 
+  const refreshSyncJournal = useCallback(async () => {
+    const requestId = syncJournalRequestRef.current + 1
+    syncJournalRequestRef.current = requestId
+    setSyncJournalStatus('loading')
+
+    const response = await loadSyncRunsSafely()
+    if (syncJournalRequestRef.current !== requestId) {
+      return
+    }
+
+    setSyncRuns(response.runs)
+    setSyncJournalStatus('ready')
+  }, [])
+
+  const handleSyncJournalToggle = useCallback(() => {
+    if (!syncJournalOpen && syncJournalStatus === 'idle') {
+      void refreshSyncJournal()
+    }
+
+    setSyncJournalOpen((current) => !current)
+  }, [refreshSyncJournal, syncJournalOpen, syncJournalStatus])
+
+  useEffect(() => {
+    return () => {
+      syncJournalRequestRef.current += 1
+    }
+  }, [])
+
   const refreshModuleUsers = useCallback(async () => {
     if (!canManageModuleSettings) {
       setModuleUsers([])
@@ -1884,7 +1917,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setRuntimeData((current) => resetAttractionReportData(current, 'loading'))
         const [
           meta,
-          syncJournal,
           pricingSettings,
           conversionEventTypeSettings,
           unitEconomicsSettings,
@@ -1894,7 +1926,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           quarterDashboard,
         ] = await Promise.all([
           apiClient.getMeta(activeModuleId),
-          loadSyncRunsSafely(),
           apiClient.getPricingSettings(),
           apiClient.getConversionEventTypeSettings(),
           apiClient.getUnitEconomicsSettings(),
@@ -1930,7 +1961,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         }))
         setSnapshotStats(meta.snapshotStats)
         setLastSync(meta.lastSync)
-        setSyncRuns(syncJournal.runs)
         setSyncWarning(resolveSyncHealthWarning(meta))
 
         setRuntimeData((current) => {
@@ -3713,14 +3743,35 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               />
             </div>
             {!isLeadgenModule ? (
-              <div className="sync-journal" aria-label="Журнал синхронизаций">
+              <div className="sync-journal-toolbar">
+                <button
+                  type="button"
+                  className="sync-journal-toggle"
+                  aria-label={
+                    syncJournalOpen ? 'Скрыть журнал синхронизаций' : 'Открыть журнал синхронизаций'
+                  }
+                  aria-controls="sync-journal-panel"
+                  aria-expanded={syncJournalOpen}
+                  onClick={handleSyncJournalToggle}
+                >
+                  Журнал
+                  {syncRuns.length > 0 ? (
+                    <span className="sync-journal-count">{formatCount(syncRuns.length)}</span>
+                  ) : null}
+                </button>
+              </div>
+            ) : null}
+            {syncJournalOpen && !isLeadgenModule ? (
+              <div id="sync-journal-panel" className="sync-journal" aria-label="Журнал синхронизаций">
                 <div className="sync-journal-head">
                   <div>
                     <div className="sync-strip-label">Журнал синхронизаций</div>
                     <div className="sync-strip-meta">Автосинхронизация: Привлечение раз в час</div>
                   </div>
                 </div>
-                {syncRuns.length > 0 ? (
+                {syncJournalStatus === 'loading' ? (
+                  <div className="sync-strip-meta mt-2">Загрузка журнала...</div>
+                ) : syncRuns.length > 0 ? (
                   <div className="sync-journal-table-wrap">
                     <table className="sync-journal-table">
                       <thead>

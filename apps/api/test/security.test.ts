@@ -237,6 +237,21 @@ function createCorsTestApp(config?: {
         managerRows: [],
         comparisons: []
       }),
+      getCallAnalysisQueue: async () => ({
+        range: {
+          from: "2026-06-09T00:00:00.000+03:00",
+          to: "2026-06-09T23:59:59.999+03:00"
+        },
+        totals: {
+          total: 0,
+          notAnalyzed: 0,
+          analyzing: 0,
+          ready: 0,
+          error: 0,
+          averageScore: null
+        },
+        items: []
+      }),
       getCohortConversionReport: async () => ({
         range: {
           from: "2026-04-01T00:00:00.000Z",
@@ -452,6 +467,7 @@ describe("Bitrix transport security", () => {
       "crm.stagehistory.list",
       "crm.activity.list",
       "crm.activity.binding.list",
+      "disk.file.get",
       "voximplant.statistic.get",
       "user.get"
     ]);

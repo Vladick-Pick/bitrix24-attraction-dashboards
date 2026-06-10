@@ -2166,6 +2166,219 @@ describe('apiClient', () => {
     ])
   })
 
+  it('runs and loads manual call analysis through the API client', async () => {
+    const result = {
+      callId: 'CALL1',
+      runId: 'run-1',
+      status: 'ready',
+      transcriptByRoles: [
+        {
+          role: 'manager',
+          start: 8,
+          end: 16,
+          text: 'Добрый день. Расскажите, что сейчас не устраивает?',
+        },
+      ],
+      fullTranscriptText: 'Менеджер: Добрый день. Расскажите, что сейчас не устраивает?',
+      aiEvaluation: {
+        score: 76,
+        callClassification: {
+          type: 'qualification',
+          confidence: 0.95,
+          reason: 'Менеджер проводит квалификацию.',
+        },
+        rubricApplicability: {
+          level: 'high',
+          reason: 'Полный квалификационный звонок.',
+        },
+        communicationScore: {
+          score: 96,
+          rationale: 'Менеджер слушает и ведет разговор.',
+          evidenceQuotes: ['Расскажите, что сейчас не устраивает?'],
+        },
+        narrativeScore: {
+          score: 84,
+          rationale: 'Часть нарративов раскрыта.',
+          evidenceQuotes: ['Расскажите, что сейчас не устраивает?'],
+          applicableNarratives: ['Квалификация объясняется уважительно'],
+          missedNarratives: ['Club First не продается как календарь мероприятий'],
+        },
+        callTypeInterpretation: 'Первичный исходящий звонок.',
+        summary: 'Менеджер выяснил базовую боль, но не закрепил следующий шаг датой.',
+        strengths: ['Есть открытый вопрос'],
+        risks: ['Следующий шаг без даты'],
+        nextStepQuality: 'weak',
+        suggestedNextStep: 'Назначить дату следующего контакта.',
+        emotionalBackground: {
+          managerTone: 'спокойный',
+          clientTone: 'нейтральный',
+          frictionSignals: ['нет конкретной даты'],
+          confidence: 0.8,
+        },
+        evidenceQuotes: ['Тогда могу прислать материалы'],
+        confidence: 0.82,
+      },
+      rawAiEvaluation: {
+        score: '76',
+        providerPayloadVersion: 'raw-calls-v2',
+        nested: {
+          kept: true,
+        },
+      },
+      attributes: {
+        managerName: 'Мария',
+        dealId: '23841',
+        stageAtCallName: 'Квалификация',
+      },
+      model: 'google/gemini-3.5-flash',
+      promptVersion: 'calls-v2',
+      analyzedAt: '2026-06-09T10:00:00.000Z',
+      updatedAt: '2026-06-09T10:00:00.000Z',
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'ready',
+          reusedExistingResult: false,
+          result,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'ready',
+          result,
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const analyzed = await apiClient.analyzeCall('CALL1')
+    const loaded = await apiClient.getCallAnalysis('CALL1')
+
+    expect(analyzed.reusedExistingResult).toBe(false)
+    expect(analyzed.result.aiEvaluation.score).toBe(76)
+    expect(analyzed.result.aiEvaluation.callClassification).toMatchObject({
+      type: 'qualification',
+      confidence: 0.95,
+    })
+    expect(analyzed.result.aiEvaluation.rubricApplicability).toMatchObject({
+      level: 'high',
+    })
+    expect(analyzed.result.aiEvaluation.communicationScore).toMatchObject({
+      score: 96,
+      rationale: 'Менеджер слушает и ведет разговор.',
+    })
+    expect(analyzed.result.aiEvaluation.narrativeScore.missedNarratives).toContain(
+      'Club First не продается как календарь мероприятий',
+    )
+    expect(analyzed.result.rawAiEvaluation).toMatchObject({
+      providerPayloadVersion: 'raw-calls-v2',
+      nested: {
+        kept: true,
+      },
+    })
+    expect(analyzed.result.transcriptByRoles[0]).toMatchObject({
+      role: 'manager',
+      start: 8,
+      end: 16,
+    })
+    expect(loaded.result.attributes).toMatchObject({
+      managerName: 'Мария',
+      stageAtCallName: 'Квалификация',
+    })
+    expect(loaded.result.rawAiEvaluation).toMatchObject({
+      providerPayloadVersion: 'raw-calls-v2',
+      nested: {
+        kept: true,
+      },
+    })
+    expect(
+      fetchMock.mock.calls.map(([url]) => new URL(String(url), window.location.origin).pathname),
+    ).toEqual(['/api/calls/CALL1/analyze', '/api/calls/CALL1/analysis'])
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.method).toBe('POST')
+  })
+
+  it('loads call analysis queue with filters and status metadata', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        range: {
+          from: '2026-06-09T00:00:00.000+03:00',
+          to: '2026-06-09T23:59:59.999+03:00',
+        },
+        totals: {
+          total: 2,
+          notAnalyzed: 1,
+          analyzing: 0,
+          ready: 1,
+          error: 0,
+          averageScore: 88,
+        },
+        items: [
+          {
+            callId: '221930',
+            crmActivityId: 'A1',
+            startedAt: '2026-06-09T08:40:00.000Z',
+            managerId: '7',
+            managerName: 'Мария',
+            callType: 'outgoing_over_30',
+            callTypeLabel: 'Исх >30',
+            durationSeconds: 318,
+            dealId: '23841',
+            dealSourceId: 'LEADGEN_US',
+            dealCurrentStageId: 'C10:NEW',
+            dealCurrentStageName: 'Новая',
+            stageAtCallId: 'C10:QUALIFICATION',
+            stageAtCallName: 'Квалификация',
+            analysisStatus: 'ready',
+            score: 88,
+            promptVersion: 'calls-v2',
+            model: 'google/gemini-3.5-flash',
+            analyzedAt: '2026-06-09T12:00:30.000Z',
+            updatedAt: '2026-06-09T12:00:31.000Z',
+            errorCode: null,
+            errorMessage: null,
+          },
+        ],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const queue = await apiClient.getCallAnalysisQueue({
+      from: '2026-06-09T00:00:00.000+03:00',
+      to: '2026-06-09T23:59:59.999+03:00',
+      managerIds: ['7'],
+      sourceKeys: ['LEADGEN_US'],
+      callTypes: ['outgoing_over_30'],
+      analysisStatuses: ['ready'],
+    })
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const parsedUrl = new URL(url, window.location.origin)
+
+    expect(init.method).toBe('GET')
+    expect(parsedUrl.pathname).toBe('/api/calls/analysis-queue')
+    expect(parsedUrl.searchParams.get('managerIds')).toBe('7')
+    expect(parsedUrl.searchParams.get('sourceKeys')).toBe('LEADGEN_US')
+    expect(parsedUrl.searchParams.get('callTypes')).toBe('outgoing_over_30')
+    expect(parsedUrl.searchParams.get('analysisStatuses')).toBe('ready')
+    expect(queue.totals).toMatchObject({
+      total: 2,
+      ready: 1,
+      averageScore: 88,
+    })
+    expect(queue.items[0]).toMatchObject({
+      callId: '221930',
+      analysisStatus: 'ready',
+      score: 88,
+      stageAtCallName: 'Квалификация',
+    })
+  })
+
   it('uses module-aware sync paths for non-attraction modules', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

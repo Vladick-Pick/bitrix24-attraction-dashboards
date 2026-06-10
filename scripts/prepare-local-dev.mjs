@@ -54,14 +54,18 @@ export function prepareLocalDev() {
   const envSource = readFileSync(ENV_PATH, 'utf8')
   const env = parseEnv(envSource)
   const apiPort = env.API_PORT || '8787'
-  const apiBaseUrl = `http://127.0.0.1:${apiPort}`
+  const apiTarget = `http://127.0.0.1:${apiPort}`
 
   mkdirSync(dirname(WEB_ENV_PATH), { recursive: true })
 
   const existingWebEnv = existsSync(WEB_ENV_PATH)
     ? readFileSync(WEB_ENV_PATH, 'utf8')
     : ''
-  const nextWebEnv = upsertEnvValue(existingWebEnv, 'VITE_API_BASE_URL', apiBaseUrl)
+  const nextWebEnv = upsertEnvValue(
+    upsertEnvValue(existingWebEnv, 'VITE_API_BASE_URL', ''),
+    'VITE_DEV_API_TARGET',
+    apiTarget,
+  )
 
   if (nextWebEnv !== existingWebEnv) {
     writeFileSync(WEB_ENV_PATH, nextWebEnv, 'utf8')
@@ -76,7 +80,8 @@ export function prepareLocalDev() {
     env.BITRIX24_WEBHOOK_TOKEN !== 'replace-me'
 
   return {
-    apiBaseUrl,
+    apiBaseUrl: '',
+    apiTarget,
     bitrixConfigured: Boolean(bitrixConfigured),
     createdEnv,
     envPath: ENV_PATH,
@@ -92,7 +97,8 @@ if (isDirectRun) {
 
   console.log(`[setup] env file: ${result.createdEnv ? 'created' : 'ready'} -> ${result.envPath}`)
   console.log(`[setup] web env: ready -> ${result.webEnvPath}`)
-  console.log(`[setup] api base url: ${result.apiBaseUrl}`)
+  console.log(`[setup] web api base url: same-origin /api`)
+  console.log(`[setup] dev api proxy target: ${result.apiTarget}`)
 
   if (!result.bitrixConfigured) {
     console.log(

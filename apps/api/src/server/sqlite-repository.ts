@@ -198,6 +198,67 @@ export interface ProtoCommentStore {
   updatedAt: string | null;
 }
 
+export type CallAnalysisTriggerMode = "manual" | "automatic";
+export type CallAnalysisRunStatus = "queued" | "analyzing" | "ready" | "error";
+export type CallAnalysisRecordingSource = "bitrix_disk" | "call_record_url";
+
+export interface CallAnalysisRunInput {
+  id: string;
+  callId: string;
+  crmActivityId: string | null;
+  triggerMode: CallAnalysisTriggerMode;
+  status: CallAnalysisRunStatus;
+  startedAt: string;
+  recordingSource: CallAnalysisRecordingSource | null;
+  recordingFileId: string | null;
+  model: string | null;
+  promptVersion: string | null;
+}
+
+export interface FinishCallAnalysisRunInput {
+  runId: string;
+  finishedAt: string;
+  status: Extract<CallAnalysisRunStatus, "ready">;
+  recordingSource: CallAnalysisRecordingSource;
+  recordingFileId: string | null;
+  model: string;
+  promptVersion: string;
+}
+
+export interface FailCallAnalysisRunInput {
+  runId: string;
+  failedAt: string;
+  status: Extract<CallAnalysisRunStatus, "error">;
+  errorCode: string;
+  errorMessage: string;
+}
+
+export interface CallAnalysisRunSummary {
+  callId: string;
+  status: CallAnalysisRunStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  model: string | null;
+  promptVersion: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface CallAnalysisResultRecord {
+  callId: string;
+  runId: string;
+  status: Extract<CallAnalysisRunStatus, "ready">;
+  transcriptByRoles: unknown[];
+  fullTranscriptText: string;
+  aiEvaluation: Record<string, unknown>;
+  rawAiEvaluation: Record<string, unknown>;
+  attributes: Record<string, unknown>;
+  model: string;
+  promptVersion: string;
+  analyzedAt: string;
+  updatedAt: string;
+}
+
 export interface SqliteRepository {
   getLatestSuccessCursor(
     categoryIds?: string[],
@@ -231,6 +292,17 @@ export interface SqliteRepository {
   ): Promise<string[]>;
   getDealsByIds(dealIds: string[]): Promise<DealSnapshot[]>;
   getActivitiesByIds(activityIds: string[]): Promise<ActivitySnapshot[]>;
+  getCallById(callId: string): Promise<CallSnapshot | null>;
+  getStageAtDealTime(
+    dealId: string,
+    at: string
+  ): Promise<StageHistorySnapshot | null>;
+  getCallAnalysisResult(callId: string): Promise<CallAnalysisResultRecord | null>;
+  getLatestCallAnalysisRuns(callIds: string[]): Promise<CallAnalysisRunSummary[]>;
+  startCallAnalysisRun(input: CallAnalysisRunInput): Promise<void>;
+  saveCallAnalysisResult(input: CallAnalysisResultRecord): Promise<void>;
+  finishCallAnalysisRun(input: FinishCallAnalysisRunInput): Promise<void>;
+  failCallAnalysisRun(input: FailCallAnalysisRunInput): Promise<void>;
   getCallActivityIdsMissingActivities(
     limit?: number,
     callStartDateFrom?: string | null,
@@ -518,6 +590,22 @@ function parseProtoCommentAnchor(value: string | null): ProtoCommentAnchor | und
   } catch {
     return undefined;
   }
+}
+
+function parseRequiredJson<T>(value: string, label: string): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    throw new Error(`Failed to parse ${label}.`, { cause: error });
+  }
+}
+
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 function parseDashboardCommentContext(
@@ -992,6 +1080,37 @@ export function createSqliteRepository(
       call_failed_code TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS call_analysis_runs (
+      id TEXT PRIMARY KEY,
+      call_id TEXT NOT NULL,
+      crm_activity_id TEXT,
+      trigger_mode TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      recording_source TEXT,
+      recording_file_id TEXT,
+      model TEXT,
+      prompt_version TEXT,
+      error_code TEXT,
+      error_message TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS call_analysis_results (
+      call_id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      transcript_by_roles_json TEXT NOT NULL,
+      full_transcript_text TEXT NOT NULL,
+      ai_evaluation_json TEXT NOT NULL,
+      raw_ai_evaluation_json TEXT NOT NULL DEFAULT '{}',
+      attributes_json TEXT NOT NULL,
+      model TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      analyzed_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS manager_directory (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL
@@ -1162,6 +1281,8 @@ export function createSqliteRepository(
       ON module_manager_whitelist_settings (module_key, enabled, sort_order);
     CREATE INDEX IF NOT EXISTS idx_call_crm_activity_id
       ON call_snapshots (crm_activity_id);
+    CREATE INDEX IF NOT EXISTS idx_call_analysis_runs_call
+      ON call_analysis_runs (call_id, started_at);
     CREATE INDEX IF NOT EXISTS idx_proto_comments_scene_status
       ON proto_comments (scene_id, status);
     CREATE INDEX IF NOT EXISTS idx_unit_economics_cost_articles_sort
@@ -1194,6 +1315,12 @@ export function createSqliteRepository(
   );
   ensureColumn(database, "unit_economics_settings", "updated_at", "TEXT");
   ensureColumn(database, "stage_catalog", "sort_order", "INTEGER");
+  ensureColumn(
+    database,
+    "call_analysis_results",
+    "raw_ai_evaluation_json",
+    "TEXT NOT NULL DEFAULT '{}'"
+  );
   ensureColumn(database, "sync_runs", "scope_key", "TEXT");
   ensureColumn(database, "sync_runs", "deal_breakdown_json", "TEXT");
   ensureColumn(database, "sync_runs", "diagnostics_json", "TEXT");
@@ -2275,6 +2402,98 @@ export function createSqliteRepository(
       call_failed_code = excluded.call_failed_code
   `);
 
+  const insertCallAnalysisRunStatement = database.prepare(`
+    INSERT INTO call_analysis_runs (
+      id,
+      call_id,
+      crm_activity_id,
+      trigger_mode,
+      status,
+      started_at,
+      recording_source,
+      recording_file_id,
+      model,
+      prompt_version
+    ) VALUES (
+      @id,
+      @callId,
+      @crmActivityId,
+      @triggerMode,
+      @status,
+      @startedAt,
+      @recordingSource,
+      @recordingFileId,
+      @model,
+      @promptVersion
+    )
+  `);
+
+  const finishCallAnalysisRunStatement = database.prepare(`
+    UPDATE call_analysis_runs
+    SET
+      status = @status,
+      finished_at = @finishedAt,
+      recording_source = @recordingSource,
+      recording_file_id = @recordingFileId,
+      model = @model,
+      prompt_version = @promptVersion,
+      error_code = NULL,
+      error_message = NULL
+    WHERE id = @runId
+  `);
+
+  const failCallAnalysisRunStatement = database.prepare(`
+    UPDATE call_analysis_runs
+    SET
+      status = @status,
+      finished_at = @failedAt,
+      error_code = @errorCode,
+      error_message = @errorMessage
+    WHERE id = @runId
+  `);
+
+  const upsertCallAnalysisResultStatement = database.prepare(`
+    INSERT INTO call_analysis_results (
+      call_id,
+      run_id,
+      status,
+      transcript_by_roles_json,
+      full_transcript_text,
+      ai_evaluation_json,
+      raw_ai_evaluation_json,
+      attributes_json,
+      model,
+      prompt_version,
+      analyzed_at,
+      updated_at
+    ) VALUES (
+      @callId,
+      @runId,
+      @status,
+      @transcriptByRolesJson,
+      @fullTranscriptText,
+      @aiEvaluationJson,
+      @rawAiEvaluationJson,
+      @attributesJson,
+      @model,
+      @promptVersion,
+      @analyzedAt,
+      @updatedAt
+    )
+    ON CONFLICT(call_id) DO UPDATE SET
+      run_id = excluded.run_id,
+      status = excluded.status,
+      transcript_by_roles_json = excluded.transcript_by_roles_json,
+      full_transcript_text = excluded.full_transcript_text,
+      ai_evaluation_json = excluded.ai_evaluation_json,
+      raw_ai_evaluation_json = excluded.raw_ai_evaluation_json,
+      attributes_json = excluded.attributes_json,
+      model = excluded.model,
+      prompt_version = excluded.prompt_version,
+      analyzed_at = excluded.analyzed_at,
+      updated_at = excluded.updated_at
+  `);
+
   const upsertManagerDirectoryStatement = database.prepare(`
     INSERT INTO manager_directory (
       id,
@@ -3156,6 +3375,177 @@ export function createSqliteRepository(
       return mapActivityRows(rows);
     },
 
+    async getCallById(callId) {
+      const row = database
+        .prepare(
+          `SELECT
+            id,
+            crm_activity_id AS crmActivityId,
+            portal_user_id AS portalUserId,
+            call_type AS callType,
+            call_start_date AS callStartDate,
+            call_duration_seconds AS callDurationSeconds,
+            crm_entity_type AS crmEntityType,
+            crm_entity_id AS crmEntityId,
+            call_failed_code AS callFailedCode
+          FROM call_snapshots
+          WHERE id = ?`
+        )
+        .get(callId) as CallSnapshot | undefined;
+
+      return row ?? null;
+    },
+
+    async getStageAtDealTime(dealId, at) {
+      const targetMs = Date.parse(at);
+      if (!Number.isFinite(targetMs)) {
+        return null;
+      }
+
+      const rows = database
+        .prepare(
+          `SELECT
+            id,
+            owner_id AS ownerId,
+            category_id AS categoryId,
+            stage_id AS stageId,
+            stage_semantic_id AS stageSemanticId,
+            type_id AS typeId,
+            created_time AS createdTime
+          FROM stage_history_snapshots
+          WHERE owner_id = ?`
+        )
+        .all(dealId) as StageHistorySnapshot[];
+
+      return (
+        rows
+          .map((row) => ({
+            row,
+            createdAtMs: Date.parse(row.createdTime)
+          }))
+          .filter(
+            (entry) =>
+              Number.isFinite(entry.createdAtMs) && entry.createdAtMs <= targetMs
+          )
+          .sort(
+            (left, right) =>
+              right.createdAtMs - left.createdAtMs ||
+              right.row.id.localeCompare(left.row.id)
+          )[0]?.row ?? null
+      );
+    },
+
+    async getCallAnalysisResult(callId) {
+      const row = database
+        .prepare(
+          `SELECT
+            call_id AS callId,
+            run_id AS runId,
+            status,
+            transcript_by_roles_json AS transcriptByRolesJson,
+            full_transcript_text AS fullTranscriptText,
+            ai_evaluation_json AS aiEvaluationJson,
+            raw_ai_evaluation_json AS rawAiEvaluationJson,
+            attributes_json AS attributesJson,
+            model,
+            prompt_version AS promptVersion,
+            analyzed_at AS analyzedAt,
+            updated_at AS updatedAt
+          FROM call_analysis_results
+          WHERE call_id = ?`
+        )
+        .get(callId) as
+        | {
+            callId: string;
+            runId: string;
+            status: "ready";
+            transcriptByRolesJson: string;
+            fullTranscriptText: string;
+            aiEvaluationJson: string;
+            rawAiEvaluationJson: string;
+            attributesJson: string;
+            model: string;
+            promptVersion: string;
+            analyzedAt: string;
+            updatedAt: string;
+          }
+        | undefined;
+
+      if (!row) {
+        return null;
+      }
+
+      const aiEvaluation = parseRequiredJson<Record<string, unknown>>(
+        row.aiEvaluationJson,
+        "call_analysis_results.ai_evaluation_json"
+      );
+      const rawAiEvaluation = parseRequiredJson<Record<string, unknown>>(
+        row.rawAiEvaluationJson,
+        "call_analysis_results.raw_ai_evaluation_json"
+      );
+
+      return {
+        callId: row.callId,
+        runId: row.runId,
+        status: row.status,
+        transcriptByRoles: parseRequiredJson<unknown[]>(
+          row.transcriptByRolesJson,
+          "call_analysis_results.transcript_by_roles_json"
+        ),
+        fullTranscriptText: row.fullTranscriptText,
+        aiEvaluation,
+        rawAiEvaluation,
+        attributes: parseRequiredJson<Record<string, unknown>>(
+          row.attributesJson,
+          "call_analysis_results.attributes_json"
+        ),
+        model: row.model,
+        promptVersion: row.promptVersion,
+        analyzedAt: row.analyzedAt,
+        updatedAt: row.updatedAt
+      };
+    },
+
+    async getLatestCallAnalysisRuns(callIds) {
+      const uniqueCallIds = Array.from(new Set(callIds.filter(Boolean)));
+      if (uniqueCallIds.length === 0) {
+        return [];
+      }
+
+      const rows: CallAnalysisRunSummary[] = [];
+      for (const chunk of chunkArray(uniqueCallIds, 500)) {
+        const placeholders = chunk.map(() => "?").join(", ");
+        rows.push(
+          ...(database
+            .prepare(
+              `SELECT
+                call_id AS callId,
+                status,
+                started_at AS startedAt,
+                finished_at AS finishedAt,
+                model,
+                prompt_version AS promptVersion,
+                error_code AS errorCode,
+                error_message AS errorMessage
+              FROM (
+                SELECT
+                  call_analysis_runs.*,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY call_id
+                    ORDER BY started_at DESC, id DESC
+                  ) AS row_number
+                FROM call_analysis_runs
+                WHERE call_id IN (${placeholders})
+              )
+              WHERE row_number = 1`
+            )
+            .all(...chunk) as CallAnalysisRunSummary[])
+        );
+      }
+
+      return rows;
+    },
+
     async getCallActivityIdsMissingActivities(
       limit = 20_000,
       callStartDateFrom = null,
@@ -3911,6 +4301,39 @@ export function createSqliteRepository(
       });
       transaction(rows);
       return Promise.resolve(rows.length);
+    },
+
+    startCallAnalysisRun(input) {
+      insertCallAnalysisRunStatement.run(input);
+      return Promise.resolve();
+    },
+
+    saveCallAnalysisResult(input) {
+      upsertCallAnalysisResultStatement.run({
+        callId: input.callId,
+        runId: input.runId,
+        status: input.status,
+        transcriptByRolesJson: JSON.stringify(input.transcriptByRoles),
+        fullTranscriptText: input.fullTranscriptText,
+        aiEvaluationJson: JSON.stringify(input.aiEvaluation),
+        rawAiEvaluationJson: JSON.stringify(input.rawAiEvaluation),
+        attributesJson: JSON.stringify(input.attributes),
+        model: input.model,
+        promptVersion: input.promptVersion,
+        analyzedAt: input.analyzedAt,
+        updatedAt: input.updatedAt
+      });
+      return Promise.resolve();
+    },
+
+    finishCallAnalysisRun(input) {
+      finishCallAnalysisRunStatement.run(input);
+      return Promise.resolve();
+    },
+
+    failCallAnalysisRun(input) {
+      failCallAnalysisRunStatement.run(input);
+      return Promise.resolve();
     },
 
     upsertManagerDirectory(rows) {

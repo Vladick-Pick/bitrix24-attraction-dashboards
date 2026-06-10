@@ -11,10 +11,17 @@ import type {
   ConversionEventsReportSnapshot,
   AttractionOntologyResponse,
   OntologySourceDocumentResponse,
+  ActivitySnapshot,
+  CallAnalysisQueueCallType,
+  CallAnalysisQueueItem,
+  CallAnalysisQueueResponse,
+  CallAnalysisQueueStatus,
+  CallSnapshot,
   ConversionEventTypeSettingsData,
   ConversionEventTypeSettingsInput,
   DashboardData,
   DashboardSnapshot,
+  DealSnapshot,
   DealPricingSettings,
   DealPricingSettingsInput,
   LeadgenFunnelReport,
@@ -40,6 +47,7 @@ import type {
   SourceQualityConversionReportSnapshot,
   SnapshotStats,
   StageCatalogEntry,
+  StageHistorySnapshot,
   SyncHealth,
   SyncHealthIssue,
   SyncDealChangeBreakdown,
@@ -120,7 +128,11 @@ import {
   performManualSync
 } from "../domain/sync.js";
 import type { SyncClient } from "../domain/sync.js";
-import type { SqliteRepository } from "./sqlite-repository.js";
+import type {
+  CallAnalysisResultRecord,
+  CallAnalysisRunSummary,
+  SqliteRepository
+} from "./sqlite-repository.js";
 
 interface CreateReportingServiceInput {
   dealCategoryIds: string[];
@@ -190,6 +202,13 @@ export interface ReportingService {
     compareRanges?: ReportRange[];
     filters?: ReportFilters;
   }): Promise<CallsWorkloadReport>;
+  getCallAnalysisQueue(input: {
+    periodDays?: number;
+    range?: ReportRange;
+    filters?: ReportFilters;
+    callTypes?: CallAnalysisQueueCallType[];
+    analysisStatuses?: CallAnalysisQueueStatus[];
+  }): Promise<CallAnalysisQueueResponse>;
   getConversionEventsReport(input: {
     periodDays?: number;
     range?: ReportRange;
@@ -330,6 +349,169 @@ function resolveLatestTwelveMonthCohortRange(now: Date): ReportRange {
   return {
     from: from.toISOString(),
     to: to.toISOString()
+  };
+}
+
+function normalizeNullableId(value: string | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized.length > 0 && normalized !== "0" ? normalized : null;
+}
+
+function isDealOwnerType(value: string | null | undefined) {
+  return value === "2" || value?.toUpperCase() === "DEAL";
+}
+
+function resolveQueueCallType(call: CallSnapshot): CallAnalysisQueueCallType {
+  if (call.callType === "2") {
+    return "incoming";
+  }
+
+  if (call.callType === "1") {
+    return call.callDurationSeconds > 30
+      ? "outgoing_over_30"
+      : "outgoing_under_30";
+  }
+
+  return "unknown";
+}
+
+function formatQueueCallTypeLabel(type: CallAnalysisQueueCallType) {
+  if (type === "incoming") {
+    return "Входящий";
+  }
+
+  if (type === "outgoing_over_30") {
+    return "Исх >30";
+  }
+
+  if (type === "outgoing_under_30") {
+    return "Исх <30";
+  }
+
+  return "Неизвестно";
+}
+
+function isInsideRange(value: string, range: ReportRange) {
+  const timestamp = Date.parse(value);
+  const from = Date.parse(range.from);
+  const to = Date.parse(range.to);
+
+  return (
+    Number.isFinite(timestamp) &&
+    Number.isFinite(from) &&
+    Number.isFinite(to) &&
+    timestamp >= from &&
+    timestamp <= to
+  );
+}
+
+function resolveCallDealId(call: CallSnapshot, activity: ActivitySnapshot | null) {
+  if (isDealOwnerType(call.crmEntityType)) {
+    return normalizeNullableId(call.crmEntityId);
+  }
+
+  if (isDealOwnerType(activity?.ownerTypeId)) {
+    return normalizeNullableId(activity?.ownerId);
+  }
+
+  return null;
+}
+
+function resolveCallManagerId(
+  call: CallSnapshot,
+  activity: ActivitySnapshot | null,
+  deal: DealSnapshot | null
+) {
+  return (
+    normalizeNullableId(call.portalUserId) ??
+    normalizeNullableId(activity?.responsibleId) ??
+    normalizeNullableId(deal?.assignedById)
+  );
+}
+
+function resolveStageAtCall(
+  stageHistory: StageHistorySnapshot[],
+  dealId: string | null,
+  at: string
+) {
+  if (!dealId) {
+    return null;
+  }
+
+  return (
+    stageHistory
+      .filter((stage) => stage.ownerId === dealId && stage.createdTime <= at)
+      .sort((left, right) => {
+        const createdCompare = right.createdTime.localeCompare(left.createdTime);
+        return createdCompare || right.id.localeCompare(left.id);
+      })[0] ?? null
+  );
+}
+
+function resolveStageCatalogName(
+  stageCatalog: StageCatalogEntry[],
+  categoryId: string | null | undefined,
+  stageId: string | null | undefined
+) {
+  if (!stageId) {
+    return null;
+  }
+
+  return (
+    stageCatalog.find(
+      (stage) =>
+        stage.entityType === "deal" &&
+        stage.statusId === stageId &&
+        (stage.categoryId === (categoryId ?? null) || !stage.categoryId)
+    )?.name ?? stageId
+  );
+}
+
+function extractQueueScore(result: CallAnalysisResultRecord | null) {
+  const score = result?.aiEvaluation.score;
+  return typeof score === "number" && Number.isFinite(score) ? score : null;
+}
+
+function resolveQueueAnalysisStatus(
+  result: CallAnalysisResultRecord | null,
+  latestRun: CallAnalysisRunSummary | null
+): CallAnalysisQueueStatus {
+  if (result) {
+    return "ready";
+  }
+
+  if (latestRun?.status === "analyzing" || latestRun?.status === "queued") {
+    return "analyzing";
+  }
+
+  if (latestRun?.status === "error") {
+    return "error";
+  }
+
+  return "not_analyzed";
+}
+
+function buildQueueTotals(items: CallAnalysisQueueItem[]) {
+  const readyScores = items
+    .map((item) => item.score)
+    .filter((score): score is number => score !== null);
+
+  return {
+    total: items.length,
+    notAnalyzed: items.filter((item) => item.analysisStatus === "not_analyzed").length,
+    analyzing: items.filter((item) => item.analysisStatus === "analyzing").length,
+    ready: items.filter((item) => item.analysisStatus === "ready").length,
+    error: items.filter((item) => item.analysisStatus === "error").length,
+    averageScore:
+      readyScores.length > 0
+        ? Math.round(
+            readyScores.reduce((total, score) => total + score, 0) / readyScores.length
+          )
+        : null
   };
 }
 
@@ -2471,6 +2653,175 @@ export function createReportingService(
       return {
         ...report,
         warnings: [...workloadFilters.warnings, ...report.warnings]
+      };
+    },
+
+    async getCallAnalysisQueue({
+      periodDays,
+      range,
+      filters,
+      callTypes,
+      analysisStatuses
+    }) {
+      const scopedFilters = await normalizeAttractionReportFilters(filters);
+      const resolvedRange = resolveRange(
+        periodDays,
+        range,
+        input.defaultPeriodDays,
+        nowFactory()
+      );
+      const [calls, activities, deals, stageHistory, stageCatalog] =
+        await Promise.all([
+          input.repository.getAllCalls(),
+          input.repository.getAllActivities(),
+          input.repository.getAllDeals(),
+          input.repository.getAllStageHistory(),
+          getScopedStageCatalog(true)
+        ]);
+      const activityById = new Map(activities.map((activity) => [activity.id, activity]));
+      const dealById = new Map(deals.map((deal) => [deal.id, deal]));
+      const sourceLabels = buildSourceLabelMap(stageCatalog);
+      const managerFilter = new Set(scopedFilters.managerIds ?? []);
+      const sourceFilter = new Set(scopedFilters.sourceKeys ?? []);
+      const callTypeFilter = new Set(callTypes ?? []);
+
+      const scopedCalls = calls
+        .filter((call) => isInsideRange(call.callStartDate, resolvedRange))
+        .map((call) => {
+          const activity = call.crmActivityId
+            ? activityById.get(call.crmActivityId) ?? null
+            : null;
+          const dealId = resolveCallDealId(call, activity);
+          const deal = dealId ? dealById.get(dealId) ?? null : null;
+          const managerId = resolveCallManagerId(call, activity, deal);
+          const sourceKey = deal ? resolveDealSource(deal, sourceLabels).key : null;
+          const callType = resolveQueueCallType(call);
+
+          return {
+            call,
+            activity,
+            deal,
+            managerId,
+            sourceKey,
+            callType
+          };
+        })
+        .filter((row) => {
+          if (
+            !row.deal ||
+            !allowedCategoryIds.has(normalizeCategoryId(row.deal.categoryId))
+          ) {
+            return false;
+          }
+
+          if (managerFilter.size > 0 && (!row.managerId || !managerFilter.has(row.managerId))) {
+            return false;
+          }
+
+          if (sourceFilter.size > 0 && (!row.sourceKey || !sourceFilter.has(row.sourceKey))) {
+            return false;
+          }
+
+          if (callTypeFilter.size > 0 && !callTypeFilter.has(row.callType)) {
+            return false;
+          }
+
+          return true;
+        })
+        .sort((left, right) => {
+          const durationCompare =
+            right.call.callDurationSeconds - left.call.callDurationSeconds;
+          return durationCompare || right.call.callStartDate.localeCompare(left.call.callStartDate);
+        })
+        .slice(0, 200);
+
+      const managerIds = Array.from(
+        new Set(
+          scopedCalls
+            .map((row) => row.managerId)
+            .filter((managerId): managerId is string => managerId !== null)
+        )
+      );
+      const managers = await ensureManagerDirectory(managerIds);
+      const managerNameById = new Map(managers.map((manager) => [manager.id, manager.name]));
+      const callIds = scopedCalls.map((row) => row.call.id);
+      const [results, latestRuns] = await Promise.all([
+        Promise.all(callIds.map((callId) => input.repository.getCallAnalysisResult(callId))),
+        input.repository.getLatestCallAnalysisRuns(callIds)
+      ]);
+      const resultByCallId = new Map(
+        results.filter((result): result is CallAnalysisResultRecord => result !== null)
+          .map((result) => [result.callId, result])
+      );
+      const latestRunByCallId = new Map(
+        latestRuns.map((run) => [run.callId, run])
+      );
+
+      const statusFilter = new Set(analysisStatuses ?? []);
+      const items = scopedCalls
+        .map<CallAnalysisQueueItem>((row) => {
+          const result = resultByCallId.get(row.call.id) ?? null;
+          const latestRun = latestRunByCallId.get(row.call.id) ?? null;
+          const analysisStatus = resolveQueueAnalysisStatus(result, latestRun);
+          const stageAtCall = resolveStageAtCall(
+            stageHistory,
+            row.deal?.id ?? null,
+            row.call.callStartDate
+          );
+          const stageAtCallId = stageAtCall?.stageId ?? row.deal?.stageId ?? null;
+
+          return {
+            callId: row.call.id,
+            crmActivityId: normalizeNullableId(row.call.crmActivityId),
+            startedAt: row.call.callStartDate,
+            managerId: row.managerId,
+            managerName: row.managerId
+              ? managerNameById.get(row.managerId) ?? row.managerId
+              : UNASSIGNED_MANAGER_NAME,
+            callType: row.callType,
+            callTypeLabel: formatQueueCallTypeLabel(row.callType),
+            durationSeconds: row.call.callDurationSeconds,
+            dealId: row.deal?.id ?? null,
+            dealSourceId: row.sourceKey,
+            dealCurrentStageId: row.deal?.stageId ?? null,
+            dealCurrentStageName: resolveStageCatalogName(
+              stageCatalog,
+              row.deal?.categoryId,
+              row.deal?.stageId
+            ),
+            stageAtCallId,
+            stageAtCallName: resolveStageCatalogName(
+              stageCatalog,
+              row.deal?.categoryId,
+              stageAtCallId
+            ),
+            analysisStatus,
+            score: extractQueueScore(result),
+            promptVersion: result?.promptVersion ?? latestRun?.promptVersion ?? null,
+            model: result?.model ?? latestRun?.model ?? null,
+            analyzedAt: result?.analyzedAt ?? null,
+            updatedAt: result?.updatedAt ?? latestRun?.finishedAt ?? null,
+            errorCode: latestRun?.errorCode ?? null,
+            errorMessage: latestRun?.errorMessage ?? null
+          };
+        })
+        .filter((item) =>
+          statusFilter.size > 0 ? statusFilter.has(item.analysisStatus) : true
+        )
+        .sort((left, right) => {
+          const leftReady = left.analysisStatus === "ready" ? 1 : 0;
+          const rightReady = right.analysisStatus === "ready" ? 1 : 0;
+          return (
+            leftReady - rightReady ||
+            right.durationSeconds - left.durationSeconds ||
+            right.startedAt.localeCompare(left.startedAt)
+          );
+        });
+
+      return {
+        range: resolvedRange,
+        totals: buildQueueTotals(items),
+        items
       };
     },
 

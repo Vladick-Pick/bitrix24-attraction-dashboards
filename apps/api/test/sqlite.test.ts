@@ -15,6 +15,166 @@ afterEach(() => {
 });
 
 describe("createSqliteRepository", () => {
+  it("persists call analysis runs and the latest transcript result without storing audio", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await expect(repository.getCallAnalysisResult("CALL1")).resolves.toBeNull();
+
+    await repository.startCallAnalysisRun({
+      id: "run-1",
+      callId: "CALL1",
+      crmActivityId: "A1",
+      triggerMode: "manual",
+      status: "analyzing",
+      startedAt: "2026-06-09T12:00:00.000Z",
+      recordingSource: null,
+      recordingFileId: null,
+      model: null,
+      promptVersion: null
+    });
+    await repository.saveCallAnalysisResult({
+      callId: "CALL1",
+      runId: "run-1",
+      status: "ready",
+      transcriptByRoles: [
+        {
+          role: "manager",
+          start: 0,
+          end: 2,
+          text: "Добрый день."
+        }
+      ],
+      fullTranscriptText: "Менеджер: Добрый день.",
+      aiEvaluation: {
+        score: 82,
+        summary: "Менеджер начал разговор.",
+        risks: ["Нет следующего шага."]
+      },
+      rawAiEvaluation: {
+        score: 82,
+        summary: "Менеджер начал разговор.",
+        risks: ["Нет следующего шага."],
+        providerOnlyDebug: {
+          finishReason: "stop",
+          safetyRatings: ["ok"]
+        }
+      },
+      attributes: {
+        managerName: "Мария",
+        dealId: "23841",
+        stageAtCallName: "Квалификация"
+      },
+      model: "google/gemini-2.5-flash",
+      promptVersion: "calls-v1",
+      analyzedAt: "2026-06-09T12:00:30.000Z",
+      updatedAt: "2026-06-09T12:00:31.000Z"
+    });
+    await repository.finishCallAnalysisRun({
+      runId: "run-1",
+      finishedAt: "2026-06-09T12:00:31.000Z",
+      status: "ready",
+      model: "google/gemini-2.5-flash",
+      promptVersion: "calls-v1",
+      recordingSource: "bitrix_disk",
+      recordingFileId: "338028"
+    });
+
+    await expect(repository.getLatestCallAnalysisRuns(["CALL1"])).resolves.toEqual([
+      {
+        callId: "CALL1",
+        status: "ready",
+        startedAt: "2026-06-09T12:00:00.000Z",
+        finishedAt: "2026-06-09T12:00:31.000Z",
+        model: "google/gemini-2.5-flash",
+        promptVersion: "calls-v1",
+        errorCode: null,
+        errorMessage: null
+      }
+    ]);
+
+    await expect(repository.getCallAnalysisResult("CALL1")).resolves.toEqual({
+      callId: "CALL1",
+      runId: "run-1",
+      status: "ready",
+      transcriptByRoles: [
+        {
+          role: "manager",
+          start: 0,
+          end: 2,
+          text: "Добрый день."
+        }
+      ],
+      fullTranscriptText: "Менеджер: Добрый день.",
+      aiEvaluation: {
+        score: 82,
+        summary: "Менеджер начал разговор.",
+        risks: ["Нет следующего шага."]
+      },
+      rawAiEvaluation: {
+        score: 82,
+        summary: "Менеджер начал разговор.",
+        risks: ["Нет следующего шага."],
+        providerOnlyDebug: {
+          finishReason: "stop",
+          safetyRatings: ["ok"]
+        }
+      },
+      attributes: {
+        managerName: "Мария",
+        dealId: "23841",
+        stageAtCallName: "Квалификация"
+      },
+      model: "google/gemini-2.5-flash",
+      promptVersion: "calls-v1",
+      analyzedAt: "2026-06-09T12:00:30.000Z",
+      updatedAt: "2026-06-09T12:00:31.000Z"
+    });
+  });
+
+  it("resolves the deal stage at call time by actual timestamp instead of lexical timestamp order", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.upsertStageHistory([
+      {
+        id: "stage-before",
+        ownerId: "23841",
+        categoryId: "10",
+        stageId: "C10:BEFORE",
+        stageSemanticId: "P",
+        typeId: null,
+        createdTime: "2026-06-09T21:00:00.000+03:00"
+      },
+      {
+        id: "stage-after",
+        ownerId: "23841",
+        categoryId: "10",
+        stageId: "C10:AFTER",
+        stageSemanticId: "P",
+        typeId: null,
+        createdTime: "2026-06-09T22:00:00.000Z"
+      }
+    ]);
+
+    await expect(
+      repository.getStageAtDealTime("23841", "2026-06-09T23:00:00.000+03:00")
+    ).resolves.toMatchObject({
+      id: "stage-before",
+      stageId: "C10:BEFORE"
+    });
+  });
+
   it("persists unit economics articles, rules and active cost facts by period", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

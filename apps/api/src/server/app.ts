@@ -2,6 +2,9 @@ import type {
   AcquisitionOutcomesReport,
   ActivitiesWorkloadReport,
   AttractionOntologyResponse,
+  CallAnalysisQueueCallType,
+  CallAnalysisQueueResponse,
+  CallAnalysisQueueStatus,
   CallsWorkloadReport,
   CohortConversionReport,
   ConversionEventsReport,
@@ -71,6 +74,7 @@ import {
   buildTelegramActivityReportMessages,
   getNextDailyActivityReportDelayMs
 } from "./telegram-activity-report.js";
+import { CallAnalysisServiceError } from "./call-analysis-service.js";
 
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
@@ -136,6 +140,12 @@ interface AppService {
     input: RangeRequest
   ): Promise<ManagerActionOutcomeReport>;
   getCallsWorkloadReport(input: RangeRequest): Promise<CallsWorkloadReport>;
+  getCallAnalysisQueue(
+    input: RangeRequest & {
+      callTypes?: CallAnalysisQueueCallType[];
+      analysisStatuses?: CallAnalysisQueueStatus[];
+    }
+  ): Promise<CallAnalysisQueueResponse>;
   getConversionEventsReport(input: RangeRequest): Promise<ConversionEventsReport>;
   getCohortConversionReport(input: RangeRequest): Promise<CohortConversionReport>;
   getTocFlowReport(input: RangeRequest): Promise<TocFlowReport>;
@@ -234,6 +244,14 @@ interface DashboardCommentsStore {
   }): Promise<DashboardCommentRecord | null>;
 }
 
+interface CallAnalysisRunner {
+  analyzeCall(input: {
+    callId: string;
+    triggerMode?: "manual" | "automatic";
+  }): Promise<unknown>;
+  getCallAnalysisResult?(callId: string): Promise<unknown>;
+}
+
 interface DashboardPaperclipReadyReport {
   id: string;
   body: string;
@@ -284,6 +302,7 @@ interface AppConfig {
     retryDelayMs?: number;
     sender?: TelegramMessageSender;
   };
+  callAnalysis?: CallAnalysisRunner;
   modules?: Record<string, ModuleService>;
 }
 
@@ -673,6 +692,33 @@ const managerWhitelistSettingsBodySchema = z.object({
   managerIds: z.array(z.string().trim().min(1))
 });
 
+const callAnalysisCallIdSchema = z.string().trim().min(1).max(200);
+const callAnalysisQueueQuerySchema = z.object({
+  callTypes: z
+    .preprocess(
+      parseCsvArray,
+      z
+        .array(
+          z.enum([
+            "outgoing_over_30",
+            "outgoing_under_30",
+            "incoming",
+            "unknown"
+          ])
+        )
+        .optional()
+    )
+    .optional(),
+  analysisStatuses: z
+    .preprocess(
+      parseCsvArray,
+      z
+        .array(z.enum(["not_analyzed", "analyzing", "ready", "error"]))
+        .optional()
+    )
+    .optional()
+});
+
 const loginBodySchema = z.object({
   login: z.string().trim().min(1).max(128),
   password: z.string().min(1).max(1024)
@@ -732,6 +778,24 @@ function parseRangeRequest(query: unknown): RangeRequest {
     ...(filters ? { filters } : {}),
     ...(parsed.eventParticipantMode
       ? { eventParticipantMode: parsed.eventParticipantMode }
+      : {})
+  };
+}
+
+function parseCallAnalysisQueueRequest(
+  query: unknown
+): RangeRequest & {
+  callTypes?: CallAnalysisQueueCallType[];
+  analysisStatuses?: CallAnalysisQueueStatus[];
+} {
+  const base = parseRangeRequest(query);
+  const parsed = callAnalysisQueueQuerySchema.parse(query);
+
+  return {
+    ...base,
+    ...(parsed.callTypes?.length ? { callTypes: parsed.callTypes } : {}),
+    ...(parsed.analysisStatuses?.length
+      ? { analysisStatuses: parsed.analysisStatuses }
       : {})
   };
 }
@@ -2122,6 +2186,113 @@ export function createApp(
       next(error);
     }
   });
+
+  app.get(
+    [
+      "/api/calls/analysis-queue",
+      "/api/modules/:moduleId/calls/analysis-queue"
+    ],
+    async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "attraction") {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
+
+      try {
+        response.json(
+          await service.getCallAnalysisQueue(
+            parseCallAnalysisQueueRequest(request.query)
+          )
+        );
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.post(
+    ["/api/calls/:callId/analyze", "/api/modules/:moduleId/calls/:callId/analyze"],
+    async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "attraction") {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
+
+      if (!config.callAnalysis) {
+        response.status(503).json(createErrorResponse("CALL_ANALYSIS_NOT_CONFIGURED"));
+        return;
+      }
+
+      try {
+        const callId = callAnalysisCallIdSchema.parse(
+          requestRouteParam(request, "callId")
+        );
+        response.json(
+          await config.callAnalysis.analyzeCall({
+            callId,
+            triggerMode: "manual"
+          })
+        );
+      } catch (error) {
+        if (error instanceof CallAnalysisServiceError) {
+          response
+            .status(error.statusCode)
+            .json(createErrorResponse(error.code));
+          return;
+        }
+
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    ["/api/calls/:callId/analysis", "/api/modules/:moduleId/calls/:callId/analysis"],
+    async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "attraction") {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
+
+      if (!config.callAnalysis?.getCallAnalysisResult) {
+        response.status(503).json(createErrorResponse("CALL_ANALYSIS_NOT_CONFIGURED"));
+        return;
+      }
+
+      try {
+        const callId = callAnalysisCallIdSchema.parse(
+          requestRouteParam(request, "callId")
+        );
+        const result = await config.callAnalysis.getCallAnalysisResult(callId);
+        if (!result) {
+          response.status(404).json(createErrorResponse("CALL_ANALYSIS_NOT_FOUND"));
+          return;
+        }
+
+        response.json({
+          status: "ready",
+          result
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
 
   async function deliverCommentToPaperclip(
     comment: DashboardCommentRecord,

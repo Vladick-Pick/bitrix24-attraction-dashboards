@@ -2,7 +2,9 @@ import { BitrixClient } from "./bitrix/client.js";
 import { readEnv } from "./config/env.js";
 import { createPasswordAuthService, createSqliteAuthStore } from "./server/auth.js";
 import { createApp } from "./server/app.js";
+import { createCallAnalysisService } from "./server/call-analysis-service.js";
 import { createLeadgenService } from "./server/leadgen-service.js";
+import { OpenRouterCallAnalysisProvider } from "./server/openrouter-call-analysis.js";
 import { PaperclipClient } from "./server/paperclip-client.js";
 import { createSqliteRepository } from "./server/sqlite-repository.js";
 import { createReportingService } from "./server/service.js";
@@ -116,6 +118,23 @@ const leadgenService = createLeadgenService({
   repository: leadgenRepository,
   defaultPeriodDays: env.REPORT_DEFAULT_PERIOD_DAYS
 });
+const callAnalysis = env.OPENROUTER_API_KEY
+  ? createCallAnalysisService({
+      repository: attractionRepository,
+      client,
+      recordingDownloadTimeoutMs: env.CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS,
+      maxRecordingBytes: env.CALL_ANALYSIS_MAX_AUDIO_BYTES,
+      provider: new OpenRouterCallAnalysisProvider({
+        apiKey: env.OPENROUTER_API_KEY,
+        model: env.OPENROUTER_MODEL,
+        promptVersion: env.OPENROUTER_PROMPT_VERSION,
+        ...(env.OPENROUTER_APP_REFERER
+          ? { appReferer: env.OPENROUTER_APP_REFERER }
+          : {}),
+        ...(env.OPENROUTER_APP_TITLE ? { appTitle: env.OPENROUTER_APP_TITLE } : {})
+      })
+    })
+  : undefined;
 const authStore =
   env.AUTH_MODE === "password"
     ? createSqliteAuthStore({
@@ -184,6 +203,7 @@ const app = createApp(service, {
   comments: platformRepository,
   ...(paperclip ? { paperclip } : {}),
   protoComments: platformRepository,
+  ...(callAnalysis ? { callAnalysis } : {}),
   modules: {
     attraction: service,
     leadgen: leadgenService

@@ -18,6 +18,7 @@ import type {
   UnitEconomicsSettings,
 } from '@/lib/dashboard-types'
 import { createCompareRange, ProtoApp } from '@/proto/proto-app'
+import { createDefaultCallAnalysisFilters } from '@/proto/call-analysis-workspace'
 import { createDefaultFilters } from '@/proto/scenes'
 import type { AuthUser, PaperclipThreadEntry } from '@/proto/types'
 
@@ -438,6 +439,185 @@ vi.mock('@/lib/api-client', () => ({
       warnings: [],
       managerRows: [],
       comparisons: [],
+    })),
+    getCallAnalysisQueue: vi.fn(async () => ({
+      range: {
+        from: '2026-06-09T00:00:00.000+03:00',
+        to: '2026-06-09T23:59:59.999+03:00',
+      },
+      totals: {
+        total: 1,
+        notAnalyzed: 0,
+        analyzing: 0,
+        ready: 1,
+        error: 0,
+        averageScore: 88,
+      },
+      items: [
+        {
+          callId: '221930',
+          crmActivityId: 'A1',
+          startedAt: '2026-06-09T08:40:00.000Z',
+          managerId: '7',
+          managerName: 'Мария',
+          callType: 'outgoing_over_30',
+          callTypeLabel: 'Исх >30',
+          durationSeconds: 318,
+          dealId: '23841',
+          dealSourceId: 'LEADGEN_US',
+          dealCurrentStageId: 'C10:NEW',
+          dealCurrentStageName: 'Новая',
+          stageAtCallId: 'C10:QUALIFICATION',
+          stageAtCallName: 'Квалификация',
+          analysisStatus: 'ready',
+          score: 88,
+          promptVersion: 'calls-v2',
+          model: 'google/gemini-3.5-flash',
+          analyzedAt: '2026-06-09T12:00:30.000Z',
+          updatedAt: '2026-06-09T12:00:31.000Z',
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+    })),
+    getCallAnalysis: vi.fn(async () => ({
+      status: 'ready',
+      result: {
+        callId: '221930',
+        runId: 'run-1',
+        status: 'ready',
+        transcriptByRoles: [
+          {
+            role: 'manager',
+            start: 8,
+            end: 16,
+            text: 'Добрый день. Расскажите, что сейчас не устраивает?',
+          },
+        ],
+        fullTranscriptText: 'Менеджер: Добрый день. Расскажите, что сейчас не устраивает?',
+        aiEvaluation: {
+          score: 88,
+          callClassification: {
+            type: 'qualification',
+            confidence: 0.95,
+            reason: 'Менеджер проводит квалификацию.',
+          },
+          rubricApplicability: {
+            level: 'high',
+            reason: 'Полный квалификационный звонок.',
+          },
+          communicationScore: {
+            score: 92,
+            rationale: 'Менеджер слушает клиента.',
+            evidenceQuotes: ['Расскажите, что сейчас не устраивает?'],
+          },
+          narrativeScore: {
+            score: 84,
+            rationale: 'Нарратив раскрыт частично.',
+            evidenceQuotes: ['Расскажите, что сейчас не устраивает?'],
+            applicableNarratives: ['Квалификация'],
+            missedNarratives: ['Club First как социальная инфраструктура'],
+          },
+          callTypeInterpretation: 'Исходящий звонок больше 30 секунд.',
+          summary: 'Менеджер провел диагностику и обозначил следующий шаг.',
+          strengths: ['Есть открытый вопрос'],
+          risks: ['Следующий шаг без даты'],
+          nextStepQuality: 'ok',
+          suggestedNextStep: 'Назначить дату следующего контакта.',
+          emotionalBackground: {
+            managerTone: 'спокойный',
+            clientTone: 'нейтральный',
+            frictionSignals: [],
+            confidence: 0.8,
+          },
+          evidenceQuotes: ['Расскажите, что сейчас не устраивает?'],
+          confidence: 0.86,
+        },
+        rawAiEvaluation: {
+          score: 88,
+          communicationScore: { score: 92 },
+          narrativeScore: { score: 84 },
+        },
+        attributes: {
+          managerName: 'Мария',
+          dealId: '23841',
+          stageAtCallName: 'Квалификация',
+        },
+        model: 'google/gemini-3.5-flash',
+        promptVersion: 'calls-v2',
+        analyzedAt: '2026-06-09T12:00:30.000Z',
+        updatedAt: '2026-06-09T12:00:31.000Z',
+      },
+    })),
+    analyzeCall: vi.fn(async () => ({
+      status: 'ready',
+      reusedExistingResult: true,
+      result: {
+        callId: '221930',
+        runId: 'run-1',
+        status: 'ready',
+        transcriptByRoles: [
+          {
+            role: 'manager',
+            start: 8,
+            end: 16,
+            text: 'Добрый день. Расскажите, что сейчас не устраивает?',
+          },
+        ],
+        fullTranscriptText: 'Менеджер: Добрый день. Расскажите, что сейчас не устраивает?',
+        aiEvaluation: {
+          score: 88,
+          callClassification: {
+            type: 'qualification',
+            confidence: 0.95,
+            reason: 'Менеджер проводит квалификацию.',
+          },
+          rubricApplicability: {
+            level: 'high',
+            reason: 'Полный квалификационный звонок.',
+          },
+          communicationScore: {
+            score: 92,
+            rationale: 'Менеджер слушает клиента.',
+            evidenceQuotes: ['Расскажите, что сейчас не устраивает?'],
+          },
+          narrativeScore: {
+            score: 84,
+            rationale: 'Нарратив раскрыт частично.',
+            evidenceQuotes: ['Расскажите, что сейчас не устраивает?'],
+            applicableNarratives: ['Квалификация'],
+            missedNarratives: ['Club First как социальная инфраструктура'],
+          },
+          callTypeInterpretation: 'Исходящий звонок больше 30 секунд.',
+          summary: 'Менеджер провел диагностику и обозначил следующий шаг.',
+          strengths: ['Есть открытый вопрос'],
+          risks: ['Следующий шаг без даты'],
+          nextStepQuality: 'ok',
+          suggestedNextStep: 'Назначить дату следующего контакта.',
+          emotionalBackground: {
+            managerTone: 'спокойный',
+            clientTone: 'нейтральный',
+            frictionSignals: [],
+            confidence: 0.8,
+          },
+          evidenceQuotes: ['Расскажите, что сейчас не устраивает?'],
+          confidence: 0.86,
+        },
+        rawAiEvaluation: {
+          score: 88,
+          communicationScore: { score: 92 },
+          narrativeScore: { score: 84 },
+        },
+        attributes: {
+          managerName: 'Мария',
+          dealId: '23841',
+          stageAtCallName: 'Квалификация',
+        },
+        model: 'google/gemini-3.5-flash',
+        promptVersion: 'calls-v2',
+        analyzedAt: '2026-06-09T12:00:30.000Z',
+        updatedAt: '2026-06-09T12:00:31.000Z',
+      },
     })),
     getLeadgenCallsWorkloadReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000+03:00', to: '2026-04-30T23:59:59.999+03:00' },
@@ -1243,6 +1423,266 @@ describe('ProtoApp', () => {
       screen.getByRole('button', { name: /^comment mode$/i }),
     ).toBeInTheDocument()
     expect(screen.getByText(/фильтры периода и среза/i)).toBeInTheDocument()
+  })
+
+  it('opens the call analysis section and renders queue analysis data', async () => {
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^анализ звонков$/i }))
+
+    expect(await screen.findByRole('heading', { name: /^анализ звонков$/i })).toBeInTheDocument()
+    expect(apiClient.getCallAnalysisQueue).toHaveBeenCalled()
+    expect(await screen.findAllByText(/ID 221930/i)).toHaveLength(2)
+    expect(await screen.findByText(/Менеджер провел диагностику/i)).toBeInTheDocument()
+    expect(screen.getByText(/Добрый день\. Расскажите/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^анализ готов$/i })).toBeDisabled()
+    expect(screen.getAllByText('calls-v2').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('google/gemini-3.5-flash')).toBeInTheDocument()
+    expect(screen.getByText(formatExpectedDateTime('2026-06-09T12:00:30.000Z'))).toBeInTheDocument()
+    expect(screen.getByText(/Классификация звонка/i)).toBeInTheDocument()
+    expect(screen.getByText('qualification')).toBeInTheDocument()
+    expect(screen.getByText(/Применимость prompt/i)).toBeInTheDocument()
+    expect(screen.getByText(/Полный квалификационный звонок/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^Следующий шаг$/i })).toBeInTheDocument()
+    expect(screen.getByText(/Назначить дату следующего контакта/i)).toBeInTheDocument()
+    expect(screen.getByText(/Эмоциональный фон/i)).toBeInTheDocument()
+    expect(screen.getByText('спокойный')).toBeInTheDocument()
+    expect(screen.getByText(/Raw JSON/i)).toBeInTheDocument()
+    expect(screen.queryByText(/фильтры периода и среза/i)).not.toBeInTheDocument()
+    expect(apiClient.analyzeCall).not.toHaveBeenCalled()
+  })
+
+  it('renders call analysis source filter with the shared command popover style', async () => {
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^анализ звонков$/i }))
+
+    const sourceFilter = await screen.findByRole('button', { name: /^Источник$/i })
+    expect(screen.queryByRole('combobox', { name: /^Источник$/i })).not.toBeInTheDocument()
+
+    await userEvent.click(sourceFilter)
+
+    expect(await screen.findByPlaceholderText('Поиск источника')).toBeInTheDocument()
+    expect(screen.getAllByText('Источник').length).toBeGreaterThan(0)
+    expect(screen.getByText('Платный поиск')).toBeInTheDocument()
+  })
+
+  it('defaults call analysis filters to the previous calendar week', () => {
+    const filters = createDefaultCallAnalysisFilters(new Date('2026-06-10T12:00:00+03:00'))
+
+    expect(filters.rangeStart).toBe('2026-06-01')
+    expect(filters.rangeEnd).toBe('2026-06-07')
+  })
+
+  it('clears the visible analysis result immediately when another call is selected', async () => {
+    const pendingSecondAnalysis = createDeferred<never>()
+    vi.mocked(apiClient.getCallAnalysisQueue).mockResolvedValueOnce({
+      range: { from: '2026-06-09T00:00:00.000+03:00', to: '2026-06-09T23:59:59.999+03:00' },
+      totals: {
+        total: 2,
+        notAnalyzed: 1,
+        analyzing: 0,
+        ready: 1,
+        error: 0,
+        averageScore: 88,
+      },
+      items: [
+        {
+          callId: '221930',
+          crmActivityId: 'A1',
+          startedAt: '2026-06-09T08:40:00.000Z',
+          managerId: '7',
+          managerName: 'Мария',
+          callType: 'outgoing_over_30',
+          callTypeLabel: 'Исх >30',
+          durationSeconds: 318,
+          dealId: '23841',
+          dealSourceId: 'LEADGEN_US',
+          dealCurrentStageId: 'C10:NEW',
+          dealCurrentStageName: 'Новая',
+          stageAtCallId: 'C10:QUALIFICATION',
+          stageAtCallName: 'Квалификация',
+          analysisStatus: 'ready',
+          score: 88,
+          promptVersion: 'calls-v2',
+          model: 'google/gemini-3.5-flash',
+          analyzedAt: '2026-06-09T12:00:30.000Z',
+          updatedAt: '2026-06-09T12:00:31.000Z',
+          errorCode: null,
+          errorMessage: null,
+        },
+        {
+          callId: '221931',
+          crmActivityId: 'A2',
+          startedAt: '2026-06-09T10:10:00.000Z',
+          managerId: '8',
+          managerName: 'Илья',
+          callType: 'incoming',
+          callTypeLabel: 'Входящий',
+          durationSeconds: 61,
+          dealId: '23842',
+          dealSourceId: 'SITE',
+          dealCurrentStageId: 'C10:NEW',
+          dealCurrentStageName: 'Новая',
+          stageAtCallId: 'C10:NEW',
+          stageAtCallName: 'Новая',
+          analysisStatus: 'not_analyzed',
+          score: null,
+          promptVersion: null,
+          model: null,
+          analyzedAt: null,
+          updatedAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+    })
+    vi.mocked(apiClient.getCallAnalysis)
+      .mockResolvedValueOnce({
+        status: 'ready',
+        result: {
+          callId: '221930',
+          runId: 'run-1',
+          status: 'ready',
+          transcriptByRoles: [
+            {
+              role: 'manager',
+              start: 8,
+              end: 16,
+              text: 'Первый звонок не должен остаться на экране.',
+            },
+          ],
+          fullTranscriptText: 'Менеджер: Первый звонок не должен остаться на экране.',
+          aiEvaluation: {
+            score: 88,
+            callClassification: {
+              type: 'qualification',
+              confidence: 0.95,
+              reason: 'Менеджер проводит квалификацию.',
+            },
+            rubricApplicability: {
+              level: 'high',
+              reason: 'Полный квалификационный звонок.',
+            },
+            communicationScore: {
+              score: 92,
+              rationale: 'Менеджер слушает клиента.',
+              evidenceQuotes: ['Первый звонок не должен остаться на экране.'],
+            },
+            narrativeScore: {
+              score: 84,
+              rationale: 'Нарратив раскрыт частично.',
+              evidenceQuotes: ['Первый звонок не должен остаться на экране.'],
+              applicableNarratives: ['Квалификация'],
+              missedNarratives: [],
+            },
+            callTypeInterpretation: 'Исходящий звонок больше 30 секунд.',
+            summary: 'Первый анализ',
+            strengths: [],
+            risks: [],
+            nextStepQuality: 'ok',
+            suggestedNextStep: 'Назначить дату следующего контакта.',
+            emotionalBackground: {
+              managerTone: 'спокойный',
+              clientTone: 'нейтральный',
+              frictionSignals: [],
+              confidence: 0.8,
+            },
+            evidenceQuotes: ['Первый звонок не должен остаться на экране.'],
+            confidence: 0.86,
+          },
+          rawAiEvaluation: { score: 88 },
+          attributes: {},
+          model: 'google/gemini-3.5-flash',
+          promptVersion: 'calls-v2',
+          analyzedAt: '2026-06-09T12:00:30.000Z',
+          updatedAt: '2026-06-09T12:00:31.000Z',
+        },
+      })
+      .mockReturnValueOnce(pendingSecondAnalysis.promise)
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^анализ звонков$/i }))
+    expect((await screen.findAllByText(/Первый звонок не должен остаться/i)).length).toBeGreaterThan(0)
+
+    await userEvent.click(await screen.findByText(/ID 221931/i))
+
+    expect(screen.queryAllByText(/Первый звонок не должен остаться/i)).toHaveLength(0)
+    expect(screen.getByText(/Загружаю оценку/i)).toBeInTheDocument()
+  })
+
+  it('applies call analysis filters only after the apply button is pressed', async () => {
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^анализ звонков$/i }))
+    await screen.findAllByText(/ID 221930/i)
+
+    vi.mocked(apiClient.getCallAnalysisQueue).mockClear()
+
+    const dateFromInput = screen.getByLabelText(/^Дата с$/i)
+    fireEvent.change(dateFromInput, { target: { value: '2026-06-08' } })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(apiClient.getCallAnalysisQueue).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /^Применить$/i }))
+    await waitFor(() => {
+      expect(apiClient.getCallAnalysisQueue).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('allows rerunning call analysis only when the selected call has an error', async () => {
+    vi.mocked(apiClient.getCallAnalysisQueue).mockResolvedValueOnce({
+      range: { from: '2026-06-09T00:00:00.000+03:00', to: '2026-06-09T23:59:59.999+03:00' },
+      totals: {
+        total: 1,
+        notAnalyzed: 0,
+        analyzing: 0,
+        ready: 0,
+        error: 1,
+        averageScore: null,
+      },
+      items: [
+        {
+          callId: '221736',
+          crmActivityId: 'activity-221736',
+          startedAt: '2026-06-09T13:00:00.000+03:00',
+          managerId: '7',
+          managerName: 'Мария',
+          callType: 'outgoing_over_30',
+          callTypeLabel: 'Исх >30',
+          durationSeconds: 301,
+          dealId: '23841',
+          dealSourceId: 'LEADGEN_US',
+          dealCurrentStageId: 'C10:NEW',
+          dealCurrentStageName: 'Новая',
+          stageAtCallId: 'C10:QUALIFICATION',
+          stageAtCallName: 'Квалификация',
+          analysisStatus: 'error',
+          score: null,
+          promptVersion: null,
+          model: null,
+          analyzedAt: null,
+          updatedAt: '2026-06-09T13:05:00.000Z',
+          errorCode: 'AI_TIMEOUT',
+          errorMessage: 'Модель не ответила за отведенное время.',
+        },
+      ],
+    })
+    vi.mocked(apiClient.getCallAnalysis).mockRejectedValueOnce(Object.assign(new Error('not found'), { status: 404 }))
+
+    render(<ProtoApp />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^анализ звонков$/i }))
+
+    const retryButton = await screen.findByRole('button', { name: /^повторить после ошибки$/i })
+    expect(retryButton).toBeEnabled()
+
+    await userEvent.click(retryButton)
+
+    await waitFor(() => {
+      expect(apiClient.analyzeCall).toHaveBeenCalledWith('221736', 'attraction')
+    })
   })
 
   it('navigates from ontology report bindings to the owning dashboard scene', async () => {

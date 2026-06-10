@@ -4,6 +4,24 @@ import type {
   ActivitiesWorkloadReport,
   ActivitiesWorkloadReportSnapshot,
   AttractionOntologyResponse,
+  CallAnalysisAiEvaluation,
+  CallAnalysisClassification,
+  CallAnalysisClassificationType,
+  CallAnalysisEmotionalBackground,
+  CallAnalysisLookupResponse,
+  CallAnalysisNarrativeScore,
+  CallAnalysisNextStepQuality,
+  CallAnalysisQueueCallType,
+  CallAnalysisQueueItem,
+  CallAnalysisQueueResponse,
+  CallAnalysisQueueStatus,
+  CallAnalysisResult,
+  CallAnalysisRubricApplicability,
+  CallAnalysisRubricApplicabilityLevel,
+  CallAnalysisRunResponse,
+  CallAnalysisScoreBlock,
+  CallAnalysisTranscriptRole,
+  CallAnalysisTranscriptSegment,
   CallsWorkloadReport,
   CallsWorkloadReportSnapshot,
   CohortConversionReport,
@@ -602,6 +620,272 @@ function normalizeRange(value: unknown): ReportRange {
   return {
     from: asString(data.from),
     to: asString(data.to),
+  }
+}
+
+function normalizeCallAnalysisTranscriptRole(value: unknown): CallAnalysisTranscriptRole {
+  return value === 'manager' || value === 'client' ? value : 'unknown'
+}
+
+function normalizeCallAnalysisNextStepQuality(
+  value: unknown,
+): CallAnalysisNextStepQuality {
+  return value === 'good' ||
+    value === 'ok' ||
+    value === 'weak' ||
+    value === 'missing'
+    ? value
+    : 'unknown'
+}
+
+function normalizeCallAnalysisClassificationType(
+  value: unknown,
+): CallAnalysisClassificationType {
+  return value === 'primary_sales' ||
+    value === 'qualification' ||
+    value === 'follow_up' ||
+    value === 'scheduling' ||
+    value === 'inbound' ||
+    value === 'failed_or_no_conversation'
+    ? value
+    : 'unknown'
+}
+
+function normalizeCallAnalysisRubricApplicabilityLevel(
+  value: unknown,
+): CallAnalysisRubricApplicabilityLevel {
+  return value === 'high' ||
+    value === 'medium' ||
+    value === 'low' ||
+    value === 'none'
+    ? value
+    : 'none'
+}
+
+function normalizeCallAnalysisTranscriptSegment(
+  value: unknown,
+): CallAnalysisTranscriptSegment {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    role: normalizeCallAnalysisTranscriptRole(data.role),
+    start: asNumber(data.start),
+    end: asNumber(data.end),
+    text: asString(data.text),
+  }
+}
+
+function normalizeCallAnalysisEmotionalBackground(
+  value: unknown,
+): CallAnalysisEmotionalBackground {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    managerTone: asString(data.managerTone),
+    clientTone: asString(data.clientTone),
+    frictionSignals: asArray(data.frictionSignals, (signal) => asString(signal)).filter(
+      Boolean,
+    ),
+    confidence: asNumber(data.confidence),
+  }
+}
+
+function normalizeCallAnalysisClassification(
+  value: unknown,
+): CallAnalysisClassification {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    type: normalizeCallAnalysisClassificationType(data.type),
+    confidence: asNumber(data.confidence),
+    reason: asString(data.reason),
+  }
+}
+
+function normalizeCallAnalysisRubricApplicability(
+  value: unknown,
+): CallAnalysisRubricApplicability {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    level: normalizeCallAnalysisRubricApplicabilityLevel(data.level),
+    reason: asString(data.reason),
+  }
+}
+
+function normalizeCallAnalysisScoreBlock(value: unknown): CallAnalysisScoreBlock {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    score: asNumber(data.score),
+    rationale: asString(data.rationale),
+    evidenceQuotes: asArray(data.evidenceQuotes, (quote) => asString(quote)).filter(
+      Boolean,
+    ),
+  }
+}
+
+function normalizeCallAnalysisNarrativeScore(
+  value: unknown,
+): CallAnalysisNarrativeScore {
+  const scoreBlock = normalizeCallAnalysisScoreBlock(value)
+  const data = isRecord(value) ? value : {}
+
+  return {
+    ...scoreBlock,
+    applicableNarratives: asArray(
+      data.applicableNarratives,
+      (narrative) => asString(narrative),
+    ).filter(Boolean),
+    missedNarratives: asArray(
+      data.missedNarratives,
+      (narrative) => asString(narrative),
+    ).filter(Boolean),
+  }
+}
+
+function normalizeCallAnalysisAiEvaluation(value: unknown): CallAnalysisAiEvaluation {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    score: asNumber(data.score),
+    callClassification: normalizeCallAnalysisClassification(data.callClassification),
+    rubricApplicability: normalizeCallAnalysisRubricApplicability(
+      data.rubricApplicability,
+    ),
+    communicationScore: normalizeCallAnalysisScoreBlock(data.communicationScore),
+    narrativeScore: normalizeCallAnalysisNarrativeScore(data.narrativeScore),
+    callTypeInterpretation: asString(data.callTypeInterpretation),
+    summary: asString(data.summary),
+    strengths: asArray(data.strengths, (strength) => asString(strength)).filter(Boolean),
+    risks: asArray(data.risks, (risk) => asString(risk)).filter(Boolean),
+    nextStepQuality: normalizeCallAnalysisNextStepQuality(data.nextStepQuality),
+    suggestedNextStep: asString(data.suggestedNextStep),
+    emotionalBackground: normalizeCallAnalysisEmotionalBackground(
+      data.emotionalBackground,
+    ),
+    evidenceQuotes: asArray(data.evidenceQuotes, (quote) => asString(quote)).filter(
+      Boolean,
+    ),
+    confidence: asNumber(data.confidence),
+  }
+}
+
+function normalizeCallAnalysisResult(value: unknown): CallAnalysisResult {
+  const data = isRecord(value) ? value : {}
+  const attributes = isRecord(data.attributes) ? data.attributes : {}
+  const rawAiEvaluation = isRecord(data.rawAiEvaluation)
+    ? data.rawAiEvaluation
+    : isRecord(data.aiEvaluation)
+      ? data.aiEvaluation
+      : {}
+
+  return {
+    callId: asString(data.callId),
+    runId: asString(data.runId),
+    status: 'ready',
+    transcriptByRoles: asArray(
+      data.transcriptByRoles,
+      normalizeCallAnalysisTranscriptSegment,
+    ),
+    fullTranscriptText: asString(data.fullTranscriptText),
+    aiEvaluation: normalizeCallAnalysisAiEvaluation(data.aiEvaluation),
+    rawAiEvaluation: { ...rawAiEvaluation },
+    attributes: { ...attributes },
+    model: asString(data.model),
+    promptVersion: asString(data.promptVersion),
+    analyzedAt: asString(data.analyzedAt),
+    updatedAt: asString(data.updatedAt),
+  }
+}
+
+function normalizeCallAnalysisRunResponse(value: unknown): CallAnalysisRunResponse {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    status: 'ready',
+    reusedExistingResult: asBoolean(data.reusedExistingResult),
+    result: normalizeCallAnalysisResult(data.result),
+  }
+}
+
+function normalizeCallAnalysisLookupResponse(
+  value: unknown,
+): CallAnalysisLookupResponse {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    status: 'ready',
+    result: normalizeCallAnalysisResult(data.result),
+  }
+}
+
+function normalizeCallAnalysisQueueStatus(value: unknown): CallAnalysisQueueStatus {
+  return value === 'not_analyzed' ||
+    value === 'analyzing' ||
+    value === 'ready' ||
+    value === 'error'
+    ? value
+    : 'not_analyzed'
+}
+
+function normalizeCallAnalysisQueueCallType(value: unknown): CallAnalysisQueueCallType {
+  return value === 'outgoing_over_30' ||
+    value === 'outgoing_under_30' ||
+    value === 'incoming' ||
+    value === 'unknown'
+    ? value
+    : 'unknown'
+}
+
+function normalizeCallAnalysisQueueItem(value: unknown): CallAnalysisQueueItem {
+  const data = isRecord(value) ? value : {}
+
+  return {
+    callId: asString(data.callId),
+    crmActivityId: asNullableString(data.crmActivityId),
+    startedAt: asString(data.startedAt),
+    managerId: asNullableString(data.managerId),
+    managerName: asString(data.managerName, 'Не назначен'),
+    callType: normalizeCallAnalysisQueueCallType(data.callType),
+    callTypeLabel: asString(data.callTypeLabel),
+    durationSeconds: asNumber(data.durationSeconds),
+    dealId: asNullableString(data.dealId),
+    dealSourceId: asNullableString(data.dealSourceId),
+    dealCurrentStageId: asNullableString(data.dealCurrentStageId),
+    dealCurrentStageName: asNullableString(data.dealCurrentStageName),
+    stageAtCallId: asNullableString(data.stageAtCallId),
+    stageAtCallName: asNullableString(data.stageAtCallName),
+    analysisStatus: normalizeCallAnalysisQueueStatus(data.analysisStatus),
+    score: asNullableNumber(data.score),
+    promptVersion: asNullableString(data.promptVersion),
+    model: asNullableString(data.model),
+    analyzedAt: asNullableString(data.analyzedAt),
+    updatedAt: asNullableString(data.updatedAt),
+    errorCode: asNullableString(data.errorCode),
+    errorMessage: asNullableString(data.errorMessage),
+  }
+}
+
+function normalizeCallAnalysisQueueResponse(
+  value: unknown,
+): CallAnalysisQueueResponse {
+  const data = isRecord(value) ? value : {}
+  const totals = isRecord(data.totals) ? data.totals : {}
+
+  return {
+    range: normalizeRange(data.range),
+    totals: {
+      total: asNumber(totals.total),
+      notAnalyzed: asNumber(totals.notAnalyzed),
+      analyzing: asNumber(totals.analyzing),
+      ready: asNumber(totals.ready),
+      error: asNumber(totals.error),
+      averageScore: asNullableNumber(totals.averageScore),
+    },
+    items: asArray(data.items, normalizeCallAnalysisQueueItem).filter(
+      (item) => item.callId,
+    ),
   }
 }
 
@@ -3090,6 +3374,54 @@ export const apiClient = {
       ),
       { method: 'GET' },
       normalizeCallsWorkloadReport,
+    )
+  },
+  async analyzeCall(callId: string, moduleId = 'attraction') {
+    return requestJson(
+      buildUrl(
+        buildModulePath(
+          moduleId,
+          `/api/calls/${encodeURIComponent(callId)}/analyze`,
+        ),
+      ),
+      { method: 'POST' },
+      normalizeCallAnalysisRunResponse,
+    )
+  },
+  async getCallAnalysis(callId: string, moduleId = 'attraction') {
+    return requestJson(
+      buildUrl(
+        buildModulePath(
+          moduleId,
+          `/api/calls/${encodeURIComponent(callId)}/analysis`,
+        ),
+      ),
+      { method: 'GET' },
+      normalizeCallAnalysisLookupResponse,
+    )
+  },
+  async getCallAnalysisQueue(
+    params: {
+      from: string
+      to: string
+      managerIds?: string[]
+      sourceKeys?: string[]
+      callTypes?: CallAnalysisQueueCallType[]
+      analysisStatuses?: CallAnalysisQueueStatus[]
+    },
+    moduleId = 'attraction',
+  ) {
+    return requestJson(
+      buildUrl(buildModulePath(moduleId, '/api/calls/analysis-queue'), {
+        from: params.from,
+        to: params.to,
+        managerIds: params.managerIds,
+        sourceKeys: params.sourceKeys,
+        callTypes: params.callTypes,
+        analysisStatuses: params.analysisStatuses,
+      }),
+      { method: 'GET' },
+      normalizeCallAnalysisQueueResponse,
     )
   },
   async getSalesPlan(range: ReportRange) {

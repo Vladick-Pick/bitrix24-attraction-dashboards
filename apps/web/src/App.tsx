@@ -128,12 +128,7 @@ function App() {
         if (!cancelled) {
           setAuthStatus('unauthenticated')
           setCurrentUser(null)
-          setAuthError(
-            getErrorStatus(error) === 401 &&
-              getErrorMessage(error) !== 'SESSION_EXPIRED'
-              ? null
-              : resolveAuthError(error),
-          )
+          setAuthError(getErrorStatus(error) === 401 ? null : resolveAuthError(error))
         }
       })
 

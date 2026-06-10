@@ -41,6 +41,7 @@ import type {
   UnitEconomicsCostRulesInput,
 } from '@/lib/dashboard-types'
 import { cn } from '@/lib/utils'
+import { CallAnalysisWorkspace } from '@/proto/call-analysis-workspace'
 import {
   ActivitiesScene,
   createDefaultFilters,
@@ -89,7 +90,7 @@ type LeadgenWorkloadData = {
   scene: ActivitiesCallsSceneData
 }
 
-type ProtoRoute = 'dashboard' | 'account'
+type ProtoRoute = 'dashboard' | 'calls' | 'account'
 type SceneLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 type AttractionSceneLoadKey =
   | 'sales'
@@ -417,7 +418,15 @@ function readProtoRoute(): ProtoRoute {
     return 'dashboard'
   }
 
-  return window.location.pathname === '/account' ? 'account' : 'dashboard'
+  if (window.location.pathname === '/account') {
+    return 'account'
+  }
+
+  if (window.location.pathname === '/calls') {
+    return 'calls'
+  }
+
+  return 'dashboard'
 }
 
 function writeProtoRoute(route: ProtoRoute) {
@@ -425,7 +434,8 @@ function writeProtoRoute(route: ProtoRoute) {
     return
   }
 
-  const nextPath = route === 'account' ? '/account' : '/'
+  const nextPath =
+    route === 'account' ? '/account' : route === 'calls' ? '/calls' : '/'
   if (window.location.pathname !== nextPath) {
     window.history.pushState({}, '', nextPath)
   }
@@ -1702,6 +1712,14 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   function navigateToDashboard() {
     writeProtoRoute('dashboard')
     setRoute('dashboard')
+  }
+
+  function navigateToCalls() {
+    writeProtoRoute('calls')
+    setRoute('calls')
+    setCommentsOpen(false)
+    setCommentMode(false)
+    setDraftComment(null)
   }
 
   const handleSceneNavigate = useCallback((sceneId: string, blockId?: string) => {
@@ -3600,10 +3618,16 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 Модуль «{activeModule?.name ?? 'Привлечение'}»
               </p>
               <h1 className="mt-1 text-3xl font-bold text-slate-900">
-                {isLeadgenModule ? 'Лидогенерация' : 'PDCA-дашборд метрик'}
+                {route === 'calls'
+                  ? 'Анализ звонков'
+                  : isLeadgenModule
+                    ? 'Лидогенерация'
+                    : 'PDCA-дашборд метрик'}
               </h1>
               <p className="mt-1 text-sm text-slate-600">
-                {isLeadgenModule
+                {route === 'calls'
+                  ? 'Очередь звонков, ручной запуск анализа, transcript по ролям и оценка ИИ.'
+                  : isLeadgenModule
                   ? 'Лидген УС: стадии, источники, UTM и менеджеры.'
                   : 'Контур по продажам, делам, звонкам и когортам на базе локального Bitrix24 snapshot.'}
               </p>
@@ -3653,6 +3677,22 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
           <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-3">
             <button
+              className={cn('tab-chip', route === 'dashboard' && 'tab-chip-active')}
+              type="button"
+              onClick={navigateToDashboard}
+              aria-pressed={route === 'dashboard'}
+            >
+              Аналитика
+            </button>
+            <button
+              className={cn('tab-chip', route === 'calls' && 'tab-chip-active')}
+              type="button"
+              onClick={navigateToCalls}
+              aria-pressed={route === 'calls'}
+            >
+              Анализ звонков
+            </button>
+            <button
               className="btn btn-ghost"
               onClick={() => void handleRefreshData()}
               disabled={syncStatus === 'syncing'}
@@ -3678,6 +3718,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             </button>
           </div>
 
+          {route === 'dashboard' ? (
           <div className="sync-strip mt-3" aria-live="polite">
             <div className="sync-strip-grid">
               <div>
@@ -3816,8 +3857,17 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               </div>
             ) : null}
           </div>
+          ) : null}
         </header>
 
+        {route === 'calls' ? (
+          <CallAnalysisWorkspace
+            moduleId={activeModuleId}
+            managerOptions={availableManagerOptions}
+            sourceOptions={availableSourceOptions}
+          />
+        ) : (
+          <>
         <section
           className="panel p-5"
           data-comment-block-id="filters-panel"
@@ -4059,6 +4109,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
               onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
             />
+          </>
+        )}
           </>
         )}
 

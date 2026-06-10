@@ -137,6 +137,30 @@ export interface ActivityBindingRow {
   ownerId: string;
 }
 
+export interface CallRecordingActivityFileRow {
+  id?: string | number;
+  ID?: string | number;
+  name?: string | null;
+  NAME?: string | null;
+  url?: string | null;
+}
+
+export interface CallRecordingActivityRow {
+  ID: string;
+  OWNER_TYPE_ID: string | null;
+  OWNER_ID: string | null;
+  PROVIDER_ID: string | null;
+  FILES?: CallRecordingActivityFileRow[] | null;
+  STORAGE_ELEMENT_IDS?: Array<string | number> | null;
+}
+
+export interface DiskFileRow {
+  ID: string;
+  DOWNLOAD_URL: string | null;
+  NAME?: string | null;
+  SIZE?: string | number | null;
+}
+
 export interface CallRow {
   ID: string;
   CRM_ACTIVITY_ID: string | null;
@@ -1799,6 +1823,48 @@ export class BitrixClient {
     }
 
     return rows;
+  }
+
+  async listCallRecordingActivitiesByIds(activityIds: string[]) {
+    if (activityIds.length === 0) {
+      return [];
+    }
+
+    return this.collectChunked(
+      activityIds,
+      async (chunk) => {
+        const response = await this.call<CallRecordingActivityRow[]>(
+          "crm.activity.list",
+          {
+            order: {
+              ID: "ASC" as const
+            },
+            filter: {
+              "@ID": toStringArray(chunk)
+            },
+            select: [
+              "ID",
+              "OWNER_TYPE_ID",
+              "OWNER_ID",
+              "PROVIDER_ID",
+              "FILES",
+              "STORAGE_ELEMENT_IDS"
+            ],
+            start: 0
+          }
+        );
+
+        return this.extractItems(response);
+      }
+    );
+  }
+
+  async getDiskFile(fileId: string | number) {
+    const response = await this.call<DiskFileRow>("disk.file.get", {
+      id: String(fileId)
+    });
+
+    return response.result ?? null;
   }
 
   async listCalls(input: {

@@ -290,6 +290,26 @@ function createEmptyCallsWorkloadReport(
   };
 }
 
+function createEmptyCallAnalysisQueue(
+  range = {
+    from: "2026-06-04T00:00:00.000+03:00",
+    to: "2026-06-04T20:00:00.000+03:00"
+  }
+) {
+  return {
+    range,
+    totals: {
+      total: 0,
+      notAnalyzed: 0,
+      analyzing: 0,
+      ready: 0,
+      error: 0,
+      averageScore: null
+    },
+    items: []
+  };
+}
+
 function createEmptySalesPlanQuarter(input: { year: number; quarter: number }) {
   return {
     year: input.year,
@@ -344,6 +364,13 @@ function createTestApp(
       };
     };
     modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
+    callAnalysis?: {
+      analyzeCall(input: {
+        callId: string;
+        triggerMode?: "manual" | "automatic";
+      }): Promise<unknown>;
+      getCallAnalysisResult?(callId: string): Promise<unknown>;
+    };
     protoComments?: {
       getProtoComments(): Promise<{
         comments: unknown[];
@@ -538,6 +565,21 @@ function createTestApp(
       warnings: [],
       managerRows: [],
       comparisons: []
+    }),
+    getCallAnalysisQueue: async () => ({
+      range: {
+        from: "2026-06-09T00:00:00.000+03:00",
+        to: "2026-06-09T23:59:59.999+03:00"
+      },
+      totals: {
+        total: 0,
+        notAnalyzed: 0,
+        analyzing: 0,
+        ready: 0,
+        error: 0,
+        averageScore: null
+      },
+      items: []
     }),
     getCohortConversionReport: async () => ({
       range: {
@@ -782,12 +824,227 @@ function createTestApp(
             updatedAt: string | null;
           }>;
         };
+        callAnalysis?: {
+          analyzeCall(input: {
+            callId: string;
+            triggerMode?: "manual" | "automatic";
+          }): Promise<unknown>;
+          getCallAnalysisResult?(callId: string): Promise<unknown>;
+        };
       }
     ) => ReturnType<typeof createApp>
   )(service, config);
 }
 
 describe("createApp", () => {
+  it("returns the call analysis queue for the attraction module", async () => {
+    const getCallAnalysisQueue = vi.fn().mockResolvedValue({
+      range: {
+        from: "2026-06-09T00:00:00.000+03:00",
+        to: "2026-06-09T23:59:59.999+03:00"
+      },
+      totals: {
+        total: 1,
+        notAnalyzed: 0,
+        analyzing: 0,
+        ready: 1,
+        error: 0,
+        averageScore: 88
+      },
+      items: [
+        {
+          callId: "221930",
+          crmActivityId: "A1",
+          startedAt: "2026-06-09T08:40:00.000Z",
+          managerId: "7",
+          managerName: "Мария",
+          callType: "outgoing_over_30",
+          callTypeLabel: "Исх >30",
+          durationSeconds: 318,
+          dealId: "23841",
+          dealSourceId: "LEADGEN_US",
+          dealCurrentStageId: "C10:NEW",
+          dealCurrentStageName: "Новая",
+          stageAtCallId: "C10:QUALIFICATION",
+          stageAtCallName: "Квалификация",
+          analysisStatus: "ready",
+          score: 88,
+          promptVersion: "calls-v2",
+          model: "google/gemini-3.5-flash",
+          analyzedAt: "2026-06-09T12:00:30.000Z",
+          updatedAt: "2026-06-09T12:00:31.000Z",
+          errorCode: null,
+          errorMessage: null
+        }
+      ]
+    });
+    const app = createTestApp({
+      getCallAnalysisQueue
+    });
+
+    await request(app)
+      .get(
+        "/api/modules/attraction/calls/analysis-queue?from=2026-06-09T00:00:00.000%2B03:00&to=2026-06-09T23:59:59.999%2B03:00&managerIds=7&sourceKeys=LEADGEN_US&callTypes=outgoing_over_30&analysisStatuses=ready"
+      )
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          totals: {
+            total: 1,
+            ready: 1,
+            averageScore: 88
+          },
+          items: [
+            {
+              callId: "221930",
+              analysisStatus: "ready",
+              score: 88,
+              stageAtCallName: "Квалификация"
+            }
+          ]
+        });
+      });
+
+    expect(getCallAnalysisQueue).toHaveBeenCalledWith({
+      range: {
+        from: "2026-06-09T00:00:00.000+03:00",
+        to: "2026-06-09T23:59:59.999+03:00"
+      },
+      filters: {
+        managerIds: ["7"],
+        sourceKeys: ["LEADGEN_US"]
+      },
+      callTypes: ["outgoing_over_30"],
+      analysisStatuses: ["ready"]
+    });
+  });
+
+  it("runs manual call analysis for a selected attraction call", async () => {
+    const analyzeCall = vi.fn().mockResolvedValue({
+      status: "ready",
+      reusedExistingResult: false,
+      result: {
+        callId: "CALL1",
+        runId: "run-1",
+        status: "ready",
+        transcriptByRoles: [
+          {
+            role: "manager",
+            start: 0,
+            end: 2,
+            text: "Добрый день."
+          }
+        ],
+        fullTranscriptText: "Менеджер: Добрый день.",
+        aiEvaluation: {
+          score: 82,
+          summary: "Есть диагностика."
+        },
+        rawAiEvaluation: {
+          score: 82,
+          summary: "Есть диагностика."
+        },
+        attributes: {
+          dealId: "23841"
+        },
+        model: "google/gemini-2.5-flash",
+        promptVersion: "calls-v1",
+        analyzedAt: "2026-06-09T12:00:30.000Z",
+        updatedAt: "2026-06-09T12:00:31.000Z"
+      }
+    });
+    const app = createTestApp(
+      {},
+      {
+        callAnalysis: {
+          analyzeCall
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/modules/attraction/calls/CALL1/analyze")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          status: "ready",
+          result: {
+            callId: "CALL1",
+            aiEvaluation: {
+              score: 82
+            },
+            rawAiEvaluation: {
+              score: 82
+            }
+          }
+        });
+      });
+
+    expect(analyzeCall).toHaveBeenCalledWith({
+      callId: "CALL1",
+      triggerMode: "manual"
+    });
+  });
+
+  it("returns a saved analysis for a selected attraction call", async () => {
+    const getCallAnalysisResult = vi.fn().mockResolvedValue({
+      callId: "CALL1",
+      runId: "run-1",
+      status: "ready",
+      transcriptByRoles: [
+        {
+          role: "manager",
+          start: 0,
+          end: 2,
+          text: "Добрый день."
+        }
+      ],
+      fullTranscriptText: "Менеджер: Добрый день.",
+      aiEvaluation: {
+        score: 82
+      },
+      rawAiEvaluation: {
+        score: 82
+      },
+      attributes: {
+        dealId: "23841"
+      },
+      model: "google/gemini-2.5-flash",
+      promptVersion: "calls-v1",
+      analyzedAt: "2026-06-09T12:00:30.000Z",
+      updatedAt: "2026-06-09T12:00:31.000Z"
+    });
+    const app = createTestApp(
+      {},
+      {
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          getCallAnalysisResult
+        }
+      }
+    );
+
+    await request(app)
+      .get("/api/modules/attraction/calls/CALL1/analysis")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          status: "ready",
+          result: {
+            callId: "CALL1",
+            aiEvaluation: {
+              score: 82
+            },
+            rawAiEvaluation: {
+              score: 82
+            }
+          }
+        });
+      });
+
+    expect(getCallAnalysisResult).toHaveBeenCalledWith("CALL1");
+  });
+
   it("returns the attraction sync journal without exposing a leadgen sync journal", async () => {
     const attractionRun = {
       id: 41,
@@ -1532,6 +1789,7 @@ describe("createApp", () => {
         return activitiesReport;
       },
       getCallsWorkloadReport: async () => callsReport,
+      getCallAnalysisQueue: async () => createEmptyCallAnalysisQueue(),
       getCohortConversionReport: async () => cohortReport,
       getTocFlowReport: async () => tocReport,
       getAcquisitionOutcomesReport: async () => acquisitionOutcomesReport,
@@ -2448,6 +2706,7 @@ describe("createApp", () => {
         managerRows: [],
         comparisons: []
       }),
+      getCallAnalysisQueue: async () => createEmptyCallAnalysisQueue(),
       getCohortConversionReport: async () => ({
         range: {
           from: "2026-04-01T00:00:00.000Z",
@@ -3032,6 +3291,7 @@ describe("createApp", () => {
         warnings: [],
         managerRows: []
       }),
+      getCallAnalysisQueue: async () => createEmptyCallAnalysisQueue(),
       getCohortConversionReport: async () => ({
         range: {
           from: "2026-04-01T00:00:00.000Z",

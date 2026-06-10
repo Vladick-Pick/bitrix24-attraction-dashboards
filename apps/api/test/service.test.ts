@@ -280,6 +280,194 @@ describe("createReportingService", () => {
     ).toBe("Website");
   });
 
+  it("keeps the call analysis queue scoped to attraction deal calls", async () => {
+    let requestedRunCallIds: string[] = [];
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "ATTR_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:QUALIFICATION",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-06-01T10:00:00.000Z",
+          dateModify: "2026-06-01T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "OTHER_DEAL",
+          leadId: null,
+          categoryId: "99",
+          stageId: "C99:NEW",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-06-01T10:00:00.000Z",
+          dateModify: "2026-06-01T10:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:QUALIFICATION",
+          name: "Квалификация",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getAllStageHistory: async () => [
+        {
+          id: "H1",
+          ownerId: "ATTR_DEAL",
+          typeId: "2",
+          stageId: "C10:QUALIFICATION",
+          categoryId: "10",
+          createdTime: "2026-06-09T08:00:00.000Z"
+        }
+      ],
+      getAllActivities: async () => [
+        {
+          id: "A_ATTR",
+          ownerTypeId: "2",
+          ownerId: "ATTR_DEAL",
+          typeId: "2",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "78",
+          createdTime: "2026-06-09T09:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-06-09T09:00:00.000Z",
+          completed: true,
+          completedTime: "2026-06-09T09:05:00.000Z"
+        },
+        {
+          id: "A_OTHER",
+          ownerTypeId: "2",
+          ownerId: "OTHER_DEAL",
+          typeId: "2",
+          providerId: "VOXIMPLANT_CALL",
+          responsibleId: "78",
+          createdTime: "2026-06-09T09:10:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-06-09T09:10:00.000Z",
+          completed: true,
+          completedTime: "2026-06-09T09:12:00.000Z"
+        }
+      ],
+      getAllCalls: async () => [
+        {
+          id: "CALL_ATTR",
+          crmActivityId: "A_ATTR",
+          portalUserId: "78",
+          callType: "1",
+          callStartDate: "2026-06-09T09:00:00.000Z",
+          callDurationSeconds: 180,
+          crmEntityType: "DEAL",
+          crmEntityId: "ATTR_DEAL",
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_OTHER_CATEGORY",
+          crmActivityId: "A_OTHER",
+          portalUserId: "78",
+          callType: "1",
+          callStartDate: "2026-06-09T09:10:00.000Z",
+          callDurationSeconds: 220,
+          crmEntityType: "DEAL",
+          crmEntityId: "OTHER_DEAL",
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_NO_DEAL",
+          crmActivityId: null,
+          portalUserId: "78",
+          callType: "2",
+          callStartDate: "2026-06-09T09:20:00.000Z",
+          callDurationSeconds: 240,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "200"
+        },
+        {
+          id: "CALL_OUTSIDE_MANAGER",
+          crmActivityId: "A_ATTR",
+          portalUserId: "999",
+          callType: "1",
+          callStartDate: "2026-06-09T09:30:00.000Z",
+          callDurationSeconds: 300,
+          crmEntityType: "DEAL",
+          crmEntityId: "ATTR_DEAL",
+          callFailedCode: "200"
+        }
+      ],
+      getManagerDirectory: async () => [],
+      getCallAnalysisResult: async () => null,
+      getLatestCallAnalysisRuns: async (callIds: string[]) => {
+        requestedRunCallIds = callIds;
+        return [];
+      }
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: repository as never,
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    const queue = await service.getCallAnalysisQueue({
+      range: {
+        from: "2026-06-09T00:00:00.000Z",
+        to: "2026-06-09T23:59:59.999Z"
+      }
+    });
+
+    expect(queue.items.map((item) => item.callId)).toEqual(["CALL_ATTR"]);
+    expect(requestedRunCallIds).toEqual(["CALL_ATTR"]);
+    expect(queue.items[0]).toMatchObject({
+      dealId: "ATTR_DEAL",
+      dealSourceId: "WEB",
+      stageAtCallName: "Квалификация",
+      managerName: "Егоров Андрей",
+      callType: "outgoing_over_30",
+      analysisStatus: "not_analyzed"
+    });
+    expect(queue.totals).toMatchObject({
+      total: 1,
+      notAnalyzed: 1,
+      ready: 0
+    });
+  });
+
   it("counts manager phone calls even when Bitrix attaches the activity to another funnel", async () => {
     const repository = {
       getAllDeals: async () => [

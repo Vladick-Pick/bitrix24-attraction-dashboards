@@ -125,6 +125,21 @@ const envSchema = z
     LEADGEN_DATABASE_URL: optionalTrimmedString(),
     JSON_BODY_LIMIT: z.string().trim().min(1).default("256kb"),
     NODE_ENV: z.string().default("development"),
+    CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60_000),
+    CALL_ANALYSIS_MAX_AUDIO_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(50 * 1024 * 1024),
+    OPENROUTER_API_KEY: optionalTrimmedString(),
+    OPENROUTER_MODEL: z.string().trim().min(1).default("google/gemini-3.5-flash"),
+    OPENROUTER_PROMPT_VERSION: z.string().trim().min(1).default("calls-v2"),
+    OPENROUTER_APP_REFERER: optionalTrimmedString(),
+    OPENROUTER_APP_TITLE: optionalTrimmedString(),
     PAPERCLIP_API_URL: optionalTrimmedString(),
     PAPERCLIP_API_TOKEN: optionalTrimmedString(),
     PAPERCLIP_BOARD_API_TOKEN: optionalTrimmedString(),

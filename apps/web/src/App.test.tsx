@@ -296,6 +296,24 @@ vi.mock('@/lib/api-client', () => ({
       managerRows: [],
       comparisons: [],
     })),
+    getCallAnalysisQueue: vi.fn(async () => ({
+      range: { from: '2026-06-09T00:00:00.000+03:00', to: '2026-06-09T23:59:59.999+03:00' },
+      totals: {
+        total: 0,
+        notAnalyzed: 0,
+        analyzing: 0,
+        ready: 0,
+        error: 0,
+        averageScore: null,
+      },
+      items: [],
+    })),
+    getCallAnalysis: vi.fn(async () => {
+      throw new Error('CALL_ANALYSIS_NOT_FOUND')
+    }),
+    analyzeCall: vi.fn(async () => {
+      throw new Error('CALL_ANALYSIS_NOT_CONFIGURED')
+    }),
     getAcquisitionOutcomesReport: vi.fn(async () => ({
       range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
       totalNewDeals: 0,
@@ -1036,6 +1054,19 @@ describe('App', () => {
       await screen.findByRole('heading', { name: /вход в дашборд/i }),
     ).toBeInTheDocument()
     expect(apiClient.getDashboard).not.toHaveBeenCalled()
+  })
+
+  it('does not show an expired-session warning before the first login attempt', async () => {
+    vi.mocked(apiClient.getCurrentUser).mockRejectedValueOnce(
+      Object.assign(new Error('SESSION_EXPIRED'), { status: 401 }),
+    )
+
+    render(<App />)
+
+    expect(
+      await screen.findByRole('heading', { name: /вход в дашборд/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/сессия истекла/i)).not.toBeInTheDocument()
   })
 
   it('keeps the login shell when the auth probe is unavailable', async () => {

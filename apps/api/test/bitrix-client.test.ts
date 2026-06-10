@@ -535,6 +535,110 @@ describe("BitrixClient pagination", () => {
     });
   });
 
+  it("fetches call recording activity files without constraining activity owner type", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createResponse({
+        result: [
+          {
+            ID: "508492",
+            OWNER_TYPE_ID: "3",
+            OWNER_ID: "36536",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            FILES: [
+              {
+                id: 338028,
+                name: "record.mp3"
+              }
+            ],
+            STORAGE_ELEMENT_IDS: ["338028"]
+          }
+        ]
+      })
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.listCallRecordingActivitiesByIds(["508492"])
+    ).resolves.toEqual([
+      {
+        ID: "508492",
+        OWNER_TYPE_ID: "3",
+        OWNER_ID: "36536",
+        PROVIDER_ID: "VOXIMPLANT_CALL",
+        FILES: [
+          {
+            id: 338028,
+            name: "record.mp3"
+          }
+        ],
+        STORAGE_ELEMENT_IDS: ["338028"]
+      }
+    ]);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      order: {
+        ID: "ASC"
+      },
+      filter: {
+        "@ID": ["508492"]
+      },
+      select: [
+        "ID",
+        "OWNER_TYPE_ID",
+        "OWNER_ID",
+        "PROVIDER_ID",
+        "FILES",
+        "STORAGE_ELEMENT_IDS"
+      ],
+      start: 0
+    });
+  });
+
+  it("fetches Bitrix Disk file download URLs for call recordings", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createResponse({
+        result: {
+          ID: "338028",
+          DOWNLOAD_URL: "https://download.example/record.mp3",
+          NAME: "record.mp3",
+          SIZE: 884736
+        }
+      })
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(client.getDiskFile("338028")).resolves.toEqual({
+      ID: "338028",
+      DOWNLOAD_URL: "https://download.example/record.mp3",
+      NAME: "record.mp3",
+      SIZE: 884736
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      id: "338028"
+    });
+  });
+
   it("discovers and loads conversion event smart-process visits without returning raw titles", async () => {
     const fetchMock = vi
       .fn()

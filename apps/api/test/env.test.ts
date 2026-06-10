@@ -9,6 +9,25 @@ import { readEnv } from "../src/config/env";
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
 describe("readEnv", () => {
+  it("documents call analysis OpenRouter settings in the example env file", () => {
+    const envExample = readFileSync(
+      resolve(TEST_DIR, "../../../.env.example"),
+      "utf8"
+    );
+
+    for (const name of [
+      "CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS",
+      "CALL_ANALYSIS_MAX_AUDIO_BYTES",
+      "OPENROUTER_API_KEY",
+      "OPENROUTER_MODEL",
+      "OPENROUTER_PROMPT_VERSION",
+      "OPENROUTER_APP_REFERER",
+      "OPENROUTER_APP_TITLE"
+    ]) {
+      expect(envExample).toContain(`${name}=`);
+    }
+  });
+
   it("rejects unsafe Bitrix custom field overrides instead of trusting arbitrary UF fields", () => {
     expect(() =>
       readEnv({
@@ -52,6 +71,24 @@ describe("readEnv", () => {
 
   it("keeps Bitrix disabled when webhook settings are absent", () => {
     expect(readEnv({}).bitrixEnabled).toBe(false);
+  });
+
+  it("exposes safe defaults and overrides for call analysis recording downloads", () => {
+    expect(readEnv({})).toMatchObject({
+      CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: 60_000,
+      CALL_ANALYSIS_MAX_AUDIO_BYTES: 50 * 1024 * 1024,
+      OPENROUTER_MODEL: "google/gemini-3.5-flash"
+    });
+
+    expect(
+      readEnv({
+        CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: "15000",
+        CALL_ANALYSIS_MAX_AUDIO_BYTES: String(12 * 1024 * 1024)
+      })
+    ).toMatchObject({
+      CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: 15_000,
+      CALL_ANALYSIS_MAX_AUDIO_BYTES: 12 * 1024 * 1024
+    });
   });
 
   it("configures hourly attraction auto sync from production defaults and explicit overrides", () => {

@@ -163,6 +163,163 @@ export interface DealCallSummary {
   connectedOverThirtySeconds: number
 }
 
+export type CallAnalysisRunStatus = 'queued' | 'analyzing' | 'ready' | 'error'
+
+export type CallAnalysisTranscriptRole = 'manager' | 'client' | 'unknown'
+
+export interface CallAnalysisTranscriptSegment {
+  role: CallAnalysisTranscriptRole
+  start: number
+  end: number
+  text: string
+}
+
+export type CallAnalysisNextStepQuality =
+  | 'good'
+  | 'ok'
+  | 'weak'
+  | 'missing'
+  | 'unknown'
+
+export interface CallAnalysisEmotionalBackground {
+  managerTone: string
+  clientTone: string
+  frictionSignals: string[]
+  confidence: number
+}
+
+export type CallAnalysisClassificationType =
+  | 'primary_sales'
+  | 'qualification'
+  | 'follow_up'
+  | 'scheduling'
+  | 'inbound'
+  | 'failed_or_no_conversation'
+  | 'unknown'
+
+export interface CallAnalysisClassification {
+  type: CallAnalysisClassificationType
+  confidence: number
+  reason: string
+}
+
+export type CallAnalysisRubricApplicabilityLevel =
+  | 'high'
+  | 'medium'
+  | 'low'
+  | 'none'
+
+export interface CallAnalysisRubricApplicability {
+  level: CallAnalysisRubricApplicabilityLevel
+  reason: string
+}
+
+export interface CallAnalysisScoreBlock {
+  score: number
+  rationale: string
+  evidenceQuotes: string[]
+}
+
+export interface CallAnalysisNarrativeScore extends CallAnalysisScoreBlock {
+  applicableNarratives: string[]
+  missedNarratives: string[]
+}
+
+export interface CallAnalysisAiEvaluation {
+  score: number
+  callClassification: CallAnalysisClassification
+  rubricApplicability: CallAnalysisRubricApplicability
+  communicationScore: CallAnalysisScoreBlock
+  narrativeScore: CallAnalysisNarrativeScore
+  callTypeInterpretation: string
+  summary: string
+  strengths: string[]
+  risks: string[]
+  nextStepQuality: CallAnalysisNextStepQuality
+  suggestedNextStep: string
+  emotionalBackground: CallAnalysisEmotionalBackground
+  evidenceQuotes: string[]
+  confidence: number
+}
+
+export interface CallAnalysisResult {
+  callId: string
+  runId: string
+  status: Extract<CallAnalysisRunStatus, 'ready'>
+  transcriptByRoles: CallAnalysisTranscriptSegment[]
+  fullTranscriptText: string
+  aiEvaluation: CallAnalysisAiEvaluation
+  rawAiEvaluation: Record<string, unknown>
+  attributes: Record<string, unknown>
+  model: string
+  promptVersion: string
+  analyzedAt: string
+  updatedAt: string
+}
+
+export interface CallAnalysisRunResponse {
+  status: Extract<CallAnalysisRunStatus, 'ready'>
+  reusedExistingResult: boolean
+  result: CallAnalysisResult
+}
+
+export interface CallAnalysisLookupResponse {
+  status: Extract<CallAnalysisRunStatus, 'ready'>
+  result: CallAnalysisResult
+}
+
+export type CallAnalysisQueueStatus =
+  | 'not_analyzed'
+  | 'analyzing'
+  | 'ready'
+  | 'error'
+
+export type CallAnalysisQueueCallType =
+  | 'outgoing_over_30'
+  | 'outgoing_under_30'
+  | 'incoming'
+  | 'unknown'
+
+export interface CallAnalysisQueueItem {
+  callId: string
+  crmActivityId: string | null
+  startedAt: string
+  managerId: string | null
+  managerName: string
+  callType: CallAnalysisQueueCallType
+  callTypeLabel: string
+  durationSeconds: number
+  dealId: string | null
+  dealSourceId: string | null
+  dealCurrentStageId: string | null
+  dealCurrentStageName: string | null
+  stageAtCallId: string | null
+  stageAtCallName: string | null
+  analysisStatus: CallAnalysisQueueStatus
+  score: number | null
+  promptVersion: string | null
+  model: string | null
+  analyzedAt: string | null
+  updatedAt: string | null
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+export interface CallAnalysisQueueTotals {
+  total: number
+  notAnalyzed: number
+  analyzing: number
+  ready: number
+  error: number
+  averageScore: number | null
+}
+
+export interface CallAnalysisQueueResponse {
+  range: ReportRange
+  totals: CallAnalysisQueueTotals
+  items: CallAnalysisQueueItem[]
+}
+
 export interface DealTaskSummary {
   created: number
   closed: number

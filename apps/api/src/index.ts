@@ -6,6 +6,11 @@ import { createCallAnalysisService } from "./server/call-analysis-service.js";
 import { createLeadgenService } from "./server/leadgen-service.js";
 import { OpenRouterCallAnalysisProvider } from "./server/openrouter-call-analysis.js";
 import { PaperclipClient } from "./server/paperclip-client.js";
+import type {
+  PlatformCommentRepository,
+  ProtoCommentRepository,
+  SyncRunRepository
+} from "./server/repository-roles.js";
 import { createSqliteRepository } from "./server/sqlite-repository.js";
 import { createReportingService } from "./server/service.js";
 import { TelegramBotClient } from "./server/telegram-client.js";
@@ -31,8 +36,12 @@ const repositories = new Set([
   attractionRepository,
   leadgenRepository
 ]);
+const platformComments: PlatformCommentRepository = platformRepository;
+const protoComments: ProtoCommentRepository = platformRepository;
+const attractionSyncRuns: SyncRunRepository = attractionRepository;
+const leadgenSyncRuns: SyncRunRepository = leadgenRepository;
 const startupRecoveredAt = new Date().toISOString();
-for (const repository of [attractionRepository, leadgenRepository]) {
+for (const repository of [attractionSyncRuns, leadgenSyncRuns]) {
   await repository
     .recoverStaleSyncRuns({
       staleBefore: startupRecoveredAt,
@@ -200,9 +209,9 @@ const app = createApp(service, {
   ...(env.API_AUTH_TOKEN ? { apiAuthToken: env.API_AUTH_TOKEN } : {}),
   ...(auth ? { auth } : {}),
   ...(authStore ? { authStore } : {}),
-  comments: platformRepository,
+  comments: platformComments,
   ...(paperclip ? { paperclip } : {}),
-  protoComments: platformRepository,
+  protoComments,
   ...(callAnalysis ? { callAnalysis } : {}),
   modules: {
     attraction: service,

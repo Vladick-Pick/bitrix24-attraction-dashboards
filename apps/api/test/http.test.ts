@@ -6,6 +6,7 @@ import type {
   CohortConversionReport,
   ConversionEventsReport,
   DashboardData,
+  LeadgenFunnelReport,
   ManagerActionOutcomeReport,
   RevenueVelocityReport,
   SalesPlanData,
@@ -173,6 +174,25 @@ function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
     },
     rows: [],
     formulaTooltips: [],
+    warnings: []
+  };
+}
+
+function createEmptyLeadgenFunnelReport(): LeadgenFunnelReport {
+  return {
+    range: {
+      from: "2026-05-01T00:00:00.000Z",
+      to: "2026-05-31T23:59:59.999Z"
+    },
+    totalDeals: 0,
+    createdDeals: 0,
+    activeDeals: 0,
+    closedDeals: 0,
+    stageRows: [],
+    sourceRows: [],
+    utmRows: [],
+    managerRows: [],
+    reasonRows: [],
     warnings: []
   };
 }
@@ -837,6 +857,89 @@ function createTestApp(
 }
 
 describe("createApp", () => {
+  it("does not serve leadgen reports from the attraction service when the leadgen module is not registered", async () => {
+    const getLeadgenFunnelReport = vi
+      .fn()
+      .mockResolvedValue(createEmptyLeadgenFunnelReport());
+    const app = createTestApp({ getLeadgenFunnelReport });
+
+    await request(app)
+      .get("/api/modules/leadgen/reports/funnel")
+      .expect(404)
+      .expect(({ body }) => {
+        expect(body.code).toBe("NOT_FOUND");
+      });
+
+    expect(getLeadgenFunnelReport).not.toHaveBeenCalled();
+  });
+
+  it("allows later module report routes to handle non-leadgen module ids", async () => {
+    const app = createTestApp(
+      {},
+      {
+        modules: {
+          leadgen: {
+            getLeadgenFunnelReport: async () => createEmptyLeadgenFunnelReport()
+          }
+        }
+      }
+    );
+    app.get("/api/modules/:moduleId/reports/funnel", (request, response) => {
+      if (request.params.moduleId !== "onboarding") {
+        response.status(404).json({ code: "NOT_FOUND" });
+        return;
+      }
+
+      response.json({ moduleId: request.params.moduleId });
+    });
+
+    await request(app)
+      .get("/api/modules/onboarding/reports/funnel")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.moduleId).toBe("onboarding");
+      });
+  });
+
+  it("allows later module ontology routes to handle non-attraction module ids", async () => {
+    const app = createTestApp();
+    app.get("/api/modules/:moduleId/ontology", (request, response) => {
+      if (request.params.moduleId !== "onboarding") {
+        response.status(404).json({ code: "NOT_FOUND" });
+        return;
+      }
+
+      response.json({ moduleKey: request.params.moduleId });
+    });
+
+    await request(app)
+      .get("/api/modules/onboarding/ontology")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.moduleKey).toBe("onboarding");
+      });
+  });
+
+  it("allows later module call routes to handle non-attraction module ids", async () => {
+    const app = createTestApp();
+    app.get("/api/modules/:moduleId/calls/analysis-queue", (request, response) => {
+      if (request.params.moduleId !== "onboarding") {
+        response.status(404).json({ code: "NOT_FOUND" });
+        return;
+      }
+
+      response.json({ moduleId: request.params.moduleId, items: [] });
+    });
+
+    await request(app)
+      .get("/api/modules/onboarding/calls/analysis-queue")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.moduleId).toBe("onboarding");
+        expect(body.items).toEqual([]);
+      });
+  });
+
   it("returns the call analysis queue for the attraction module", async () => {
     const getCallAnalysisQueue = vi.fn().mockResolvedValue({
       range: {

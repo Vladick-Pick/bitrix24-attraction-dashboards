@@ -2,6 +2,9 @@
 
 Each business module must have a module ontology before Paperclip agents or dashboard code are expected to work reliably.
 
+For cross-module relationships and the shared/platform contract, see
+[`CONTEXT-MAP.md`](../../CONTEXT-MAP.md).
+
 Module ontology is not a narrative description. It is the operating contract for:
 
 - what entities exist;

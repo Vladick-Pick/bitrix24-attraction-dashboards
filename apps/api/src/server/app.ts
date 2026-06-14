@@ -65,6 +65,10 @@ import type {
   ProtoCommentStore
 } from "./sqlite-repository.js";
 import type {
+  PlatformCommentRepository,
+  ProtoCommentRepository
+} from "./repository-roles.js";
+import type {
   PaperclipIssueClient,
   PaperclipIssueComment
 } from "./paperclip-client.js";
@@ -209,41 +213,6 @@ interface ModuleService {
   }): Promise<ManualSyncSummary>;
 }
 
-interface ProtoCommentsStore {
-  getProtoComments(): Promise<ProtoCommentStore>;
-  replaceProtoComments(input: ProtoCommentStore): Promise<ProtoCommentStore>;
-}
-
-interface DashboardCommentsStore {
-  getDashboardComments(moduleId: string): Promise<{
-    comments: DashboardCommentRecord[];
-    updatedAt: string | null;
-  }>;
-  getDashboardCommentById(id: string): Promise<DashboardCommentRecord | null>;
-  createDashboardComment(input: DashboardCommentRecord): Promise<DashboardCommentRecord>;
-  updateDashboardComment(input: {
-    id: string;
-    text?: string;
-    context?: DashboardCommentContext;
-    updatedAt: string;
-  }): Promise<DashboardCommentRecord | null>;
-  archiveDashboardComment(input: {
-    id: string;
-    archivedAt: string;
-    updatedAt: string;
-  }): Promise<DashboardCommentRecord | null>;
-  updateDashboardCommentPaperclip(input: {
-    id: string;
-    paperclipIssueId?: string | null;
-    paperclipIssueIdentifier?: string | null;
-    paperclipStatus: PaperclipCommentStatus;
-    paperclipSyncStatus: "queued" | "syncing" | "sent" | "failed";
-    paperclipError?: string | null;
-    paperclipLastSyncedAt?: string | null;
-    incrementRetryCount?: boolean;
-  }): Promise<DashboardCommentRecord | null>;
-}
-
 interface CallAnalysisRunner {
   analyzeCall(input: {
     callId: string;
@@ -281,9 +250,9 @@ interface AppConfig {
   apiAuthToken?: string;
   auth?: PasswordAuthService;
   authStore?: SqliteAuthStore;
-  comments?: DashboardCommentsStore;
+  comments?: PlatformCommentRepository;
   paperclip?: PaperclipIssueClient;
-  protoComments?: ProtoCommentsStore;
+  protoComments?: ProtoCommentRepository;
   jsonBodyLimit?: string;
   trustProxy?: string | boolean | number;
   webStaticDir?: string;

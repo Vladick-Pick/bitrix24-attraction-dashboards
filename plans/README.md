@@ -13,7 +13,7 @@ try to fix every architectural issue found in the deep review.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | [001](./001-record-product-split-decision.md) | Record the product split decision | P1 | S | - | DONE |
-| [002](./002-split-sqlite-repository-roles.md) | Split the SQLite repository interface by role | P1 | M | 001 | TODO |
+| [002](./002-split-sqlite-repository-roles.md) | Split the SQLite repository interface by role | P1 | M | 001 | DONE |
 | [003](./003-extract-platform-and-module-route-registrars.md) | Extract platform and module route registrars | P1 | L | 001, 002 | TODO |
 | [004](./004-define-module-capability-manifest-and-agent-data-boundary.md) | Define module capability manifest and agent data boundary | P1 | M | 001, 002, 003 | TODO |
 

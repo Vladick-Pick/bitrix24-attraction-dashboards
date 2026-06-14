@@ -147,6 +147,7 @@ interface CreateReportingServiceInput {
   meetingDateFieldName?: string;
   contactTargetGroupFieldName?: string;
   legacyContactTargetGroupFieldName?: string;
+  // TODO(platform-foundation Plan 002): narrow to ReportingRepository after report engines split.
   repository: SqliteRepository;
   client: SyncClient;
   defaultPeriodDays: number;

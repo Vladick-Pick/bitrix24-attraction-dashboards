@@ -12,6 +12,8 @@ export interface PlatformRouteHandlers {
   updateCurrentUser: ApiRouteHandler;
   changePassword: ApiRouteHandler;
   logout: ApiRouteHandler;
+  listModuleCapabilities: ApiRouteHandler;
+  getModuleCapabilities: ApiRouteHandler;
   getPlatformAccess: ApiRouteHandler;
   updatePlatformUserModuleMemberships: ApiRouteHandler;
 }
@@ -32,6 +34,8 @@ export function registerPlatformRoutes(
   app.patch("/api/auth/me", handlers.updateCurrentUser);
   app.post("/api/auth/change-password", handlers.changePassword);
   app.post("/api/auth/logout", handlers.logout);
+  app.get("/api/modules/capabilities", handlers.listModuleCapabilities);
+  app.get("/api/modules/:moduleId/capabilities", handlers.getModuleCapabilities);
   app.get("/api/admin/platform/access", handlers.getPlatformAccess);
   app.patch(
     "/api/admin/platform/users/:id/module-memberships",

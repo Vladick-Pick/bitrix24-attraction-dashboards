@@ -5,8 +5,9 @@ dependencies say otherwise. Each executor: read the plan fully before starting,
 honor its STOP conditions, and update your row when done.
 
 These plans are scoped to creating a clean shared/platform base before splitting
-`attraction` and `leadgen` into separate repositories. They intentionally do not
-try to fix every architectural issue found in the deep review.
+`attraction` and `leadgen` into separate repositories, and before publishing the
+project as fork-friendly open source. They intentionally do not try to fix every
+architectural issue found in the deep review.
 
 ## Execution Order & Status
 
@@ -15,7 +16,8 @@ try to fix every architectural issue found in the deep review.
 | [001](./001-record-product-split-decision.md) | Record the product split decision | P1 | S | - | DONE |
 | [002](./002-split-sqlite-repository-roles.md) | Split the SQLite repository interface by role | P1 | M | 001 | DONE |
 | [003](./003-extract-platform-and-module-route-registrars.md) | Extract platform and module route registrars | P1 | L | 001, 002 | DONE |
-| [004](./004-define-module-capability-manifest-and-agent-data-boundary.md) | Define module capability manifest and agent data boundary | P1 | M | 001, 002, 003 | TODO |
+| [004](./004-define-module-capability-manifest-and-agent-data-boundary.md) | Define module capability manifest and agent data boundary | P1 | M | 001, 002, 003 | DONE |
+| [005](./005-define-fork-owned-module-extension-seam.md) | Define fork-owned module extension seam | P1 | M | 001, 002, 003, 004 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale - finding fixed independently or approach
@@ -32,6 +34,10 @@ abandoned).
   interface without physically forking the repository yet.
 - 004 should land after 002 and 003 so future modules and AI-agent consumers use
   explicit storage/route seams instead of direct repository or report internals.
+- 005 should land after 004 because the manifest must exist before fork-owned
+  modules can bring their own manifest adapter, live route availability, source
+  data, and integration rules. It keeps the project source-code-fork friendly
+  without introducing a package/plugin runtime yet.
 
 ## Verification Baseline
 
@@ -60,3 +66,6 @@ During the advisory pass, `pnpm --filter @bitrix24-reporting/api typecheck` and
   web adapters can come after server/storage seams.
 - Full contracts package split now: deferred. It is useful, but less blocking
   than storage roles and route ownership for safe repository extraction.
+- Package/plugin runtime now: deferred. Open-source forkability should first use
+  a source-level extension seam; dynamic package loading can come later if real
+  fork maintainers need it.

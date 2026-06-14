@@ -102,8 +102,8 @@ If a named preset is unavailable in the current runtime, emulate it with the clo
 
 ## Verification
 - Session currency: `pnpm session:preflight`.
-- API targeted tests: `pnpm --filter @bitrix24-reporting/api test -- --runInBand <test files>`.
-- API full suite: `pnpm --filter @bitrix24-reporting/api test -- --runInBand`.
+- API targeted tests: `pnpm --filter @bitrix24-reporting/api exec vitest run <test files relative to apps/api, e.g. test/http.test.ts>`.
+- API full suite: `pnpm --filter @bitrix24-reporting/api test`.
 - Web full suite: `pnpm --filter @bitrix24-reporting/web exec vitest run`.
 - Workspace checks before PR when feasible: `pnpm test`, `pnpm lint`, `pnpm typecheck`.
 - If a command cannot be run, state exactly why in the PR or final handoff.

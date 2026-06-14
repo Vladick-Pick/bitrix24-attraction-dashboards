@@ -98,7 +98,7 @@ snapshot. The browser must not read Bitrix directly.
 | Ontology docs | `pnpm ontology:validate` | exit 0, `Attraction ontology registry valid` |
 | Contracts typecheck | `pnpm --filter @bitrix24-reporting/contracts typecheck` | exit 0 |
 | API typecheck | `pnpm --filter @bitrix24-reporting/api typecheck` | exit 0 |
-| Focused API tests | `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts` | all tests pass |
+| Focused API tests | `pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts` | all tests pass |
 
 ## Scope
 
@@ -256,7 +256,7 @@ step until route registrars are in place.
 
 ```bash
 pnpm --filter @bitrix24-reporting/api typecheck
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts
 ```
 
 ### Step 5: Prove future module support with a fake onboarding manifest
@@ -306,7 +306,7 @@ Required:
 - `pnpm ontology:validate`
 - `pnpm --filter @bitrix24-reporting/contracts typecheck`
 - `pnpm --filter @bitrix24-reporting/api typecheck`
-- `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts`
+- `pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts`
 - `git diff --check`
 
 Add focused contract/API tests for manifest shape and fake onboarding support.

@@ -131,10 +131,10 @@ const app = createApp(service, {
 |---------|---------|---------------------|
 | Session gate | `pnpm session:preflight` | exit 0 on a non-main `codex/*` branch |
 | API typecheck | `pnpm --filter @bitrix24-reporting/api typecheck` | exit 0, no TypeScript errors |
-| HTTP tests | `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts` | all tests pass |
-| Auth tests | `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/auth.test.ts` | all tests pass |
-| Comments tests | `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/comments-paperclip.test.ts` | all tests pass |
-| Static serving tests | `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/static-serving.test.ts` | all tests pass |
+| HTTP tests | `pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts` | all tests pass |
+| Auth tests | `pnpm --filter @bitrix24-reporting/api exec vitest run test/auth.test.ts` | all tests pass |
+| Comments tests | `pnpm --filter @bitrix24-reporting/api exec vitest run test/comments-paperclip.test.ts` | all tests pass |
+| Static serving tests | `pnpm --filter @bitrix24-reporting/api exec vitest run test/static-serving.test.ts` | all tests pass |
 
 ## Scope
 
@@ -235,7 +235,7 @@ The registrar can receive helper callbacks in `context`.
 
 ```bash
 pnpm --filter @bitrix24-reporting/api typecheck
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/auth.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/auth.test.ts
 ```
 
 Expected result: both exit 0.
@@ -260,8 +260,8 @@ rules are load-bearing.
 
 ```bash
 pnpm --filter @bitrix24-reporting/api typecheck
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/comments-paperclip.test.ts
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/comments-paperclip.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts
 ```
 
 Expected result: all exit 0.
@@ -288,7 +288,7 @@ Preserve current behavior:
 
 ```bash
 pnpm --filter @bitrix24-reporting/api typecheck
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts
 ```
 
 Expected result: all pass.
@@ -319,7 +319,7 @@ such as `/api/dashboard`, `/api/settings/manager-whitelist`, and `/api/sync`.
 
 ```bash
 pnpm --filter @bitrix24-reporting/api typecheck
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts
 ```
 
 Expected result: all pass.
@@ -346,7 +346,7 @@ Preserve:
 
 ```bash
 pnpm --filter @bitrix24-reporting/api typecheck
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts
 ```
 
 Expected result: sync tests in `http.test.ts` pass, including concurrent sync
@@ -369,10 +369,10 @@ Do not turn route files into new application entrypoints.
 
 ```bash
 pnpm --filter @bitrix24-reporting/api typecheck
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/auth.test.ts
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/comments-paperclip.test.ts
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/static-serving.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/auth.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/comments-paperclip.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/static-serving.test.ts
 ```
 
 Expected result: all pass.
@@ -382,10 +382,10 @@ Expected result: all pass.
 Required focused verification:
 
 - `pnpm --filter @bitrix24-reporting/api typecheck`
-- `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts`
-- `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/auth.test.ts`
-- `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/comments-paperclip.test.ts`
-- `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/static-serving.test.ts`
+- `pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts`
+- `pnpm --filter @bitrix24-reporting/api exec vitest run test/auth.test.ts`
+- `pnpm --filter @bitrix24-reporting/api exec vitest run test/comments-paperclip.test.ts`
+- `pnpm --filter @bitrix24-reporting/api exec vitest run test/static-serving.test.ts`
 
 New tests are not required if behavior is unchanged and existing tests still
 cover moved route groups. Add tests only if a route group lacked coverage after

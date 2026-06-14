@@ -40,8 +40,8 @@ Use the repo commands from `AGENTS.md`:
 - `pnpm session:preflight`
 - `pnpm ontology:validate`
 - `pnpm --filter @bitrix24-reporting/api typecheck`
-- `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts`
-- `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/sqlite.test.ts`
+- `pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts`
+- `pnpm --filter @bitrix24-reporting/api exec vitest run test/sqlite.test.ts`
 - `pnpm typecheck`
 - `pnpm lint`
 

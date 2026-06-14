@@ -2238,7 +2238,7 @@ export function createApp(
     listCallAnalysisQueue: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        next("route");
         return;
       }
 
@@ -2259,7 +2259,7 @@ export function createApp(
     analyzeCall: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        next("route");
         return;
       }
 
@@ -2296,7 +2296,7 @@ export function createApp(
     getCallAnalysis: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        next("route");
         return;
       }
 
@@ -3041,10 +3041,13 @@ export function createApp(
   });
 
   registerLeadgenRoutes(app, {
+    notFound: (_request, response) => {
+      response.status(404).json(createErrorResponse("NOT_FOUND"));
+    },
     getFunnelReport: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "leadgen") {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        next("route");
         return;
       }
 
@@ -3053,11 +3056,7 @@ export function createApp(
         return;
       }
 
-      const moduleService =
-        moduleServices.get(moduleId) ??
-        (moduleId === "leadgen" && service.getLeadgenFunnelReport
-          ? service
-          : undefined);
+      const moduleService = moduleServices.get(moduleId);
       const getLeadgenFunnelReport = moduleService?.getLeadgenFunnelReport;
       if (!getLeadgenFunnelReport) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -3077,7 +3076,7 @@ export function createApp(
     getActivitiesWorkloadReport: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "leadgen") {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        next("route");
         return;
       }
 
@@ -3107,7 +3106,7 @@ export function createApp(
     getCallsWorkloadReport: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "leadgen") {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        next("route");
         return;
       }
 
@@ -3387,7 +3386,7 @@ export function createApp(
     getModuleOntology: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        next("route");
         return;
       }
 
@@ -3410,7 +3409,7 @@ export function createApp(
     getModuleOntologySource: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        next("route");
         return;
       }
 

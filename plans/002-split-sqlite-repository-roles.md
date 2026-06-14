@@ -142,9 +142,9 @@ CREATE TABLE IF NOT EXISTS module_manager_whitelist_settings (...);
 |---------|---------|---------------------|
 | Session gate | `pnpm session:preflight` | exit 0 on a non-main `codex/*` branch |
 | API typecheck | `pnpm --filter @bitrix24-reporting/api typecheck` | exit 0, no TypeScript errors |
-| SQLite tests | `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/sqlite.test.ts` | all tests pass |
-| Service tests | `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/service.test.ts` | all tests pass |
-| HTTP tests | `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts` | all tests pass |
+| SQLite tests | `pnpm --filter @bitrix24-reporting/api exec vitest run test/sqlite.test.ts` | all tests pass |
+| Service tests | `pnpm --filter @bitrix24-reporting/api exec vitest run test/service.test.ts` | all tests pass |
+| HTTP tests | `pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts` | all tests pass |
 
 ## Scope
 
@@ -353,9 +353,9 @@ Use existing tests as patterns:
 Run all three:
 
 ```bash
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/sqlite.test.ts
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/service.test.ts
-pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/sqlite.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/service.test.ts
+pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts
 ```
 
 Expected result: all pass.
@@ -363,9 +363,9 @@ Expected result: all pass.
 ## Test Plan
 
 - Required: `pnpm --filter @bitrix24-reporting/api typecheck`
-- Required: `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/sqlite.test.ts`
-- Required: `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/service.test.ts`
-- Required: `pnpm --filter @bitrix24-reporting/api test -- --runInBand apps/api/test/http.test.ts`
+- Required: `pnpm --filter @bitrix24-reporting/api exec vitest run test/sqlite.test.ts`
+- Required: `pnpm --filter @bitrix24-reporting/api exec vitest run test/service.test.ts`
+- Required: `pnpm --filter @bitrix24-reporting/api exec vitest run test/http.test.ts`
 - Add tests only if runtime behavior changes.
 
 ## Done Criteria

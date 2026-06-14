@@ -3,6 +3,7 @@ import type express from "express";
 import type { ApiRouteHandler } from "./route-handler.js";
 
 export interface LeadgenRouteHandlers {
+  notFound: ApiRouteHandler;
   getFunnelReport: ApiRouteHandler;
   getActivitiesWorkloadReport: ApiRouteHandler;
   getCallsWorkloadReport: ApiRouteHandler;
@@ -21,4 +22,6 @@ export function registerLeadgenRoutes(
     "/api/modules/:moduleId/reports/calls-workload",
     handlers.getCallsWorkloadReport
   );
+  app.get("/api/modules/leadgen/ontology", handlers.notFound);
+  app.get("/api/modules/leadgen/ontology/sources/:sourceId", handlers.notFound);
 }

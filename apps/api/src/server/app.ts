@@ -19,6 +19,9 @@ import type {
   ManagerWhitelistSettingsData,
   ManagerWhitelistSettingsInput,
   ManualSyncSummary,
+  ModuleCapabilityManifest,
+  ModuleCapabilityManifestListResponse,
+  ModuleCapabilityManifestResponse,
   OntologySourceDocumentResponse,
   RevenueVelocityDimension,
   RevenueVelocityReport,
@@ -79,6 +82,12 @@ import {
   registerPlatformRoutes
 } from "./routes/platform-routes.js";
 import { registerSyncRoutes } from "./routes/sync-routes.js";
+import {
+  type ModuleCapabilityAdapter,
+  createAttractionCapabilityAdapter,
+  createLeadgenCapabilityAdapter,
+  createModuleCapabilityRegistry
+} from "./module-capabilities.js";
 import type {
   PaperclipIssueClient,
   PaperclipIssueComment
@@ -284,6 +293,8 @@ interface AppConfig {
   };
   callAnalysis?: CallAnalysisRunner;
   modules?: Record<string, ModuleService>;
+  moduleCapabilityManifests?: ModuleCapabilityManifest[];
+  moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
 }
 
 function parseCsvArray(value: unknown) {
@@ -1460,6 +1471,17 @@ export function createApp(
     ["attraction", service],
     ...Object.entries(config.modules ?? {})
   ]);
+  const moduleCapabilityRegistry = createModuleCapabilityRegistry({
+    includeDefaultAdapters: false,
+    adapters: [
+      createAttractionCapabilityAdapter(service),
+      createLeadgenCapabilityAdapter(moduleServices.get("leadgen")),
+      ...(config.moduleCapabilityAdapters ?? [])
+    ],
+    ...(config.moduleCapabilityManifests
+      ? { extraManifests: config.moduleCapabilityManifests }
+      : {})
+  });
 
   async function sendTimedJson<T>(input: {
     request: express.Request;
@@ -2164,6 +2186,57 @@ export function createApp(
       } catch (error) {
         next(error);
       }
+    },
+    listModuleCapabilities: (_request, response) => {
+      const manifests = moduleCapabilityRegistry.list();
+      if (!auth) {
+        const payload: ModuleCapabilityManifestListResponse = { manifests };
+        response.json(payload);
+        return;
+      }
+
+      const session = readAuthSession(response);
+      if (!session) {
+        response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+        return;
+      }
+
+      if (session.user.isSuperAdmin) {
+        const payload: ModuleCapabilityManifestListResponse = { manifests };
+        response.json(payload);
+        return;
+      }
+
+      const accessibleModuleIds = new Set(
+        session.user.modules.flatMap((module) => [module.id, module.slug])
+      );
+      const payload: ModuleCapabilityManifestListResponse = {
+        manifests: manifests.filter((manifest) =>
+          accessibleModuleIds.has(manifest.moduleId)
+        )
+      };
+      response.json(payload);
+    },
+    getModuleCapabilities: (request, response) => {
+      const moduleId = requestModuleId(request);
+      const manifest = moduleCapabilityRegistry.get(moduleId);
+      if (!manifest) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+        if (requireSuperAdmin(response)) {
+          const payload: ModuleCapabilityManifestResponse = { manifest };
+          response.json(payload);
+          return;
+        }
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      const payload: ModuleCapabilityManifestResponse = { manifest };
+      response.json(payload);
     },
     getPlatformAccess: async (_request, response, next) => {
       if (!config.authStore) {

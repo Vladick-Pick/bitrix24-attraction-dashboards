@@ -8,6 +8,9 @@ import type {
   DashboardData,
   LeadgenFunnelReport,
   ManagerActionOutcomeReport,
+  ModuleCapabilityManifest,
+  ModuleCapabilityManifestListResponse,
+  ModuleCapabilityManifestResponse,
   RevenueVelocityReport,
   SalesPlanData,
   SalesPlanQuarterData,
@@ -22,6 +25,116 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/server/app";
+import type { ModuleCapabilityAdapter } from "../src/server/module-capabilities";
+
+type AppConfig = NonNullable<Parameters<typeof createApp>[1]>;
+type AuthSession = NonNullable<
+  Awaited<ReturnType<NonNullable<AppConfig["auth"]>["getSession"]>>
+>;
+
+function createAuthenticatedModule(input: {
+  id: string;
+  name: string;
+}): AuthSession["user"]["modules"][number] {
+  return {
+    id: input.id,
+    slug: input.id,
+    name: input.name,
+    role: "employee",
+    permissions: [],
+    defaultManagerId: null,
+    bitrixCategoryId: input.id === "leadgen" ? "28" : "10",
+    paperclipCompanyId: null,
+    paperclipProjectId: null,
+    paperclipGoalId: null,
+    paperclipTriageAgentId: null
+  };
+}
+
+function createStaticAuthService(
+  session: AuthSession | null
+): NonNullable<AppConfig["auth"]> {
+  return {
+    cookieName: "b24dash_session",
+    secureCookie: false,
+    ttlMs: 43_200_000,
+    async login() {
+      throw new Error("login is not used in this test");
+    },
+    async getSession(sessionToken: string) {
+      return sessionToken === "valid-session" ? session : null;
+    },
+    async issueCsrfToken() {
+      return "csrf-token";
+    },
+    verifyCsrfToken() {
+      return true;
+    },
+    async logout() {
+      // No-op test auth service.
+    }
+  };
+}
+
+function createTestSession(input: {
+  isSuperAdmin?: boolean;
+  modules: AuthSession["user"]["modules"];
+}): AuthSession {
+  return {
+    user: {
+      id: 1,
+      login: "module-user@example.com",
+      firstName: null,
+      lastName: null,
+      role: "admin",
+      isSuperAdmin: input.isSuperAdmin ?? false,
+      modules: input.modules
+    },
+    sessionToken: "valid-session",
+    tokenHash: "token-hash",
+    csrfTokenHash: "csrf-token-hash",
+    expiresAt: "2026-06-14T23:59:59.999Z"
+  };
+}
+
+function createLeadgenModuleService(): Partial<Parameters<typeof createApp>[0]> {
+  return {
+    getLeadgenFunnelReport: async () => createEmptyLeadgenFunnelReport(),
+    getActivitiesWorkloadReport: async () =>
+      createEmptyActivitiesWorkloadReport(),
+    getCallsWorkloadReport: async () => createEmptyCallsWorkloadReport()
+  };
+}
+
+function createCustomModuleManifest(): ModuleCapabilityManifest {
+  return {
+    moduleId: "custom-module",
+    displayName: "Custom module",
+    ontologyRef: "docs/modules/custom-module/MODULE_ONTOLOGY.md",
+    reports: [
+      {
+        id: "activation-overview",
+        title: "Activation overview",
+        description: "Metadata-only custom activation report descriptor.",
+        route: "/api/modules/custom-module/reports/activation-overview",
+        inputSchemaId: "custom-module.activation-overview.input.v1",
+        outputSchemaId: "custom-module.activation-overview.output.v1",
+        status: "available",
+        agentReadable: true
+      }
+    ],
+    safeReadModels: [],
+    capabilities: ["report"],
+    dataPolicy: {
+      allowedScopes: ["custom-module:activation-summary"],
+      forbiddenFields: ["contact.email", "contact.phone", "rawBitrixPayload"],
+      piiExcluded: true,
+      rawPayloadAccess: false,
+      directBitrixAccess: false,
+      arbitrarySqliteAccess: false
+    }
+  };
+}
 
 const emptyCallPopulation = {
   totalCalls: 0,
@@ -384,6 +497,9 @@ function createTestApp(
       };
     };
     modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
+    moduleCapabilityManifests?: ModuleCapabilityManifest[];
+    moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
+    auth?: AppConfig["auth"];
     callAnalysis?: {
       analyzeCall(input: {
         callId: string;
@@ -830,7 +946,10 @@ function createTestApp(
             sendMessage(input: { chatId: string; text: string }): Promise<void>;
           };
         };
-        modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
+          modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
+          moduleCapabilityManifests?: ModuleCapabilityManifest[];
+          moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
+          auth?: AppConfig["auth"];
         protoComments?: {
           getProtoComments(): Promise<{
             comments: unknown[];
@@ -857,6 +976,220 @@ function createTestApp(
 }
 
 describe("createApp", () => {
+  it("returns metadata-only capability manifests for existing modules", async () => {
+    const app = createTestApp();
+
+    await request(app)
+      .get("/api/modules/capabilities")
+      .expect(200)
+      .expect(({ body }) => {
+        const responseBody = body as ModuleCapabilityManifestListResponse;
+        expect(responseBody.manifests.map((manifest) => manifest.moduleId)).toEqual([
+          "attraction",
+          "leadgen"
+        ]);
+        const attraction = responseBody.manifests.find(
+          (manifest) => manifest.moduleId === "attraction"
+        );
+        const leadgen = responseBody.manifests.find(
+          (manifest) => manifest.moduleId === "leadgen"
+        );
+        expect(attraction?.reports.every((report) => report.status === "available")).toBe(
+          true
+        );
+        expect(leadgen?.reports.every((report) => report.status === "planned")).toBe(
+          true
+        );
+        expect(
+          responseBody.manifests.every((manifest) =>
+            manifest.dataPolicy.piiExcluded &&
+            manifest.dataPolicy.rawPayloadAccess === false &&
+            manifest.dataPolicy.directBitrixAccess === false &&
+            manifest.dataPolicy.arbitrarySqliteAccess === false
+          )
+        ).toBe(true);
+        expect(JSON.stringify(body)).not.toMatch(
+          /SqliteRepository|BITRIX24_WEBHOOK|sqliteUrl|webhook/i
+        );
+      });
+
+    await request(app)
+      .get("/api/modules/leadgen/capabilities")
+      .expect(200)
+      .expect(({ body }) => {
+        const responseBody = body as ModuleCapabilityManifestResponse;
+        expect(responseBody.manifest.moduleId).toBe("leadgen");
+        expect(responseBody.manifest.reports.map((report) => report.id)).toContain(
+          "leadgen-funnel"
+        );
+        expect(
+          responseBody.manifest.reports.every((report) => report.status === "planned")
+        ).toBe(true);
+      });
+  });
+
+  it("marks leadgen report capabilities available only when the leadgen module service is registered", async () => {
+    const app = createTestApp(
+      {},
+      {
+        modules: {
+          leadgen: createLeadgenModuleService()
+        }
+      }
+    );
+
+    await request(app)
+      .get("/api/modules/leadgen/capabilities")
+      .expect(200)
+      .expect(({ body }) => {
+        const responseBody = body as ModuleCapabilityManifestResponse;
+        expect(
+          responseBody.manifest.reports.every((report) => report.status === "available")
+        ).toBe(true);
+      });
+  });
+
+  it("exposes a fake custom-module capability manifest without adding custom routes", async () => {
+    const customModuleManifest = createCustomModuleManifest();
+    const app = createTestApp(
+      {},
+      {
+        moduleCapabilityManifests: [customModuleManifest]
+      }
+    );
+
+    await request(app)
+      .get("/api/modules/custom-module/capabilities")
+      .expect(200)
+      .expect(({ body }) => {
+        const responseBody = body as ModuleCapabilityManifestResponse;
+        expect(responseBody.manifest.moduleId).toBe("custom-module");
+        expect(responseBody.manifest.reports).toEqual([
+          expect.objectContaining({
+            id: "activation-overview",
+            status: "planned"
+          })
+        ]);
+        expect(responseBody.manifest.dataPolicy.allowedScopes).not.toContain(
+          "attraction:manager-whitelist"
+        );
+      });
+
+    await request(app)
+      .get("/api/modules/custom-module/reports/activation-overview")
+      .expect(404);
+  });
+
+  it("keeps custom-module report capabilities available when its adapter lists a live route", async () => {
+    const customModuleManifest = createCustomModuleManifest();
+    const app = createTestApp(
+      {},
+      {
+        moduleCapabilityAdapters: [
+          {
+            manifest: customModuleManifest,
+            availableReportRoutes: [
+              "/api/modules/custom-module/reports/activation-overview"
+            ]
+          }
+        ]
+      }
+    );
+
+    await request(app)
+      .get("/api/modules/custom-module/capabilities")
+      .expect(200)
+      .expect(({ body }) => {
+        const responseBody = body as ModuleCapabilityManifestResponse;
+        expect(responseBody.manifest.reports).toEqual([
+          expect.objectContaining({
+            id: "activation-overview",
+            status: "available"
+          })
+        ]);
+      });
+  });
+
+  it("requires authentication before returning capability manifests when password auth is enabled", async () => {
+    const app = createTestApp(
+      {},
+      {
+        auth: createStaticAuthService(
+          createTestSession({
+            modules: [createAuthenticatedModule({ id: "leadgen", name: "Leadgen" })]
+          })
+        )
+      }
+    );
+
+    await request(app)
+      .get("/api/modules/capabilities")
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.code).toBe("UNAUTHORIZED");
+      });
+
+    await request(app)
+      .get("/api/modules/leadgen/capabilities")
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.code).toBe("UNAUTHORIZED");
+      });
+  });
+
+  it("filters capability manifests to authenticated module access", async () => {
+    const auth = createStaticAuthService(
+      createTestSession({
+        modules: [createAuthenticatedModule({ id: "leadgen", name: "Leadgen" })]
+      })
+    );
+    const app = createTestApp({}, { auth });
+
+    await request(app)
+      .get("/api/modules/capabilities")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.manifests.map((manifest: { moduleId: string }) => manifest.moduleId)).toEqual([
+          "leadgen"
+        ]);
+      });
+
+    await request(app)
+      .get("/api/modules/leadgen/capabilities")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(200);
+
+    await request(app)
+      .get("/api/modules/attraction/capabilities")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(403)
+      .expect(({ body }) => {
+        expect(body.code).toBe("FORBIDDEN");
+      });
+  });
+
+  it("allows super admins to list every module capability manifest", async () => {
+    const auth = createStaticAuthService(
+      createTestSession({
+        isSuperAdmin: true,
+        modules: []
+      })
+    );
+    const app = createTestApp({}, { auth });
+
+    await request(app)
+      .get("/api/modules/capabilities")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.manifests.map((manifest: { moduleId: string }) => manifest.moduleId)).toEqual([
+          "attraction",
+          "leadgen"
+        ]);
+      });
+  });
+
   it("does not serve leadgen reports from the attraction service when the leadgen module is not registered", async () => {
     const getLeadgenFunnelReport = vi
       .fn()
@@ -873,7 +1206,7 @@ describe("createApp", () => {
     expect(getLeadgenFunnelReport).not.toHaveBeenCalled();
   });
 
-  it("allows later module report routes to handle non-leadgen module ids", async () => {
+  it("allows later module report routes to handle generic custom module ids", async () => {
     const app = createTestApp(
       {},
       {
@@ -885,7 +1218,7 @@ describe("createApp", () => {
       }
     );
     app.get("/api/modules/:moduleId/reports/funnel", (request, response) => {
-      if (request.params.moduleId !== "onboarding") {
+      if (request.params.moduleId !== "custom-module") {
         response.status(404).json({ code: "NOT_FOUND" });
         return;
       }
@@ -894,17 +1227,17 @@ describe("createApp", () => {
     });
 
     await request(app)
-      .get("/api/modules/onboarding/reports/funnel")
+      .get("/api/modules/custom-module/reports/funnel")
       .expect(200)
       .expect(({ body }) => {
-        expect(body.moduleId).toBe("onboarding");
+        expect(body.moduleId).toBe("custom-module");
       });
   });
 
-  it("allows later module ontology routes to handle non-attraction module ids", async () => {
+  it("allows later module ontology routes to handle generic custom module ids", async () => {
     const app = createTestApp();
     app.get("/api/modules/:moduleId/ontology", (request, response) => {
-      if (request.params.moduleId !== "onboarding") {
+      if (request.params.moduleId !== "custom-module") {
         response.status(404).json({ code: "NOT_FOUND" });
         return;
       }
@@ -913,17 +1246,17 @@ describe("createApp", () => {
     });
 
     await request(app)
-      .get("/api/modules/onboarding/ontology")
+      .get("/api/modules/custom-module/ontology")
       .expect(200)
       .expect(({ body }) => {
-        expect(body.moduleKey).toBe("onboarding");
+        expect(body.moduleKey).toBe("custom-module");
       });
   });
 
-  it("allows later module call routes to handle non-attraction module ids", async () => {
+  it("allows later module call routes to handle generic custom module ids", async () => {
     const app = createTestApp();
     app.get("/api/modules/:moduleId/calls/analysis-queue", (request, response) => {
-      if (request.params.moduleId !== "onboarding") {
+      if (request.params.moduleId !== "custom-module") {
         response.status(404).json({ code: "NOT_FOUND" });
         return;
       }
@@ -932,10 +1265,10 @@ describe("createApp", () => {
     });
 
     await request(app)
-      .get("/api/modules/onboarding/calls/analysis-queue")
+      .get("/api/modules/custom-module/calls/analysis-queue")
       .expect(200)
       .expect(({ body }) => {
-        expect(body.moduleId).toBe("onboarding");
+        expect(body.moduleId).toBe("custom-module");
         expect(body.items).toEqual([]);
       });
   });

@@ -179,6 +179,61 @@ export interface OntologySourceDocumentResponse {
   content: string;
 }
 
+export type ModuleCapabilityKind =
+  | "report"
+  | "ontology"
+  | "sync"
+  | "comments"
+  | "agent-safe-read";
+
+export type ModuleReportCapabilityStatus = "available" | "planned" | "disabled";
+
+export interface ModuleReportCapability {
+  id: string;
+  title: string;
+  description: string;
+  route: string;
+  inputSchemaId: string;
+  outputSchemaId: string;
+  status: ModuleReportCapabilityStatus;
+  agentReadable: boolean;
+}
+
+export interface ModuleSafeReadModelCapability {
+  id: string;
+  title: string;
+  description: string;
+  schemaId: string;
+  agentReadable: true;
+}
+
+export interface ModuleDataPolicy {
+  allowedScopes: string[];
+  forbiddenFields: string[];
+  piiExcluded: true;
+  rawPayloadAccess: false;
+  directBitrixAccess: false;
+  arbitrarySqliteAccess: false;
+}
+
+export interface ModuleCapabilityManifest {
+  moduleId: string;
+  displayName: string;
+  ontologyRef: string;
+  reports: ModuleReportCapability[];
+  safeReadModels: ModuleSafeReadModelCapability[];
+  capabilities: ModuleCapabilityKind[];
+  dataPolicy: ModuleDataPolicy;
+}
+
+export interface ModuleCapabilityManifestListResponse {
+  manifests: ModuleCapabilityManifest[];
+}
+
+export interface ModuleCapabilityManifestResponse {
+  manifest: ModuleCapabilityManifest;
+}
+
 export interface StageHistorySnapshot {
   id: string;
   ownerId: string;

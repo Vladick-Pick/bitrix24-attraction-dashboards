@@ -59,15 +59,26 @@ import type {
 } from "./auth.js";
 import { AuthError, hashPassword, verifyPassword } from "./auth.js";
 import type {
-  DashboardCommentContext,
   DashboardCommentRecord,
-  PaperclipCommentStatus,
-  ProtoCommentStore
+  PaperclipCommentStatus
 } from "./sqlite-repository.js";
 import type {
   PlatformCommentRepository,
   ProtoCommentRepository
 } from "./repository-roles.js";
+import {
+  registerAttractionCallRoutes,
+  registerAttractionReportRoutes,
+  registerAttractionSettingsRoutes
+} from "./routes/attraction-routes.js";
+import { registerCommentRoutes } from "./routes/comment-routes.js";
+import { registerLeadgenRoutes } from "./routes/leadgen-routes.js";
+import { registerModuleAdminRoutes } from "./routes/module-admin-routes.js";
+import {
+  registerPlatformPublicRoutes,
+  registerPlatformRoutes
+} from "./routes/platform-routes.js";
+import { registerSyncRoutes } from "./routes/sync-routes.js";
 import type {
   PaperclipIssueClient,
   PaperclipIssueComment
@@ -1934,37 +1945,39 @@ export function createApp(
     app.locals.stopTelegramActivityReport = stopTelegramActivityReport;
   }
 
-  app.post("/api/auth/login", async (request, response, next) => {
-    if (!auth) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
+  registerPlatformPublicRoutes(app, {
+    login: async (request, response, next) => {
+      if (!auth) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
 
-    try {
-      const payload = loginBodySchema.parse(request.body);
-      const rateLimitKey = request.ip ?? request.socket.remoteAddress ?? "unknown";
-      const loginResult = await auth.login({
-        login: payload.login,
-        password: payload.password,
-        rateLimitKey,
-        metadata: {
-          ip: rateLimitKey,
-          userAgent: request.header("User-Agent") ?? null
-        }
-      });
+      try {
+        const payload = loginBodySchema.parse(request.body);
+        const rateLimitKey = request.ip ?? request.socket.remoteAddress ?? "unknown";
+        const loginResult = await auth.login({
+          login: payload.login,
+          password: payload.password,
+          rateLimitKey,
+          metadata: {
+            ip: rateLimitKey,
+            userAgent: request.header("User-Agent") ?? null
+          }
+        });
 
-      writeSessionCookie(
-        response,
-        auth,
-        loginResult.sessionToken,
-        loginResult.expiresAt
-      );
-      response.json({
-        user: loginResult.user,
-        csrfToken: loginResult.csrfToken
-      });
-    } catch (error) {
-      next(error);
+        writeSessionCookie(
+          response,
+          auth,
+          loginResult.sessionToken,
+          loginResult.expiresAt
+        );
+        response.json({
+          user: loginResult.user,
+          csrfToken: loginResult.csrfToken
+        });
+      } catch (error) {
+        next(error);
+      }
     }
   });
 
@@ -2034,134 +2047,195 @@ export function createApp(
     response.status(401).json(createErrorResponse("UNAUTHORIZED"));
   });
 
-  app.get("/api/health", (_request, response) => {
-    response.json({ ok: true });
-  });
-
-  app.get("/api/auth/me", async (_request, response, next) => {
-    if (!auth) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      const session = readAuthSession(response);
-      if (!session) {
-        response.status(401).json(createErrorResponse("UNAUTHORIZED"));
-        return;
-      }
-
-      response.json({
-        user: session.user,
-        csrfToken: await auth.issueCsrfToken(session)
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch("/api/auth/me", async (request, response, next) => {
-    if (!auth || !config.authStore) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      const session = readAuthSession(response);
-      if (!session) {
-        response.status(401).json(createErrorResponse("UNAUTHORIZED"));
-        return;
-      }
-
-      const payload = updateCurrentUserBodySchema.parse(request.body);
-      const user = await config.authStore.updateUserProfile({
-        userId: session.user.id,
-        ...(payload.firstName !== undefined
-          ? { firstName: normalizeProfileField(payload.firstName) ?? null }
-          : {}),
-        ...(payload.lastName !== undefined
-          ? { lastName: normalizeProfileField(payload.lastName) ?? null }
-          : {})
-      });
-      if (!user) {
+  registerPlatformRoutes(app, {
+    health: (_request, response) => {
+      response.json({ ok: true });
+    },
+    getCurrentUser: async (_request, response, next) => {
+      if (!auth) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
 
-      response.json({
-        user: {
-          id: user.id,
-          login: user.login,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: "admin",
-          isSuperAdmin: user.isSuperAdmin,
-          modules: await config.authStore.listUserModules(user.id)
-        },
-        csrfToken: await auth.issueCsrfToken(session)
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
+      try {
+        const session = readAuthSession(response);
+        if (!session) {
+          response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+          return;
+        }
 
-  app.post("/api/auth/change-password", async (request, response, next) => {
-    if (!auth || !config.authStore) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      const session = readAuthSession(response);
-      if (!session) {
-        response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+        response.json({
+          user: session.user,
+          csrfToken: await auth.issueCsrfToken(session)
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+    updateCurrentUser: async (request, response, next) => {
+      if (!auth || !config.authStore) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
 
-      const payload = changePasswordBodySchema.parse(request.body);
-      const user = await config.authStore.findUserByLogin(session.user.login);
-      const validCurrentPassword = user
-        ? await verifyPassword(payload.currentPassword, user.passwordHash)
-        : false;
+      try {
+        const session = readAuthSession(response);
+        if (!session) {
+          response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+          return;
+        }
 
-      if (!user || !validCurrentPassword) {
-        throw new AuthError("CURRENT_PASSWORD_INVALID", 403);
+        const payload = updateCurrentUserBodySchema.parse(request.body);
+        const user = await config.authStore.updateUserProfile({
+          userId: session.user.id,
+          ...(payload.firstName !== undefined
+            ? { firstName: normalizeProfileField(payload.firstName) ?? null }
+            : {}),
+          ...(payload.lastName !== undefined
+            ? { lastName: normalizeProfileField(payload.lastName) ?? null }
+            : {})
+        });
+        if (!user) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
+
+        response.json({
+          user: {
+            id: user.id,
+            login: user.login,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: "admin",
+            isSuperAdmin: user.isSuperAdmin,
+            modules: await config.authStore.listUserModules(user.id)
+          },
+          csrfToken: await auth.issueCsrfToken(session)
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+    changePassword: async (request, response, next) => {
+      if (!auth || !config.authStore) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
       }
 
-      await config.authStore.resetPassword({
-        login: user.login,
-        passwordHash: await hashPassword(payload.newPassword)
-      });
-      response.status(204).end();
-    } catch (error) {
-      next(error);
+      try {
+        const session = readAuthSession(response);
+        if (!session) {
+          response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+          return;
+        }
+
+        const payload = changePasswordBodySchema.parse(request.body);
+        const user = await config.authStore.findUserByLogin(session.user.login);
+        const validCurrentPassword = user
+          ? await verifyPassword(payload.currentPassword, user.passwordHash)
+          : false;
+
+        if (!user || !validCurrentPassword) {
+          throw new AuthError("CURRENT_PASSWORD_INVALID", 403);
+        }
+
+        await config.authStore.resetPassword({
+          login: user.login,
+          passwordHash: await hashPassword(payload.newPassword)
+        });
+        response.status(204).end();
+      } catch (error) {
+        next(error);
+      }
+    },
+    logout: async (_request, response, next) => {
+      if (!auth) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      try {
+        const session = readAuthSession(response);
+        if (session) {
+          await auth.logout(session.sessionToken);
+        }
+        clearSessionCookie(response, auth);
+        response.status(204).end();
+      } catch (error) {
+        next(error);
+      }
+    },
+    getPlatformAccess: async (_request, response, next) => {
+      if (!config.authStore) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      if (!requireSuperAdmin(response)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        response.json({
+          modules: await config.authStore.listModules(),
+          users: await config.authStore.listPlatformUsers()
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+    updatePlatformUserModuleMemberships: async (request, response, next) => {
+      if (!config.authStore) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      if (!requireSuperAdmin(response)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const userId = Number(request.params.id);
+        if (!Number.isInteger(userId) || userId <= 0) {
+          response.status(400).json(createErrorResponse("VALIDATION_ERROR"));
+          return;
+        }
+
+        const payload = platformMembershipsBodySchema.parse(request.body);
+        const modules = await config.authStore.listModules();
+        const moduleIds = new Set(modules.map((module) => module.id));
+        const unknownModule = payload.memberships.find(
+          (membership) => !moduleIds.has(membership.moduleId)
+        );
+        if (unknownModule) {
+          response
+            .status(400)
+            .json(createErrorResponse("UNKNOWN_MODULE", unknownModule.moduleId));
+          return;
+        }
+
+        const user = await config.authStore.replaceUserModuleMemberships({
+          userId,
+          memberships: payload.memberships.map((membership) => ({
+            moduleId: membership.moduleId,
+            role: membership.role as ModuleRole,
+            status: membership.status as ModuleMembershipStatus
+          }))
+        });
+        if (!user) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
+
+        response.json({ user });
+      } catch (error) {
+        next(error);
+      }
     }
   });
 
-  app.post("/api/auth/logout", async (_request, response, next) => {
-    if (!auth) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      const session = readAuthSession(response);
-      if (session) {
-        await auth.logout(session.sessionToken);
-      }
-      clearSessionCookie(response, auth);
-      response.status(204).end();
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get(
-    [
-      "/api/calls/analysis-queue",
-      "/api/modules/:moduleId/calls/analysis-queue"
-    ],
-    async (request, response, next) => {
+  registerAttractionCallRoutes(app, {
+    listCallAnalysisQueue: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -2181,12 +2255,8 @@ export function createApp(
       } catch (error) {
         next(error);
       }
-    }
-  );
-
-  app.post(
-    ["/api/calls/:callId/analyze", "/api/modules/:moduleId/calls/:callId/analyze"],
-    async (request, response, next) => {
+    },
+    analyzeCall: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -2222,12 +2292,8 @@ export function createApp(
 
         next(error);
       }
-    }
-  );
-
-  app.get(
-    ["/api/calls/:callId/analysis", "/api/modules/:moduleId/calls/:callId/analysis"],
-    async (request, response, next) => {
+    },
+    getCallAnalysis: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -2261,7 +2327,7 @@ export function createApp(
         next(error);
       }
     }
-  );
+  });
 
   async function deliverCommentToPaperclip(
     comment: DashboardCommentRecord,
@@ -2421,404 +2487,470 @@ export function createApp(
     );
   }
 
-  app.get("/api/proto-comments", async (_request, response, next) => {
-    if (!config.protoComments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      response.json(await config.protoComments.getProtoComments());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/proto-comments", async (request, response, next) => {
-    if (!config.protoComments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      const payload = protoCommentsBodySchema.parse(request.body);
-      response.json(
-        await config.protoComments.replaceProtoComments({
-          comments: payload.comments.map((comment) => ({
-            id: comment.id,
-            sceneId: comment.sceneId,
-            x: comment.x,
-            y: comment.y,
-            text: comment.text,
-            status: comment.status,
-            archivedAt: comment.archivedAt ?? null,
-            createdAt: comment.createdAt,
-            updatedAt: comment.updatedAt,
-            ...(comment.anchor ? { anchor: comment.anchor } : {})
-          })),
-          updatedAt: new Date().toISOString()
-        })
-      );
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get(["/api/comments", "/api/modules/:moduleId/comments"], async (request, response, next) => {
-    if (!config.comments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    const access = requireModuleAccess(response, undefined, requestModuleId(request));
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const store = await config.comments.getDashboardComments(access.module.id);
-      response.json({
-        ...store,
-        comments: await refreshOpenDashboardComments(store.comments)
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post(["/api/comments", "/api/modules/:moduleId/comments"], async (request, response, next) => {
-    if (!config.comments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    const access = requireModuleAccess(
-      response,
-      "comments:create",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const payload = createCommentBodySchema.parse(request.body);
-      const now = new Date().toISOString();
-      const created = await config.comments.createDashboardComment({
-        id: randomUUID(),
-        moduleId: access.module.id,
-        authorUserId: access.session.user.id,
-        authorLogin: access.session.user.login,
-        sceneId: payload.sceneId,
-        x: payload.x,
-        y: payload.y,
-        text: payload.text,
-        status: "open",
-        archivedAt: null,
-        createdAt: now,
-        updatedAt: now,
-        ...(payload.anchor ? { anchor: payload.anchor } : {}),
-        ...(payload.context ? { context: payload.context } : {}),
-        paperclipIssueId: null,
-        paperclipIssueIdentifier: null,
-        paperclipStatus: "queued",
-        paperclipSyncStatus: "queued",
-        paperclipError: null,
-        paperclipLastSyncedAt: null,
-        paperclipRetryCount: 0
-      });
-      const delivered = await deliverCommentToPaperclip(created, access.module);
-      response.status(201).json({ comment: delivered ?? created });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch(["/api/comments/:id", "/api/modules/:moduleId/comments/:id"], async (request, response, next) => {
-    if (!config.comments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    const access = requireModuleAccess(
-      response,
-      "comments:update",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
-      if (!existing || existing.moduleId !== access.module.id) {
+  registerCommentRoutes(app, {
+    getProtoComments: async (_request, response, next) => {
+      if (!config.protoComments) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
-      if (
-        existing.authorUserId !== access.session.user.id &&
-        access.module.role !== "leader"
-      ) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      const payload = updateCommentBodySchema.parse(request.body);
-      const comment = await config.comments.updateDashboardComment({
-        id: existing.id,
-        ...(payload.text ? { text: payload.text } : {}),
-        ...(payload.context ? { context: payload.context } : {}),
-        updatedAt: new Date().toISOString()
-      });
-      response.json({ comment });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post(["/api/comments/:id/archive", "/api/modules/:moduleId/comments/:id/archive"], async (request, response, next) => {
-    if (!config.comments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    const access = requireModuleAccess(
-      response,
-      "comments:archive",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
-      if (!existing || existing.moduleId !== access.module.id) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-      const now = new Date().toISOString();
-      const comment = await config.comments.archiveDashboardComment({
-        id: existing.id,
-        archivedAt: now,
-        updatedAt: now
-      });
-      response.json({ comment });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post(["/api/comments/:id/rework", "/api/modules/:moduleId/comments/:id/rework"], async (request, response, next) => {
-    if (!config.comments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    const access = requireModuleAccess(
-      response,
-      "comments:update",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
-      if (!existing || existing.moduleId !== access.module.id) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-      if (
-        existing.authorUserId !== access.session.user.id &&
-        access.module.role !== "leader"
-      ) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-      if (!existing.paperclipIssueId) {
-        response.status(409).json(createErrorResponse("PAPERCLIP_ISSUE_NOT_LINKED"));
-        return;
-      }
-      if (!config.paperclip) {
-        const failed = await config.comments.updateDashboardCommentPaperclip({
-          id: existing.id,
-          paperclipStatus: "failed",
-          paperclipSyncStatus: "failed",
-          paperclipError: "Paperclip integration is not configured.",
-          paperclipLastSyncedAt: new Date().toISOString(),
-          incrementRetryCount: true
-        });
-        response.status(503).json({
-          ...createErrorResponse("PAPERCLIP_NOT_CONFIGURED"),
-          comment: failed ?? existing
-        });
-        return;
-      }
-
-      const payload = reworkCommentBodySchema.parse(request.body);
-      await config.comments.updateDashboardCommentPaperclip({
-        id: existing.id,
-        paperclipStatus: "in_work",
-        paperclipSyncStatus: "syncing",
-        paperclipError: null
-      });
 
       try {
-        await addDashboardReworkComment({
-          paperclip: config.paperclip,
-          issueId: existing.paperclipIssueId,
-          body: buildPaperclipReworkComment({
-            module: access.module,
-            authorLogin: access.session.user.login,
-            comment: existing,
-            text: payload.text
-          })
-        });
-
-        const synced = await config.comments.updateDashboardCommentPaperclip({
-          id: existing.id,
-          paperclipStatus: "in_work",
-          paperclipSyncStatus: "sent",
-          paperclipError: null,
-          paperclipLastSyncedAt: new Date().toISOString()
-        });
-        response.json({ comment: synced ?? existing });
+        response.json(await config.protoComments.getProtoComments());
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Paperclip issue comment failed.";
-        const failed = await config.comments.updateDashboardCommentPaperclip({
-          id: existing.id,
-          paperclipStatus: "failed",
-          paperclipSyncStatus: "failed",
-          paperclipError: message,
-          paperclipLastSyncedAt: new Date().toISOString(),
-          incrementRetryCount: true
-        });
-        response.status(502).json({
-          ...createErrorResponse("PAPERCLIP_REWORK_FAILED"),
-          comment: failed ?? existing
-        });
+        next(error);
       }
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post(["/api/comments/:id/retry", "/api/modules/:moduleId/comments/:id/retry"], async (request, response, next) => {
-    if (!config.comments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    const access = requireModuleAccess(
-      response,
-      "comments:create",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
-      if (!existing || existing.moduleId !== access.module.id) {
+    },
+    replaceProtoComments: async (request, response, next) => {
+      if (!config.protoComments) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
-      if (
-        existing.authorUserId !== access.session.user.id &&
-        access.module.role !== "leader"
-      ) {
+
+      try {
+        const payload = protoCommentsBodySchema.parse(request.body);
+        response.json(
+          await config.protoComments.replaceProtoComments({
+            comments: payload.comments.map((comment) => ({
+              id: comment.id,
+              sceneId: comment.sceneId,
+              x: comment.x,
+              y: comment.y,
+              text: comment.text,
+              status: comment.status,
+              archivedAt: comment.archivedAt ?? null,
+              createdAt: comment.createdAt,
+              updatedAt: comment.updatedAt,
+              ...(comment.anchor ? { anchor: comment.anchor } : {})
+            })),
+            updatedAt: new Date().toISOString()
+          })
+        );
+      } catch (error) {
+        next(error);
+      }
+    },
+    listComments: async (request, response, next) => {
+      if (!config.comments) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      const access = requireModuleAccess(response, undefined, requestModuleId(request));
+      if (!access) {
         response.status(403).json(createErrorResponse("FORBIDDEN"));
         return;
       }
-      if (existing.paperclipIssueId) {
-        response.status(409).json({
-          ...createErrorResponse("PAPERCLIP_ISSUE_ALREADY_LINKED"),
-          comment: existing
+
+      try {
+        const store = await config.comments.getDashboardComments(access.module.id);
+        response.json({
+          ...store,
+          comments: await refreshOpenDashboardComments(store.comments)
         });
+      } catch (error) {
+        next(error);
+      }
+    },
+    createComment: async (request, response, next) => {
+      if (!config.comments) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
-      const delivered = await deliverCommentToPaperclip(existing, access.module);
-      response.json({ comment: delivered ?? existing });
-    } catch (error) {
-      next(error);
+
+      const access = requireModuleAccess(
+        response,
+        "comments:create",
+        requestModuleId(request)
+      );
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const payload = createCommentBodySchema.parse(request.body);
+        const now = new Date().toISOString();
+        const created = await config.comments.createDashboardComment({
+          id: randomUUID(),
+          moduleId: access.module.id,
+          authorUserId: access.session.user.id,
+          authorLogin: access.session.user.login,
+          sceneId: payload.sceneId,
+          x: payload.x,
+          y: payload.y,
+          text: payload.text,
+          status: "open",
+          archivedAt: null,
+          createdAt: now,
+          updatedAt: now,
+          ...(payload.anchor ? { anchor: payload.anchor } : {}),
+          ...(payload.context ? { context: payload.context } : {}),
+          paperclipIssueId: null,
+          paperclipIssueIdentifier: null,
+          paperclipStatus: "queued",
+          paperclipSyncStatus: "queued",
+          paperclipError: null,
+          paperclipLastSyncedAt: null,
+          paperclipRetryCount: 0
+        });
+        const delivered = await deliverCommentToPaperclip(created, access.module);
+        response.status(201).json({ comment: delivered ?? created });
+      } catch (error) {
+        next(error);
+      }
+    },
+    updateComment: async (request, response, next) => {
+      if (!config.comments) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      const access = requireModuleAccess(
+        response,
+        "comments:update",
+        requestModuleId(request)
+      );
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
+        if (!existing || existing.moduleId !== access.module.id) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
+        if (
+          existing.authorUserId !== access.session.user.id &&
+          access.module.role !== "leader"
+        ) {
+          response.status(403).json(createErrorResponse("FORBIDDEN"));
+          return;
+        }
+
+        const payload = updateCommentBodySchema.parse(request.body);
+        const comment = await config.comments.updateDashboardComment({
+          id: existing.id,
+          ...(payload.text ? { text: payload.text } : {}),
+          ...(payload.context ? { context: payload.context } : {}),
+          updatedAt: new Date().toISOString()
+        });
+        response.json({ comment });
+      } catch (error) {
+        next(error);
+      }
+    },
+    archiveComment: async (request, response, next) => {
+      if (!config.comments) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      const access = requireModuleAccess(
+        response,
+        "comments:archive",
+        requestModuleId(request)
+      );
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
+        if (!existing || existing.moduleId !== access.module.id) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
+        const now = new Date().toISOString();
+        const comment = await config.comments.archiveDashboardComment({
+          id: existing.id,
+          archivedAt: now,
+          updatedAt: now
+        });
+        response.json({ comment });
+      } catch (error) {
+        next(error);
+      }
+    },
+    reworkComment: async (request, response, next) => {
+      if (!config.comments) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      const access = requireModuleAccess(
+        response,
+        "comments:update",
+        requestModuleId(request)
+      );
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
+        if (!existing || existing.moduleId !== access.module.id) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
+        if (
+          existing.authorUserId !== access.session.user.id &&
+          access.module.role !== "leader"
+        ) {
+          response.status(403).json(createErrorResponse("FORBIDDEN"));
+          return;
+        }
+        if (!existing.paperclipIssueId) {
+          response.status(409).json(createErrorResponse("PAPERCLIP_ISSUE_NOT_LINKED"));
+          return;
+        }
+        if (!config.paperclip) {
+          const failed = await config.comments.updateDashboardCommentPaperclip({
+            id: existing.id,
+            paperclipStatus: "failed",
+            paperclipSyncStatus: "failed",
+            paperclipError: "Paperclip integration is not configured.",
+            paperclipLastSyncedAt: new Date().toISOString(),
+            incrementRetryCount: true
+          });
+          response.status(503).json({
+            ...createErrorResponse("PAPERCLIP_NOT_CONFIGURED"),
+            comment: failed ?? existing
+          });
+          return;
+        }
+
+        const payload = reworkCommentBodySchema.parse(request.body);
+        await config.comments.updateDashboardCommentPaperclip({
+          id: existing.id,
+          paperclipStatus: "in_work",
+          paperclipSyncStatus: "syncing",
+          paperclipError: null
+        });
+
+        try {
+          await addDashboardReworkComment({
+            paperclip: config.paperclip,
+            issueId: existing.paperclipIssueId,
+            body: buildPaperclipReworkComment({
+              module: access.module,
+              authorLogin: access.session.user.login,
+              comment: existing,
+              text: payload.text
+            })
+          });
+
+          const synced = await config.comments.updateDashboardCommentPaperclip({
+            id: existing.id,
+            paperclipStatus: "in_work",
+            paperclipSyncStatus: "sent",
+            paperclipError: null,
+            paperclipLastSyncedAt: new Date().toISOString()
+          });
+          response.json({ comment: synced ?? existing });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Paperclip issue comment failed.";
+          const failed = await config.comments.updateDashboardCommentPaperclip({
+            id: existing.id,
+            paperclipStatus: "failed",
+            paperclipSyncStatus: "failed",
+            paperclipError: message,
+            paperclipLastSyncedAt: new Date().toISOString(),
+            incrementRetryCount: true
+          });
+          response.status(502).json({
+            ...createErrorResponse("PAPERCLIP_REWORK_FAILED"),
+            comment: failed ?? existing
+          });
+        }
+      } catch (error) {
+        next(error);
+      }
+    },
+    retryComment: async (request, response, next) => {
+      if (!config.comments) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      const access = requireModuleAccess(
+        response,
+        "comments:create",
+        requestModuleId(request)
+      );
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
+        if (!existing || existing.moduleId !== access.module.id) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
+        if (
+          existing.authorUserId !== access.session.user.id &&
+          access.module.role !== "leader"
+        ) {
+          response.status(403).json(createErrorResponse("FORBIDDEN"));
+          return;
+        }
+        if (existing.paperclipIssueId) {
+          response.status(409).json({
+            ...createErrorResponse("PAPERCLIP_ISSUE_ALREADY_LINKED"),
+            comment: existing
+          });
+          return;
+        }
+        const delivered = await deliverCommentToPaperclip(existing, access.module);
+        response.json({ comment: delivered ?? existing });
+      } catch (error) {
+        next(error);
+      }
+    },
+    listCommentNotifications: async (request, response, next) => {
+      if (!config.comments) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      const access = requireModuleAccess(response, undefined, requestModuleId(request));
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const store = await config.comments.getDashboardComments(access.module.id);
+        const refreshedComments = await refreshOpenDashboardComments(store.comments);
+        response.json({
+          notifications: refreshedComments
+            .filter((comment): comment is DashboardCommentView => Boolean(comment))
+            .filter((comment) => (comment.status ?? "open") === "open")
+            .map((comment) => ({
+              id: comment.id,
+              sceneId: comment.sceneId,
+              text: comment.text,
+              status: comment.paperclipStatus,
+              paperclipSyncStatus: comment.paperclipSyncStatus,
+              paperclipIssueIdentifier: comment.paperclipIssueIdentifier,
+              paperclipError: comment.paperclipError,
+              paperclipReadyReport: comment.paperclipReadyReport ?? null,
+              paperclipThread: comment.paperclipThread ?? [],
+              updatedAt: comment.updatedAt
+            }))
+        });
+      } catch (error) {
+        next(error);
+      }
     }
   });
 
-  app.get(["/api/comment-notifications", "/api/modules/:moduleId/comment-notifications"], async (request, response, next) => {
-    if (!config.comments) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    const access = requireModuleAccess(response, undefined, requestModuleId(request));
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const store = await config.comments.getDashboardComments(access.module.id);
-      const refreshedComments = await refreshOpenDashboardComments(store.comments);
-      response.json({
-        notifications: refreshedComments
-          .filter((comment): comment is DashboardCommentView => Boolean(comment))
-          .filter((comment) => (comment.status ?? "open") === "open")
-          .map((comment) => ({
-            id: comment.id,
-            sceneId: comment.sceneId,
-            text: comment.text,
-            status: comment.paperclipStatus,
-            paperclipSyncStatus: comment.paperclipSyncStatus,
-            paperclipIssueIdentifier: comment.paperclipIssueIdentifier,
-            paperclipError: comment.paperclipError,
-            paperclipReadyReport: comment.paperclipReadyReport ?? null,
-            paperclipThread: comment.paperclipThread ?? [],
-            updatedAt: comment.updatedAt
-          }))
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/admin/platform/access", async (_request, response, next) => {
-    if (!config.authStore) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-    if (!requireSuperAdmin(response)) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      response.json({
-        modules: await config.authStore.listModules(),
-        users: await config.authStore.listPlatformUsers()
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch(
-    "/api/admin/platform/users/:id/module-memberships",
-    async (request, response, next) => {
+  registerModuleAdminRoutes(app, {
+    listModuleUsers: async (request, response, next) => {
       if (!config.authStore) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
-      if (!requireSuperAdmin(response)) {
+      const access = requireModuleAccess(
+        response,
+        "module-users:manage",
+        requestModuleId(request)
+      );
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        response.json({ users: await config.authStore.listModuleUsers(access.module.id) });
+      } catch (error) {
+        next(error);
+      }
+    },
+    createModuleUser: async (request, response, next) => {
+      if (!config.authStore) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      const access = requireModuleAccess(
+        response,
+        "module-users:manage",
+        requestModuleId(request)
+      );
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      try {
+        const payload = createModuleUserBodySchema.parse(request.body);
+        const existing = await config.authStore.findUserByLogin(payload.login);
+        if (existing) {
+          response.status(409).json(createErrorResponse("USER_ALREADY_EXISTS"));
+          return;
+        }
+        if (
+          await denyIfInvalidDefaultManager(
+            response,
+            access.module.id,
+            payload.defaultManagerId
+          )
+        ) {
+          return;
+        }
+
+        const user = await config.authStore.createUser({
+          login: payload.login,
+          firstName: normalizeProfileField(payload.firstName) ?? null,
+          lastName: normalizeProfileField(payload.lastName) ?? null,
+          passwordHash: await hashPassword(payload.password)
+        });
+
+        try {
+          await config.authStore.setModuleMembership({
+            userId: user.id,
+            moduleId: access.module.id,
+            role: payload.role,
+            status: "active",
+            defaultManagerId: payload.defaultManagerId ?? null
+          });
+          const moduleUser = await config.authStore.updateModuleUser({
+            userId: user.id,
+            moduleId: access.module.id
+          });
+          if (!moduleUser) {
+            throw new Error("Failed to read created module user.");
+          }
+          response.status(201).json({ user: moduleUser });
+        } catch (createMembershipError) {
+          try {
+            await config.authStore.deleteUser(user.id);
+          } catch (cleanupError) {
+            logInternalError(cleanupError);
+          }
+          throw createMembershipError;
+        }
+      } catch (error) {
+        next(error);
+      }
+    },
+    updateModuleUser: async (request, response, next) => {
+      if (!config.authStore) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      const access = requireModuleAccess(
+        response,
+        "module-users:manage",
+        requestModuleId(request)
+      );
+      if (!access) {
         response.status(403).json(createErrorResponse("FORBIDDEN"));
         return;
       }
@@ -2829,282 +2961,120 @@ export function createApp(
           response.status(400).json(createErrorResponse("VALIDATION_ERROR"));
           return;
         }
-
-        const payload = platformMembershipsBodySchema.parse(request.body);
-        const modules = await config.authStore.listModules();
-        const moduleIds = new Set(modules.map((module) => module.id));
-        const unknownModule = payload.memberships.find(
-          (membership) => !moduleIds.has(membership.moduleId)
-        );
-        if (unknownModule) {
-          response
-            .status(400)
-            .json(createErrorResponse("UNKNOWN_MODULE", unknownModule.moduleId));
+        const payload = updateModuleUserBodySchema.parse(request.body);
+        if (
+          await denyIfInvalidDefaultManager(
+            response,
+            access.module.id,
+            payload.defaultManagerId
+          )
+        ) {
           return;
         }
-
-        const user = await config.authStore.replaceUserModuleMemberships({
+        const user = await config.authStore.updateModuleUser({
           userId,
-          memberships: payload.memberships.map((membership) => ({
-            moduleId: membership.moduleId,
-            role: membership.role as ModuleRole,
-            status: membership.status as ModuleMembershipStatus
-          }))
+          moduleId: access.module.id,
+          ...(payload.firstName !== undefined
+            ? { firstName: normalizeProfileField(payload.firstName) ?? null }
+            : {}),
+          ...(payload.lastName !== undefined
+            ? { lastName: normalizeProfileField(payload.lastName) ?? null }
+            : {}),
+          ...(payload.password ? { passwordHash: await hashPassword(payload.password) } : {}),
+          ...(payload.role ? { role: payload.role as ModuleRole } : {}),
+          ...(payload.membershipStatus
+            ? { membershipStatus: payload.membershipStatus }
+            : {}),
+          ...(payload.defaultManagerId !== undefined
+            ? { defaultManagerId: payload.defaultManagerId ?? null }
+            : {})
         });
         if (!user) {
           response.status(404).json(createErrorResponse("NOT_FOUND"));
           return;
         }
+        response.json({ user });
+      } catch (error) {
+        next(error);
+      }
+    },
+    deleteModuleUser: async (request, response, next) => {
+      if (!config.authStore) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+      const access = requireModuleAccess(
+        response,
+        "module-users:manage",
+        requestModuleId(request)
+      );
+      if (!access) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
 
+      try {
+        const userId = Number(request.params.id);
+        if (!Number.isInteger(userId) || userId <= 0) {
+          response.status(400).json(createErrorResponse("VALIDATION_ERROR"));
+          return;
+        }
+        if (userId === access.session.user.id) {
+          response.status(400).json(createErrorResponse("CANNOT_DELETE_SELF"));
+          return;
+        }
+
+        const user = await config.authStore.updateModuleUser({
+          userId,
+          moduleId: access.module.id,
+          membershipStatus: "disabled"
+        });
+        if (!user) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
         response.json({ user });
       } catch (error) {
         next(error);
       }
     }
-  );
-
-  app.get(["/api/admin/module-users", "/api/modules/:moduleId/admin/module-users"], async (request, response, next) => {
-    if (!config.authStore) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-    const access = requireModuleAccess(
-      response,
-      "module-users:manage",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      response.json({ users: await config.authStore.listModuleUsers(access.module.id) });
-    } catch (error) {
-      next(error);
-    }
   });
 
-  app.post(["/api/admin/module-users", "/api/modules/:moduleId/admin/module-users"], async (request, response, next) => {
-    if (!config.authStore) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-    const access = requireModuleAccess(
-      response,
-      "module-users:manage",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const payload = createModuleUserBodySchema.parse(request.body);
-      const existing = await config.authStore.findUserByLogin(payload.login);
-      if (existing) {
-        response.status(409).json(createErrorResponse("USER_ALREADY_EXISTS"));
-        return;
-      }
-      if (
-        await denyIfInvalidDefaultManager(
-          response,
-          access.module.id,
-          payload.defaultManagerId
-        )
-      ) {
-        return;
-      }
-
-      const user = await config.authStore.createUser({
-        login: payload.login,
-        firstName: normalizeProfileField(payload.firstName) ?? null,
-        lastName: normalizeProfileField(payload.lastName) ?? null,
-        passwordHash: await hashPassword(payload.password)
-      });
-
-      try {
-        await config.authStore.setModuleMembership({
-          userId: user.id,
-          moduleId: access.module.id,
-          role: payload.role,
-          status: "active",
-          defaultManagerId: payload.defaultManagerId ?? null
-        });
-        const moduleUser = await config.authStore.updateModuleUser({
-          userId: user.id,
-          moduleId: access.module.id
-        });
-        if (!moduleUser) {
-          throw new Error("Failed to read created module user.");
-        }
-        response.status(201).json({ user: moduleUser });
-      } catch (createMembershipError) {
-        try {
-          await config.authStore.deleteUser(user.id);
-        } catch (cleanupError) {
-          logInternalError(cleanupError);
-        }
-        throw createMembershipError;
-      }
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch(["/api/admin/module-users/:id", "/api/modules/:moduleId/admin/module-users/:id"], async (request, response, next) => {
-    if (!config.authStore) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-    const access = requireModuleAccess(
-      response,
-      "module-users:manage",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const userId = Number(request.params.id);
-      if (!Number.isInteger(userId) || userId <= 0) {
-        response.status(400).json(createErrorResponse("VALIDATION_ERROR"));
-        return;
-      }
-      const payload = updateModuleUserBodySchema.parse(request.body);
-      if (
-        await denyIfInvalidDefaultManager(
-          response,
-          access.module.id,
-          payload.defaultManagerId
-        )
-      ) {
-        return;
-      }
-      const user = await config.authStore.updateModuleUser({
-        userId,
-        moduleId: access.module.id,
-        ...(payload.firstName !== undefined
-          ? { firstName: normalizeProfileField(payload.firstName) ?? null }
-          : {}),
-        ...(payload.lastName !== undefined
-          ? { lastName: normalizeProfileField(payload.lastName) ?? null }
-          : {}),
-        ...(payload.password ? { passwordHash: await hashPassword(payload.password) } : {}),
-        ...(payload.role ? { role: payload.role as ModuleRole } : {}),
-        ...(payload.membershipStatus
-          ? { membershipStatus: payload.membershipStatus }
-          : {}),
-        ...(payload.defaultManagerId !== undefined
-          ? { defaultManagerId: payload.defaultManagerId ?? null }
-          : {})
-      });
-      if (!user) {
+  registerLeadgenRoutes(app, {
+    getFunnelReport: async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "leadgen") {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
-      response.json({ user });
-    } catch (error) {
-      next(error);
-    }
-  });
 
-  app.delete(["/api/admin/module-users/:id", "/api/modules/:moduleId/admin/module-users/:id"], async (request, response, next) => {
-    if (!config.authStore) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-    const access = requireModuleAccess(
-      response,
-      "module-users:manage",
-      requestModuleId(request)
-    );
-    if (!access) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    try {
-      const userId = Number(request.params.id);
-      if (!Number.isInteger(userId) || userId <= 0) {
-        response.status(400).json(createErrorResponse("VALIDATION_ERROR"));
-        return;
-      }
-      if (userId === access.session.user.id) {
-        response.status(400).json(createErrorResponse("CANNOT_DELETE_SELF"));
+      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
         return;
       }
 
-      const user = await config.authStore.updateModuleUser({
-        userId,
-        moduleId: access.module.id,
-        membershipStatus: "disabled"
-      });
-      if (!user) {
+      const moduleService =
+        moduleServices.get(moduleId) ??
+        (moduleId === "leadgen" && service.getLeadgenFunnelReport
+          ? service
+          : undefined);
+      const getLeadgenFunnelReport = moduleService?.getLeadgenFunnelReport;
+      if (!getLeadgenFunnelReport) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
-      response.json({ user });
-    } catch (error) {
-      next(error);
-    }
-  });
 
-  app.get("/api/dashboard", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "dashboard",
-      handler: () => service.getDashboard(parseRangeRequest(request.query))
-    });
-  });
-
-  app.get("/api/modules/:moduleId/reports/funnel", async (request, response, next) => {
-    const moduleId = requestModuleId(request);
-    if (moduleId !== "leadgen") {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    if (auth && !requireModuleAccess(response, undefined, moduleId)) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    const moduleService =
-      moduleServices.get(moduleId) ??
-      (moduleId === "leadgen" && service.getLeadgenFunnelReport
-        ? service
-        : undefined);
-    const getLeadgenFunnelReport = moduleService?.getLeadgenFunnelReport;
-    if (!getLeadgenFunnelReport) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId,
-      route: "leadgen.funnel",
-      handler: () =>
-        getLeadgenFunnelReport(parseRangeRequest(request.query))
-    });
-  });
-
-  app.get(
-    "/api/modules/:moduleId/reports/activities-workload",
-    async (request, response, next) => {
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId,
+        route: "leadgen.funnel",
+        handler: () =>
+          getLeadgenFunnelReport(parseRangeRequest(request.query))
+      });
+    },
+    getActivitiesWorkloadReport: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "leadgen") {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -3133,12 +3103,8 @@ export function createApp(
         handler: () =>
           getActivitiesWorkloadReport(parseRangeRequest(request.query))
       });
-    }
-  );
-
-  app.get(
-    "/api/modules/:moduleId/reports/calls-workload",
-    async (request, response, next) => {
+    },
+    getCallsWorkloadReport: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "leadgen") {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -3166,11 +3132,24 @@ export function createApp(
         handler: () => getCallsWorkloadReport(parseRangeRequest(request.query))
       });
     }
-  );
+  });
 
-  app.get(
-    "/api/reports/source-quality-conversion",
-    async (request, response, next) => {
+  registerAttractionReportRoutes(app, {
+    getDashboard: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
+
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "dashboard",
+        handler: () => service.getDashboard(parseRangeRequest(request.query))
+      });
+    },
+    getSourceQualityConversionReport: async (request, response, next) => {
       if (denyIfMissingAttractionAccess(response)) {
         return;
       }
@@ -3184,44 +3163,38 @@ export function createApp(
         handler: () =>
           service.getSourceQualityConversionReport(parseRangeRequest(request.query))
       });
-    }
-  );
+    },
+    getActivitiesWorkloadReport: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/reports/activities-workload", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "activities-workload",
+        handler: () =>
+          service.getActivitiesWorkloadReport(parseRangeRequest(request.query))
+      });
+    },
+    getAcquisitionOutcomesReport: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "activities-workload",
-      handler: () =>
-        service.getActivitiesWorkloadReport(parseRangeRequest(request.query))
-    });
-  });
-
-  app.get("/api/reports/acquisition-outcomes", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "acquisition-outcomes",
-      handler: () =>
-        service.getAcquisitionOutcomesReport(parseRangeRequest(request.query))
-    });
-  });
-
-  app.get(
-    "/api/reports/target-group-conversion",
-    async (request, response, next) => {
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "acquisition-outcomes",
+        handler: () =>
+          service.getAcquisitionOutcomesReport(parseRangeRequest(request.query))
+      });
+    },
+    getTargetGroupConversionReport: async (request, response, next) => {
       if (denyIfMissingAttractionAccess(response)) {
         return;
       }
@@ -3235,12 +3208,8 @@ export function createApp(
         handler: () =>
           service.getTargetGroupConversionReport(parseRangeRequest(request.query))
       });
-    }
-  );
-
-  app.get(
-    "/api/reports/manager-action-outcomes",
-    async (request, response, next) => {
+    },
+    getManagerActionOutcomeReport: async (request, response, next) => {
       if (denyIfMissingAttractionAccess(response)) {
         return;
       }
@@ -3254,206 +3223,191 @@ export function createApp(
         handler: () =>
           service.getManagerActionOutcomeReport(parseRangeRequest(request.query))
       });
-    }
-  );
+    },
+    getCallsWorkloadReport: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/reports/calls-workload", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "calls-workload",
+        handler: () => service.getCallsWorkloadReport(parseRangeRequest(request.query))
+      });
+    },
+    getConversionEventsReport: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "calls-workload",
-      handler: () => service.getCallsWorkloadReport(parseRangeRequest(request.query))
-    });
-  });
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "conversion-events",
+        handler: () =>
+          service.getConversionEventsReport(parseRangeRequest(request.query))
+      });
+    },
+    getCohortConversionReport: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/reports/conversion-events", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "cohort-conversion",
+        handler: () =>
+          service.getCohortConversionReport(parseRangeRequest(request.query))
+      });
+    },
+    getTocFlowReport: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "conversion-events",
-      handler: () =>
-        service.getConversionEventsReport(parseRangeRequest(request.query))
-    });
-  });
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "toc-flow",
+        handler: () => service.getTocFlowReport(parseRangeRequest(request.query))
+      });
+    },
+    getRevenueVelocityReport: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/reports/cohort-conversion", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "revenue-velocity",
+        handler: () =>
+          service.getRevenueVelocityReport(parseRevenueVelocityRequest(request.query))
+      });
+    },
+    getUnitEconomicsReport: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "cohort-conversion",
-      handler: () =>
-        service.getCohortConversionReport(parseRangeRequest(request.query))
-    });
-  });
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "unit-economics",
+        handler: () =>
+          service.getUnitEconomicsReport(parseRangeRequest(request.query))
+      });
+    },
+    getMeta: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/reports/toc-flow", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        route: "meta",
+        handler: () => service.getMeta()
+      });
+    },
+    getSyncRuns: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "toc-flow",
-      handler: () => service.getTocFlowReport(parseRangeRequest(request.query))
-    });
-  });
-
-  app.get("/api/reports/revenue-velocity", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "revenue-velocity",
-      handler: () =>
-        service.getRevenueVelocityReport(parseRevenueVelocityRequest(request.query))
-    });
-  });
-
-  app.get("/api/reports/unit-economics", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "unit-economics",
-      handler: () =>
-        service.getUnitEconomicsReport(parseRangeRequest(request.query))
-    });
-  });
-
-  app.get("/api/meta", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      route: "meta",
-      handler: () => service.getMeta()
-    });
-  });
-
-  app.get("/api/sync-runs", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    if (!service.getSyncRuns) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      const query = syncRunHistoryQuerySchema.parse(request.query);
-      response.json(await service.getSyncRuns({ limit: query.limit }));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/ontology", async (_request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    if (!service.getAttractionOntology) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      response.json(await service.getAttractionOntology());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/ontology/sources/:sourceId", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    if (!service.getAttractionOntologySourceDocument) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      response.json(
-        await service.getAttractionOntologySourceDocument(
-          requestRouteParam(request, "sourceId")
-        )
-      );
-    } catch (error) {
-      if (isOntologySourceLookupError(error)) {
+      if (!service.getSyncRuns) {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
         return;
       }
 
-      next(error);
-    }
-  });
+      try {
+        const query = syncRunHistoryQuerySchema.parse(request.query);
+        response.json(await service.getSyncRuns({ limit: query.limit }));
+      } catch (error) {
+        next(error);
+      }
+    },
+    getOntology: async (_request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/modules/:moduleId/ontology", async (request, response, next) => {
-    const moduleId = requestModuleId(request);
-    if (moduleId !== "attraction") {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
+      if (!service.getAttractionOntology) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
 
-    if (auth && !requireModuleAccess(response, undefined, moduleId)) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
+      try {
+        response.json(await service.getAttractionOntology());
+      } catch (error) {
+        next(error);
+      }
+    },
+    getOntologySource: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    if (!service.getAttractionOntology) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
+      if (!service.getAttractionOntologySourceDocument) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
 
-    try {
-      response.json(await service.getAttractionOntology());
-    } catch (error) {
-      next(error);
-    }
-  });
+      try {
+        response.json(
+          await service.getAttractionOntologySourceDocument(
+            requestRouteParam(request, "sourceId")
+          )
+        );
+      } catch (error) {
+        if (isOntologySourceLookupError(error)) {
+          response.status(404).json(createErrorResponse("NOT_FOUND"));
+          return;
+        }
 
-  app.get(
-    "/api/modules/:moduleId/ontology/sources/:sourceId",
-    async (request, response, next) => {
+        next(error);
+      }
+    },
+    getModuleOntology: async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "attraction") {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
+
+      if (!service.getAttractionOntology) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      try {
+        response.json(await service.getAttractionOntology());
+      } catch (error) {
+        next(error);
+      }
+    },
+    getModuleOntologySource: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {
         response.status(404).json(createErrorResponse("NOT_FOUND"));
@@ -3484,164 +3438,154 @@ export function createApp(
 
         next(error);
       }
-    }
-  );
+    },
+    getModuleMeta: async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      const moduleService = moduleServices.get(moduleId);
+      const getMeta = moduleService?.getMeta;
+      if (!getMeta) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
 
-  app.get("/api/modules/:moduleId/meta", async (request, response, next) => {
-    const moduleId = requestModuleId(request);
-    const moduleService = moduleServices.get(moduleId);
-    const getMeta = moduleService?.getMeta;
-    if (!getMeta) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
+      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
+        response.status(403).json(createErrorResponse("FORBIDDEN"));
+        return;
+      }
 
-    if (auth && !requireModuleAccess(response, undefined, moduleId)) {
-      response.status(403).json(createErrorResponse("FORBIDDEN"));
-      return;
-    }
-
-    await sendTimedJson({
-      request,
-      response,
-      next,
-      moduleId,
-      route: `${moduleId}.meta`,
-      handler: () => getMeta()
-    });
-  });
-
-  app.get("/api/sales-plan", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    try {
-      const query = salesPlanQuerySchema.parse(request.query);
-      response.json(
-        await service.getSalesPlan({
-          periodStart: query.from,
-          periodEnd: query.to
-        })
-      );
-    } catch (error) {
-      next(error);
+      await sendTimedJson({
+        request,
+        response,
+        next,
+        moduleId,
+        route: `${moduleId}.meta`,
+        handler: () => getMeta()
+      });
     }
   });
 
-  app.put("/api/sales-plan", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
-      return;
-    }
+  registerAttractionSettingsRoutes(app, {
+    getSalesPlan: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    try {
-      const payload = salesPlanBodySchema.parse(request.body);
-      response.json(await service.replaceSalesPlan(payload));
-    } catch (error) {
-      next(error);
-    }
-  });
+      try {
+        const query = salesPlanQuerySchema.parse(request.query);
+        response.json(
+          await service.getSalesPlan({
+            periodStart: query.from,
+            periodEnd: query.to
+          })
+        );
+      } catch (error) {
+        next(error);
+      }
+    },
+    replaceSalesPlan: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+        return;
+      }
 
-  app.get("/api/sales-plan/quarter", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      try {
+        const payload = salesPlanBodySchema.parse(request.body);
+        response.json(await service.replaceSalesPlan(payload));
+      } catch (error) {
+        next(error);
+      }
+    },
+    getSalesPlanQuarter: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    try {
-      const query = salesPlanQuarterQuerySchema.parse(request.query);
-      response.json(
-        await service.getSalesPlanQuarter({
-          year: query.year,
-          quarter: query.quarter
-        })
-      );
-    } catch (error) {
-      next(error);
-    }
-  });
+      try {
+        const query = salesPlanQuarterQuerySchema.parse(request.query);
+        response.json(
+          await service.getSalesPlanQuarter({
+            year: query.year,
+            quarter: query.quarter
+          })
+        );
+      } catch (error) {
+        next(error);
+      }
+    },
+    replaceSalesPlanQuarter: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+        return;
+      }
 
-  app.put("/api/sales-plan/quarter", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
-      return;
-    }
+      try {
+        const payload = salesPlanQuarterBodySchema.parse(request.body);
+        response.json(await service.replaceSalesPlanQuarter(payload));
+      } catch (error) {
+        next(error);
+      }
+    },
+    getEffectiveSalesPlan: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-    try {
-      const payload = salesPlanQuarterBodySchema.parse(request.body);
-      response.json(await service.replaceSalesPlanQuarter(payload));
-    } catch (error) {
-      next(error);
-    }
-  });
+      try {
+        const query = salesPlanQuerySchema.parse(request.query);
+        response.json(
+          await service.getEffectiveSalesPlan({
+            periodStart: query.from,
+            periodEnd: query.to
+          })
+        );
+      } catch (error) {
+        next(error);
+      }
+    },
+    getPricingSettings: async (_request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/sales-plan/effective", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      try {
+        response.json(await service.getPricingSettings());
+      } catch (error) {
+        next(error);
+      }
+    },
+    replacePricingSettings: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+        return;
+      }
 
-    try {
-      const query = salesPlanQuerySchema.parse(request.query);
-      response.json(
-        await service.getEffectiveSalesPlan({
-          periodStart: query.from,
-          periodEnd: query.to
-        })
-      );
-    } catch (error) {
-      next(error);
-    }
-  });
+      try {
+        const payload = pricingSettingsBodySchema.parse(request.body);
+        response.json(
+          await service.replacePricingSettings({
+            rules: payload.rules.map((rule, index) => ({
+              id: rule.id,
+              customerLabel: rule.customerLabel,
+              tariffLabel: rule.tariffLabel,
+              attractionRevenueAmount: rule.attractionRevenueAmount,
+              enabled: rule.enabled,
+              sortOrder: rule.sortOrder ?? index * 10
+            }))
+          })
+        );
+      } catch (error) {
+        next(error);
+      }
+    },
+    getUnitEconomicsSettings: async (_request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/settings/pricing", async (_request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    try {
-      response.json(await service.getPricingSettings());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put("/api/settings/pricing", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
-      return;
-    }
-
-    try {
-      const payload = pricingSettingsBodySchema.parse(request.body);
-      response.json(
-        await service.replacePricingSettings({
-          rules: payload.rules.map((rule, index) => ({
-            id: rule.id,
-            customerLabel: rule.customerLabel,
-            tariffLabel: rule.tariffLabel,
-            attractionRevenueAmount: rule.attractionRevenueAmount,
-            enabled: rule.enabled,
-            sortOrder: rule.sortOrder ?? index * 10
-          }))
-        })
-      );
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/settings/unit-economics", async (_request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
-
-    try {
-      response.json(await service.getUnitEconomicsSettings());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put(
-    "/api/settings/unit-economics/cost-rules",
-    async (request, response, next) => {
+      try {
+        response.json(await service.getUnitEconomicsSettings());
+      } catch (error) {
+        next(error);
+      }
+    },
+    replaceUnitEconomicsCostRules: async (request, response, next) => {
       if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
         return;
       }
@@ -3661,29 +3605,24 @@ export function createApp(
       } catch (error) {
         next(error);
       }
-    }
-  );
+    },
+    getConversionEventTypeSettings: async (_request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/settings/conversion-event-types", async (_request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      if (!service.getConversionEventTypeSettings) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
 
-    if (!service.getConversionEventTypeSettings) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      response.json(await service.getConversionEventTypeSettings());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put(
-    "/api/settings/conversion-event-types",
-    async (request, response, next) => {
+      try {
+        response.json(await service.getConversionEventTypeSettings());
+      } catch (error) {
+        next(error);
+      }
+    },
+    replaceConversionEventTypeSettings: async (request, response, next) => {
       if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
         return;
       }
@@ -3699,29 +3638,24 @@ export function createApp(
       } catch (error) {
         next(error);
       }
-    }
-  );
+    },
+    getManagerWhitelistSettings: async (_request, response, next) => {
+      if (denyIfMissingAttractionAccess(response)) {
+        return;
+      }
 
-  app.get("/api/settings/manager-whitelist", async (_request, response, next) => {
-    if (denyIfMissingAttractionAccess(response)) {
-      return;
-    }
+      if (!service.getManagerWhitelistSettings) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
 
-    if (!service.getManagerWhitelistSettings) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
-
-    try {
-      response.json(await service.getManagerWhitelistSettings());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put(
-    "/api/settings/manager-whitelist",
-    async (request, response, next) => {
+      try {
+        response.json(await service.getManagerWhitelistSettings());
+      } catch (error) {
+        next(error);
+      }
+    },
+    replaceManagerWhitelistSettings: async (request, response, next) => {
       if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
         return;
       }
@@ -3744,54 +3678,54 @@ export function createApp(
       } catch (error) {
         next(error);
       }
-    }
-  );
+    },
+    updateWonStages: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+        return;
+      }
 
-  app.post("/api/sync", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
-      return;
+      try {
+        const payload = updateWonStagesSchema.parse(request.body);
+        response.json(await service.updateWonStages(payload.stageIds));
+      } catch (error) {
+        next(error);
+      }
     }
-
-    await runSyncRequest({
-      request,
-      response,
-      next,
-      moduleId: "attraction",
-      moduleService: service
-    });
   });
 
-  app.post("/api/modules/:moduleId/sync", async (request, response, next) => {
-    const moduleId = requestModuleId(request);
-    const moduleService = moduleServices.get(moduleId);
-    if (!moduleService) {
-      response.status(404).json(createErrorResponse("NOT_FOUND"));
-      return;
-    }
+  registerSyncRoutes(app, {
+    syncAttraction: async (request, response, next) => {
+      if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
+        return;
+      }
 
-    if (denyIfMissingModuleSyncAccess(response, moduleId)) {
-      return;
-    }
+      await runSyncRequest({
+        request,
+        response,
+        next,
+        moduleId: "attraction",
+        moduleService: service
+      });
+    },
+    syncModule: async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      const moduleService = moduleServices.get(moduleId);
+      if (!moduleService) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
 
-    await runSyncRequest({
-      request,
-      response,
-      next,
-      moduleId,
-      moduleService
-    });
-  });
+      if (denyIfMissingModuleSyncAccess(response, moduleId)) {
+        return;
+      }
 
-  app.put("/api/settings/won-stages", async (request, response, next) => {
-    if (denyIfMissingAttractionAccess(response, { leaderOnly: true })) {
-      return;
-    }
-
-    try {
-      const payload = updateWonStagesSchema.parse(request.body);
-      response.json(await service.updateWonStages(payload.stageIds));
-    } catch (error) {
-      next(error);
+      await runSyncRequest({
+        request,
+        response,
+        next,
+        moduleId,
+        moduleService
+      });
     }
   });
 

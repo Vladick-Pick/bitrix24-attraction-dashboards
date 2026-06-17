@@ -17,10 +17,8 @@ describe('PlaybookScene', () => {
     expect(srcDoc).toContain('Поля по этапам')
   })
 
-  it('is registered as a dashboard scene tab', () => {
-    const playbook = scenes.find((scene) => scene.id === 'playbook')
-    expect(playbook).toBeDefined()
-    expect(playbook?.label).toBe('Плейбук КИ')
-    expect(playbook?.component).toBe(PlaybookScene)
+  it('keeps reference sections out of dashboard scene tabs', () => {
+    expect(scenes.some((scene) => scene.id === 'ontology')).toBe(false)
+    expect(scenes.some((scene) => scene.id === 'playbook')).toBe(false)
   })
 })

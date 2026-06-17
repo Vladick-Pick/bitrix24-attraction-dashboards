@@ -2,7 +2,8 @@ import playbookHtml from '../../../../docs/modules/attraction/playbook/playbook-
 
 // Самодостаточный HTML-плейбук (вкладки, фильтры и стили внутри файла) рендерим
 // в sandboxed-iframe через srcDoc. Источник правды — docs/modules/attraction/playbook,
-// файл подтягивается импортом `?raw`, поэтому копии и рассинхрона нет.
+// файл подтягивается импортом `?raw` (без копий и рассинхрона). allow-scripts нужен,
+// чтобы работали внутренние вкладки и фильтр плейбука.
 export function PlaybookScene() {
   return (
     <section className="panel overflow-hidden p-0" data-testid="playbook-scene">

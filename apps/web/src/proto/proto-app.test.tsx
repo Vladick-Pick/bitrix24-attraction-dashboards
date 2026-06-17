@@ -1472,6 +1472,59 @@ describe('ProtoApp', () => {
     expect(screen.getByText(/фильтры периода и среза/i)).toBeInTheDocument()
   })
 
+  it('exposes ontology and KI playbook as top-level routes outside analytics scene tabs', async () => {
+    render(<ProtoApp />)
+
+    expect(
+      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+    ).toBeInTheDocument()
+
+    const routeNav = screen.getByLabelText('Основные разделы дашборда')
+    expect(within(routeNav).getByRole('button', { name: /^аналитика$/i })).toHaveClass(
+      'tab-chip-active',
+    )
+    expect(
+      within(routeNav).getByRole('button', { name: /^анализ звонков$/i }),
+    ).toBeInTheDocument()
+    expect(within(routeNav).getByRole('button', { name: /^онтология$/i })).toBeInTheDocument()
+    expect(within(routeNav).getByRole('button', { name: /^плейбук ки$/i })).toBeInTheDocument()
+
+    const analyticsTabs = screen.getByLabelText('Аналитические дашборды')
+    expect(
+      within(analyticsTabs).getByRole('button', { name: /^отчет по продажам$/i }),
+    ).toBeInTheDocument()
+    expect(
+      within(analyticsTabs).getByRole('button', { name: /^движение по воронке$/i }),
+    ).toBeInTheDocument()
+    expect(
+      within(analyticsTabs).queryByRole('button', { name: /^онтология$/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(analyticsTabs).queryByRole('button', { name: /^плейбук ки$/i }),
+    ).not.toBeInTheDocument()
+
+    await userEvent.click(within(routeNav).getByRole('button', { name: /^онтология$/i }))
+
+    expect(await screen.findByRole('heading', { name: /^онтология$/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(apiClient.getAttractionOntology).toHaveBeenCalled()
+    })
+    expect(screen.queryByLabelText('Аналитические дашборды')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Фильтры периода и среза$/i)).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe('/ontology')
+
+    await userEvent.click(within(routeNav).getByRole('button', { name: /^плейбук ки$/i }))
+
+    expect(screen.getByTestId('playbook-scene')).toBeInTheDocument()
+    expect(screen.getByTitle('Плейбук Комьюнити-Интегратора')).toHaveAttribute(
+      'sandbox',
+      'allow-scripts',
+    )
+    expect(screen.queryByLabelText('Аналитические дашборды')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Фильтры периода и среза$/i)).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe('/playbook')
+  })
+
   it('opens the call analysis section and renders queue analysis data', async () => {
     render(<ProtoApp />)
 
@@ -2981,7 +3034,16 @@ describe('ProtoApp', () => {
     })
     expect(leadgenSalesReportButton).toHaveClass('tab-chip', 'tab-chip-active')
     expect(leadgenActivityReportButton).toHaveClass('tab-chip')
-    expect(screen.queryByRole('button', { name: /^онтология$/i })).not.toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Основные разделы дашборда')).getByRole('button', {
+        name: /^онтология$/i,
+      }),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Отчеты лидогенерации')).queryByRole('button', {
+        name: /^онтология$/i,
+      }),
+    ).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /^воронка лидген ус$/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/сводка по отдельной воронке/i)).not.toBeInTheDocument()
     expect(screen.getByText('Всего сделок')).toBeInTheDocument()

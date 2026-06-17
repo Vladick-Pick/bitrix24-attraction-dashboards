@@ -34,6 +34,7 @@ import {
 import { revenueVelocityTooltips } from '@/lib/revenue-velocity-tooltips'
 import { buildDashboardQueryFromProtoFilters } from '@/proto/live-reporting'
 import { OntologyHubScene } from '@/proto/ontology-hub'
+import { PlaybookScene } from '@/proto/playbook-scene'
 import type {
   ActivityMatrixRow,
   ActivityMatrixStageRow,
@@ -7106,6 +7107,14 @@ export const scenes: ProtoScene[] = [
     focus: 'Смыслы / источники / расхождения',
     kpis: [],
     component: OntologyHubScene,
+  },
+  {
+    id: 'playbook',
+    label: 'Плейбук КИ',
+    description: 'Операционный справочник комьюнити-интегратора: этапы, поля, звонки, встреча, события и рефлексия.',
+    focus: 'Ввод в роль / операционка / справочник',
+    kpis: [],
+    component: PlaybookScene,
   },
   {
     id: 'activities-calls',

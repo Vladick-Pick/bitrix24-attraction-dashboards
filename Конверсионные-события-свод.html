@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Конверсионные события — полный свод</title>
+<style>
+:root{color-scheme:light;
+  --bg:#f6f7f9;--card:#fff;--ink:#1c2430;--muted:#5b6675;--line:#e6e9ee;
+  --accent:#3b5bdb;--accent-soft:#eef2ff;--hyp:#d6336c;--hypb:#fff0f6;
+  --s1:#f08c00;--s1b:#fff4e6;--s2:#1c7ed6;--s2b:#e7f5ff;--s3:#7048e8;--s3b:#f3f0ff;--s4:#2f9e44;--s4b:#ebfbee;
+  --src:#0c8599;--srcb:#e6fcf5;--ok:#2f9e44;--warn:#e8590c;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1100px;margin:0 auto;padding:24px 20px 64px}
+.kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1{font-size:28px;line-height:1.15;margin:6px 0 8px;letter-spacing:-.02em}
+.lead{font-size:15px;color:var(--muted);max-width:820px;margin:0 0 12px}
+/* tabs */
+.tabs{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:6px;background:var(--bg);padding:12px 0;border-bottom:1px solid var(--line);margin-bottom:8px}
+.tab{font-size:13.5px;font-weight:600;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink);display:flex;align-items:center;gap:7px}
+.tab .num{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:6px;background:#eef1f5;color:var(--muted);font-size:11px;font-weight:700}
+.tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tab.active .num{background:rgba(255,255,255,.25);color:#fff}
+.panel{display:none;animation:fade .2s ease}
+.panel.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+/* shared */
+h2{font-size:19px;margin:28px 0 12px;display:flex;align-items:center;gap:10px}
+h2 .n{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:700}
+h3{font-size:15px;margin:0 0 6px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin:12px 0;box-shadow:0 1px 2px rgba(20,30,50,.04)}
+.card.pad0{padding:6px}
+.badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.03em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.b-doc{background:#edf2ff;color:#3b5bdb}.b-sheet{background:#e6fcf5;color:#0c8599}
+.b-hyp{background:var(--hypb);color:var(--hyp);border:1px dashed var(--hyp)}.b-src{background:var(--srcb);color:var(--src)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 4px}
+.grid{display:grid;gap:14px}.g2{grid-template-columns:1fr 1fr}.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:760px){.g2,.g4{grid-template-columns:1fr}}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:6px 0}
+.step{flex:1;min-width:120px;border-radius:12px;padding:12px;color:#fff;font-weight:600;font-size:13px}
+.step small{display:block;font-weight:500;opacity:.92;font-size:11px;margin-top:3px}
+.arrow{align-self:center;color:var(--muted);font-size:18px}
+.state{border-radius:14px;padding:16px;border:1px solid var(--line)}
+.state h3{display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%}
+.quote{font-style:italic;color:var(--muted);font-size:13px;margin-top:6px}
+.scard{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:10px 0;background:#fff}
+.scard .hd{padding:11px 16px;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:space-between;font-size:15px}
+.scard .hd .ord{background:rgba(255,255,255,.25);border-radius:6px;padding:1px 8px;font-size:12px}
+.scard .bd{padding:6px 16px 14px}
+.scard dl{margin:0;display:grid;grid-template-columns:140px 1fr;gap:0}
+.scard dt{font-weight:600;color:var(--muted);font-size:12px;padding:8px 0;border-top:1px solid var(--line)}
+.scard dd{margin:0;font-size:13.5px;padding:8px 0;border-top:1px solid var(--line)}
+.scard dl>dt:first-of-type,.scard dl>dt:first-of-type+dd{border-top:none}
+.decay{display:flex;flex-direction:column;gap:12px;margin:8px 0}
+.decay .row{display:flex;align-items:center;gap:12px}
+.decay .lbl{width:140px;font-size:13px;font-weight:600;flex:none}
+.decay .track{flex:1;height:16px;border-radius:8px;background:#eef1f5;overflow:hidden}
+.decay .fill{height:100%;border-radius:8px}
+.decay .win{width:96px;font-size:11.5px;color:var(--muted);flex:none;text-align:right}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;background:#fafbfc}
+tr:last-child td{border-bottom:none}
+td.attr,td.name{font-weight:600;white-space:nowrap}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.callout{border-left:4px solid var(--accent);background:var(--accent-soft);padding:14px 16px;border-radius:0 12px 12px 0;margin:14px 0;font-size:14px}
+.callout.hyp{border-color:var(--hyp);background:var(--hypb)}
+.note{font-size:12.5px;color:var(--muted)}
+.tag{font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px}
+.foot{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
+.st{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;margin:1px 2px 1px 0;white-space:nowrap}
+.st1{background:var(--s1b);color:var(--s1)}.st2{background:var(--s2b);color:var(--s2)}.st3{background:var(--s3b);color:var(--s3)}.st4{background:var(--s4b);color:var(--s4)}
+/* catalog */
+.controls{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin:8px 0 6px}
+.cg{display:flex;flex-direction:column;gap:6px}
+.cg label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;user-select:none}
+.chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.chip.s1.active{background:var(--s1);border-color:var(--s1)}.chip.s2.active{background:var(--s2);border-color:var(--s2)}
+.chip.s3.active{background:var(--s3);border-color:var(--s3)}.chip.s4.active{background:var(--s4);border-color:var(--s4)}
+input.search{padding:8px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;min-width:200px;background:#fff;color:var(--ink)}
+.count{font-size:13px;color:var(--muted);margin:8px 2px}
+#tbl th{cursor:pointer}.todo{color:#d6336c;font-weight:600}
+/* rules */
+.rule{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:0 14px 14px 0;padding:14px 16px;margin:10px 0;box-shadow:0 1px 2px rgba(20,30,50,.04)}
+.rule h3{display:flex;gap:8px;align-items:center;font-size:14.5px}.rule p{margin:0;font-size:13.5px;color:var(--muted)}
+.rule.warn{border-left-color:var(--warn)}.ic{font-size:15px}
+.q{background:var(--hypb);border:1px solid #f3c2d4;border-radius:14px;padding:14px 16px;margin:10px 0}
+.q h3{color:var(--hyp);font-size:14px}.q p{margin:0;font-size:13px;color:#86415e}
+.decide{counter-reset:d}
+.decide .item{display:flex;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;margin:8px 0}
+.decide .item::before{counter-increment:d;content:counter(d);flex:none;width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;font-size:13px;display:grid;place-items:center}
+.decide .item div{font-size:13.5px}.decide .item span{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
+.src{border-radius:14px;padding:16px;border:1px solid var(--line);margin:10px 0;border-left:4px solid var(--src)}
+.src h3{display:flex;align-items:center;gap:8px}.src .what{font-size:13px;color:var(--muted);margin:4px 0 8px}
+.src ul{margin:0;padding-left:18px;font-size:13px}.src li{margin:2px 0}
+.lbox{flex:1;min-width:150px;border-radius:14px;padding:14px;border:1px solid var(--line);background:#fafbfc}
+.lbox h3{font-size:14px}.lbox p{margin:0;font-size:12.5px;color:var(--muted)}.eng{background:var(--accent-soft);border-color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Привлечение штрих · Онтология · Полный свод</div>
+  <h1>Конверсионные события</h1>
+  <p class="lead">Всё, что мы понимаем про конверсионные события: ядро, атрибуты, каталог форматов, траекторная маршрутизация и правила. Бейджи: <span class="badge b-doc">из онтологии</span> <span class="badge b-sheet">из таблицы</span> <span class="badge b-hyp">гипотеза</span></p>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-t="t1"><span class="num">1</span>Ядро</button>
+    <button class="tab" data-t="t2"><span class="num">2</span>Атрибуты</button>
+    <button class="tab" data-t="t3"><span class="num">3</span>Каталог форматов</button>
+    <button class="tab" data-t="t4"><span class="num">4</span>Маршрутизация</button>
+    <button class="tab" data-t="t5"><span class="num">5</span>Правила</button>
+    <button class="tab" data-t="t6"><span class="num">6</span>Поставка</button>
+  </div>
+
+  <!-- ===== TAB 1 ===== -->
+  <section class="panel active" id="t1">
+    <h2><span class="n">1</span>Определение</h2>
+    <div class="card">
+      <p style="margin-top:0;font-size:17px"><strong>Конверсионное событие</strong> — управляемое воздействие на потенциального участника, направленное на изменение его состояния и влияние на <strong>расчётную конверсию</strong>. <span class="badge b-hyp">новый термин</span></p>
+      <p>Это <strong>основной движок продаж в Привлечении штрих</strong>: он переводит человека от входящей базы до передачи в клуб.</p>
+      <div class="callout"><strong>Расчётная конверсия</strong> <span class="badge b-hyp">гипотеза формулировки</span><br>
+        Прогнозная вероятность того, что потенциал дойдёт до контракта/передачи, пересчитываемая после каждого события и сигнала. Событие «успешно», если сдвинуло состояние вправо <em>и</em> повысило расчётную конверсию. Посещение, не повлиявшее на неё, конверсионным событием не является.</div>
+    </div>
+
+    <h2><span class="n">2</span>Почему «события», а не «мероприятия»</h2>
+    <div class="card">
+      <p style="margin-top:0">Термин намеренно шире «мероприятия»: не все воздействия — мероприятия.</p>
+      <div class="grid g2">
+        <div class="state" style="border-color:var(--s2)"><h3><span class="dot" style="background:var(--s2)"></span>Сейчас в орбите</h3>Мероприятия (гостевая, нетворкинг, БКМ…), встречи (1-1, звонок-знакомство, Zoom), индивидуальные форматы.</div>
+        <div class="state" style="border-color:var(--hyp)"><h3><span class="dot" style="background:var(--hyp)"></span>Форматы, которых не знаем <span class="badge b-hyp">гипотеза</span></h3>Контент-касания, разборы в рассылке, peer-звонки, цифровые форматы — всё, что доказуемо двигает состояние и конверсию.</div>
+      </div>
+    </div>
+
+    <h2><span class="n">3</span>Два способа сделать мероприятие конверсионным</h2>
+    <div class="card">
+      <div class="grid g2">
+        <div class="state" style="border-color:var(--s1)"><h3><span class="dot" style="background:var(--s1)"></span>Изначально конверсионное</h3>Мероприятие <strong>сразу проектируется как конверсионное</strong>: целевое состояние, переход, доказательство и следующий шаг заданы до проведения.</div>
+        <div class="state" style="border-color:var(--s2)"><h3><span class="dot" style="background:var(--s2)"></span>Обычное + конверсионный движок</h3>Обычное <strong>клубное мероприятие усиливается движком</strong> — тем, что прямо на нём помогает повлиять на состояние и конверсию (напр. «Сопровождение на мероприятии»).</div>
+      </div>
+      <div class="callout"><strong>Конверсионный движок</strong> — набор инструментов, которые прикладываются к событию, чтобы повлиять на состояние и расчётную конверсию (напр. сопровождение активными участниками из ПАУ). Набор движков ведём в каталоге форматов.</div>
+    </div>
+
+    <h2><span class="n">4</span>Что такое состояние</h2>
+    <div class="card">
+      <p style="margin-top:0">Состояние — это <strong>достигнутый эффект в голове потенциального участника</strong>: что изменилось в его восприятии, мотивации и готовности. Внутренний сдвиг, а не действие, формат или CRM-стадия. <span class="badge b-doc">из онтологии</span></p>
+      <div class="grid g2">
+        <div class="state" style="border-color:var(--s4)"><h3><span class="dot" style="background:var(--s4)"></span>Состояние — это…</h3>
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:13.5px">
+            <li>изменение <strong>в участнике</strong> (восприятие, мотивация, готовность);</li>
+            <li><strong>упорядочено и кумулятивно</strong> — события двигают вправо;</li>
+            <li>доказывается <strong>evidence</strong> (связкой фактов), а не фактом посещения;</li>
+            <li><strong>временно</strong> — без follow-up протухает;</li>
+            <li>распознаётся по коммуникационным триггерам — автоанализ звонка/zoom + отчёт поставщика, а не ставится вручную.</li>
+          </ul></div>
+        <div class="state" style="border-color:var(--hyp)"><h3><span class="dot" style="background:var(--hyp)"></span>Состояние — это НЕ…</h3>
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:13.5px">
+            <li>не тип мероприятия (формат ≠ состояние);</li>
+            <li>не CRM-стадия Битрикса;</li>
+            <li>не факт «пришёл» (посещение ≠ прогресс);</li>
+            <li><strong>не отдельное поле в системе</strong> — состояние не «ставится» галочкой, а выводится;</li>
+            <li>не разовая отметка — может откатываться назад.</li>
+          </ul></div>
+      </div>
+      <p style="margin:14px 0 4px"><strong>Три уровня чтения</strong> <span class="badge b-doc">из онтологии</span> — этап заявляет цель, но не доказывает её:</p>
+      <div class="card pad0"><table>
+        <thead><tr><th>Уровень</th><th>Что показывает</th></tr></thead><tbody>
+          <tr><td class="attr">Состояние участника</td><td>Бизнес-реальность: что изменилось с участником.</td></tr>
+          <tr><td class="attr">CRM-stage</td><td>Процессный маркер Битрикса: в каком контуре стоит сделка.</td></tr>
+          <tr><td class="attr">Evidence</td><td>Доказательства, по которым состояние можно признать достигнутым.</td></tr>
+        </tbody></table></div>
+    </div>
+
+    <h2><span class="n">5</span>Паспорт состояния</h2>
+    <div class="card">
+      <p style="margin-top:0">Каждое каноническое состояние описывается единым паспортом — по этой рамке ниже разобраны все состояния. <span class="badge b-doc">из онтологии</span></p>
+      <div class="card pad0"><table>
+        <thead><tr><th>Атрибут паспорта</th><th>Что фиксирует</th></tr></thead><tbody>
+          <tr><td class="attr">Определение</td><td>Что состояние означает в бизнес-реальности.</td></tr>
+          <tr><td class="attr">Цель этапа</td><td>Какой эффект должен быть создан у участника.</td></tr>
+          <tr><td class="attr">Минимальные evidence</td><td>Какие факты позволяют признать состояние достигнутым.</td></tr>
+          <tr><td class="attr">Срок годности эффекта</td><td>Через сколько эффект состояния протухает без следующего шага. <strong>Примерный ориентир</strong>, держится в паспорте.</td></tr>
+          <tr><td class="attr">Атрибутика</td><td>Поля, события, задачи, встречи, помогающие подтвердить состояние.</td></tr>
+          <tr><td class="attr">Нормальный следующий шаг</td><td>Куда вести участника после подтверждения.</td></tr>
+          <tr><td class="attr">Shortcut-правило</td><td>Когда можно перейти дальше без промежуточных состояний.</td></tr>
+          <tr><td class="attr">Дефект состояния</td><td>Признаки, что stage есть, а состояние не доказано.</td></tr>
+        </tbody></table></div>
+    </div>
+
+    <h2><span class="n">6</span>Карта состояний</h2>
+    <div class="card">
+      <div class="flow">
+        <div class="step" style="background:var(--s1)">Активация<small>первый опыт</small></div><div class="arrow">→</div>
+        <div class="step" style="background:var(--s2)">Демонстрация<small>понял ценность</small></div><div class="arrow">→</div>
+        <div class="step" style="background:var(--s3)">Проблематизация<small>осознал апорию</small></div><div class="arrow">→</div>
+        <div class="step" style="background:#1098ad">Готов к контракту<small>можно оформлять</small></div><div class="arrow">→</div>
+        <div class="step" style="background:#495057">На передаче → Передано<small>handoff</small></div>
+      </div>
+      <div class="flow" style="margin-top:8px">
+        <div class="step" style="background:var(--s4);flex:none;min-width:170px">Адмиссия — gate<small>ценностная сверка при сомнении</small></div>
+        <div class="note" style="align-self:center;flex:1;min-width:200px">↑ не линейный шаг: вызывается после Активации / Демонстрации / встречи, затем возвращает участника в маршрут</div>
+      </div>
+      <p class="note" style="margin-top:10px">Карта — не обязательная линейная прогонка. При достаточном evidence можно срезать к «Готов к контракту» (shortcut); при протухании — откатиться и повторить. <span class="badge b-doc">из онтологии</span></p>
+    </div>
+
+    <h2><span class="n">7</span>Паспорта состояний детально <span class="badge b-doc">из онтологии</span></h2>
+
+    <div class="scard">
+      <div class="hd" style="background:var(--s1)"><span>Активация</span><span class="ord">«интересно, хочу дальше»</span></div>
+      <div class="bd"><dl>
+        <dt>Определение</dt><dd>Получил первый значимый опыт клуба/среды/формата и проявил готовность продолжить.</dd>
+        <dt>Как поймём, что достигнуто</dt><dd><strong>Главный признак — тяга вперёд:</strong> участник сам тянется дальше (спрашивает «а что дальше / когда следующее», сам предлагает шаг, выдаёт заряд про опыт, упоминает зацепивший момент или человека).<br><strong>Поддерживают:</strong> быстрый отклик после события, инициатива в переписке, привёл/порекомендовал кого-то. <strong>Анти-триггеры:</strong> вежливый нейтралитет («нормально, спасибо»), тишина, «подумаю» без крючка.<br><strong>Источник:</strong> автоматический анализ звонка/zoom + отчёт поставщика (факт посещения отмечает поставщик). Полем в системе не помечается.<br><strong>Засчитываем, если:</strong> есть тяга вперёд после содержательного касания (событие, звонок-знакомство и т.п.). Участник может прийти <strong>уже активированным</strong> — отдельный опыт формата не обязателен. Вежливость без тяги → не активация.</dd>
+        <dt>Срок годности</dt><dd><strong>5 раб. дней</strong> без следующего шага → протухает; <strong>14 кален. дней</strong> без контакта → нужна повторная активация.</dd>
+        <dt>Следующий шаг</dt><dd>Демонстрация / Проблематизация / Адмиссия / Готов к контракту / Прогрев / Корзина.</dd>
+        <dt>Частая ошибка</dt><dd>Засчитать активацию по «пришёл и вежливо поблагодарил», без реальной тяги вперёд.</dd>
+      </dl></div>
+    </div>
+
+    <div class="scard">
+      <div class="hd" style="background:var(--s2)"><span>Демонстрация</span><span class="ord">«понял, как и где польза»</span></div>
+      <div class="bd"><dl>
+        <dt>Определение</dt><dd>Понял, как устроен клуб, какие форматы/люди/механики создают ценность, где он получит пользу и где будет полезен сам.</dd>
+        <dt>Как поймём, что достигнуто</dt><dd><strong>Главный признак — понимание + примеривание на себя:</strong> участник проговаривает, как клуб работает, и где конкретно польза ему / где он сам полезен сообществу; задаёт прикладные вопросы, выбирает интересный маршрут.<br><strong>Поддерживают:</strong> называет зацепившие форматы/людей, сравнивает с тем, что искал, обсуждает применение к своей ситуации.<br><strong>Анти-триггеры:</strong> общие восторги без конкретики, вопросы только организационные (когда/сколько), «красиво, но зачем мне — не понял».<br><strong>Источник:</strong> автоматический анализ звонка/zoom + отчёт поставщика. Полем не помечается.<br><strong>Засчитываем, если:</strong> участник сам формулирует, в чём ценность/польза (хотя бы одна сторона — себе или сообществу). Восторг без конкретной пользы → ещё Активация, не Демонстрация.</dd>
+        <dt>Срок годности</dt><dd><strong>7 раб. дней</strong> без следующего шага → протухает; <strong>21 кален. день</strong> без контакта → повторная демонстрация.</dd>
+        <dt>Следующий шаг</dt><dd>Проблематизация / Адмиссия / Готов к контракту / Прогрев / Корзина.</dd>
+        <dt>Частая ошибка</dt><dd>Принять энергию/восторг (это Активация) за понимание ценности.</dd>
+      </dl></div>
+    </div>
+
+    <div class="scard">
+      <div class="hd" style="background:var(--s3)"><span>Проблематизация</span><span class="ord">«осознал свою апорию»</span></div>
+      <div class="bd"><dl>
+        <dt>Определение</dt><dd>Сформулировал свою <strong>апорию</strong> — противоречие/тупик, который не может разрешить сам, — и осознаёт цену оставаться в нём.</dd>
+        <dt>Как поймём, что достигнуто</dt><dd><strong>Главный признак — названная апория + цена бездействия:</strong> участник сам проговаривает противоречие/тупик, в котором застрял (две силы тянут в разные стороны, своими силами выхода нет), и что теряет, оставаясь в нём; связывает выход с клубом. <span class="note">Апория — не задача «сделать X», а неразрешимое самим противоречие.</span><br><strong>Поддерживают:</strong> спрашивает «как клуб помогает выйти из этого», говорит о сроках/срочности, детально описывает развилку.<br><strong>Анти-триггеры:</strong> названа простая задача «сделать X» (это не апория), интерес без противоречия, апория названа без цены бездействия.<br><strong>Источник (гибрид):</strong> авто-анализ звонка/zoom даёт сигнал-кандидат, но для зачёта нужна <strong>явная фиксация КИ</strong> (комментарий/задача/поле) или экспертная разметка — авто само по себе ненадёжно.<br><strong>Засчитываем, если:</strong> названа апория <strong>и</strong> понята цена бездействия (обязательна). Обычная задача/боль без противоречия → не Проблематизация.</dd>
+        <dt>Срок годности</dt><dd><strong>10 раб. дней</strong> без следующего шага → протухает; <strong>30 кален. дней</strong> без контакта → повторная проблематизация.</dd>
+        <dt>Следующий шаг</dt><dd>Готов к контракту / Прогрев / Корзина. Отдельная Адмиссия обычно не нужна — глубокий разговор уже включает ценностный фильтр.</dd>
+        <dt>Частая ошибка</dt><dd>Принять обычную задачу/боль за апорию, или засчитать без цены бездействия.</dd>
+      </dl></div>
+    </div>
+
+    <div class="scard">
+      <div class="hd" style="background:var(--s4)"><span>Адмиссия</span><span class="ord">нетиповое состояние-gate</span></div>
+      <div class="bd"><dl>
+        <dt>Определение</dt><dd>Ценностная сверка: подходят ли участник и клуб друг другу по ценностям, кодексу и ожиданиям.</dd>
+        <dt>Тип</dt><dd><strong>Gate, а не линейный этап.</strong> Вызывается после Встречи-знакомства / Активации / Демонстрации при сомнении в ценностном совпадении.</dd>
+        <dt>Кто проводит</dt><dd>Держатель ценностей: основатель, активный участник или представитель клуба. КИ организует и фиксирует, но не обязан быть держателем.</dd>
+        <dt>Как поймём, что достигнуто</dt><dd><strong>Триггер вызова:</strong> появилось сомнение в ценностном совпадении — у команды или у самого участника («не уверен, моё ли это», «подхожу ли я вам»).<br><strong>Признак прохождения:</strong> состоялась сверка с держателем ценностей и зафиксирован результат.<br><strong>Источник:</strong> организует и фиксирует КИ; результат выносит держатель ценностей (не авто-анализ — это решение человека).<br><strong>Засчитываем, если есть все 3:</strong> причина вызова + факт сверки с держателем ценностей + результат.</dd>
+        <dt>Результаты</dt><dd>match подтверждён → в маршрут/дальше · match не подтверждён → Корзина · нужен контекст → ещё сверка · не удалось провести.</dd>
+        <dt>Не доказывает</dt><dd>Что участник прошёл Демонстрацию/Проблематизацию или готов к контракту.</dd>
+        <dt>Частая ошибка</dt><dd>Свести адмиссию к проверке платёжеспособности или провести без держателя ценностей.</dd>
+      </dl></div>
+    </div>
+
+    <div class="scard">
+      <div class="hd" style="background:#1098ad"><span>Готов к контракту</span><span class="ord">«можно запускать оформление»</span></div>
+      <div class="bd"><dl>
+        <dt>Определение</dt><dd>Участник готов двигаться к вступлению, команда считает, что можно запускать контрактацию (условия, тариф, договор, платёж).</dd>
+        <dt>Как поймём, что достигнуто</dt><dd><strong>Главный признак — сигнал готовности оформляться:</strong> участник сам говорит о вступлении/условиях/тарифе/сроках оплаты, спрашивает «как оформить, что нужно для вступления».<br><strong>Поддерживают:</strong> обсуждает тариф/рассрочку, называет сроки, запрашивает договор/реквизиты.<br><strong>Анти-триггеры:</strong> общий интерес «нравится» без разговора об условиях, «надо подумать» по условиям.<br><strong>Источник:</strong> фиксация КИ (явный шаг контрактации) + отсутствие блокеров по релевантности/ценностям (результат адмиссии, если была, не отрицательный).<br><strong>Засчитываем, если есть все 3:</strong> подтвердил готовность обсуждать вступление/условия + нет блокеров + есть операционный шаг контрактации.</dd>
+        <dt>Актуальность</dt><dd><strong>5 раб. дней</strong> без шага контрактации → готовность зависла; <strong>21 кал. день</strong> без движения → переподтвердить.</dd>
+        <dt>Не доказывает</dt><dd>Покупку/оплату/оформление — это готовность <em>запустить</em> контрактацию, не её результат.</dd>
+        <dt>Дальше</dt><dd>Технический этап «На передаче» → приёмка продюсером → «Передано в клуб» или «Отклонено потребителем».</dd>
+        <dt>Частая ошибка</dt><dd>Счесть готовностью обычный интерес без разговора об условиях.</dd>
+      </dl></div>
+    </div>
+
+    <h2><span class="n">8</span>Чем состояния различаются</h2>
+    <div class="card pad0"><table>
+      <thead><tr><th>Состояние</th><th>Что меняется внутри</th><th>Как поймём (триггер)</th><th>Главный риск</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pill st1">Активация</span></td><td>любопытство / интерес</td><td>Тяга вперёд: сам тянется дальше + был опыт</td><td>Засчитать вежливость без тяги</td></tr>
+        <tr><td><span class="pill st2">Демонстрация</span></td><td>понимание ценности</td><td>Увидел механику + сформулировал пользу</td><td>Не связал с собой</td></tr>
+        <tr><td><span class="pill st3">Проблематизация</span></td><td>осознание апории</td><td>Апория + <strong>цена бездействия</strong></td><td>Принять задачу за апорию</td></tr>
+        <tr><td><span class="pill st4">Адмиссия</span></td><td>чувство «свои» (fit)</td><td>Причина + сверка + результат (все 3)</td><td>Свести к платёжеспособности</td></tr>
+        <tr><td><span class="pill" style="background:#e3fafc;color:#0c8599">Готов к контракту</span></td><td>решимость оформиться</td><td>Готовность + нет блокеров + шаг (все 3)</td><td>Счесть оплатой</td></tr>
+      </tbody></table></div>
+    <p class="note">Состояния различает то, <strong>что поменялось в голове</strong>: любопытство, понимание, потребность, ценностный gate, готовность оформляться.</p>
+
+    <h2><span class="n">9</span>Срок годности эффекта и охлаждение <span class="badge b-doc">из онтологии</span></h2>
+    <div class="card">
+      <p style="margin-top:0">У эффекта <strong>два порога</strong>, и они про разное. Сроки — <strong>примерные ориентиры</strong> из паспортов состояний (заданы экспертно, это не жёсткие дедлайны).</p>
+      <ul style="margin:0 0 10px;padding-left:18px;font-size:13.5px">
+        <li><strong>Мягкий — рабочие дни без следующего шага</strong> (первое число, длина полосы): операционный темп команды — за сколько рабочих дней КИ обязан сделать следующий шаг, пока эффект ещё «горячий». В рабочих днях, потому что это норматив работы команды (выходные не в счёт).</li>
+        <li><strong>Жёсткий — календарные дни без контакта</strong> (второе число): реальное остывание участника — спустя столько дней эффект уже мёртв, нужен повторный разогрев или событие того же уровня. В календарных, потому что человек забывает в реальном времени (выходные тоже считаются).</li>
+      </ul>
+      <div class="decay">
+        <div class="row"><div class="lbl"><span class="pill st1">Активация</span></div><div class="track"><div class="fill" style="width:50%;background:var(--s1)"></div></div><div class="win">5 р.д. / 14 к.д.</div></div>
+        <div class="row"><div class="lbl"><span class="pill st2">Демонстрация</span></div><div class="track"><div class="fill" style="width:70%;background:var(--s2)"></div></div><div class="win">7 р.д. / 21 к.д.</div></div>
+        <div class="row"><div class="lbl"><span class="pill st3">Проблематизация</span></div><div class="track"><div class="fill" style="width:100%;background:var(--s3)"></div></div><div class="win">10 р.д. / 30 к.д.</div></div>
+        <div class="row"><div class="lbl"><span class="pill" style="background:#e3fafc;color:#0c8599">Готов к контракту</span></div><div class="track"><div class="fill" style="width:50%;background:#1098ad"></div></div><div class="win">5 р.д. / 21 к.д.</div></div>
+        <div class="row"><div class="lbl"><span class="pill st4">Адмиссия</span></div><div class="track"><div class="fill" style="width:4%;background:var(--s4)"></div></div><div class="win">gate, срока нет</div></div>
+      </div>
+      <p class="note" style="margin-top:4px">Левое число — мягкий порог (рабочие дни без шага); правое — жёсткий (календарные дни без контакта).</p>
+      <p style="margin:10px 0 4px"><strong>Правила работы с протуханием:</strong></p>
+      <ul style="margin:0;padding-left:18px;font-size:13.5px">
+        <li>При протухшем эффекте <strong>нельзя двигать вправо автоматически</strong> — нужен повторный контакт или повторное событие того же уровня.</li>
+        <li>Чем правее состояние, тем длиннее окно: Активация остывает быстрее всего, Проблематизация держится дольше.</li>
+        <li>Срок годности — это атрибут <strong>эффекта состояния</strong>; держим его в паспорте состояния как <strong>примерный ориентир</strong> (может уточняться форматом или движком). Протухание — сигнал для траекторной маршрутизации назначить следующий контакт. <span class="badge b-hyp">связь — гипотеза</span></li>
+      </ul>
+    </div>
+
+    <h2><span class="n">10</span>Классы событий</h2>
+    <div class="card pad0"><table>
+      <thead><tr><th>Класс события</th><th>Смысл</th><th>Целевое состояние</th></tr></thead>
+      <tbody>
+        <tr><td class="attr">Активационное</td><td>Первый значимый опыт клуба</td><td><span class="pill st1">Активация</span></td></tr>
+        <tr><td class="attr">Демонстрационное</td><td>Показ ценности клуба/формата</td><td><span class="pill st2">Демонстрация</span></td></tr>
+        <tr><td class="attr">Проблематизационное</td><td>Выявление или усиление запроса</td><td><span class="pill st3">Проблематизация</span></td></tr>
+        <tr><td class="attr">Адмиссионное</td><td>Проверка соответствия и готовности</td><td><span class="pill st4">Адмиссия</span></td></tr>
+      </tbody></table></div>
+    <p class="note">Один формат может работать на несколько состояний, но в отчётности фиксируем <strong>главный</strong> эффект. <span class="badge b-doc">из онтологии</span></p>
+  </section>
+
+  <!-- ===== TAB 2 ===== -->
+  <section class="panel" id="t2">
+    <p class="lead" style="margin:4px 0 12px">Здесь только атрибуты <strong>формата</strong> — каталожной единицы (напр. «Гостевая встреча»). Свойства конкретного участника на событии и достигнутого эффекта сюда не входят.</p>
+
+    <h2><span class="dot" style="background:var(--s2);width:11px;height:11px;border-radius:3px"></span>Идентификация формата</h2>
+    <div class="card pad0"><table>
+      <thead><tr><th>Атрибут</th><th>Что фиксирует</th><th>Источник</th></tr></thead><tbody>
+        <tr><td class="attr">Название формата</td><td>Гостевая встреча, нетворкинг, 1-1, разбор, путешествие…</td><td><span class="badge b-sheet">таблица</span></td></tr>
+        <tr><td class="attr">Описание формата</td><td>Что это и для чего.</td><td><span class="badge b-sheet">таблица</span></td></tr>
+        <tr><td class="attr">Класс события</td><td>Активационное / демонстрационное / проблематизационное / адмиссионное.</td><td><span class="badge b-doc">онтология</span></td></tr>
+      </tbody></table></div>
+
+    <h2><span class="dot" style="background:var(--s3);width:11px;height:11px;border-radius:3px"></span>Конверсионное действие</h2>
+    <div class="card pad0"><table>
+      <thead><tr><th>Атрибут</th><th>Что фиксирует</th><th>Источник</th></tr></thead><tbody>
+        <tr><td class="attr">Целевое состояние</td><td>На какое состояние движка формат работает.</td><td><span class="badge b-doc">онтология</span></td></tr>
+        <tr><td class="attr">Целевой переход</td><td>Какой сдвиг вправо должен вызывать.</td><td><span class="badge b-doc">онтология</span></td></tr>
+        <tr><td class="attr">Дополнительный эффект</td><td>Вторичное состояние (но главный — один).</td><td><span class="badge b-doc">онтология</span></td></tr>
+        <tr><td class="attr">Механика влияния</td><td>Через что меняет состояние: среда, вау-эффект, социальное доказательство, разбор.</td><td><span class="badge b-doc">онтология</span></td></tr>
+        <tr><td class="attr">Конверсионные движки</td><td>Какие усилители приложены к формату (напр. сопровождение активными участниками из ПАУ).</td><td><span class="badge b-hyp">новое</span></td></tr>
+      </tbody></table></div>
+
+    <h2><span class="dot" style="background:var(--s1);width:11px;height:11px;border-radius:3px"></span>Поставка и ресурс</h2>
+    <div class="card pad0"><table>
+      <thead><tr><th>Атрибут</th><th>Что фиксирует</th><th>Источник</th></tr></thead><tbody>
+        <tr><td class="attr">Поставщик</td><td>Кто поставил формат, тот и отвечает за его эффект: ПАУ, Клубные активности, Привлечение.</td><td><span class="badge b-sheet">таблица</span></td></tr>
+        <tr><td class="attr">Заказчик / сегмент</td><td>Кому доступен: СФ, СФФ.</td><td><span class="badge b-sheet">таблица</span></td></tr>
+        <tr><td class="attr">Частота / расписание</td><td>Регулярное / ежемесячно / по запросу / разово.</td><td><span class="badge b-sheet">таблица</span></td></tr>
+        <tr><td class="attr">Стоимость для привлечения</td><td>Себестоимость на 1 потенциала.</td><td><span class="badge b-sheet">таблица</span></td></tr>
+        <tr><td class="attr">Стоимость для потенциала</td><td>Платит ли потенциал (обычно бесплатно).</td><td><span class="badge b-sheet">таблица</span></td></tr>
+        <tr><td class="attr">Условие применения</td><td>Когда формат уместен («если не конвертится», «если сомневаемся в ценностях»).</td><td><span class="badge b-sheet">таблица</span></td></tr>
+      </tbody></table></div>
+  </section>
+
+  <!-- ===== TAB 3 ===== -->
+  <section class="panel" id="t3">
+    <p class="lead" style="margin-top:8px">16 форматов из Google Sheet «Конверсионные события». Фильтруй по состоянию/заказчику/организатору. «Уточнить» = пробел в данных. <span class="badge b-sheet">снимок на 14.06.2026</span></p>
+    <div class="controls">
+      <div class="cg"><label>Целевое состояние</label><div class="chips" id="fState">
+        <span class="chip s1" data-v="Активация">Активация</span><span class="chip s2" data-v="Демонстрация">Демонстрация</span>
+        <span class="chip s3" data-v="Проблематизация">Проблематизация</span><span class="chip s4" data-v="Адмиссия">Адмиссия</span></div></div>
+      <div class="cg"><label>Заказчик</label><div class="chips" id="fCust"><span class="chip" data-v="СФ">СФ</span><span class="chip" data-v="СФФ">СФФ</span></div></div>
+      <div class="cg"><label>Организатор</label><div class="chips" id="fOrg">
+        <span class="chip" data-v="ПАУ">ПАУ</span><span class="chip" data-v="Клубные активности">Клубные активности</span><span class="chip" data-v="Привлечение">Привлечение</span></div></div>
+      <div class="cg"><label>Поиск</label><input class="search" id="q" placeholder="формат или примечание…"></div>
+    </div>
+    <div class="count" id="count"></div>
+    <div class="card pad0"><table id="tbl">
+      <thead><tr><th data-k="name">Формат</th><th data-k="states">Состояние</th><th data-k="cust">Заказчик</th><th data-k="org">Организатор</th><th data-k="freq">Частота</th><th data-k="cost">Стоимость (привл.)</th><th data-k="note">Примечание</th></tr></thead>
+      <tbody id="rows"></tbody></table></div>
+  </section>
+
+  <!-- ===== TAB 4 ===== -->
+  <section class="panel" id="t4">
+    <h2><span class="n">1</span>Что это и зачем</h2>
+    <div class="card">
+      <p style="margin-top:0"><strong>Траекторная маршрутизация</strong> подсказывает коммьюнити-интегратору (КИ), куда дальше навигировать потенциала: какое следующее событие/формат/шаг даст максимальный рост расчётной конверсии. Сегодня это держится на опыте КИ — маршрутизация превращает это в управляемый контур. <span class="badge b-hyp">концепция</span></p>
+      <p class="note">Опора: «каждая открытая сделка должна иметь следующий шаг»; «событие без следующего шага дефектно». <span class="badge b-doc">из онтологии</span></p>
+    </div>
+
+    <h2><span class="n">2</span>Контур</h2>
+    <div class="card">
+      <div class="flow">
+        <div class="lbox"><h3>① Сигналы</h3><p>Поля сделки, звонки и Zoom (в т.ч. пост-событийные)</p></div><div class="arrow">→</div>
+        <div class="lbox eng"><h3>② Движок</h3><p>Состояние + пересчёт расчётной конверсии</p></div><div class="arrow">→</div>
+        <div class="lbox"><h3>③ Рекомендация</h3><p>Следующий формат из каталога</p></div><div class="arrow">→</div>
+        <div class="lbox"><h3>④ Действие КИ</h3><p>Проводит шаг и фиксирует результат</p></div>
+      </div>
+      <div style="text-align:center;color:var(--muted);margin:4px 0">↻ результат шага возвращается в ① как новый сигнал</div>
+    </div>
+
+    <h2><span class="n">3</span>Источники данных</h2>
+    <div class="src"><h3>Поля сделки в воронке «Привлечение» <span class="tag" style="background:#eef1f5;color:var(--muted)">структурированные</span></h3>
+      <div class="what">Самый надёжный слой, всегда доступен. <span class="badge b-doc">из онтологии</span></div>
+      <ul><li>Стадия и история стадий, дата первого касания</li><li>Состояние движка, статусы посещений</li><li>Итоговое качество, бизнес-клуб, причина отказа/возврата</li><li>Договорные поля, SLA-таймеры</li></ul></div>
+    <div class="src"><h3>Телефонные разговоры <span class="tag" style="background:#eef1f5;color:var(--muted)">звонок-знакомство и далее</span></h3>
+      <div class="what">Анализ транскриптов даёт сигналы готовности и запроса. <span class="badge b-hyp">требует пайплайна</span></div>
+      <ul><li>Подтверждение готовности к встрече (правило 2 недель)</li><li>Формулировка запроса даёт сигнал к Проблематизации</li><li>Возражения, температура, сроки</li></ul></div>
+    <div class="src"><h3>Запись Zoom-встречи <span class="tag" style="background:#eef1f5;color:var(--muted)">этап «Встреча-знакомство»</span></h3>
+      <div class="what">Главная точка съёма состояния в начале карты. <span class="badge b-hyp">требует записи и анализа</span></div>
+      <ul><li>Достигнут ли эффект, какой следующий шаг назначен</li><li>Отраслевой или лайфстайл-запрос — под формат Демонстрации</li><li>Сомнения по ценностям — под адмиссионный формат</li></ul></div>
+    <p class="note" style="margin:6px 0 0">«…и далее рефлексивные» — это не отдельный источник. Рефлексия живёт в тех же звонках и zoom <strong>после события</strong>: сдвинулось ли состояние, протух ли эффект, что сработало. Эти пост-событийные касания замыкают контур — результат становится входом следующей рекомендации.</p>
+    <div class="callout"><strong>Иерархия доверия</strong> <span class="badge b-hyp">гипотеза</span>: поля сделки — базовый факт; звонки и Zoom (в том числе пост-событийные) — богатый контекст. Маршрутизация работает и на одних полях сделки; звонки и Zoom повышают точность.</div>
+
+    <h2><span class="n">4</span>Логика рекомендации: пример <span class="badge b-hyp">гипотеза</span></h2>
+    <div class="card pad0"><table>
+      <thead><tr><th>Состояние</th><th>Сигнал</th><th>Рекомендованный шаг</th></tr></thead><tbody>
+        <tr><td><span class="st st1">Активация</span></td><td>Пришёл, позитив, эффект свежий</td><td>Демонстрация (отраслевая встреча / горячее кресло)</td></tr>
+        <tr><td><span class="st st1">Активация</span></td><td>Эффект протух</td><td>Повторный контакт, не двигать вправо авто</td></tr>
+        <tr><td><span class="st st2">Демонстрация</span></td><td>Сформулировал задачу/боль</td><td>Проблематизация: 1-1 с продюсером / активным участником</td></tr>
+        <tr><td><span class="st st3">Проблематизация</span></td><td>Признал ценность, готов обсуждать</td><td>Адмиссия: 1-1 с основателями → контракт</td></tr>
+        <tr><td><span class="st st3">Проблематизация</span></td><td>Сомнение в ценностях</td><td>Адмиссионная сверка перед оформлением</td></tr>
+        <tr><td><span class="st st4">Адмиссия</span></td><td>Взаимный fit подтверждён</td><td>Shortcut: сразу контракт</td></tr>
+        <tr><td colspan="2">Любое · не проходит критерии клуба</td><td>Возврат в лидген / CTU</td></tr>
+      </tbody></table></div>
+    <p class="note">Ограничители: готовых не гонять по цепочке; протухший эффект → повторный контакт; посещение ≠ прогресс. <span class="badge b-doc">из онтологии</span></p>
+    <div class="callout hyp"><strong>Вопросы по маршрутизации:</strong>
+      <ol style="margin:8px 0 0;padding-left:20px">
+        <li>Рекомендует (КИ решает) или предписывает с override?</li>
+        <li>Расчётная конверсия — единая модель на сделку или скор на каждый шаг?</li>
+        <li>Анализ звонков/Zoom — ручной, авто (LLM) или гибрид на старте?</li>
+        <li>Где живёт рекомендация: Битрикс, дашборд КИ или оба?</li>
+      </ol></div>
+  </section>
+
+  <!-- ===== TAB 5 ===== -->
+  <section class="panel" id="t5">
+    <h2><span class="n">1</span>Правила событий <span class="badge b-doc">из онтологии</span></h2>
+    <div class="grid g2">
+      <div class="rule"><h3>Формат ≠ состояние</h3><p>Один формат может активировать, демонстрировать и проблематизировать в разных пропорциях. Закрепляем главный эффект.</p></div>
+      <div class="rule"><h3>Событие должно двигать вправо</h3><p>Не переводит в следующее состояние — не конверсионное для привлечения.</p></div>
+      <div class="rule warn"><h3>Эффект временный</h3><p>Активация, демонстрация, проблематизация протухают без быстрого следующего шага.</p></div>
+      <div class="rule warn"><h3>Готовых не гоняем по цепочке</h3><p>Готов вступать — закрываем, а не ведём искусственно через все события.</p></div>
+      <div class="rule warn"><h3>Посещение ≠ прогресс</h3><p>Мог прийти, но не изменить состояние и не пойти дальше.</p></div>
+      <div class="rule warn"><h3>Без следующего шага — дефект</h3><p>После формата обязан быть следующий шаг: звонок, встреча, задача, адмиссия, контракт или возврат.</p></div>
+      <div class="rule"><h3>Партнёрский лидген ≠ привлечение</h3><p>Холодную аудиторию надо переводить в звонок-знакомство и конверсионный маршрут.</p></div>
+      <div class="rule"><h3>CTU и программы как форматы</h3><p>Только если допроектированы под нужный переход и доказуемый эффект.</p></div>
+    </div>
+
+    <h2><span class="n">2</span>Ограничители измерения <span class="badge b-doc">из онтологии</span></h2>
+    <div class="rule warn"><h3>«Мероприятие ОФ» — не единственная база</h3><p>Аналитика опирается на связку: события, посещения, история статусов, сделка.</p></div>
+    <div class="rule warn"><h3>Один главный эффект в отчётности</h3><p>У формата два эффекта — фиксируем главный, иначе считается «сразу всем».</p></div>
+    <div class="rule"><h3>Доказательство — это связка</h3><p>Приглашён или пришёл, целевое состояние, следующий шаг и реальный сдвиг дальше.</p></div>
+
+    <h2><span class="n">3</span>Открытые вопросы онтологии <span class="badge b-doc">из доков</span></h2>
+    <div class="q" style="background:#ebfbee;border-color:#b2f2bb"><h3 style="color:#2f9e44">Срок протухания — закрыто</h3><p style="color:#2b7a3e">Заданы в паспортах состояний (02-state-layer): Активация 5/14, Демонстрация 7/21, Проблематизация 10/30, Готов к контракту 5/21 (раб./кален. дни). Адмиссия — gate без срока. См. вкладку «Ядро».</p></div>
+    <div class="q"><h3>Минимальное доказательство состояния</h3><p>Поведение, решение менеджера, CRM-стадия, событие или комбинация?</p></div>
+    <div class="q"><h3>Каноническая классификация форматов</h3><p>Что канонически активационное/…/адмиссионное, а что остаётся партнёрским лидгеном?</p></div>
+    <div class="q"><h3>Граница знакомства и первого события</h3><p>Где граница, если знакомство происходит внутри мероприятия?</p></div>
+    <div class="q"><h3>Несколько состояний за одно событие</h3><p>Может ли одно событие зафиксировать несколько состояний и как считать главный эффект?</p></div>
+
+    <h2><span class="n">4</span>Сводный список решений <span class="badge b-hyp">новое</span></h2>
+    <div class="decide">
+      <div class="item"><div>Определить <strong>расчётную конверсию</strong>: база, что повышает/понижает, горизонт, на сделку или на человека, влияние протухания.<span>Вкладка 1 · ядро</span></div></div>
+      <div class="item"><div><strong>Апория</strong>: строгая форма или допускаем «задача + цена бездействия»?<span>Вкладка 1 · ядро</span></div></div>
+      <div class="item"><div>Срок протухания по состоянию задан; открыто — нужны ли поправки по формату внутри состояния.<span>Вкладка 1 · ядро</span></div></div>
+      <div class="item"><div>Собрать <strong>набор конверсионных движков</strong> и внести в каталог.<span>Вкладка 3 · каталог</span></div></div>
+      <div class="item"><div>Закрыть «уточнить» в каталоге (стоимость, частота, поставщик, квоты, дубль «личной встречи»).<span>Вкладка 3 · каталог</span></div></div>
+      <div class="item"><div>Маршрутизация: рекомендует (КИ решает) или предписывает с override?<span>Вкладка 4</span></div></div>
+      <div class="item"><div>Где живёт рекомендация: Битрикс, дашборд КИ или оба?<span>Вкладка 4</span></div></div>
+      <div class="item"><div>Утвердить полный <strong>список условий зачёта</strong> конверсионного события.<span>Вкладка 6 · поставка</span></div></div>
+      <div class="item"><div>Перенести проработанное в онтологию (02-state-layer, registry, changelog): апория и триггерная модель «как поймём».<span>онтология</span></div></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB 6 ===== -->
+  <section class="panel" id="t6">
+    <h2><span class="n">1</span>Поставщики конверсионных событий</h2>
+    <div class="card">
+      <p style="margin-top:0">Конверсионные события поставляют <strong>поставщики событий</strong>. Поставщик конверсионного события — контур, который проводит формат и отвечает за его конверсионный эффект (в каталоге это колонка «Организатор»).</p>
+      <ul style="margin:6px 0 0;padding-left:18px;font-size:13.5px">
+        <li><strong>Программа активных участников (ПАУ)</strong> поставляет «Гостевую встречу» с активными участниками.</li>
+        <li><strong>Клубные активности</strong> могут поставлять много событий — если добавляют к ним конверсионный движок.</li>
+      </ul>
+      <div class="callout">Обычное клубное мероприятие становится <strong>поставляемым конверсионным событием</strong>, когда поставщик добавляет к нему конверсионный движок.</div>
+    </div>
+
+    <h2><span class="n">2</span>Зачем нужны условия зачёта</h2>
+    <div class="card">
+      <p style="margin-top:0">Чтобы событие засчитывалось как <strong>конверсионное событие Привлечения</strong>, его поставка должна выполнять набор условий. Иначе оно не засчитывается. <span class="badge b-hyp">список к утверждению</span></p>
+      <div class="callout">Две роли в поставке: <strong>поставщик события</strong> (организатор формата — ПАУ, Клубные активности и т.д.) отвечает за проведение, фиксацию посещения и отчёт; <strong>КИ</strong> — за пост-ивент контакт и детекцию состояния.</div>
+    </div>
+
+    <h2><span class="n">3</span>Условия зачёта конверсионного события</h2>
+
+    <div class="rule"><h3>1. Задано целевое состояние и класс</h3><p>Известно, на какое состояние событие должно повлиять (активационное, демонстрационное и т.д.) и какой переход вызвать. <span class="badge b-doc">из онтологии</span></p></div>
+    <div class="rule"><h3>2. Формат есть в каталоге</h3><p>Событие опирается на формат из каталога; если применяются конверсионные движки — они тоже указаны. <span class="badge b-hyp">гипотеза</span></p></div>
+    <div class="rule"><h3>3. Поставщик фиксирует посещение</h3><p>Факт участия (кто пришёл) отмечает <strong>поставщик события</strong>, а не КИ. Это вход для детекции состояния. <span class="badge b-hyp">новое</span></p></div>
+    <div class="rule"><h3>4. Отчёт поставщика</h3><p>Поставщик передаёт отчёт: кто был, что происходило, наблюдения по участнику (реакция, тяга вперёд). <span class="badge b-hyp">новое</span></p></div>
+    <div class="rule"><h3>5. Пост-ивент контакт КИ</h3><p>После события КИ проводит zoom или телефонный разговор; состояние детектируется <strong>автоматическим анализом записи</strong> по триггерам. <span class="badge b-hyp">новое</span></p></div>
+    <div class="rule warn"><h3>6. Определён следующий шаг</h3><p>У события есть следующий шаг: встреча, звонок, адмиссия, контракт или возврат. Без него событие дефектно. <span class="badge b-doc">из онтологии</span></p></div>
+
+    <h2><span class="n">4</span>Кто что делает</h2>
+    <div class="card pad0"><table>
+      <thead><tr><th>Шаг</th><th>Поставщик события</th><th>КИ</th></tr></thead><tbody>
+        <tr><td class="attr">До события</td><td>Спроектировать формат, задать целевое состояние/движки</td><td>Привести/пригласить релевантного участника</td></tr>
+        <tr><td class="attr">На событии</td><td>Провести, зафиксировать посещение</td><td>Сопровождение (если предусмотрено движком)</td></tr>
+        <tr><td class="attr">После события</td><td>Передать отчёт (кто был, наблюдения)</td><td>Zoom/телефон, детекция состояния, следующий шаг</td></tr>
+      </tbody></table></div>
+    <p class="note">Состояние нигде не «ставится» полем — оно выводится из отчёта поставщика + разговора КИ. <span class="badge b-hyp">к доработке вместе</span></p>
+  </section>
+
+  <div class="foot">
+    Источники: <code>docs/modules/attraction/MODULE_ONTOLOGY.md</code>, <code>ontology/05-meetings-events-formats.md</code>, <code>ontology/04-state-machine.md</code>, <code>ontology/03-lidgen-us-interface.md</code>, Google Sheet «Конверсионные события». Бейдж «гипотеза» = предложение к обсуждению, ещё не закреплено в онтологии.
+  </div>
+</div>
+
+<script>
+// tabs
+document.querySelectorAll('#tabs .tab').forEach(t=>{t.onclick=()=>{
+  document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  t.classList.add('active');document.getElementById(t.dataset.t).classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});};});
+
+// catalog
+const DATA=[
+ {name:"Гостевая встреча",states:["Активация"],cust:["СФ"],org:"ПАУ",freq:"каждый чт, 16:30",cost:"5000 ₽ / потенциал",note:"ПАУ — организатор. Потенциалу бесплатно."},
+ {name:"Нетворкинг сессия",states:["Активация"],cust:["СФФ"],org:"Клубные активности",freq:"1 раз в месяц",cost:"уточнить",note:""},
+ {name:"БКМ — Большое клубное мероприятие",states:["Активация","Демонстрация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Ответственные/пример: Конюхов, Кузнецов, Титов."},
+ {name:"Отраслевая конференция",states:["Активация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:""},
+ {name:"Отраслевая встреча",states:["Демонстрация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Подбирается из запроса лида."},
+ {name:"Лайфстайл мероприятия",states:["Демонстрация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Покер, теннис, гольф, театры. Из запроса лида."},
+ {name:"Горячее кресло",states:["Демонстрация"],cust:["СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:""},
+ {name:"Клубное мероприятие в гостиной",states:["Демонстрация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Уточнить, как выделяются квоты."},
+ {name:"1-1 с продюсером",states:["Проблематизация","Адмиссия"],cust:["СФФ"],org:"Привлечение",freq:"по запросу лида",cost:"уточнить",note:"Если не конвертится."},
+ {name:"1-1 с активным участником",states:["Проблематизация"],cust:["СФ","СФФ"],org:"ПАУ",freq:"по запросу лида",cost:"уточнить",note:"Если не конвертится. Peer proof."},
+ {name:"1-1 с основателями",states:["Адмиссия"],cust:["СФ"],org:"Привлечение",freq:"по запросу лида",cost:"уточнить",note:"Если сомневаемся в соответствии ценностям."},
+ {name:'ОП "Построение сообществ"',states:["Активация","Демонстрация"],cust:["СФ","СФФ"],org:"—",freq:"уточнить",cost:"уточнить",note:"Надформат / программа. Организатор не указан."},
+ {name:"Бизнес миссии",states:["Активация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:'Внутри ОП. Можно передать, даже если не в клуб.'},
+ {name:"Путешествия",states:["Активация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Уточнить адмиссионную оценку перед программой."},
+ {name:"Личная встреча — живой контакт",states:["Активация","Демонстрация"],cust:["СФ","СФФ"],org:"Привлечение",freq:"уточнить",cost:"уточнить",note:"На схеме повтор — проверить дубль."},
+ {name:"Сопровождение на мероприятии",states:["Демонстрация"],cust:["СФ","СФФ"],org:"ПАУ",freq:"по запросу лида",cost:"5000 ₽ / потенциал",note:"Разговор с активными участниками на клубном мероприятии."}
+];
+const stClass={"Активация":"st1","Демонстрация":"st2","Проблематизация":"st3","Адмиссия":"st4"};
+const sel={state:new Set(),cust:new Set(),org:new Set()};let sortK=null,sortDir=1;
+function chips(id,key){document.querySelectorAll('#'+id+' .chip').forEach(c=>{c.onclick=()=>{const v=c.dataset.v;c.classList.toggle('active');if(sel[key].has(v))sel[key].delete(v);else sel[key].add(v);render();};});}
+chips('fState','state');chips('fCust','cust');chips('fOrg','org');
+document.getElementById('q').oninput=render;
+function render(){
+  const q=document.getElementById('q').value.toLowerCase().trim();
+  let rows=DATA.filter(d=>{
+    if(sel.state.size&&![...sel.state].some(s=>d.states.includes(s)))return false;
+    if(sel.cust.size&&![...sel.cust].some(s=>d.cust.includes(s)))return false;
+    if(sel.org.size&&!sel.org.has(d.org))return false;
+    if(q&&!(d.name.toLowerCase().includes(q)||d.note.toLowerCase().includes(q)))return false;
+    return true;});
+  if(sortK){rows.sort((a,b)=>{const av=(sortK=='states'?a.states.join():sortK=='cust'?a.cust.join():a[sortK])||'';const bv=(sortK=='states'?b.states.join():sortK=='cust'?b.cust.join():b[sortK])||'';return av.localeCompare(bv,'ru')*sortDir;});}
+  document.getElementById('rows').innerHTML=rows.map(d=>`<tr><td class="name">${d.name}</td><td>${d.states.map(s=>`<span class="st ${stClass[s]}">${s}</span>`).join('')}</td><td>${d.cust.join(', ')}</td><td>${d.org}</td><td class="${d.freq=='уточнить'?'todo':'note'}">${d.freq}</td><td class="${d.cost=='уточнить'?'todo':''}">${d.cost}</td><td class="note">${d.note||'—'}</td></tr>`).join('');
+  document.getElementById('count').textContent=`Показано форматов: ${rows.length} из ${DATA.length}`;
+}
+document.querySelectorAll('#tbl th').forEach(th=>{th.onclick=()=>{const k=th.dataset.k;if(sortK==k)sortDir*=-1;else{sortK=k;sortDir=1;}render();};});
+render();
+</script>
+</body>
+</html>

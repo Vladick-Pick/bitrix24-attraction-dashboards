@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '@/App'
@@ -1018,6 +1018,11 @@ function createEmptyManagerActionOutcomeReport(
   }
 }
 
+async function waitForDashboardShell() {
+  expect(await screen.findByText(/фильтры периода и среза/i)).toBeInTheDocument()
+  await waitFor(() => expect(apiClient.getDashboard).toHaveBeenCalled())
+}
+
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -1069,14 +1074,17 @@ describe('App', () => {
     expect(screen.queryByText(/сессия истекла/i)).not.toBeInTheDocument()
   })
 
-  it('keeps the login shell when the auth probe is unavailable', async () => {
+  it('loads the dashboard shell when auth endpoints are disabled locally', async () => {
     vi.mocked(apiClient.getCurrentUser).mockRejectedValueOnce(
       Object.assign(new Error('NOT_FOUND'), { status: 404 }),
     )
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: /^вход в дашборд$/i })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: /^pdca-дашборд метрик$/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /^вход в дашборд$/i })).not.toBeInTheDocument()
   })
 
   it('logs in and then loads the dashboard shell', async () => {
@@ -1147,6 +1155,7 @@ describe('App', () => {
 
   it('renders factual stage distribution below the funnel throughput report', async () => {
     render(<App />)
+    await waitForDashboardShell()
 
     fireEvent.click(
       await screen.findByRole('button', { name: /движение по воронке/i }),
@@ -1179,12 +1188,15 @@ describe('App', () => {
 
   it('renders the revenue velocity tab with KPI, sortable table, formula tooltip and conversion-event warning', async () => {
     render(<App />)
+    await waitForDashboardShell()
 
     fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
 
     expect(await screen.findByRole('heading', { name: /денежная скорость/i })).toBeInTheDocument()
-    expect(apiClient.getRevenueVelocityReport).toHaveBeenCalledWith(
-      expect.objectContaining({ view: 'systemState', dimension: 'manager' }),
+    await waitFor(() =>
+      expect(apiClient.getRevenueVelocityReport).toHaveBeenCalledWith(
+        expect.objectContaining({ view: 'systemState', dimension: 'manager' }),
+      ),
     )
     expect(screen.getByRole('button', { name: /состояние системы/i })).toBeInTheDocument()
     expect(screen.queryByText(/сумма выигранных сделок когорты/i)).not.toBeInTheDocument()
@@ -1241,6 +1253,7 @@ describe('App', () => {
     vi.mocked(apiClient.getRevenueVelocityReport).mockResolvedValueOnce(warningReport)
 
     render(<App />)
+    await waitForDashboardShell()
     fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
 
     expect(
@@ -1267,6 +1280,7 @@ describe('App', () => {
     )
 
     render(<App />)
+    await waitForDashboardShell()
     fireEvent.click(await screen.findByRole('button', { name: /когортный отчет/i }))
 
     expect(
@@ -1293,6 +1307,7 @@ describe('App', () => {
       )
 
     render(<App />)
+    await waitForDashboardShell()
     fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
     fireEvent.click(await screen.findByRole('button', { name: /^когорты$/i }))
 
@@ -1319,6 +1334,7 @@ describe('App', () => {
       )
 
     render(<App />)
+    await waitForDashboardShell()
     fireEvent.click(await screen.findByRole('button', { name: /денежная скорость/i }))
     fireEvent.click(await screen.findByRole('button', { name: /^когорты$/i }))
 

@@ -1017,36 +1017,61 @@ function buildSlaMetricsByManager(input: {
     ])
   );
 }
-function resolveDurationMetrics(
-  dealId: string,
-  stageId: string,
-  stageHistoryMap: Map<string, StageHistorySnapshot[]>
+function buildSourceQualityStageProgressionLookups(
+  deals: DealSnapshot[],
+  stageHistoryMap: Map<string, StageHistorySnapshot[]>,
+  reportEndMs: number
 ) {
-  const rows = stageHistoryMap.get(dealId) ?? [];
-  const durations: number[] = [];
+  const reachedStageIdsByDealId = new Map<string, Set<string>>();
+  const stageDurationMsByDealAndStage = new Map<string, Map<string, number[]>>();
 
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    if (!row) {
-      continue;
-    }
+  for (const deal of deals) {
+    const fullHistory = stageHistoryMap.get(deal.id) ?? [];
+    const historyThroughReportEnd = fullHistory.filter((entry) => {
+      const entryTime = Date.parse(entry.createdTime);
+      return Number.isFinite(entryTime) && entryTime <= reportEndMs;
+    });
+    const hasAnyFiniteHistory = fullHistory.some((entry) =>
+      Number.isFinite(Date.parse(entry.createdTime))
+    );
+    const reachedStageIds = new Set<string>();
+    const durationMsByStage = new Map<string, number[]>();
 
-    if (row.stageId !== stageId) {
-      continue;
-    }
+    for (let index = 0; index < historyThroughReportEnd.length; index += 1) {
+      const row = historyThroughReportEnd[index];
+      if (!row) {
+        continue;
+      }
 
-    const next = rows[index + 1];
-    if (!next) {
-      continue;
-    }
+      reachedStageIds.add(row.stageId);
 
-    const durationMs = Date.parse(next.createdTime) - Date.parse(row.createdTime);
-    if (Number.isFinite(durationMs) && durationMs >= 0) {
+      const next = historyThroughReportEnd[index + 1];
+      if (!next) {
+        continue;
+      }
+
+      const durationMs = Date.parse(next.createdTime) - Date.parse(row.createdTime);
+      if (!Number.isFinite(durationMs) || durationMs < 0) {
+        continue;
+      }
+
+      const durations = durationMsByStage.get(row.stageId) ?? [];
       durations.push(durationMs);
+      durationMsByStage.set(row.stageId, durations);
     }
+
+    if (historyThroughReportEnd.length === 0 && !hasAnyFiniteHistory) {
+      reachedStageIds.add(deal.stageId);
+    }
+
+    reachedStageIdsByDealId.set(deal.id, reachedStageIds);
+    stageDurationMsByDealAndStage.set(deal.id, durationMsByStage);
   }
 
-  return durations;
+  return {
+    reachedStageIdsByDealId,
+    stageDurationMsByDealAndStage
+  };
 }
 
 export function buildSourceQualityConversionReport(
@@ -1057,9 +1082,10 @@ export function buildSourceQualityConversionReport(
   const wonStageIds = new Set(input.wonStageIds);
   const allowedCategoryIds = getAllowedCategoryIds(input.stageCatalog);
   const stageSequence = getStageSequence(input.stageCatalog);
+  const dealById = new Map(input.deals.map((deal) => [deal.id, deal]));
   const stageHistoryMap = buildStageHistoryMap(
     input.stageHistory.filter((row) => {
-      const deal = input.deals.find((item) => item.id === row.ownerId);
+      const deal = dealById.get(row.ownerId);
       return Boolean(
         deal && allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))
       );
@@ -1071,6 +1097,17 @@ export function buildSourceQualityConversionReport(
       allowedCategoryIds.has(normalizeCategoryId(deal.categoryId)) &&
       isWithinRange(deal.dateCreate, fromMs, toMs)
   );
+  const { reachedStageIdsByDealId, stageDurationMsByDealAndStage } =
+    buildSourceQualityStageProgressionLookups(deals, stageHistoryMap, toMs);
+  const wonDealIdsInRange = new Set<string>();
+  for (const deal of deals) {
+    if (
+      wonStageIds.has(deal.stageId) &&
+      isWithinRange(resolveWonAt(deal, stageHistoryMap, wonStageIds), fromMs, toMs)
+    ) {
+      wonDealIdsInRange.add(deal.id);
+    }
+  }
   const rows = new Map<
     string,
     {
@@ -1101,37 +1138,25 @@ export function buildSourceQualityConversionReport(
   const resultRows = Array.from(rows.values())
     .map((row) => {
       const stageMetrics = stageSequence.map<StageProgressionMetric>((stage) => {
-        const reachedDeals = row.deals.filter((deal) => {
-          const historyAsOf = (stageHistoryMap.get(deal.id) ?? []).filter((entry) => {
-            const entryTime = Date.parse(entry.createdTime);
-            return Number.isFinite(entryTime) && entryTime <= toMs;
-          });
-          const stages = new Set(
-            historyAsOf.map((entry) => entry.stageId)
-          );
-          if (historyAsOf.length === 0) {
-            stages.add(deal.stageId);
+        let reachedDeals = 0;
+        const durations: number[] = [];
+
+        for (const deal of row.deals) {
+          if (!reachedStageIdsByDealId.get(deal.id)?.has(stage.stageId)) {
+            continue;
           }
-          return stages.has(stage.stageId);
-        });
-        const durationHistoryMap = new Map(
-          reachedDeals.map((deal) => [
-            deal.id,
-            (stageHistoryMap.get(deal.id) ?? []).filter((entry) => {
-              const entryTime = Date.parse(entry.createdTime);
-              return Number.isFinite(entryTime) && entryTime <= toMs;
-            })
-          ])
-        );
-        const durations = reachedDeals.flatMap((deal) =>
-          resolveDurationMetrics(deal.id, stage.stageId, durationHistoryMap)
-        );
+
+          reachedDeals += 1;
+          durations.push(
+            ...(stageDurationMsByDealAndStage.get(deal.id)?.get(stage.stageId) ?? [])
+          );
+        }
 
         return {
           stageId: stage.stageId,
           stageName: stage.stageName,
-          reachedDeals: reachedDeals.length,
-          conversionRate: toRate(reachedDeals.length, row.deals.length),
+          reachedDeals,
+          conversionRate: toRate(reachedDeals, row.deals.length),
           averageStageDurationHours:
             durations.length === 0
               ? 0
@@ -1148,11 +1173,7 @@ export function buildSourceQualityConversionReport(
         qualityKey: row.qualityKey,
         qualityLabel: row.qualityLabel,
         createdDeals: row.deals.length,
-        wonDeals: row.deals.filter(
-          (deal) =>
-            wonStageIds.has(deal.stageId) &&
-            isWithinRange(resolveWonAt(deal, stageHistoryMap, wonStageIds), fromMs, toMs)
-        ).length,
+        wonDeals: row.deals.filter((deal) => wonDealIdsInRange.has(deal.id)).length,
         stageMetrics
       };
     })
@@ -1167,11 +1188,7 @@ export function buildSourceQualityConversionReport(
   return {
     range: input.range,
     totalCreatedDeals: deals.length,
-    totalWonDeals: deals.filter(
-      (deal) =>
-        wonStageIds.has(deal.stageId) &&
-        isWithinRange(resolveWonAt(deal, stageHistoryMap, wonStageIds), fromMs, toMs)
-    ).length,
+    totalWonDeals: wonDealIdsInRange.size,
     rows: resultRows,
     stageSequence
   };

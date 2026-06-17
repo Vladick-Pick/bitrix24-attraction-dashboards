@@ -1,3 +1,4 @@
+import type { SyncRepository } from "../domain/sync.js";
 import type { SqliteRepository } from "./sqlite-repository.js";
 
 export type PlatformCommentRepository = Pick<
@@ -127,3 +128,58 @@ export type CallAnalysisRepository = Pick<
   | "getCallActivityIdsMissingCallStats"
   | "getCallActivityIdsForCallStatsRefresh"
 >;
+
+export type ReportingRepository = SyncRepository &
+  Pick<
+    SqliteRepository,
+    // Snapshot reads and report inputs.
+    | "getSnapshotStats"
+    | "getDealIdsByCategoryIds"
+    | "getAllDeals"
+    | "getAllStageHistory"
+    | "getAllActivities"
+    | "getAllActivityBindings"
+    | "getAllActivityDeadlineChanges"
+    | "getAllDealMeetingDateChanges"
+    | "getAllConversionEventVisits"
+    | "getAllDealStageFacts"
+    | "getAllDealTouchpointFacts"
+    | "getAllEventSnapshots"
+    | "getAllEventVisitFacts"
+    | "getAllEventVisitStageHistory"
+    | "getAllCalls"
+    | "getManagerDirectory"
+    | "getStageCatalog"
+    | "getWonStageIds"
+    | "setWonStageIds"
+    // Sync health and sync status used by reporting endpoints.
+    | "hasSyncCoverage"
+    | "getDealMeetingDateFieldBootstrappedAt"
+    | "getCallActivityIdsMissingCallStats"
+    | "recoverStaleSyncRuns"
+    | "getLastSyncSummary"
+    | "listSyncRuns"
+    // Report-owned generated facts.
+    | "replaceAnalyticsFacts"
+    // Sales plan and pricing settings.
+    | "getSalesPlanRows"
+    | "replaceSalesPlanRows"
+    | "replaceSalesPlanPeriods"
+    | "getPricingRules"
+    | "replacePricingRules"
+    // Unit economics.
+    | "getUnitEconomicsCostArticles"
+    | "getUnitEconomicsCostRules"
+    | "replaceUnitEconomicsCostRules"
+    | "getUnitEconomicsEventParticipantMode"
+    | "getUnitEconomicsCostFacts"
+    // Call analysis reads.
+    | "getCallAnalysisResult"
+    | "getLatestCallAnalysisRuns"
+    // Module report settings.
+    | "getModuleEventTypeSettings"
+    | "replaceModuleEventTypeSettings"
+    | "getConversionEventTypeOptions"
+    | "getManagerWhitelistSettings"
+    | "replaceManagerWhitelistSettings"
+  >;

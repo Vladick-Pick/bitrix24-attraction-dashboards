@@ -74,7 +74,6 @@ import {
 } from "../domain/operational-reports.js";
 import {
   ATTRACTION_MANAGER_CATALOG,
-  ATTRACTION_MANAGER_IDS,
   normalizeAttractionManagerFilters,
   sortAttractionManagers
 } from "../domain/attraction-managers.js";
@@ -86,7 +85,6 @@ import {
   loadAttractionOntology,
   loadAttractionOntologySourceDocument
 } from "../domain/attraction-ontology.js";
-import { DEFAULT_PRICING_RULES } from "../domain/deal-economics.js";
 import {
   buildSourceLabelMap,
   normalizeCategoryId,
@@ -128,10 +126,10 @@ import {
   performManualSync
 } from "../domain/sync.js";
 import type { SyncClient } from "../domain/sync.js";
+import type { ReportingRepository } from "./repository-roles.js";
 import type {
   CallAnalysisResultRecord,
-  CallAnalysisRunSummary,
-  SqliteRepository
+  CallAnalysisRunSummary
 } from "./sqlite-repository.js";
 
 interface CreateReportingServiceInput {
@@ -147,8 +145,7 @@ interface CreateReportingServiceInput {
   meetingDateFieldName?: string;
   contactTargetGroupFieldName?: string;
   legacyContactTargetGroupFieldName?: string;
-  // TODO(platform-foundation Plan 002): narrow to ReportingRepository after report engines split.
-  repository: SqliteRepository;
+  repository: ReportingRepository;
   client: SyncClient;
   defaultPeriodDays: number;
   bootstrapLookbackDays?: number;
@@ -528,17 +525,11 @@ const MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS = [
 ];
 const SYNC_HEALTH_STALE_RUN_HOURS = 2;
 const SYNC_HEALTH_STALE_SUCCESS_HOURS = 24;
-const EMPTY_SNAPSHOT_STATS = {
-  deals: 0,
-  activities: 0,
-  calls: 0,
-  stageHistory: 0
-};
-type DealStageFacts = Awaited<ReturnType<SqliteRepository["getAllDealStageFacts"]>>;
+type DealStageFacts = Awaited<ReturnType<ReportingRepository["getAllDealStageFacts"]>>;
 type DealTouchpointFacts = Awaited<
-  ReturnType<SqliteRepository["getAllDealTouchpointFacts"]>
+  ReturnType<ReportingRepository["getAllDealTouchpointFacts"]>
 >;
-type EventVisitFacts = Awaited<ReturnType<SqliteRepository["getAllEventVisitFacts"]>>;
+type EventVisitFacts = Awaited<ReturnType<ReportingRepository["getAllEventVisitFacts"]>>;
 
 function addHours(date: Date, hours: number) {
   const copy = new Date(date);
@@ -553,7 +544,7 @@ function addDays(date: Date, days: number) {
 }
 
 async function buildSyncHealth(input: {
-  repository: SqliteRepository;
+  repository: ReportingRepository;
   categoryIds: string[];
   assignedByIds: string[];
   lastSync: {
@@ -573,13 +564,10 @@ async function buildSyncHealth(input: {
     input.now,
     -SYNC_HEALTH_STALE_RUN_HOURS
   ).toISOString();
-  const recoveredStaleRuns =
-    typeof input.repository.recoverStaleSyncRuns === "function"
-      ? await input.repository.recoverStaleSyncRuns({
-          staleBefore,
-          failedAt: checkedAt
-        })
-      : 0;
+  const recoveredStaleRuns = await input.repository.recoverStaleSyncRuns({
+    staleBefore,
+    failedAt: checkedAt
+  });
 
   if (recoveredStaleRuns > 0) {
     issues.push({
@@ -648,22 +636,18 @@ async function buildSyncHealth(input: {
       : [])
   ];
 
-  const repositoryWithCoverage = input.repository as Partial<SqliteRepository>;
-  const coverageResults =
-    typeof repositoryWithCoverage.hasSyncCoverage === "function"
-      ? await Promise.all(
-          coverageChecks.map((check) =>
-            repositoryWithCoverage.hasSyncCoverage?.({
-              scopeKey,
-              stream: check.stream,
-              providerId: check.providerId,
-              requiredFrom,
-              requiredTo: checkedAt,
-              algorithmVersion: check.algorithmVersion
-            })
-          )
-        )
-      : [false];
+  const coverageResults = await Promise.all(
+    coverageChecks.map((check) =>
+      input.repository.hasSyncCoverage({
+        scopeKey,
+        stream: check.stream,
+        providerId: check.providerId,
+        requiredFrom,
+        requiredTo: checkedAt,
+        algorithmVersion: check.algorithmVersion
+      })
+    )
+  );
 
   if (coverageResults.some((covered) => covered !== true)) {
     issues.push({
@@ -686,107 +670,94 @@ async function buildSyncHealth(input: {
 }
 
 async function buildManagerActionOutcomeWarnings(input: {
-  repository: SqliteRepository;
+  repository: ReportingRepository;
   categoryIds: string[];
   assignedByIds: string[];
   range: ReportRange;
   meetingDateFieldName?: string;
 }) {
   const warnings = new Set<string>();
-  const repositoryWithCoverage = input.repository as Partial<SqliteRepository>;
   let meetingDateFieldCoverageConfirmed = false;
 
-  if (typeof repositoryWithCoverage.hasSyncCoverage === "function") {
-    const scopeKey = buildCategoryScopeKey(input.categoryIds, input.assignedByIds);
-    const coverageResults = await Promise.all(
-      MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS.map((providerId) =>
-        repositoryWithCoverage.hasSyncCoverage?.({
-          scopeKey,
-          stream: "activity_history",
-          providerId,
-          requiredFrom: input.range.from,
-          requiredTo: input.range.to,
-          algorithmVersion: ACTIVITY_HISTORY_COVERAGE_VERSION
-        })
-      )
-    );
-
-    if (coverageResults.some((covered) => covered !== true)) {
-      warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
-    }
-
-    const dealCustomFieldCoverage = repositoryWithCoverage.hasSyncCoverage({
+  const scopeKey = buildCategoryScopeKey(input.categoryIds, input.assignedByIds);
+  const coverageResults = await Promise.all(
+    MANAGER_ACTION_REQUIRED_ACTIVITY_PROVIDERS.map((providerId) =>
+      input.repository.hasSyncCoverage({
         scopeKey,
-        stream: DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
-        providerId: DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
+        stream: "activity_history",
+        providerId,
         requiredFrom: input.range.from,
         requiredTo: input.range.to,
-        algorithmVersion: DEAL_CUSTOM_FIELDS_COVERAGE_VERSION
-    });
-    const meetingDateFieldCoverage = input.meetingDateFieldName
-      ? repositoryWithCoverage.hasSyncCoverage({
-          scopeKey,
-          stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
-          providerId: input.meetingDateFieldName,
-          requiredFrom: input.range.from,
-          requiredTo: input.range.to,
-          algorithmVersion: DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION
-        })
-      : Promise.resolve(true);
-    const callStatsCoverage = repositoryWithCoverage.hasSyncCoverage({
-        scopeKey,
-        stream: CALL_STATS_COVERAGE_STREAM,
-        providerId: CALL_STATS_COVERAGE_PROVIDER,
-        requiredFrom: input.range.from,
-        requiredTo: input.range.to,
-        algorithmVersion: CALL_STATS_COVERAGE_VERSION
-    });
-    const fieldCoverageResults = await Promise.all([
-      dealCustomFieldCoverage,
-      meetingDateFieldCoverage,
-      callStatsCoverage
-    ]);
-    meetingDateFieldCoverageConfirmed = fieldCoverageResults[1] === true;
+        algorithmVersion: ACTIVITY_HISTORY_COVERAGE_VERSION
+      })
+    )
+  );
 
-    if (fieldCoverageResults.some((covered) => covered !== true)) {
-      warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
-    }
+  if (coverageResults.some((covered) => covered !== true)) {
+    warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
   }
 
+  const dealCustomFieldCoverage = input.repository.hasSyncCoverage({
+    scopeKey,
+    stream: DEAL_CUSTOM_FIELDS_COVERAGE_STREAM,
+    providerId: DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER,
+    requiredFrom: input.range.from,
+    requiredTo: input.range.to,
+    algorithmVersion: DEAL_CUSTOM_FIELDS_COVERAGE_VERSION
+  });
+  const meetingDateFieldCoverage = input.meetingDateFieldName
+    ? input.repository.hasSyncCoverage({
+        scopeKey,
+        stream: DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM,
+        providerId: input.meetingDateFieldName,
+        requiredFrom: input.range.from,
+        requiredTo: input.range.to,
+        algorithmVersion: DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION
+      })
+    : Promise.resolve(true);
+  const callStatsCoverage = input.repository.hasSyncCoverage({
+    scopeKey,
+    stream: CALL_STATS_COVERAGE_STREAM,
+    providerId: CALL_STATS_COVERAGE_PROVIDER,
+    requiredFrom: input.range.from,
+    requiredTo: input.range.to,
+    algorithmVersion: CALL_STATS_COVERAGE_VERSION
+  });
+  const fieldCoverageResults = await Promise.all([
+    dealCustomFieldCoverage,
+    meetingDateFieldCoverage,
+    callStatsCoverage
+  ]);
+  meetingDateFieldCoverageConfirmed = fieldCoverageResults[1] === true;
+
+  if (fieldCoverageResults.some((covered) => covered !== true)) {
+    warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
+  }
+
+  const bootstrappedAt =
+    await input.repository.getDealMeetingDateFieldBootstrappedAt();
   if (
-    typeof repositoryWithCoverage.getDealMeetingDateFieldBootstrappedAt ===
-    "function"
+    input.meetingDateFieldName &&
+    !bootstrappedAt &&
+    !meetingDateFieldCoverageConfirmed
   ) {
-    const bootstrappedAt =
-      await repositoryWithCoverage.getDealMeetingDateFieldBootstrappedAt();
-    if (
-      input.meetingDateFieldName &&
-      !bootstrappedAt &&
-      !meetingDateFieldCoverageConfirmed
-    ) {
-      warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
-    }
+    warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
   }
 
-  if (typeof repositoryWithCoverage.getCallActivityIdsMissingCallStats === "function") {
-    const ownerIds =
-      typeof input.repository.getDealIdsByCategoryIds === "function"
-        ? await input.repository.getDealIdsByCategoryIds(
-            input.categoryIds,
-            input.assignedByIds
-          )
-        : [];
-    const missingCallStatActivityIds =
-      ownerIds.length > 0
-        ? await repositoryWithCoverage.getCallActivityIdsMissingCallStats(
-            1,
-            input.range.from,
-            ownerIds
-          )
-        : [];
-    if (missingCallStatActivityIds.length > 0) {
-      warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
-    }
+  const ownerIds = await input.repository.getDealIdsByCategoryIds(
+    input.categoryIds,
+    input.assignedByIds
+  );
+  const missingCallStatActivityIds =
+    ownerIds.length > 0
+      ? await input.repository.getCallActivityIdsMissingCallStats(
+          1,
+          input.range.from,
+          ownerIds
+        )
+      : [];
+  if (missingCallStatActivityIds.length > 0) {
+    warnings.add(MANAGER_ACTION_OUTCOME_INCOMPLETE_WARNING);
   }
 
   return Array.from(warnings);
@@ -1005,12 +976,7 @@ export function createReportingService(
       allowedCategoryIds,
       includeSources ? { includeSources: true } : undefined
     );
-  const getPricingRules = async () => {
-    const repositoryWithPricing = input.repository as Partial<SqliteRepository>;
-    return typeof repositoryWithPricing.getPricingRules === "function"
-      ? repositoryWithPricing.getPricingRules()
-      : DEFAULT_PRICING_RULES;
-  };
+  const getPricingRules = () => input.repository.getPricingRules();
   const reportInputCache: {
     dealStageFacts?: Promise<DealStageFacts>;
     dealTouchpointFacts?: Promise<DealTouchpointFacts>;
@@ -1022,13 +988,9 @@ export function createReportingService(
     delete reportInputCache.eventVisitFacts;
   };
   const getCachedDealStageFacts = () => {
-    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
-    if (typeof repositoryWithFacts.getAllDealStageFacts !== "function") {
-      return Promise.resolve([] as DealStageFacts);
-    }
     if (!reportInputCache.dealStageFacts) {
       let promise: Promise<DealStageFacts>;
-      promise = repositoryWithFacts.getAllDealStageFacts().catch((error) => {
+      promise = input.repository.getAllDealStageFacts().catch((error) => {
         if (reportInputCache.dealStageFacts === promise) {
           delete reportInputCache.dealStageFacts;
         }
@@ -1039,13 +1001,9 @@ export function createReportingService(
     return reportInputCache.dealStageFacts;
   };
   const getCachedDealTouchpointFacts = () => {
-    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
-    if (typeof repositoryWithFacts.getAllDealTouchpointFacts !== "function") {
-      return Promise.resolve([] as DealTouchpointFacts);
-    }
     if (!reportInputCache.dealTouchpointFacts) {
       let promise: Promise<DealTouchpointFacts>;
-      promise = repositoryWithFacts.getAllDealTouchpointFacts().catch((error) => {
+      promise = input.repository.getAllDealTouchpointFacts().catch((error) => {
         if (reportInputCache.dealTouchpointFacts === promise) {
           delete reportInputCache.dealTouchpointFacts;
         }
@@ -1056,13 +1014,9 @@ export function createReportingService(
     return reportInputCache.dealTouchpointFacts;
   };
   const getCachedEventVisitFacts = () => {
-    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
-    if (typeof repositoryWithFacts.getAllEventVisitFacts !== "function") {
-      return Promise.resolve([] as EventVisitFacts);
-    }
     if (!reportInputCache.eventVisitFacts) {
       let promise: Promise<EventVisitFacts>;
-      promise = repositoryWithFacts.getAllEventVisitFacts().catch((error) => {
+      promise = input.repository.getAllEventVisitFacts().catch((error) => {
         if (reportInputCache.eventVisitFacts === promise) {
           delete reportInputCache.eventVisitFacts;
         }
@@ -1072,16 +1026,11 @@ export function createReportingService(
     }
     return reportInputCache.eventVisitFacts;
   };
-  const getUnitEconomicsEventParticipantMode = async () => {
-    const repositoryWithUnitEconomics = input.repository as Partial<SqliteRepository>;
-    return typeof repositoryWithUnitEconomics.getUnitEconomicsEventParticipantMode ===
-      "function"
-      ? repositoryWithUnitEconomics.getUnitEconomicsEventParticipantMode()
-      : "invited";
-  };
+  const getUnitEconomicsEventParticipantMode = () =>
+    input.repository.getUnitEconomicsEventParticipantMode();
 
   const filterDealsByFilters = (
-    deals: Awaited<ReturnType<SqliteRepository["getAllDeals"]>>,
+    deals: Awaited<ReturnType<ReportingRepository["getAllDeals"]>>,
     stageCatalog: StageCatalogEntry[],
     filters: ReportFilters | undefined,
     options?: {
@@ -1174,17 +1123,10 @@ export function createReportingService(
   };
 
   const getAttractionManagerScope = async () => {
-    const repositoryWithSettings = input.repository as Partial<SqliteRepository>;
-    if (typeof repositoryWithSettings.getManagerWhitelistSettings === "function") {
-      const settings = await repositoryWithSettings.getManagerWhitelistSettings(
-        "attraction"
-      );
-      return settings
-        .filter((setting) => setting.enabled)
-        .map((setting) => setting.managerId);
-    }
-
-    return ATTRACTION_MANAGER_IDS;
+    const settings = await input.repository.getManagerWhitelistSettings("attraction");
+    return settings
+      .filter((setting) => setting.enabled)
+      .map((setting) => setting.managerId);
   };
 
   const normalizeAttractionReportFilters = async (
@@ -1193,18 +1135,9 @@ export function createReportingService(
 
   const buildManagerWhitelistSettingsData =
     async (): Promise<ManagerWhitelistSettingsData> => {
-      const repositoryWithSettings = input.repository as Partial<SqliteRepository>;
-      const settings =
-        typeof repositoryWithSettings.getManagerWhitelistSettings === "function"
-          ? await repositoryWithSettings.getManagerWhitelistSettings("attraction")
-          : ATTRACTION_MANAGER_CATALOG.map((manager, index) => ({
-              moduleKey: "attraction",
-              managerId: manager.id,
-              managerName: manager.name,
-              enabled: true,
-              sortOrder: index * 10,
-              updatedAt: new Date(0).toISOString()
-            }));
+      const settings = await input.repository.getManagerWhitelistSettings(
+        "attraction"
+      );
       const existing = await input.repository.getManagerDirectory();
       const optionsById = new Map<string, ManagerDirectoryEntry>();
 
@@ -1225,10 +1158,10 @@ export function createReportingService(
         options: sortAttractionManagers(sortManagers(Array.from(optionsById.values()))),
         settings
       };
-    };
+  };
 
   const buildSourceCatalog = (
-    deals: Awaited<ReturnType<SqliteRepository["getAllDeals"]>>,
+    deals: Awaited<ReturnType<ReportingRepository["getAllDeals"]>>,
     stageCatalog: StageCatalogEntry[]
   ) => {
     const sourceLabels = buildSourceLabelMap(stageCatalog);
@@ -1246,10 +1179,6 @@ export function createReportingService(
   };
 
   const rebuildAnalyticsFacts = async (): Promise<AnalyticsFactsBuildSummary | null> => {
-    const repositoryWithFacts = input.repository as Partial<SqliteRepository>;
-    if (typeof repositoryWithFacts.replaceAnalyticsFacts !== "function") {
-      return null;
-    }
     clearReportInputCache();
 
     const [
@@ -1268,20 +1197,12 @@ export function createReportingService(
       input.repository.getStageCatalog(),
       input.repository.getAllStageHistory(),
       input.repository.getAllActivities(),
-      typeof repositoryWithFacts.getAllActivityBindings === "function"
-        ? repositoryWithFacts.getAllActivityBindings()
-        : Promise.resolve([]),
+      input.repository.getAllActivityBindings(),
       input.repository.getAllCalls(),
-      typeof repositoryWithFacts.getAllDealMeetingDateChanges === "function"
-        ? repositoryWithFacts.getAllDealMeetingDateChanges()
-        : Promise.resolve([]),
+      input.repository.getAllDealMeetingDateChanges(),
       input.repository.getAllConversionEventVisits(),
-      typeof repositoryWithFacts.getAllEventSnapshots === "function"
-        ? repositoryWithFacts.getAllEventSnapshots()
-        : Promise.resolve([]),
-      typeof repositoryWithFacts.getAllEventVisitStageHistory === "function"
-        ? repositoryWithFacts.getAllEventVisitStageHistory()
-        : Promise.resolve([])
+      input.repository.getAllEventSnapshots(),
+      input.repository.getAllEventVisitStageHistory()
     ]);
     const scopedFilters = await normalizeAttractionReportFilters(undefined);
     const scopedDeals = filterDealsByFilters(
@@ -1324,9 +1245,9 @@ export function createReportingService(
       })
     ];
 
-    let baseCounts: Awaited<ReturnType<SqliteRepository["replaceAnalyticsFacts"]>>;
+    let baseCounts: Awaited<ReturnType<ReportingRepository["replaceAnalyticsFacts"]>>;
     try {
-      baseCounts = await repositoryWithFacts.replaceAnalyticsFacts({
+      baseCounts = await input.repository.replaceAnalyticsFacts({
         identityLinks,
         dealStageFacts: stageFacts,
         dealTouchpointFacts: touchpointFacts,
@@ -1343,11 +1264,11 @@ export function createReportingService(
   };
 
   const loadCanonicalReportInputs = async (fallback: {
-    stageHistory: Awaited<ReturnType<SqliteRepository["getAllStageHistory"]>>;
-    activities?: Awaited<ReturnType<SqliteRepository["getAllActivities"]>>;
-    calls?: Awaited<ReturnType<SqliteRepository["getAllCalls"]>>;
+    stageHistory: Awaited<ReturnType<ReportingRepository["getAllStageHistory"]>>;
+    activities?: Awaited<ReturnType<ReportingRepository["getAllActivities"]>>;
+    calls?: Awaited<ReturnType<ReportingRepository["getAllCalls"]>>;
     meetingDateChanges?: Awaited<
-      ReturnType<NonNullable<SqliteRepository["getAllDealMeetingDateChanges"]>>
+      ReturnType<ReportingRepository["getAllDealMeetingDateChanges"]>
     >;
   }, options?: {
     includeTouchpointFacts?: boolean;
@@ -1988,14 +1909,9 @@ export function createReportingService(
     },
 
     async getConversionEventTypeSettings() {
-      const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
       const [options, settings] = await Promise.all([
-        typeof repositoryWithEvents.getConversionEventTypeOptions === "function"
-          ? repositoryWithEvents.getConversionEventTypeOptions()
-          : Promise.resolve([]),
-        typeof repositoryWithEvents.getModuleEventTypeSettings === "function"
-          ? repositoryWithEvents.getModuleEventTypeSettings("attraction")
-          : Promise.resolve([])
+        input.repository.getConversionEventTypeOptions(),
+        input.repository.getModuleEventTypeSettings("attraction")
       ]);
       const enabledTypeIds = new Set(
         settings.filter((setting) => setting.enabled).map((setting) => setting.eventTypeId)
@@ -2011,18 +1927,7 @@ export function createReportingService(
     },
 
     async replaceConversionEventTypeSettings(settingsInput) {
-      const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
-      if (typeof repositoryWithEvents.replaceModuleEventTypeSettings !== "function") {
-        return {
-          options: [],
-          settings: []
-        };
-      }
-
-      const options =
-        typeof repositoryWithEvents.getConversionEventTypeOptions === "function"
-          ? await repositoryWithEvents.getConversionEventTypeOptions()
-          : [];
+      const options = await input.repository.getConversionEventTypeOptions();
       const optionById = new Map(options.map((option) => [option.id, option]));
       const selectedIds = Array.from(new Set(settingsInput.eventTypeIds.map(String)));
       const updatedAt = nowFactory().toISOString();
@@ -2038,7 +1943,7 @@ export function createReportingService(
         };
       });
 
-      await repositoryWithEvents.replaceModuleEventTypeSettings({
+      await input.repository.replaceModuleEventTypeSettings({
         moduleKey: "attraction",
         rows
       });
@@ -2057,31 +1962,11 @@ export function createReportingService(
     },
 
     async replaceManagerWhitelistSettings(settingsInput) {
-      const repositoryWithSettings = input.repository as Partial<SqliteRepository>;
       const selectedIds = Array.from(
         new Set(settingsInput.managerIds.map(String).map((id) => id.trim()).filter(Boolean))
       );
 
-      if (typeof repositoryWithSettings.replaceManagerWhitelistSettings !== "function") {
-        return {
-          ...(await buildManagerWhitelistSettingsData()),
-          settings: selectedIds.map((managerId, index) => {
-            const catalogEntry = ATTRACTION_MANAGER_CATALOG.find(
-              (manager) => manager.id === managerId
-            );
-            return {
-              moduleKey: "attraction",
-              managerId,
-              managerName: catalogEntry?.name ?? managerId,
-              enabled: true,
-              sortOrder: index * 10,
-              updatedAt: new Date(0).toISOString()
-            };
-          })
-        };
-      }
-
-      await repositoryWithSettings.replaceManagerWhitelistSettings({
+      await input.repository.replaceManagerWhitelistSettings({
         moduleKey: "attraction",
         managerIds: selectedIds,
         updatedAt: nowFactory().toISOString()
@@ -2574,16 +2459,13 @@ export function createReportingService(
     async getCallsWorkloadReport({ periodDays, range, compareRanges, filters }) {
       const workloadFilters = await normalizeWorkloadFilters(filters);
       const scopedFilters = workloadFilters.filters;
-      const repositoryWithActivityBindings = input.repository as Partial<SqliteRepository>;
       const [deals, stageCatalog, stageHistory, activities, activityBindings, calls] =
         await Promise.all([
           input.repository.getAllDeals(),
           getScopedStageCatalog(),
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
-          typeof repositoryWithActivityBindings.getAllActivityBindings === "function"
-            ? repositoryWithActivityBindings.getAllActivityBindings()
-            : Promise.resolve([]),
+          input.repository.getAllActivityBindings(),
           input.repository.getAllCalls()
         ]);
       const canonical = await loadCanonicalReportInputs({
@@ -2833,7 +2715,6 @@ export function createReportingService(
       filters
     }) {
       const scopedFilters = await normalizeAttractionReportFilters(filters);
-      const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
       const [
         deals,
         stageCatalog,
@@ -2847,12 +2728,8 @@ export function createReportingService(
         getScopedStageCatalog(true),
         input.repository.getAllStageHistory(),
         input.repository.getAllConversionEventVisits(),
-        typeof repositoryWithEvents.getAllEventSnapshots === "function"
-          ? repositoryWithEvents.getAllEventSnapshots()
-          : Promise.resolve([]),
-        typeof repositoryWithEvents.getModuleEventTypeSettings === "function"
-          ? repositoryWithEvents.getModuleEventTypeSettings("attraction")
-          : Promise.resolve([])
+        input.repository.getAllEventSnapshots(),
+        input.repository.getModuleEventTypeSettings("attraction")
       ]);
       const canonical = await loadCanonicalReportInputs(
         { stageHistory },
@@ -2912,18 +2789,16 @@ export function createReportingService(
         scopedDealIds.has(row.ownerId)
       );
       const conversionEventsCoverageConfirmed =
-        typeof input.repository.hasSyncCoverage === "function"
-          ? await input.repository.hasSyncCoverage({
-              scopeKey: buildCategoryScopeKey(
-                input.dealCategoryIds,
-                scopedFilters.managerIds ?? []
-              ),
-              stream: CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
-              providerId: CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
-              requiredFrom: FULL_COVERAGE_FROM,
-              algorithmVersion: CONVERSION_EVENT_VISITS_COVERAGE_VERSION
-            })
-          : true;
+        await input.repository.hasSyncCoverage({
+          scopeKey: buildCategoryScopeKey(
+            input.dealCategoryIds,
+            scopedFilters.managerIds ?? []
+          ),
+          stream: CONVERSION_EVENT_VISITS_COVERAGE_STREAM,
+          providerId: CONVERSION_EVENT_VISITS_COVERAGE_PROVIDER,
+          requiredFrom: FULL_COVERAGE_FROM,
+          algorithmVersion: CONVERSION_EVENT_VISITS_COVERAGE_VERSION
+        });
       const managerDirectory = await ensureManagerDirectory(
         uniqueStrings([
           ...scopedDeals.map((deal) => deal.assignedById),
@@ -3155,7 +3030,6 @@ export function createReportingService(
       eventParticipantMode
     }) {
       const scopedFilters = await normalizeAttractionReportFilters(filters);
-      const repositoryWithEvents = input.repository as Partial<SqliteRepository>;
       const [
         deals,
         stageCatalog,
@@ -3171,12 +3045,8 @@ export function createReportingService(
           input.repository.getAllStageHistory(),
           input.repository.getWonStageIds(),
           getPricingRules(),
-          typeof repositoryWithEvents.getAllEventVisitFacts === "function"
-            ? repositoryWithEvents.getAllEventVisitFacts()
-            : Promise.resolve([]),
-          typeof repositoryWithEvents.getAllEventSnapshots === "function"
-            ? repositoryWithEvents.getAllEventSnapshots()
-            : Promise.resolve([])
+          input.repository.getAllEventVisitFacts(),
+          input.repository.getAllEventSnapshots()
         ]);
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
@@ -3273,7 +3143,6 @@ export function createReportingService(
     },
 
     async getMeta() {
-      const repositoryWithStats = input.repository as Partial<SqliteRepository>;
       const managerScope = await getAttractionManagerScope();
       const scopeKey = buildCategoryScopeKey(input.dealCategoryIds, managerScope);
       const [deals, stageCatalog, wonStageIds, lastSync, snapshotStats] =
@@ -3282,12 +3151,10 @@ export function createReportingService(
           getScopedStageCatalog(true),
           input.repository.getWonStageIds(),
           input.repository.getLastSyncSummary(scopeKey),
-          typeof repositoryWithStats.getSnapshotStats === "function"
-            ? repositoryWithStats.getSnapshotStats({
-                categoryIds: input.dealCategoryIds,
-                assignedByIds: managerScope
-              })
-            : Promise.resolve(EMPTY_SNAPSHOT_STATS)
+          input.repository.getSnapshotStats({
+            categoryIds: input.dealCategoryIds,
+            assignedByIds: managerScope
+          })
         ]);
       const scopedFilters = normalizeAttractionManagerFilters(undefined, managerScope);
       const scopedDeals = filterDealsByFilters(

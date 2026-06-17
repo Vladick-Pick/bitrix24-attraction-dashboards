@@ -1,7 +1,7 @@
 import '@/proto/proto.css'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ComponentType, LazyExoticComponent, MouseEvent } from 'react'
 import { Notification03Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 
@@ -41,14 +41,12 @@ import type {
   UnitEconomicsCostRulesInput,
 } from '@/lib/dashboard-types'
 import { cn } from '@/lib/utils'
-import { CallAnalysisWorkspace } from '@/proto/call-analysis-workspace'
 import {
-  ActivitiesScene,
   createDefaultFilters,
   managerOptions,
-  scenes,
+  sceneMetadata as scenes,
   sourceOptions,
-} from '@/proto/scenes'
+} from '@/proto/scene-registry'
 import {
   buildDashboardQueryFromProtoFilters,
   mapActivitiesCallsSceneData,
@@ -75,8 +73,67 @@ import type {
   ProtoFilterState,
   ProtoKpi,
   ProtoRuntimeData,
+  SceneComponentProps,
 } from '@/proto/types'
 import { useProtoComments } from '@/proto/use-proto-comments'
+
+const LazyCallAnalysisWorkspace = lazy(() =>
+  import('@/proto/call-analysis-workspace').then((module) => ({
+    default: module.CallAnalysisWorkspace,
+  })),
+)
+
+const LazyActivitiesScene = lazy(() =>
+  import('@/proto/scenes').then((module) => ({ default: module.ActivitiesScene })),
+)
+const LazyCohortsScene = lazy(() =>
+  import('@/proto/scenes').then((module) => ({ default: module.CohortsScene })),
+)
+const LazyFunnelFlowScene = lazy(() =>
+  import('@/proto/scenes').then((module) => ({ default: module.FunnelFlowScene })),
+)
+const LazyOntologyHubScene = lazy(() =>
+  import('@/proto/ontology-hub').then((module) => ({ default: module.OntologyHubScene })),
+)
+const LazyRevenueVelocityScene = lazy(() =>
+  import('@/proto/scenes').then((module) => ({ default: module.RevenueVelocityScene })),
+)
+const LazySalesPlanScene = lazy(() =>
+  import('@/proto/scenes').then((module) => ({ default: module.SalesPlanScene })),
+)
+const LazySalesScene = lazy(() =>
+  import('@/proto/scenes').then((module) => ({ default: module.SalesScene })),
+)
+const LazyUnitEconomicsScene = lazy(() =>
+  import('@/proto/scenes').then((module) => ({ default: module.UnitEconomicsScene })),
+)
+
+const lazySceneComponents: Record<
+  string,
+  LazyExoticComponent<ComponentType<SceneComponentProps>>
+> = {
+  sales: LazySalesScene,
+  'sales-plan': LazySalesPlanScene,
+  ontology: LazyOntologyHubScene,
+  'activities-calls': LazyActivitiesScene,
+  cohorts: LazyCohortsScene,
+  'revenue-velocity': LazyRevenueVelocityScene,
+  'unit-economics': LazyUnitEconomicsScene,
+  'funnel-flow': LazyFunnelFlowScene,
+}
+
+function getLazySceneComponent(sceneId: string) {
+  return lazySceneComponents[sceneId] ?? LazySalesScene
+}
+
+function SceneLoadingFallback({ label = 'Загружаю экран' }: { label?: string }) {
+  return (
+    <section className="panel p-5" aria-live="polite">
+      <h2 className="text-xl font-bold text-slate-900">{label}</h2>
+      <p className="mt-1 text-sm text-slate-500">Подготавливаю интерфейс отчета.</p>
+    </section>
+  )
+}
 
 type CustomDashboardQuery = Extract<DashboardQuery, { preset: 'custom' }>
 
@@ -89,6 +146,7 @@ type LeadgenWorkloadData = {
   calls: CallsWorkloadReport
   scene: ActivitiesCallsSceneData
 }
+type LeadgenLoadStatus = 'idle' | 'loading' | 'error'
 
 type ProtoRoute = 'dashboard' | 'calls' | 'account'
 type SceneLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -1118,23 +1176,31 @@ const leadgenReportTabs: Array<{ id: LeadgenReportId; label: string }> = [
 function LeadgenDashboard({
   report,
   workload,
-  status,
-  error,
+  reportStatus,
+  reportError,
+  workloadStatus,
+  workloadError,
   filters,
   commentMode,
+  activeReportId,
+  onActiveReportChange,
 }: {
   report: LeadgenFunnelReport | null
   workload: LeadgenWorkloadData | null
-  status: 'idle' | 'loading' | 'error'
-  error: string | null
+  reportStatus: LeadgenLoadStatus
+  reportError: string | null
+  workloadStatus: LeadgenLoadStatus
+  workloadError: string | null
   filters: ProtoFilterState
   commentMode: boolean
+  activeReportId: LeadgenReportId
+  onActiveReportChange: (reportId: LeadgenReportId) => void
 }) {
   const topStages = report?.stageRows ?? []
   const topReasons = report?.reasonRows ?? []
-  const [activeReportId, setActiveReportId] = useState<LeadgenReportId>('sales')
   const isSalesReport = activeReportId === 'sales'
-  const emptyValue = status === 'loading' ? '...' : '0'
+  const emptyValue = reportStatus === 'loading' ? '...' : '0'
+  const activeError = isSalesReport ? reportError : (workloadError ?? reportError)
   const salesMetrics = [
     {
       label: 'Всего сделок',
@@ -1183,8 +1249,8 @@ function LeadgenDashboard({
     ...(workload ? { activitiesCalls: workload.scene } : {}),
     activitySummaryCommentBlockId: 'leadgen-workload-managers',
     activitySummaryCommentBlockLabel: 'Лидогенерация: Отчет звонков',
-    operationalStatus: workload ? 'ready' : status === 'loading' ? 'loading' : 'error',
-    operationalError: error,
+    operationalStatus: workload ? 'ready' : workloadStatus === 'loading' ? 'loading' : 'error',
+    operationalError: workloadError,
   }
   const activeMetrics = isSalesReport ? salesMetrics : activityMetrics
   const workloadWarnings = workload?.scene.warnings ?? []
@@ -1202,16 +1268,16 @@ function LeadgenDashboard({
             type="button"
             className={cn('tab-chip', activeReportId === tab.id && 'tab-chip-active')}
             aria-pressed={activeReportId === tab.id}
-            onClick={() => setActiveReportId(tab.id)}
+            onClick={() => onActiveReportChange(tab.id)}
           >
             {tab.label}
           </button>
         ))}
       </section>
 
-      {error ? (
+      {activeError ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-          {error}
+          {activeError}
         </div>
       ) : null}
 
@@ -1264,17 +1330,21 @@ function LeadgenDashboard({
           </section>
 
           {workload ? (
-            <ActivitiesScene
-              commentMode={commentMode}
-              filters={filters}
-              runtimeData={leadgenActivityRuntimeData}
-            />
+            <Suspense fallback={<SceneLoadingFallback label="Загружаю отчет звонков" />}>
+              <LazyActivitiesScene
+                commentMode={commentMode}
+                filters={filters}
+                runtimeData={leadgenActivityRuntimeData}
+              />
+            </Suspense>
           ) : (
             <section className="panel p-5">
               <h2 className="text-xl font-bold text-slate-900">Отчет звонков</h2>
               <p className="mt-1 text-sm text-slate-500">
-                {status === 'loading'
+                {workloadStatus === 'loading'
                   ? 'Загружаю live-данные отчета звонков.'
+                  : workloadStatus === 'error'
+                    ? 'Не удалось загрузить отчет звонков.'
                   : 'Нет звонков и дел в выбранном периоде.'}
               </p>
             </section>
@@ -1387,12 +1457,19 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   })
   const isMountedRef = useRef(true)
   const runtimeDataRef = useRef(runtimeData)
+  const [leadgenActiveReportId, setLeadgenActiveReportId] =
+    useState<LeadgenReportId>('sales')
   const [leadgenReport, setLeadgenReport] = useState<LeadgenFunnelReport | null>(null)
   const [leadgenWorkload, setLeadgenWorkload] = useState<LeadgenWorkloadData | null>(null)
-  const [leadgenReportStatus, setLeadgenReportStatus] = useState<'idle' | 'loading' | 'error'>(
-    'idle',
-  )
+  const [leadgenReportStatus, setLeadgenReportStatus] =
+    useState<LeadgenLoadStatus>('idle')
   const [leadgenReportError, setLeadgenReportError] = useState<string | null>(null)
+  const [leadgenWorkloadStatus, setLeadgenWorkloadStatus] =
+    useState<LeadgenLoadStatus>('idle')
+  const [leadgenWorkloadError, setLeadgenWorkloadError] = useState<string | null>(null)
+  const [leadgenWorkloadFilterKey, setLeadgenWorkloadFilterKey] = useState<string | null>(
+    null,
+  )
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing'>('idle')
   const [syncProgress, setSyncProgress] = useState<SyncProgressEvent | null>(null)
   const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null)
@@ -1524,6 +1601,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   }, [runtimeData])
 
   useEffect(() => {
+    isMountedRef.current = true
+
     return () => {
       isMountedRef.current = false
     }
@@ -1540,6 +1619,14 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   )
   const activeModuleSlug = activeModule?.slug ?? activeModule?.id ?? activeModuleId
   const isLeadgenModule = activeModuleSlug === 'leadgen'
+  const leadgenWorkloadRequestKey = useMemo(
+    () =>
+      JSON.stringify({
+        moduleId: activeModuleId,
+        query: buildDashboardQueryFromProtoFilters(appliedFilters),
+      }),
+    [activeModuleId, appliedFilters],
+  )
   const activeCommentSceneId = isLeadgenModule ? 'leadgen-funnel' : activeSceneId
   useEffect(() => {
     if (availableModules.length === 0) {
@@ -1684,7 +1771,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
 
     return keys
   }, [commentNotifications, readCommentNotificationKeys])
-  const ActiveSceneComponent = activeScene.component
+  const ActiveSceneComponent = getLazySceneComponent(activeScene.id)
   const availableManagerOptions =
     runtimeData.managerOptions.length > 0 ? runtimeData.managerOptions : managerOptions
   const availableSourceOptions =
@@ -1696,6 +1783,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const defaultManagerOptions = hasManagerWhitelistSettings
     ? whitelistedManagerOptions
     : availableManagerOptions
+  const visibleLeadgenWorkload =
+    leadgenWorkloadFilterKey === leadgenWorkloadRequestKey ? leadgenWorkload : null
   const isReportLoading = isLeadgenModule
     ? leadgenReportStatus === 'loading'
     : activeRuntimeData.operationalStatus === 'loading'
@@ -1880,28 +1969,22 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         if (isLeadgenModule) {
           setLeadgenReportStatus('loading')
           setLeadgenReportError(null)
-          setLeadgenWorkload(null)
+          setLeadgenWorkloadStatus('idle')
+          setLeadgenWorkloadError(null)
           setPricingSettingsLoading(false)
           setConversionEventTypeSettingsLoading(false)
           setUnitEconomicsSettingsLoading(false)
           setManagerWhitelistSettingsLoading(false)
 
-          const [meta, report, activities, calls] = await Promise.all([
+          const [meta, report] = await Promise.all([
             apiClient.getMeta(activeModuleId),
             apiClient.getLeadgenFunnelReport(activeModuleId, query),
-            apiClient.getLeadgenActivitiesWorkloadReport(activeModuleId, query),
-            apiClient.getLeadgenCallsWorkloadReport(activeModuleId, query),
           ])
           if (cancelled || runtimeRequestRef.current !== requestId) {
             return
           }
 
           setLeadgenReport(report)
-          setLeadgenWorkload({
-            activities,
-            calls,
-            scene: mapActivitiesCallsSceneData({ activities, calls }),
-          })
           setSnapshotStats(meta.snapshotStats)
           setLastSync(meta.lastSync)
           setSyncRuns([])
@@ -1928,6 +2011,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         setLeadgenWorkload(null)
         setLeadgenReportStatus('idle')
         setLeadgenReportError(null)
+        setLeadgenWorkloadStatus('idle')
+        setLeadgenWorkloadError(null)
+        setLeadgenWorkloadFilterKey(null)
         setPricingSettingsLoading(true)
         setConversionEventTypeSettingsLoading(true)
         setUnitEconomicsSettingsLoading(true)
@@ -2035,6 +2121,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         if (isLeadgenModule) {
           setLeadgenReportStatus('error')
           setLeadgenWorkload(null)
+          setLeadgenWorkloadStatus('idle')
+          setLeadgenWorkloadError(null)
+          setLeadgenWorkloadFilterKey(null)
           setLeadgenReportError(
             error instanceof Error ? error.message : 'Не удалось загрузить отчет leadgen',
           )
@@ -2052,6 +2141,71 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       cancelled = true
     }
   }, [activeModuleId, appliedFilters, isLeadgenModule, salesPlanQuarter])
+
+  useEffect(() => {
+    if (!isLeadgenModule || leadgenActiveReportId !== 'activity') {
+      return
+    }
+
+    if (leadgenWorkload && leadgenWorkloadFilterKey === leadgenWorkloadRequestKey) {
+      return
+    }
+
+    let cancelled = false
+    const requestId = runtimeRequestRef.current
+    const query = buildDashboardQueryFromProtoFilters(appliedFilters)
+
+    async function loadLeadgenWorkload() {
+      setLeadgenWorkloadStatus('loading')
+      setLeadgenWorkloadError(null)
+
+      try {
+        const [activities, calls] = await Promise.all([
+          apiClient.getLeadgenActivitiesWorkloadReport(activeModuleId, query),
+          apiClient.getLeadgenCallsWorkloadReport(activeModuleId, query),
+        ])
+
+        if (cancelled || !isMountedRef.current || runtimeRequestRef.current !== requestId) {
+          return
+        }
+
+        setLeadgenWorkload({
+          activities,
+          calls,
+          scene: mapActivitiesCallsSceneData({ activities, calls }),
+        })
+        setLeadgenWorkloadFilterKey(leadgenWorkloadRequestKey)
+        setLeadgenWorkloadStatus('idle')
+      } catch (error) {
+        if (cancelled || !isMountedRef.current || runtimeRequestRef.current !== requestId) {
+          return
+        }
+
+        setLeadgenWorkload(null)
+        setLeadgenWorkloadFilterKey(null)
+        setLeadgenWorkloadStatus('error')
+        setLeadgenWorkloadError(
+          error instanceof Error
+            ? error.message
+            : 'Не удалось загрузить отчет активности leadgen',
+        )
+      }
+    }
+
+    void loadLeadgenWorkload()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeModuleId,
+    appliedFilters,
+    isLeadgenModule,
+    leadgenActiveReportId,
+    leadgenWorkload,
+    leadgenWorkloadFilterKey,
+    leadgenWorkloadRequestKey,
+  ])
 
   useEffect(() => {
     if (isLeadgenModule || activeAttractionSceneLoadKey === 'sales') {
@@ -3861,11 +4015,13 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         </header>
 
         {route === 'calls' ? (
-          <CallAnalysisWorkspace
-            moduleId={activeModuleId}
-            managerOptions={availableManagerOptions}
-            sourceOptions={availableSourceOptions}
-          />
+          <Suspense fallback={<SceneLoadingFallback label="Загружаю анализ звонков" />}>
+            <LazyCallAnalysisWorkspace
+              moduleId={activeModuleId}
+              managerOptions={availableManagerOptions}
+              sourceOptions={availableSourceOptions}
+            />
+          </Suspense>
         ) : (
           <>
         <section
@@ -4024,11 +4180,15 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         {isLeadgenModule ? (
           <LeadgenDashboard
             report={leadgenReport}
-            workload={leadgenWorkload}
-            status={leadgenReportStatus}
-            error={leadgenReportError}
+            workload={visibleLeadgenWorkload}
+            reportStatus={leadgenReportStatus}
+            reportError={leadgenReportError}
+            workloadStatus={leadgenWorkloadStatus}
+            workloadError={leadgenWorkloadError}
             filters={appliedFilters}
             commentMode={commentMode}
+            activeReportId={leadgenActiveReportId}
+            onActiveReportChange={setLeadgenActiveReportId}
           />
         ) : (
           <>
@@ -4087,28 +4247,30 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               </div>
             ) : null}
 
-            <ActiveSceneComponent
-              commentMode={commentMode}
-              filters={appliedFilters}
-              runtimeData={activeRuntimeData}
-              salesPlanQuarter={salesPlanQuarter}
-              salesPlanLoading={salesPlanLoading}
-              salesPlanSaving={salesPlanSaving}
-              salesPlanSaveError={salesPlanSaveError}
-              onSalesPlanQuarterChange={setSalesPlanQuarter}
-              onSalesPlanSave={handleSaveSalesPlan}
-              pricingSettings={runtimeData.pricingSettings}
-              pricingSettingsLoading={pricingSettingsLoading}
-              pricingSettingsSaving={pricingSettingsSaving}
-              pricingSettingsSaveError={pricingSettingsSaveError}
-              onPricingSettingsSave={handleSavePricingSettings}
-              onSceneNavigate={handleSceneNavigate}
-              conversionEventTypeSettings={runtimeData.conversionEventTypeSettings}
-              conversionEventTypeSettingsLoading={conversionEventTypeSettingsLoading}
-              conversionEventTypeSettingsSaving={conversionEventTypeSettingsSaving}
-              conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
-              onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
-            />
+            <Suspense fallback={<SceneLoadingFallback label={`Загружаю экран: ${activeScene.label}`} />}>
+              <ActiveSceneComponent
+                commentMode={commentMode}
+                filters={appliedFilters}
+                runtimeData={activeRuntimeData}
+                salesPlanQuarter={salesPlanQuarter}
+                salesPlanLoading={salesPlanLoading}
+                salesPlanSaving={salesPlanSaving}
+                salesPlanSaveError={salesPlanSaveError}
+                onSalesPlanQuarterChange={setSalesPlanQuarter}
+                onSalesPlanSave={handleSaveSalesPlan}
+                pricingSettings={runtimeData.pricingSettings}
+                pricingSettingsLoading={pricingSettingsLoading}
+                pricingSettingsSaving={pricingSettingsSaving}
+                pricingSettingsSaveError={pricingSettingsSaveError}
+                onPricingSettingsSave={handleSavePricingSettings}
+                onSceneNavigate={handleSceneNavigate}
+                conversionEventTypeSettings={runtimeData.conversionEventTypeSettings}
+                conversionEventTypeSettingsLoading={conversionEventTypeSettingsLoading}
+                conversionEventTypeSettingsSaving={conversionEventTypeSettingsSaving}
+                conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
+                onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
+              />
+            </Suspense>
           </>
         )}
           </>

@@ -1,6 +1,151 @@
 import { describe, expect, it } from "vitest";
 
+import { ATTRACTION_MANAGER_CATALOG } from "../src/domain/attraction-managers";
+import { DEFAULT_PRICING_RULES } from "../src/domain/deal-economics";
+import type { ReportingRepository } from "../src/server/repository-roles";
 import { createReportingService } from "../src/server/service";
+
+const EMPTY_SNAPSHOT_STATS = {
+  deals: 0,
+  activities: 0,
+  calls: 0,
+  stageHistory: 0
+};
+
+function defaultAttractionManagerSettings() {
+  return ATTRACTION_MANAGER_CATALOG.map((manager, index) => ({
+    moduleKey: "attraction",
+    managerId: manager.id,
+    managerName: manager.name,
+    enabled: true,
+    sortOrder: index * 10,
+    updatedAt: new Date(0).toISOString()
+  }));
+}
+
+function withReportingRepositoryDefaults(
+  overrides: Record<string, unknown>
+): ReportingRepository {
+  const defaults = {
+    getLatestSuccessCursor: async () => null,
+    getLatestSuccessfulScope: async () => null,
+    runSnapshotTransaction: <T>(task: () => T) => task(),
+    getSyncCursor: async () => null,
+    setSyncCursor: async () => undefined,
+    hasSyncCoverage: async () => true,
+    upsertSyncCoverage: async () => undefined,
+    getOperationalHistoryBootstrappedAt: async () => null,
+    getCallHistoryBootstrappedAt: async () => null,
+    getCallActivityHistoryBootstrappedAt: async () => null,
+    getMeetingActivityHistoryBootstrappedAt: async () => null,
+    getTaskActivityHistoryBootstrappedAt: async () => null,
+    getDealCustomFieldsBootstrappedAt: async () => null,
+    getDealMeetingDateFieldBootstrappedAt: async () => null,
+    getSnapshotStats: async () => EMPTY_SNAPSHOT_STATS,
+    getActivitySnapshotCount: async () => 0,
+    getDealIdsByCategoryIds: async () => [],
+    getOpenDealIdsByCategoryIds: async () => [],
+    getDealsByIds: async () => [],
+    getActivitiesByIds: async () => [],
+    getCallActivityIdsMissingActivities: async () => [],
+    getCallActivityIdsMissingCallStats: async () => [],
+    getCallActivityIdsForCallStatsRefresh: async () => [],
+    getConversionEventVisitIdsMissingStageHistory: async () => [],
+    getConversionEventVisitsByIds: async () => [],
+    getConversionEventIdsMissingEventSnapshots: async () => [],
+    replaceStageCatalog: async () => undefined,
+    upsertDeals: async () => 0,
+    upsertStageHistory: async () => 0,
+    upsertActivities: async () => 0,
+    upsertActivityBindings: async () => 0,
+    upsertActivityDeadlineChanges: async () => 0,
+    upsertDealMeetingDateChanges: async () => 0,
+    upsertConversionEventVisits: async () => 0,
+    pruneConversionEventSnapshots: async () => ({
+      conversionEventVisits: 0,
+      eventVisitStageHistory: 0,
+      eventVisitFacts: 0,
+      dealTouchpointFacts: 0,
+      eventSnapshots: 0
+    }),
+    replaceAnalyticsFacts: async (input) => ({
+      identityLinks: input.identityLinks.length,
+      dealStageFacts: input.dealStageFacts.length,
+      dealTouchpointFacts: input.dealTouchpointFacts.length,
+      eventVisitFacts: input.eventVisitFacts?.length ?? 0
+    }),
+    upsertEventSnapshots: async () => 0,
+    upsertEventVisitStageHistory: async () => 0,
+    replaceModuleEventTypeSettings: async (input) => input.rows.length,
+    getManagerWhitelistSettings: async () => defaultAttractionManagerSettings(),
+    replaceManagerWhitelistSettings: async (input) =>
+      input.managerIds.map((managerId, index) => {
+        const catalogEntry = ATTRACTION_MANAGER_CATALOG.find(
+          (manager) => manager.id === managerId
+        );
+        return {
+          moduleKey: input.moduleKey,
+          managerId,
+          managerName: catalogEntry?.name ?? managerId,
+          enabled: true,
+          sortOrder: index * 10,
+          updatedAt: input.updatedAt
+        };
+      }),
+    replaceConversionEventTypeOptions: async () => 0,
+    upsertCalls: async () => 0,
+    upsertManagerDirectory: async () => 0,
+    markOperationalHistoryBootstrapped: async () => undefined,
+    markCallHistoryBootstrapped: async () => undefined,
+    markCallActivityHistoryBootstrapped: async () => undefined,
+    markMeetingActivityHistoryBootstrapped: async () => undefined,
+    markTaskActivityHistoryBootstrapped: async () => undefined,
+    markDealCustomFieldsBootstrapped: async () => undefined,
+    markDealMeetingDateFieldBootstrapped: async () => undefined,
+    createSyncRun: async () => 0,
+    recoverStaleSyncRuns: async () => 0,
+    failSyncRun: async () => undefined,
+    finishSyncRun: async () => undefined,
+    listSyncRuns: async () => [],
+    getAllDeals: async () => [],
+    getAllStageHistory: async () => [],
+    getAllActivities: async () => [],
+    getAllActivityBindings: async () => [],
+    getAllActivityDeadlineChanges: async () => [],
+    getAllDealMeetingDateChanges: async () => [],
+    getAllConversionEventVisits: async () => [],
+    getAllDealStageFacts: async () => [],
+    getAllDealTouchpointFacts: async () => [],
+    getAllEventSnapshots: async () => [],
+    getAllEventVisitFacts: async () => [],
+    getAllEventVisitStageHistory: async () => [],
+    getModuleEventTypeSettings: async () => [],
+    getConversionEventTypeOptions: async () => [],
+    getAllCalls: async () => [],
+    getManagerDirectory: async () => [],
+    getStageCatalog: async () => [],
+    getSalesPlanRows: async () => [],
+    replaceSalesPlanRows: async () => [],
+    replaceSalesPlanPeriods: async () => undefined,
+    getPricingRules: async () => DEFAULT_PRICING_RULES,
+    replacePricingRules: async () => [],
+    getUnitEconomicsCostArticles: async () => [],
+    getUnitEconomicsCostRules: async () => [],
+    replaceUnitEconomicsCostRules: async () => [],
+    getUnitEconomicsEventParticipantMode: async () => "invited" as const,
+    getUnitEconomicsCostFacts: async () => [],
+    getCallAnalysisResult: async () => null,
+    getLatestCallAnalysisRuns: async () => [],
+    getWonStageIds: async () => [],
+    setWonStageIds: async () => undefined,
+    getLastSyncSummary: async () => null
+  } satisfies ReportingRepository;
+
+  return {
+    ...defaults,
+    ...overrides
+  } as ReportingRepository;
+}
 
 describe("createReportingService", () => {
   it("prorates monthly sales plan rows by calendar days for effective report ranges", async () => {
@@ -32,7 +177,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -224,7 +369,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -436,7 +581,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -574,7 +719,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -658,7 +803,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -732,7 +877,7 @@ describe("createReportingService", () => {
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
       meetingDateFieldName: "UF_CRM_MEETING_DATE",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -765,7 +910,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -811,7 +956,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -861,7 +1006,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -980,7 +1125,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -1111,7 +1256,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -1224,7 +1369,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -1365,7 +1510,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -1556,7 +1701,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -1721,7 +1866,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -1822,7 +1967,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -1939,7 +2084,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -2032,7 +2177,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -2165,7 +2310,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -2283,7 +2428,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -2433,7 +2578,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -2567,7 +2712,7 @@ describe("createReportingService", () => {
       leadgenCategoryId: "28",
       leadgenManagerIds: ["501"],
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -2800,7 +2945,7 @@ describe("createReportingService", () => {
       leadgenManagerIds: ["501"],
       workloadScope: "leadgen",
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -2846,7 +2991,7 @@ describe("createReportingService", () => {
       leadgenManagerIds: [],
       workloadScope: "leadgen",
       qualityFieldName: "UF_CRM_TEST",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -2985,7 +3130,7 @@ describe("createReportingService", () => {
       leadgenCategoryId: "28",
       leadgenManagerIds: ["501", "502"],
       qualityFieldName: "UF_CRM_1730380390",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: client as never,
       defaultPeriodDays: 30,
       now: () => new Date("2026-04-10T00:00:00.000Z")
@@ -3059,7 +3204,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_1730380390",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: {
         fetchUsers: async () => []
       } as never,
@@ -3143,7 +3288,7 @@ describe("createReportingService", () => {
     const service = createReportingService({
       dealCategoryIds: ["10"],
       qualityFieldName: "UF_CRM_1730380390",
-      repository: repository as never,
+      repository: withReportingRepositoryDefaults(repository),
       client: client as never,
       defaultPeriodDays: 30,
       now: () => new Date("2026-05-25T12:00:00.000Z")

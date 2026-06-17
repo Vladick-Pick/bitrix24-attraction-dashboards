@@ -1289,6 +1289,10 @@ function clearSessionCookie(response: express.Response, auth: PasswordAuthServic
 }
 
 function createSecurityHeadersMiddleware() {
+  // Allows the fixed inline script inside the sandboxed KI playbook srcDoc iframe
+  // without enabling arbitrary inline scripts for the whole dashboard.
+  const playbookInlineScriptHash =
+    "'sha256-tJ7YR6/OAd2ZBnGeJCPOYt9AX7VO+SvW57OnGYbol8I='";
   const contentSecurityPolicy = [
     "default-src 'self'",
     "base-uri 'self'",
@@ -1297,7 +1301,7 @@ function createSecurityHeadersMiddleware() {
     "img-src 'self' data:",
     "font-src 'self' data:",
     "style-src 'self' 'unsafe-inline'",
-    "script-src 'self'",
+    `script-src 'self' ${playbookInlineScriptHash}`,
     "connect-src 'self'",
     "form-action 'self'",
     "upgrade-insecure-requests"

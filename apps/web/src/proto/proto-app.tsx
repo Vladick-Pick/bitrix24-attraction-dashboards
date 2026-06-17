@@ -54,7 +54,6 @@ import {
   mapTocFlowSceneData,
 } from '@/proto/live-reporting'
 import { ModuleSettingsPanel } from '@/proto/module-settings-panel'
-import { PlaybookScene } from '@/proto/playbook-scene'
 import type {
   CompareRange,
   AuthUser,
@@ -95,6 +94,9 @@ const LazyFunnelFlowScene = lazy(() =>
 )
 const LazyOntologyHubScene = lazy(() =>
   import('@/proto/ontology-hub').then((module) => ({ default: module.OntologyHubScene })),
+)
+const LazyPlaybookScene = lazy(() =>
+  import('@/proto/playbook-scene').then((module) => ({ default: module.PlaybookScene })),
 )
 const LazyRevenueVelocityScene = lazy(() =>
   import('@/proto/scenes').then((module) => ({ default: module.RevenueVelocityScene })),
@@ -4098,7 +4100,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             />
           </Suspense>
         ) : route === 'playbook' ? (
-          <PlaybookScene />
+          <Suspense fallback={<SceneLoadingFallback label="Загружаю плейбук КИ" />}>
+            <LazyPlaybookScene />
+          </Suspense>
         ) : (
           <>
         <section

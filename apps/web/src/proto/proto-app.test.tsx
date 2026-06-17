@@ -1515,7 +1515,7 @@ describe('ProtoApp', () => {
 
     await userEvent.click(within(routeNav).getByRole('button', { name: /^плейбук ки$/i }))
 
-    expect(screen.getByTestId('playbook-scene')).toBeInTheDocument()
+    expect(await screen.findByTestId('playbook-scene')).toBeInTheDocument()
     expect(screen.getByTitle('Плейбук Комьюнити-Интегратора')).toHaveAttribute(
       'sandbox',
       'allow-scripts',

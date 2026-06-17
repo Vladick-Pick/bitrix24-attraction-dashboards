@@ -33,7 +33,6 @@ import {
 } from '@/lib/formatters'
 import { revenueVelocityTooltips } from '@/lib/revenue-velocity-tooltips'
 import { buildDashboardQueryFromProtoFilters } from '@/proto/live-reporting'
-import { OntologyHubScene } from '@/proto/ontology-hub'
 import { managerOptions, sceneMetadata, sourceOptions } from '@/proto/scene-registry'
 import type {
   ActivityMatrixRow,
@@ -7022,7 +7021,6 @@ export function UnitEconomicsScene({ filters, runtimeData }: SceneComponentProps
 const sceneComponents: Record<string, ComponentType<SceneComponentProps>> = {
   sales: SalesScene,
   'sales-plan': SalesPlanScene,
-  ontology: OntologyHubScene,
   'activities-calls': ActivitiesScene,
   cohorts: CohortsScene,
   'revenue-velocity': RevenueVelocityScene,

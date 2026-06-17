@@ -133,13 +133,6 @@ export const sceneMetadata: ProtoSceneMetadata[] = [
     kpis: [],
   },
   {
-    id: 'ontology',
-    label: 'Онтология',
-    description: 'Карта процесса, источники, статусы актуальности и связанные отчеты.',
-    focus: 'Смыслы / источники / расхождения',
-    kpis: [],
-  },
-  {
     id: 'activities-calls',
     label: 'Отчет активности',
     description: 'Матричная структура по менеджерам и этапам: дела, звонки и переносы дедлайнов.',

@@ -95,6 +95,9 @@ const LazyFunnelFlowScene = lazy(() =>
 const LazyOntologyHubScene = lazy(() =>
   import('@/proto/ontology-hub').then((module) => ({ default: module.OntologyHubScene })),
 )
+const LazyPlaybookScene = lazy(() =>
+  import('@/proto/playbook-scene').then((module) => ({ default: module.PlaybookScene })),
+)
 const LazyRevenueVelocityScene = lazy(() =>
   import('@/proto/scenes').then((module) => ({ default: module.RevenueVelocityScene })),
 )
@@ -114,7 +117,6 @@ const lazySceneComponents: Record<
 > = {
   sales: LazySalesScene,
   'sales-plan': LazySalesPlanScene,
-  ontology: LazyOntologyHubScene,
   'activities-calls': LazyActivitiesScene,
   cohorts: LazyCohortsScene,
   'revenue-velocity': LazyRevenueVelocityScene,
@@ -148,7 +150,7 @@ type LeadgenWorkloadData = {
 }
 type LeadgenLoadStatus = 'idle' | 'loading' | 'error'
 
-type ProtoRoute = 'dashboard' | 'calls' | 'account'
+type ProtoRoute = 'dashboard' | 'calls' | 'account' | 'ontology' | 'playbook'
 type SceneLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 type AttractionSceneLoadKey =
   | 'sales'
@@ -176,10 +178,6 @@ function getAttractionSceneLoadKey(sceneId: string): AttractionSceneLoadKey {
 
   if (sceneId === 'funnel-flow') {
     return 'funnel-flow'
-  }
-
-  if (sceneId === 'ontology') {
-    return 'ontology'
   }
 
   return 'sales'
@@ -484,6 +482,14 @@ function readProtoRoute(): ProtoRoute {
     return 'calls'
   }
 
+  if (window.location.pathname === '/ontology') {
+    return 'ontology'
+  }
+
+  if (window.location.pathname === '/playbook') {
+    return 'playbook'
+  }
+
   return 'dashboard'
 }
 
@@ -493,7 +499,15 @@ function writeProtoRoute(route: ProtoRoute) {
   }
 
   const nextPath =
-    route === 'account' ? '/account' : route === 'calls' ? '/calls' : '/'
+    route === 'account'
+      ? '/account'
+      : route === 'calls'
+        ? '/calls'
+        : route === 'ontology'
+          ? '/ontology'
+          : route === 'playbook'
+            ? '/playbook'
+            : '/'
   if (window.location.pathname !== nextPath) {
     window.history.pushState({}, '', nextPath)
   }
@@ -1690,7 +1704,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     () => scenes.find((scene) => scene.id === activeSceneId) ?? scenes[0]!,
     [activeSceneId],
   )
-  const activeAttractionSceneLoadKey = getAttractionSceneLoadKey(activeScene.id)
+  const activeAttractionSceneLoadKey =
+    route === 'ontology' ? 'ontology' : getAttractionSceneLoadKey(activeScene.id)
+  const shouldLoadAttractionSceneData =
+    route === 'ontology' || (!isLeadgenModule && route === 'dashboard')
   const activeAttractionSceneStatus = getRuntimeSceneStatus(
     runtimeData,
     activeAttractionSceneLoadKey,
@@ -1806,6 +1823,22 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   function navigateToCalls() {
     writeProtoRoute('calls')
     setRoute('calls')
+    setCommentsOpen(false)
+    setCommentMode(false)
+    setDraftComment(null)
+  }
+
+  function navigateToOntology() {
+    writeProtoRoute('ontology')
+    setRoute('ontology')
+    setCommentsOpen(false)
+    setCommentMode(false)
+    setDraftComment(null)
+  }
+
+  function navigateToPlaybook() {
+    writeProtoRoute('playbook')
+    setRoute('playbook')
     setCommentsOpen(false)
     setCommentMode(false)
     setDraftComment(null)
@@ -2208,7 +2241,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   ])
 
   useEffect(() => {
-    if (isLeadgenModule || activeAttractionSceneLoadKey === 'sales') {
+    if (!shouldLoadAttractionSceneData || activeAttractionSceneLoadKey === 'sales') {
       return
     }
 
@@ -2436,8 +2469,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   }, [
     activeAttractionSceneLoadKey,
     appliedFilters,
-    isLeadgenModule,
     salesSceneStatus,
+    shouldLoadAttractionSceneData,
   ])
 
   useEffect(() => {
@@ -3774,6 +3807,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               <h1 className="mt-1 text-3xl font-bold text-slate-900">
                 {route === 'calls'
                   ? 'Анализ звонков'
+                  : route === 'ontology'
+                    ? 'Онтология'
+                    : route === 'playbook'
+                      ? 'Плейбук КИ'
                   : isLeadgenModule
                     ? 'Лидогенерация'
                     : 'PDCA-дашборд метрик'}
@@ -3781,6 +3818,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               <p className="mt-1 text-sm text-slate-600">
                 {route === 'calls'
                   ? 'Очередь звонков, ручной запуск анализа, transcript по ролям и оценка ИИ.'
+                  : route === 'ontology'
+                    ? 'Карта процесса, источники, статусы актуальности и связанные отчеты.'
+                    : route === 'playbook'
+                      ? 'Плейбук Комьюнити-Интегратора: сценарии, события, поля и рабочие правила.'
                   : isLeadgenModule
                   ? 'Лидген УС: стадии, источники, UTM и менеджеры.'
                   : 'Контур по продажам, делам, звонкам и когортам на базе локального Bitrix24 snapshot.'}
@@ -3816,6 +3857,14 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                     : leadgenReportStatus === 'error'
                       ? 'Ошибка leadgen'
                       : 'Leadgen API'
+                  : route === 'ontology'
+                    ? activeRuntimeData.operationalStatus === 'loading'
+                      ? 'Загрузка ontology'
+                      : activeRuntimeData.operationalStatus === 'error'
+                        ? 'Ошибка ontology'
+                        : 'Ontology live'
+                  : route === 'playbook'
+                    ? 'Плейбук local'
                   : activeScene.id === 'sales'
                   ? activeRuntimeData.salesDashboard
                     ? 'Sales report live'
@@ -3829,7 +3878,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-3">
+          <nav
+            className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-3"
+            aria-label="Основные разделы дашборда"
+          >
             <button
               className={cn('tab-chip', route === 'dashboard' && 'tab-chip-active')}
               type="button"
@@ -3845,6 +3897,22 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               aria-pressed={route === 'calls'}
             >
               Анализ звонков
+            </button>
+            <button
+              className={cn('tab-chip', route === 'ontology' && 'tab-chip-active')}
+              type="button"
+              onClick={navigateToOntology}
+              aria-pressed={route === 'ontology'}
+            >
+              Онтология
+            </button>
+            <button
+              className={cn('tab-chip', route === 'playbook' && 'tab-chip-active')}
+              type="button"
+              onClick={navigateToPlaybook}
+              aria-pressed={route === 'playbook'}
+            >
+              Плейбук КИ
             </button>
             <button
               className="btn btn-ghost"
@@ -3870,7 +3938,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             >
               {commentMode ? 'Выйти из comment mode' : 'Comment mode'}
             </button>
-          </div>
+          </nav>
 
           {route === 'dashboard' ? (
           <div className="sync-strip mt-3" aria-live="polite">
@@ -4021,6 +4089,19 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               managerOptions={availableManagerOptions}
               sourceOptions={availableSourceOptions}
             />
+          </Suspense>
+        ) : route === 'ontology' ? (
+          <Suspense fallback={<SceneLoadingFallback label="Загружаю онтологию" />}>
+            <LazyOntologyHubScene
+              commentMode={commentMode}
+              filters={appliedFilters}
+              runtimeData={activeRuntimeData}
+              onSceneNavigate={handleSceneNavigate}
+            />
+          </Suspense>
+        ) : route === 'playbook' ? (
+          <Suspense fallback={<SceneLoadingFallback label="Загружаю плейбук КИ" />}>
+            <LazyPlaybookScene />
           </Suspense>
         ) : (
           <>
@@ -4192,7 +4273,11 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           />
         ) : (
           <>
-            <section className="panel sticky top-3 z-20 flex flex-wrap gap-2 p-3" data-no-comment="true">
+            <section
+              className="panel sticky top-3 z-20 flex flex-wrap gap-2 p-3"
+              data-no-comment="true"
+              aria-label="Аналитические дашборды"
+            >
               {scenes.map((scene) => (
                 <button
                   key={scene.id}

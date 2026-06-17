@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Плейбук Комьюнити-Интегратора · Привлечение штрих</title>
+<style>
+:root{color-scheme:light;
+  --bg:#f6f7f9;--card:#fff;--ink:#1c2430;--muted:#5b6675;--line:#e6e9ee;
+  --accent:#3b5bdb;--accent-soft:#eef2ff;--hyp:#d6336c;--hypb:#fff0f6;
+  --s1:#f08c00;--s1b:#fff4e6;--s2:#1c7ed6;--s2b:#e7f5ff;--s3:#7048e8;--s3b:#f3f0ff;--s4:#2f9e44;--s4b:#ebfbee;
+  --src:#0c8599;--srcb:#e6fcf5;--ok:#2f9e44;--warn:#e8590c;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1100px;margin:0 auto;padding:24px 20px 64px}
+.kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1{font-size:28px;line-height:1.15;margin:6px 0 8px;letter-spacing:-.02em}
+.lead{font-size:15px;color:var(--muted);max-width:860px;margin:0 0 12px}
+.tabs{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:6px;background:var(--bg);padding:12px 0;border-bottom:1px solid var(--line);margin-bottom:8px}
+.tab{font-size:13.5px;font-weight:600;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink);display:flex;align-items:center;gap:7px}
+.tab .num{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:6px;background:#eef1f5;color:var(--muted);font-size:11px;font-weight:700}
+.tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tab.active .num{background:rgba(255,255,255,.25);color:#fff}
+.panel{display:none;animation:fade .2s ease}
+.panel.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+h2{font-size:19px;margin:28px 0 12px;display:flex;align-items:center;gap:10px}
+h2 .n{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:700}
+h3{font-size:15px;margin:0 0 6px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin:12px 0;box-shadow:0 1px 2px rgba(20,30,50,.04)}
+.card.pad0{padding:6px}
+.badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.03em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.b-doc{background:#edf2ff;color:#3b5bdb}.b-sheet{background:#e6fcf5;color:#0c8599}
+.b-hyp{background:var(--hypb);color:var(--hyp);border:1px dashed var(--hyp)}.b-src{background:var(--srcb);color:var(--src)}
+.b-ok{background:var(--s4b);color:var(--s4)}
+.b-req{background:#ffe3e3;color:#c92a2a}.b-auto{background:#fff4e6;color:#e8590c}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 4px;font-size:12.5px;color:var(--muted);align-items:center}
+.grid{display:grid;gap:14px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:760px){.g2,.g3,.g4{grid-template-columns:1fr}}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:6px 0}
+.step{flex:1;min-width:120px;border-radius:12px;padding:12px;color:#fff;font-weight:600;font-size:13px}
+.step small{display:block;font-weight:500;opacity:.92;font-size:11px;margin-top:3px}
+.arrow{align-self:center;color:var(--muted);font-size:18px}
+.state{border-radius:14px;padding:16px;border:1px solid var(--line)}
+.state h3{display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.quote{font-style:italic;color:var(--muted);font-size:13px;margin-top:6px}
+.scard{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:12px 0;background:#fff}
+.scard .hd{padding:11px 16px;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:space-between;font-size:15px}
+.scard .hd .ord{background:rgba(255,255,255,.25);border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600}
+.scard .bd{padding:6px 16px 14px}
+.scard dl{margin:0;display:grid;grid-template-columns:165px 1fr;gap:0}
+.scard dt{font-weight:600;color:var(--muted);font-size:12px;padding:9px 0;border-top:1px solid var(--line)}
+.scard dd{margin:0;font-size:13.5px;padding:9px 0;border-top:1px solid var(--line)}
+.scard dl>dt:first-of-type,.scard dl>dt:first-of-type+dd{border-top:none}
+@media(max-width:640px){.scard dl{grid-template-columns:1fr}.scard dt{padding-bottom:0;border-top:1px solid var(--line)}.scard dd{padding-top:2px;border-top:none}}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;background:#fafbfc}
+tr:last-child td{border-bottom:none}
+td.attr,td.name{font-weight:600;white-space:nowrap}
+td.note{color:var(--muted);font-size:12.5px}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.callout{border-left:4px solid var(--accent);background:var(--accent-soft);padding:14px 16px;border-radius:0 12px 12px 0;margin:14px 0;font-size:14px}
+.callout.hyp{border-color:var(--hyp);background:var(--hypb)}
+.callout.ok{border-color:var(--ok);background:var(--s4b)}
+.note{font-size:12.5px;color:var(--muted)}
+.tag{font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px}
+.foot{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
+.st{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;margin:1px 2px 1px 0;white-space:nowrap}
+.st1{background:var(--s1b);color:var(--s1)}.st2{background:var(--s2b);color:var(--s2)}.st3{background:var(--s3b);color:var(--s3)}.st4{background:var(--s4b);color:var(--s4)}
+.controls{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin:8px 0 6px}
+.cg{display:flex;flex-direction:column;gap:6px}
+.cg label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;user-select:none}
+.chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.chip.s1.active{background:var(--s1);border-color:var(--s1)}.chip.s2.active{background:var(--s2);border-color:var(--s2)}
+.chip.s3.active{background:var(--s3);border-color:var(--s3)}.chip.s4.active{background:var(--s4);border-color:var(--s4)}
+input.search{padding:8px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;min-width:220px;background:#fff;color:var(--ink)}
+.count{font-size:13px;color:var(--muted);margin:8px 2px}
+.todo{color:#d6336c;font-weight:600}
+.rule{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:0 14px 14px 0;padding:14px 16px;margin:10px 0;box-shadow:0 1px 2px rgba(20,30,50,.04)}
+.rule h3{display:flex;gap:8px;align-items:center;font-size:14.5px;margin:0 0 4px}.rule p{margin:0;font-size:13.5px;color:var(--muted)}
+.rule.warn{border-left-color:var(--warn)}.ic{font-size:15px}
+.q{background:var(--hypb);border:1px solid #f3c2d4;border-radius:14px;padding:14px 16px;margin:10px 0}
+.q h3{color:var(--hyp);font-size:14px;margin:0 0 4px}.q p{margin:0;font-size:13px;color:#86415e}
+.src{border-radius:14px;padding:16px;border:1px solid var(--line);margin:10px 0;border-left:4px solid var(--src)}
+.src h3{display:flex;align-items:center;gap:8px}.src .what{font-size:13px;color:var(--muted);margin:4px 0 8px}
+.src ul{margin:0;padding-left:18px;font-size:13px}.src li{margin:2px 0}
+.lbox{flex:1;min-width:160px;border-radius:14px;padding:14px;border:1px solid var(--line);background:#fafbfc}
+.lbox h3{font-size:14px}.lbox p{margin:0;font-size:12.5px;color:var(--muted)}.eng{background:var(--accent-soft);border-color:var(--accent)}
+.strip{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 6px}
+.strip .s{font-size:12px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted);font-weight:600}
+.strip .s.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.strip .s.lose{color:var(--warn);border-color:#f3d0bd}
+.strip .sep{align-self:center;color:var(--muted)}
+.chk{list-style:none;padding-left:0;margin:6px 0}
+.chk li{position:relative;padding:7px 0 7px 28px;font-size:13.5px;border-top:1px solid var(--line)}
+.chk li:first-child{border-top:none}
+.chk li:before{content:"";position:absolute;left:0;top:9px;width:15px;height:15px;border:2px solid #c3cad6;border-radius:4px}
+.chk li.req:before{border-color:var(--accent)}
+.chk b{font-weight:700}
+.say{background:#fafbfc;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin:6px 0;font-size:13.5px;line-height:1.5}
+.say .l{display:block;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.tl{display:flex;flex-direction:column;gap:0;margin:8px 0}
+.tl .row{display:grid;grid-template-columns:120px 1fr;gap:0;border-top:1px solid var(--line)}
+.tl .row:first-child{border-top:none}
+.tl .tm{font-weight:700;font-size:12.5px;color:var(--accent);padding:10px 0}
+.tl .ct{font-size:13.5px;padding:10px 0}
+.tl .ct b{font-weight:700}
+.kv{font-size:13.5px}.kv b{font-weight:700}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:680px){.two,.tl .row{grid-template-columns:1fr}.tl .tm{padding-bottom:0}}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="kicker">Привлечение штрих · Операционный справочник</div>
+<h1>Плейбук Комьюнити-Интегратора</h1>
+<p class="lead">Рабочий справочник для ввода в роль КИ: как вести сделку по этапам, какие поля обязательны, как звонить и проводить встречу, как звать на конверсионные события. Опирается на онтологию модуля и регламенты. Бейджи: <span class="badge b-ok">утверждено</span> <span class="badge b-hyp">на уточнение</span> <span class="badge b-doc">из онтологии</span> <span class="badge b-sheet">из регламента</span></p>
+<div class="tabs" id="tabs">
+<button class="tab active" data-t="t0">Старт</button>
+<button class="tab" data-t="tq"><span class="num">·</span>Клубы и источники</button>
+<button class="tab" data-t="t1"><span class="num">1</span>Сделки по этапам</button>
+<button class="tab" data-t="t2"><span class="num">2</span>Поля по этапам</button>
+<button class="tab" data-t="t3"><span class="num">3</span>Звонки</button>
+<button class="tab" data-t="t4"><span class="num">4</span>Встреча</button>
+<button class="tab" data-t="t5"><span class="num">5</span>События</button>
+<button class="tab" data-t="t6">Открытые вопросы</button>
+</div>
+
+<section class="panel active" id="t0">
+<h2><span class="n">·</span>Кто такой комьюнити-интегратор</h2>
+<div class="card">
+<p style="margin-top:0;font-size:16px">КИ — не классический продавец, который «дожимает лида». Его работа — <b>изменение состояния человека</b>: провести потенциального участника через знакомство с клубом так, чтобы подходящий человек сам пришёл к решению вступить.</p>
+<p>Образ роли: не продавец у двери магазина, а <b>проводник в закрытом доме</b>. Мягкий и статусный снаружи, дисциплинированный внутри.</p>
+<div class="callout ok"><b>Главная формула.</b> Мы не уговариваем человека вступить. Мы создаём условия, в которых подходящий человек сам понимает, зачем ему быть в клубе. Клуб продаёт не презентация — клуб продают среда, люди, личные истории и правильно организованная рефлексия.</div>
+</div>
+
+<h2><span class="n">·</span>Что меняется при переходе из КМ в КИ</h2>
+<div class="grid g2">
+<div class="lbox eng"><h3>Остаётся вашей силой</h3><p>Чувство среды и сообщества, живой контакт с людьми, умение фасилитировать, насмотренность по форматам клуба и участникам.</p></div>
+<div class="lbox"><h3>Новое и обязательное в роли КИ</h3><p>Дисциплина работы со сделкой и задачами в CRM, соблюдение SLA по входящим лидам, скрипты звонков, устройство встречи-знакомства, маршрутизация по конверсионным событиям, корректное закрытие проигрышей.</p></div>
+</div>
+<div class="rule"><h3><span class="ic">→</span>Принцип дисциплины</h3><p>Внешняя коммуникация — мягкая и статусная. Внутренняя система работы — жёсткая по управлению: каждая открытая сделка имеет следующий шаг, каждое касание зафиксировано, каждый этап доказан фактами, а не словом.</p></div>
+
+<h2><span class="n">·</span>Карта процесса</h2>
+<div class="card">
+<h3>Контур сделки в воронке «Привлечение»</h3>
+<div class="strip">
+<span class="s">База входящая</span><span class="sep">→</span>
+<span class="s">Звонок-знакомство</span><span class="sep">→</span>
+<span class="s">Встреча-знакомство</span><span class="sep">→</span>
+<span class="s">Активация</span><span class="sep">→</span>
+<span class="s">Демонстрация</span><span class="sep">→</span>
+<span class="s">Проблематизация</span><span class="sep">→</span>
+<span class="s">Адмиссия</span><span class="sep">→</span>
+<span class="s">Контракт</span><span class="sep">→</span>
+<span class="s">На передаче</span><span class="sep">→</span>
+<span class="s on">Передано в клуб</span>
+</div>
+<div class="strip" style="margin-top:4px">
+<span class="note">Альтернативные исходы:</span>
+<span class="s lose">Возврат (неквал)</span>
+<span class="s lose">Корзина</span>
+<span class="s lose">Прогрев</span>
+</div>
+<p class="note" style="margin-top:6px"><b>«Отклонено потребителем»</b> — не исход, а рабочий этап доработки: клуб вернул карточку (чаще из-за нехватки данных). КИ дополняет и повторно отправляет на приёмку. Подробно — вкладка «Сделки».</p>
+<p class="note" style="margin-top:10px">Название этапа отражает его <b>цель</b>, а не доказывает, что цель достигнута. Стадия «Встреча-знакомство» означает, что сделка в контуре организации встречи; что встреча состоялась — доказывают данные встречи, задача, лента.</p>
+</div>
+
+<div class="card">
+<h3>Конверсионный движок: что меняется в голове участника</h3>
+<p class="note" style="margin-top:0">После встречи-знакомства участник движется через состояния. Состояние — это достигнутый эффект (что изменилось в восприятии и готовности), а не тип мероприятия и не стадия CRM.</p>
+<div class="flow">
+<div class="step" style="background:var(--s1)">Активация<small>«интересно, хочу дальше»</small></div>
+<span class="arrow">→</span>
+<div class="step" style="background:var(--s2)">Демонстрация<small>«понял, в чём польза»</small></div>
+<span class="arrow">→</span>
+<div class="step" style="background:var(--s3)">Проблематизация<small>«осознал свою задачу»</small></div>
+<span class="arrow">→</span>
+<div class="step" style="background:var(--accent)">Готов к контракту<small>«можно оформлять»</small></div>
+</div>
+<p class="note"><span class="st st4">Адмиссия</span> — не линейный шаг, а <b>gate</b>: ценностная сверка с держателем ценностей, вызывается при сомнении в совпадении, затем возвращает участника в маршрут. Подробно — на вкладке «События».</p>
+</div>
+
+<h2><span class="n">·</span>Как пользоваться плейбуком</h2>
+<div class="grid g2">
+<div class="lbox"><h3>Вкладки</h3><p><b>1 Сделки</b> — что делать на каждом этапе. <b>2 Поля</b> — что заполнять и что обязательно. <b>3 Звонки</b> — скрипты по типам контакта. <b>4 Встреча</b> — устройство встречи-знакомства. <b>5 События</b> — каталог форматов и приглашения. <b>Открытые вопросы</b> — что ещё не закреплено.</p></div>
+<div class="lbox"><h3>Легенда статусов</h3><p><span class="badge b-ok">утверждено</span> закреплено в регламенте/онтологии — действуем. <span class="badge b-hyp">на уточнение</span> ещё не закреплено — не действуем как по правилу, вынесено в «Открытые вопросы». <span class="badge b-doc">из онтологии</span> / <span class="badge b-sheet">из регламента</span> — источник.</p></div>
+</div>
+</section>
+
+<section class="panel" id="tq">
+<h2><span class="n">·</span>Клубы — куда поставляем</h2>
+<p class="lead" style="margin-bottom:12px">Проверьте соответствие критериям клуба-заказчика — <b>с учётом коэффициентов</b> (см. ниже) — прежде чем закрывать сделку. Поставленный лид ниже базового порога сам по себе не отбраковывается: сначала ищем коэффициенты, и только при их отсутствии закрываем в «Корзину».</p>
+<div class="scard">
+<div class="hd" style="background:var(--accent)">ClubFirst (СФ) — Официальные критерии делового опыта</div>
+<div class="bd">
+<div class="two" style="gap:16px;margin-top:8px">
+<div style="border:1px solid var(--line);border-radius:12px;padding:12px 14px">
+<p style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px">Официальные критерии клуба <span class="note" style="text-transform:none;letter-spacing:0;font-weight:500">· публичный порог</span></p>
+<table>
+<thead><tr><th>Категория</th><th>Минимальная выручка</th></tr></thead>
+<tbody>
+<tr><td colspan="2" style="background:#fafbfc;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:5px 13px">Собственники бизнеса</td></tr>
+<tr><td class="note">доля ≥ 50%</td><td><b>от 800 млн ₽</b></td></tr>
+<tr><td class="note">доля ≥ 25%</td><td><b>от 1,5 млрд ₽</b></td></tr>
+<tr><td class="note">доля ≥ 15%</td><td><b>от 5 млрд ₽</b></td></tr>
+<tr><td class="note">доля ≥ 10%</td><td><b>от 10 млрд ₽</b></td></tr>
+<tr><td colspan="2" style="background:#fafbfc;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:5px 13px">Корпоративные управленцы · выручка компании</td></tr>
+<tr><td class="note">CEO</td><td><b>от 8 млрд ₽</b></td></tr>
+<tr><td class="note">CEO-1</td><td><b>от 20 млрд ₽</b></td></tr>
+<tr><td class="note">CEO-2</td><td><b>от 50 млрд ₽</b></td></tr>
+<tr><td colspan="2" style="background:#fafbfc;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:5px 13px">Владельцы активов</td></tr>
+<tr><td class="note">личные активы</td><td><b>от 500 млн ₽</b></td></tr>
+<tr><td class="note">активы под управлением</td><td><b>от 5 млрд ₽</b></td></tr>
+</tbody>
+</table>
+</div>
+<div style="border:1px solid var(--accent);border-radius:12px;padding:12px 14px;background:var(--accent-soft)">
+<p style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);margin:0 0 8px">Критерии закупки Лидген УС <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">· что реально приходит в воронку</span></p>
+<table>
+<thead><tr><th>Категория</th><th>Порог закупки</th></tr></thead>
+<tbody>
+<tr><td colspan="2" style="background:#fff;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:5px 13px">Собственники бизнеса</td></tr>
+<tr><td class="note">рабочий порог</td><td><b>от 400 млн ₽</b></td></tr>
+<tr><td class="note">для внешней коммуникации</td><td><b>от 800 млн ₽</b></td></tr>
+<tr><td colspan="2" style="background:#fff;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:5px 13px">Корпоративные управленцы · выручка компании</td></tr>
+<tr><td class="note">CEO</td><td><b>от 2 млрд ₽</b></td></tr>
+<tr><td class="note">CEO-1</td><td><b>от 4 млрд ₽</b></td></tr>
+<tr><td class="note">CEO-2</td><td><b>от 8 млрд ₽</b></td></tr>
+</tbody>
+</table>
+<p class="note" style="margin-top:8px">Выполнено в <b>1 из 3 последних лет</b>. Владельцев активов Лидген УС <b>не закупает</b> и не квалифицирует — категория есть только в официальных критериях клуба.</p>
+</div>
+</div>
+
+<p style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:16px 0 8px">Коэффициенты к базовым требованиям <span class="note" style="text-transform:none;letter-spacing:0;font-weight:500">· мост между официальным порогом и закупкой · не более двух одновременно</span></p>
+<div class="card pad0"><table>
+<thead><tr><th>Критерий</th><th style="text-align:center;white-space:nowrap">K</th></tr></thead>
+<tbody>
+<tr><td colspan="2" style="background:#ebfbee;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ok);padding:5px 13px">Понижающие — снижают минимальный порог</td></tr>
+<tr><td>Быстрый рост ≥ 30%/год в течение последних 3 лет</td><td style="text-align:center;font-weight:700;color:var(--ok)">0,7</td></tr>
+<tr><td>IPO (капитал ≥ 1,5 млрд) или M&amp;A сделки (≥ 10 млрд) за последние 10 лет</td><td style="text-align:center;font-weight:700;color:var(--ok)">0,7</td></tr>
+<tr><td>Нац./отраслевой рейтинг или профессиональная премия</td><td style="text-align:center;font-weight:700;color:var(--ok)">0,5</td></tr>
+<tr><td>Стратег. достижения: 2+ международных рынка / ТОП-3 сегмента / формирование нового рынка</td><td style="text-align:center;font-weight:700;color:var(--ok)">0,7</td></tr>
+<tr><td colspan="2" style="background:#fff4ee;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--warn);padding:5px 13px">Повышающие — увеличивают требуемый порог</td></tr>
+<tr><td>Опыт соответствовал критериям, но не в последние 3 года (период 3–7 лет назад)</td><td style="text-align:center;font-weight:700;color:var(--warn)">2,0</td></tr>
+<tr><td>Средняя маржинальность по чистой прибыли ≤ 5% за последние 3 года</td><td style="text-align:center;font-weight:700;color:var(--warn)">2,0</td></tr>
+</tbody>
+</table></div>
+<div class="callout ok" style="margin:14px 0 4px"><b>Почему закупка ниже официального порога — и это нормально.</b> Порог закупки рассчитан так, что эффект понижающих коэффициентов уже «зашит» в него: при двух понижающих официальные 800 млн × 0,7 × 0,7 ≈ <b>392 млн</b> — это и есть рабочие 400 млн закупки. Поэтому лид с выручкой ниже 800 млн — <b>не повод сразу отбраковывать</b>: по контракту поставка выполнена. Сначала <b>проактивно ищем коэффициенты</b> (быстрый рост, рейтинг, IPO/M&A, стратегические достижения). Есть — поставка корректна, работаем дальше. Коэффициентов нет совсем — закрываем в <b>«Корзину»</b>, причина «Не подходит по критериям клубов». Это <b>не «Возврат»</b>: поставщик контракт выполнил, возвращать как неквал нельзя.</div>
+</div>
+</div>
+
+<div class="scard" style="margin-top:8px">
+<div class="hd" style="background:var(--s3)">ClubFirst Future (СФФ)</div>
+<div class="bd"><dl>
+<dt>Выручка бизнеса</dt>
+<dd>Услуги: от <b>100 млн</b>/год &nbsp; Маркетплейсы: от <b>300 млн</b>/год<br>или личный доход от <b>1 млн/мес.</b> при выручке от 50 млн</dd>
+<dt>Топ-менеджеры</dt>
+<dd>CEO, CEO-1. Выручка компании: от <b>1 млрд</b></dd>
+<dt>Возраст</dt>
+<dd>До <b>45 лет</b></dd>
+<dt>География</dt>
+<dd>Москва или Московская область</dd>
+<dt>Ограничения</dt>
+<dd>Никаких ставок на спорт, онлайн-казино или «чёрного» бизнеса</dd>
+</dl></div>
+</div>
+
+<h2><span class="n">·</span>Качества поставки — два класса</h2>
+<p class="note" style="margin-top:0">Привлечение штрих принимает <b>оба</b> качества. Разница — в том, что человек уже готов делать дальше; от этого зависит первый шаг КИ.</p>
+<div class="two">
+<div class="card" style="margin:0">
+<h3 style="margin-top:0">Два качества</h3>
+<div class="state" style="margin:10px 0">
+<h3><span class="dot" style="background:var(--s4)"></span><span class="badge b-ok" style="margin-left:6px">Готов ко встрече</span></h3>
+<p style="margin:4px 0 0;font-size:13.5px">Квалифицирован, соответствует критериям клуба, на звонке <b>подтвердил готовность ко встрече</b> с КИ в горизонте ~2 недель. Само назначение и проведение Zoom — уже задача этапа «Звонок-знакомство» / «Встреча-знакомство».</p>
+</div>
+<div class="state" style="margin:10px 0">
+<h3><span class="dot" style="background:var(--s2)"></span><span class="badge b-sheet" style="margin-left:6px">Готов к мероприятию</span></h3>
+<p style="margin:4px 0 0;font-size:13.5px">Квалифицирован под клуб и готов прийти на <b>партнёрское лидген-мероприятие, которое организует Лидген УС</b> (на персональную встречу пока не подписан). Первый шаг КИ — <b>подключиться/приехать на это мероприятие</b>, установить контакт и вывести на встречу-знакомство. Само партнёрское мероприятие ≠ конверсионное событие Привлечения.</p>
+</div>
+</div>
+<div class="card" style="margin:0;border-color:var(--accent);background:var(--accent-soft)">
+<h3 style="margin-top:0">Кто что поставляет</h3>
+<p style="font-size:14px;margin-top:10px"><b>Лидген УС</b> — оба качества: и «Готов ко встрече», и «Готов к мероприятию». Под него в первую очередь настроены автоматизации и SLA.</p>
+<p style="font-size:14px;margin-top:8px"><b>Остальные поставщики</b> (рекомендации, ВСП, сайты, самостоятельно и т.д.) — поставляют только <b>«Готов ко встрече»</b>.</p>
+<p style="font-size:13px;color:var(--muted);margin-top:8px">Любое качество с поставки попадает в воронку «Привлечение» → этап «База входящая». Дальше работаем по качеству, а не по источнику.</p>
+</div>
+</div>
+
+<h2><span class="n">·</span>Источники лидов</h2>
+<p class="note" style="margin-top:0">Источник фиксируется в блоке «Источник» карточки сделки. Большинство источников не меняет логику работы — только скрипт первого знакомства. Исключение — <b>Внутренняя база</b>: отдельный регламент.</p>
+<div class="grid g2" style="margin-top:12px">
+<div class="src">
+<h3><span class="badge b-src">Основной</span>&nbsp;Лидген УС</h3>
+<p class="what">Поставляет оба качества. Под Лидген в первую очередь настроены автоматизации и SLA.</p>
+<ul>
+<li>SLA-1: 24 ч взять в работу → иначе автопокупка</li>
+<li>SLA-2 / SLA-3: первый контакт за 1 р.д., полный цикл за 3 р.д.</li>
+<li>Скрипт — «Входящая заявка» (вкладка «Звонки»)</li>
+</ul>
+</div>
+<div class="src">
+<h3>Рекомендация от участника / сотрудника</h3>
+<p class="what">Самый тёплый источник: человек уже слышал о клубе от кого-то из сообщества.</p>
+<ul>
+<li>Работаем по классу качества (не по протоколу источника)</li>
+<li>Скрипт — «Партнёрская рекомендация» (вкладка «Звонки»)</li>
+<li>Фиксируем, от кого рекомендация — важен контекст</li>
+</ul>
+</div>
+<div class="src" style="border-left-color:var(--s1)">
+<h3><span class="badge b-ok">Особый протокол</span>&nbsp;Внутренняя база</h3>
+<p class="what">Собственная база контактов (вкл. «База 0Р»). Регламент обработки отличается от входящих от Лидген УС.</p>
+<ul>
+<li><b>3 рабочих дня · 1 звонок в день · 1 сообщение</b></li>
+<li>Итого: до 3 звонков + 1 сообщение за 3 дня</li>
+<li>Нет контакта или проигрыш → <b>«Корзина»</b> (не «Возврат»: поставщика, которому возвращать, нет), причина «Не выходит на связь» / «Не подходит по критериям клубов»</li>
+</ul>
+</div>
+<div class="src">
+<h3>Самостоятельно</h3>
+<p class="what">КИ сам нашёл контакт и вносит в воронку.</p>
+<ul>
+<li>Сначала проверить критерии клуба</li>
+<li>Квалификация — ответственность КИ</li>
+<li>Обрабатываем по классу качества, который присвоил КИ</li>
+<li>Проигрыш → «Корзина» (поставщика для возврата нет)</li>
+</ul>
+</div>
+<div class="src">
+<h3>ВСП (СБЕР)</h3>
+<p class="what">Поставка через партнёра СБЕР ВСП.</p>
+<ul>
+<li>Скрипт — «Партнёрская рекомендация / банк (ВСП)» (вкладка «Звонки»)</li>
+<li>Обрабатываем по классу качества</li>
+</ul>
+</div>
+</div>
+<div class="callout" style="margin-top:14px"><b>Остальные источники</b> (сайты ClubFirst, CFP, звонок, сообщение, агенты и т.д.) — обрабатываем по классу качества поставки. Источник влияет только на скрипт первого знакомства.</div>
+<div class="rule"><h3><span class="ic">→</span>SLA — для всех поставщиков, не только Лидген</h3><p>SLA-1 (24 ч взять в работу), SLA-2 (первый контакт за 1 р.д.) и SLA-3 (полный цикл за 3 р.д.) действуют для <b>любой</b> поставки качества «Готов ко встрече», от какого бы поставщика она ни пришла. У Лидген УС дополнительно настроена <b>автопокупка</b> по нарушению SLA-1; у остальных поставщиков автоматики автопокупки может не быть, но сами сроки соблюдаем одинаково.</p></div>
+
+<h2><span class="n">·</span>График касаний и эскалация <span class="badge b-ok">SLA-3</span></h2>
+<table>
+<thead><tr><th>Когда</th><th>Действие</th><th>Канал</th><th>Комментарий</th></tr></thead>
+<tbody>
+<tr><td class="name">День 1</td><td>Звонок №1</td><td>Телефон</td><td>Первая попытка. При недозвоне — отправка сообщения</td></tr>
+<tr><td class="name">День 1</td><td>Сообщение №1</td><td>WhatsApp / Telegram</td><td>Представление, уточнение удобного времени</td></tr>
+<tr><td class="name">День 2</td><td>Звонок №2</td><td>Телефон</td><td>Финальная попытка дозвона. <b>Не вышел на связь → запускаем эскалацию ↓</b></td></tr>
+</tbody>
+</table>
+<div class="two" style="margin-top:10px">
+<div class="card" style="margin:0;border-left:4px solid var(--accent)">
+<h3 style="margin-top:0">Поставленные лиды — эскалация через поставщика</h3>
+<p class="note" style="margin-top:0">Лидген УС, ВСП, внешняя рекомендация. График выше: 2 звонка + 1 сообщение.</p>
+<div class="tl">
+<div class="row"><div class="tm">Шаг 1</div><div class="ct"><b>Написать лид-менеджеру, который поставил лида</b>, и попросить пушнуть его.</div></div>
+<div class="row"><div class="tm">Шаг 2</div><div class="ct"><b>Подождать сутки</b>, пока лид-менеджер пушнёт и даст обратную связь.</div></div>
+<div class="row"><div class="tm">Шаг 3</div><div class="ct">Обратной связи за сутки нет → <b>контрольный звонок</b>.</div></div>
+<div class="row"><div class="tm">Шаг 4</div><div class="ct">Ответа нет → <b>«Возврат в Лидген(неквал)»</b>, причина «Не вышел на связь (3 дня)».</div></div>
+</div>
+</div>
+<div class="card" style="margin:0;border-left:4px solid var(--s1)">
+<h3 style="margin-top:0">Внутренняя база / самостоятельно — без эскалации</h3>
+<p class="note" style="margin-top:0">Поставщика, которому возвращать, нет — и лид-менеджера тоже. Эскалация не применяется.</p>
+<ul class="chk">
+<li>Свой протокол: <b>3 рабочих дня · 1 звонок в день · 1 сообщение</b></li>
+<li>Нет контакта за 3 дня → <b>«Корзина»</b>, причина «Не выходит на связь»</li>
+</ul>
+</div>
+</div>
+<div class="rule warn"><h3><span class="ic">!</span>Эскалация — только для поставленных лидов</h3><p>Через лид-менеджера эскалируем лиды от поставщика (Лидген УС, ВСП, рекомендация): нельзя закрывать такой лид, не дав поставщику шанс пушнуть человека. Внутреннюю базу и самостоятельно найденные лиды через лид-менеджера <b>не гоняем</b> — у них нет поставщика, они идут по своему протоколу сразу в «Корзину». «Возврат в Лидген(неквал)» — фактическая стадия Битрикс (C10:UC_EA3R76); в тексте встречается короткий синоним «Возврат (неквал)».</p></div>
+</section>
+
+<section class="panel" id="t1">
+<h2><span class="n">1</span>Работа со сделкой по этапам</h2>
+<p class="lead" style="margin-bottom:6px">Для каждого этапа: цель, что делает КИ, сроки, признак хорошего выхода, обязательный следующий шаг, поля и типичный дефект. Каноническое правило: <b>каждая открытая сделка имеет следующий шаг</b> (канал · цель · дата · время), а каждое касание зафиксировано в ленте.</p>
+<div class="strip">
+<span class="s on">База входящая</span><span class="sep">→</span>
+<span class="s on">Звонок-знакомство</span><span class="sep">→</span>
+<span class="s on">Встреча-знакомство</span><span class="sep">→</span>
+<span class="s">движок: Активация…Проблематизация</span><span class="sep">→</span>
+<span class="s on">Контракт</span><span class="sep">→</span>
+<span class="s on">На передаче</span><span class="sep">→</span>
+<span class="s">Передано</span>
+</div>
+
+<div class="scard">
+<div class="hd" style="background:#495163"><span>База входящая</span><span class="ord">C10:NEW</span></div>
+<div class="bd"><dl>
+<dt>Цель этапа</dt><dd>Принять поставку, назначить ответственного, запустить регламентные сроки.</dd>
+<dt>Что делает КИ</dt><dd>Смотрит карточку, источник и итоговое качество поставки. Поставку «Готов ко встрече» берёт в работу — переводит на «Звонок-знакомство». Явно нерелевантную — корректно возвращает <b>до покупки</b>.</dd>
+<dt>Сроки <span class="badge b-ok">SLA-1</span></dt><dd>24 рабочих часа на перевод в «Звонок-знакомство». Если не перевести — автоперевод на «Встреча-знакомство» = <b>автопокупка лида</b> у Лидген УС.</dd>
+<dt>Хороший выход</dt><dd>Сделка вручную взята в работу (→ Звонок-знакомство) или корректно возвращена до покупки.</dd>
+<dt>Следующий шаг</dt><dd>Задача на первый звонок: канал · цель · дата · время.</dd>
+<dt>Если не вышло</dt><dd>Не подходит по критериям клуба / недостаточно данных / дубль / тест → «Возврат (неквал)» с причиной, <b>до покупки</b>.</dd>
+<dt>Типичный дефект</dt><dd><span class="todo">Просрочка 24 ч → автопокупка нерелевантного лида.</span> Это нарушение регламента, а не успешный контакт.</dd>
+</dl></div></div>
+
+<div class="scard">
+<div class="hd" style="background:var(--accent)"><span>Звонок-знакомство</span><span class="ord">C10:PREPARATION</span></div>
+<div class="bd"><dl>
+<dt>Цель этапа</dt><dd>Провести квалификационный звонок, подтвердить итоговое качество поставки и понять готовность ко встрече.</dd>
+<dt>Что делает КИ</dt><dd>Протокол 3 рабочих дня: до 2 звонков + 1 сообщение. Подтверждает критерии клуба, снимает первичный запрос, назначает Zoom-встречу. Скрипты — вкладка «Звонки».</dd>
+<dt>Сроки <span class="badge b-ok">SLA-2 · SLA-3</span></dt><dd>Первый контакт — за 1 рабочий день. Полный цикл (2 звонка + 1 сообщение) — за 3 рабочих дня. Не вышел на связь на 2-й день → эскалация через лид-менеджера (вкладка «Звонки»).</dd>
+<dt>Хороший выход</dt><dd>Качество подтверждено, человек готов ко встрече <b>в горизонте 2 недель</b> → перевод на «Встреча-знакомство» с зафиксированными датой и временем.</dd>
+<dt>Следующий шаг</dt><dd>Назначенная встреча с датой/временем, либо задача на следующее касание.</dd>
+<dt>Если не вышло</dt><dd>Нет контакта после эскалации → проигрыш: поставленный лид → «Возврат (неквал)», причина «Не вышел на связь (3 дня)»; внутренняя база / самостоятельно → «Корзина». Не готов ко встрече в 2 недели → проигрыш по тому же правилу источника.</dd>
+<dt>Типичный дефект</dt><dd><span class="todo">Этап стоит, но нет активной задачи или фиксации в ленте — сделка-«невидимка».</span> Перевод дальше без даты встречи.</dd>
+</dl></div></div>
+
+<div class="scard">
+<div class="hd" style="background:var(--s2)"><span>Встреча-знакомство</span><span class="ord">C10:UC_9E0XYG</span></div>
+<div class="bd"><dl>
+<dt>Цель этапа</dt><dd>Организовать и провести встречу знакомства. Приоритет — Zoom 30 минут, если нет причины вести в очный формат.</dd>
+<dt>Что делает КИ</dt><dd>Назначает и проводит встречу; снимает запрос; договаривается о маршруте знакомства (социальный контракт); назначает первое активационное событие. Устройство встречи — вкладка «Встреча».</dd>
+<dt>Хороший выход</dt><dd>Встреча прошла, назначен следующий конверсионный шаг (активационное событие) или зафиксировано окно добивания в мессенджере.</dd>
+<dt>Следующий шаг</dt><dd>Назначенное активационное событие, либо задача с датой/временем на подтверждение.</dd>
+<dt>Сделка стоит на этапе</dt><dd><b>Пока встреча фактически не проведена, сделка остаётся на «Встреча-знакомство»</b> — не двигаем дальше, пока встречи не было. Не удалось назначить встречу — продолжаем добиваться, сделка ждёт здесь.</dd>
+<dt>Поля встречи</dt><dd>Дата и время, тип, место, куратор, признак проведённой встречи. Подробно — вкладка «Поля».</dd>
+<dt>Если не вышло</dt><dd>Не пришёл / срывает договорённости → задача на пересбор; систематически без предупреждения → «Корзина», причина «Не пришёл на встречу/мероприятие».</dd>
+<dt>Типичный дефект</dt><dd><span class="todo">Стадия стоит, но нет данных встречи — дефект данных/процесса.</span> Длинная презентация вместо договорённости о маршруте.</dd>
+</dl></div></div>
+
+<div class="card">
+<h3>Активация → Демонстрация → Проблематизация <span class="badge b-doc">конверсионный движок</span></h3>
+<p style="margin-top:0">На этих этапах работа со сделкой = провести <b>конверсионное событие</b> под целевое состояние и сделать пост-ивент рефлексию. Правила, каталог форматов и как звать — на вкладке <b>«События»</b>.</p>
+<ul class="chk">
+<li>Под каждое состояние — подходящий формат; событие должно двигать участника <b>вправо</b>.</li>
+<li>После события — обязательный следующий шаг: звонок, встреча, задача, адмиссия, контракт, возврат или проигрыш. <b>Событие без следующего шага дефектно.</b></li>
+<li>Эффект состояния протухает — нужен быстрый follow-up (ориентиры сроков — вкладка «События»). <span class="badge b-hyp">сроки на уточнение</span></li>
+<li>Готовых вступать <b>не гоняем</b> по всей цепочке — ведём к контракту через shortcut.</li>
+</ul>
+</div>
+
+<div class="scard">
+<div class="hd" style="background:var(--s4)"><span>Адмиссия · gate</span><span class="ord">C10:UC_5KZT6Y</span></div>
+<div class="bd"><dl>
+<dt>Что это</dt><dd>Ценностная сверка: подходят ли участник и клуб друг другу по ценностям и ожиданиям. Не линейный этап, а gate — вызывается при сомнении в совпадении.</dd>
+<dt>Что делает КИ</dt><dd>Организует сверку с <b>держателем ценностей</b> (основатель, активный участник, представитель клуба) и фиксирует результат. Сам КИ не обязан быть держателем ценностей.</dd>
+<dt>Хороший выход</dt><dd>Match подтверждён → дальше в маршрут / к контракту. Match не подтверждён → «Корзина».</dd>
+<dt>Типичный дефект</dt><dd>Свести адмиссию к проверке платёжеспособности или провести без держателя ценностей.</dd>
+</dl></div></div>
+
+<div class="scard">
+<div class="hd" style="background:var(--s4)"><span>Контракт</span><span class="ord">C10:UC_M1M5WM</span></div>
+<div class="bd"><dl>
+<dt>Цель этапа</dt><dd>Начать коммерческое оформление участия.</dd>
+<dt>Что делает КИ</dt><dd>Передаёт в контрактацию (договор и счёт), остаётся рядом для корректной передачи в онбординг.</dd>
+<dt>Хороший выход</dt><dd>Контрактация запущена; нет блокеров по релевантности и ценностям.</dd>
+<dt>Поля</dt><dd>Тариф, тип договора, продавец, плательщик, договорные даты; разбивка сумм; график оплаты. Подробно — вкладка «Поля».</dd>
+<dt>Типичный дефект</dt><dd>Считать готовность к контракту фактом оплаты. Ломать мягкий вайб давлением на оформление.</dd>
+</dl></div></div>
+
+<div class="scard">
+<div class="hd" style="background:var(--src)"><span>На передаче</span><span class="ord">C10:UC_7CLBFT</span></div>
+<div class="bd"><dl>
+<dt>Цель этапа</dt><dd>Передать участника в клуб. <b>Это автоматический этап:</b> как только карточка переходит сюда, автоматизация сразу отправляет её на приёмку <b>продюсеру сообщества</b>.</dd>
+<dt>Как это работает</dt><dd>Раз отправка автоматическая — <b>все данные для передачи должны быть готовы заранее</b>, ещё на «Контракте». На самом этапе КИ ничего содержательного не заполняет, только технические данные; продюсер сообщества либо принимает карточку, либо возвращает на доработку.</dd>
+<dt>Что готовит КИ заранее (на «Контракте»)</dt><dd>Критерий принятия, комментарий для сообщества, подтверждающие материалы, контекст задач человека для онбординга.</dd>
+<dt>Хороший выход</dt><dd>Продюсер принял участника → «Передано в клуб» <span class="badge b-ok">C10:WON</span>.</dd>
+<dt>Продюсер вернул карточку</dt><dd>Переход в <b>«Отклонено потребителем» — это рабочий этап на доработку, а не проигрыш и не отказ участнику</b>. Чаще всего причина — нехватка данных или неподтверждённая релевантность. КИ <b>устраняет причину возврата</b>, дополняет карточку и <b>заново отправляет на передачу</b>. Продюсер может вернуть даже после оплаты.</dd>
+<dt>Когда это всё же проигрыш</dt><dd>Только если доработать карточку объективно нельзя (участник реально нерелевантен) — тогда закрытие по правилам проигрыша.</dd>
+<dt>Типичный дефект</dt><dd>Воспринять возврат карточки как отказ участнику и закрыть сделку вместо доработки. Перенести на этап без заранее подготовленных данных.</dd>
+</dl></div></div>
+
+<h2><span class="n">·</span>Проигрыши: какой маршрут выбрать</h2>
+<table>
+<thead><tr><th>Маршрут</th><th>Когда</th><th>Смысл</th></tr></thead>
+<tbody>
+<tr><td class="name">Возврат (неквал)</td><td>Ранняя квалификация, до покупки/принятия лида в работу</td><td>Вернуть поставщику/Лидген УС: неквал, неготовность или невозможность связаться</td></tr>
+<tr><td class="name">Корзина</td><td>После работы КИ: сейчас не ценно, отказался, не закрылся на членство</td><td>Зафиксировать текущий проигрыш сделки</td></tr>
+<tr><td class="name">Корзина + Прогрев</td><td>Релевантен, но сейчас не готов; просит вернуться позже</td><td>Сделку закрыть в «Корзину», автоматика создаёт новую сделку в воронке «Прогрев» (тот же ответственный) с задачей на план касаний и возврата <span class="badge b-hyp">точная передача в Битрикс — на уточнение</span></td></tr>
+</tbody>
+</table>
+<div class="rule"><h3><span class="ic">→</span>Возврат — только для поставленных лидов</h3><p>«Возврат (неквал)» возвращает лид <b>поставщику</b> (Лидген УС, ВСП, внешняя рекомендация). Для источников, у которых поставщика нет — <b>Внутренняя база</b>, «База 0Р», <b>Самостоятельно</b> — проигрыш всегда оформляется в <b>«Корзину»</b>, а не в «Возврат». Также в «Корзину» (а не «Возврат») уходит поставленный лид, у которого по контракту всё выполнено, но не нашлось коэффициентов под критерии клуба.</p></div>
+<p class="note"><b>«Отклонено потребителем»</b> в этой таблице отсутствует намеренно: это не проигрыш, а рабочий этап доработки карточки (см. карточку «На передаче» выше).</p>
+<div class="rule warn"><h3><span class="ic">!</span>Обязательные действия при любом проигрыше</h3><p>1) Закрыть или снять все активные задачи. 2) Выбрать корректный этап проигрыша. 3) Указать причину из утверждённого списка. 4) Заполнить «Причина отказа подробнее» — 1–2 предложения конкретики. 5) Оставить комментарий в ленте: что произошло и почему закрыто. Закрытие без причины и комментария — дефект данных и управления.</p></div>
+<h2><span class="n">·</span>Причины проигрыша и когда какую ставить</h2>
+<p class="note" style="margin-top:0">Причина читается <b>вместе со стадией закрытия</b>: одна и та же формулировка в «Возврат в Лидген(неквал)» и в «Корзине» означает разные ситуации. Подробность причины обязательно дополняем 1–2 предложениями в поле «Причина отказа подробнее».</p>
+
+<h3>Причины «Возврат в Лидген(неквал)» <span class="note" style="font-weight:400">· ранняя квалификация, до покупки</span></h3>
+<div class="card pad0"><table>
+<thead><tr><th>Причина</th><th>Когда использовать</th></tr></thead>
+<tbody>
+<tr><td class="name">Не подходит по критериям клуба</td><td>Очевидно не проходит под критерии поставляемого клуба (с учётом коэффициентов).</td></tr>
+<tr><td class="name">Недостаточно данных для квалификации</td><td>Нет данных о компании, должности или квалификации; данные противоречивы.</td></tr>
+<tr><td class="name">Не вышел на связь (3 дня)</td><td>2 звонка + 1 сообщение за 3 рабочих дня (и эскалация через лид-менеджера) не дали контакта.</td></tr>
+<tr><td class="name">Не готов ко встрече / к мероприятию</td><td>Не готов к встрече в горизонте 2 недель или отказывается от мероприятия.</td></tr>
+<tr><td class="name">Дубль сделки</td><td>Повторная заявка; уже есть активная сделка или человек уже был/есть участником.</td></tr>
+<tr><td class="name">Тестовая сделка</td><td>Техническая, тестовая или ошибочная заявка.</td></tr>
+</tbody>
+</table></div>
+
+<h3>Причины «Корзина» <span class="note" style="font-weight:400">· после работы КИ</span></h3>
+<div class="card pad0"><table>
+<thead><tr><th>Причина</th><th>Когда использовать</th></tr></thead>
+<tbody>
+<tr><td class="name">Не подходит по критериям клубов</td><td>Неквалификация выявлена уже после первичного этапа / после касания.</td></tr>
+<tr><td class="name">Не видит ценности формата</td><td>Был контакт, встреча или событие, но человек не видит пользы клуба.</td></tr>
+<tr><td class="name">Клиенту не интересно сейчас</td><td>Релевантен, но откладывает решение на срок. <span class="badge b-doc">→ Корзина + Прогрев</span>, если создана сделка в «Прогреве».</td></tr>
+<tr><td class="name">Дорого / нет бюджета</td><td>Финансовый стоп-фактор при интересе. <span class="badge b-doc">→ Корзина + Прогрев</span> при реалистичном горизонте возврата.</td></tr>
+<tr><td class="name">Выбрал конкурента</td><td>Выбрал другой клуб/продукт. <span class="badge b-doc">→ Корзина + Прогрев</span>, если есть смысл вернуться позже.</td></tr>
+<tr><td class="name">Не выходит на связь</td><td>После активной работы перестал отвечать (не дозвонились / нет телефона).</td></tr>
+<tr><td class="name">Не пришёл на встречу / мероприятие</td><td>Срывает договорённости или не приходит без предупреждения.</td></tr>
+<tr><td class="name">Искал партнёрство / инвестиции</td><td>Запрос не на членство, а на партнёров, инвесторов или клиентов.</td></tr>
+<tr><td class="name">Предложение сотрудничества</td><td>Хочет выступить, провести мероприятие или партнёриться, но не вступать.</td></tr>
+<tr><td class="name">Не хочу дальше инвестировать в проработку</td><td>КИ принимает решение не продолжать работу с этой сделкой.</td></tr>
+</tbody>
+</table></div>
+<p class="note"><b>Не выбирать:</b> в списке Битрикса есть служебное значение «Забракован нами (бан)» с пометкой «НЕ выбирайте эту причину» — оно не для обычного закрытия.</p>
+</section>
+<section class="panel" id="t2">
+<h2><span class="n">2</span>Поля по этапам: что, когда и зачем</h2>
+<p class="lead" style="margin-bottom:6px">Поля карточки, разложенные по этапам воронки: на каждом этапе — что заполнить, зачем и что вносить. Бейджи: <span class="badge b-req">обяз.</span> системно/бизнес-обязательно для перехода · <span class="badge b-auto">Лидген</span> приходит авто только от Лидген УС (иначе заполняет КИ) · <span class="badge b-hyp">на уточнение</span>.</p>
+
+<div class="callout"><b>Принцип.</b> Поле карточки — доказательство разной силы. Пустое поле не всегда значит, что факта не было: часто это дефект фиксации. Стадия без обязательных подтверждающих данных — сигнал качества данных, а не бизнес-доказательство.</div>
+
+<div class="callout"><b>Откуда берутся данные: Лидген против других источников.</b> Если источник — <b>Лидген УС</b>, бóльшая часть полей (бизнес-клуб, лид-менеджер, доп. об источнике, источник, итоговое качество, часть квалификации — возраст, город, обороты, сфера) <b>приходит с поставкой</b>; КИ только проверяет. Если источник <b>другой</b> (рекомендация, ВСП, сайты, самостоятельно) — этих данных может не прийти, и КИ обязан <b>собрать и поддерживать всю модель данных руками</b>.</div>
+
+<div class="rule"><h3><span class="ic">→</span>Поле «Мероприятие ОФ» — одно на все конверсионные события</h3><p>Ставишь активационное событие (напр. «Гостевая встреча») → когда зовёшь на следующее, <b>удаляешь старое и вписываешь новое</b>. История посещений <b>не теряется</b> — она хранится отдельно. <b>Обязательный парный шаг:</b> в Битриксе вверху карточки есть вкладка <b>«Посещения мероприятий»</b> — сразу зайди и проставь актуальный статус. По умолчанию при приглашении стоит <b>«Пойду»</b>, но «Пойду» ≠ подтверждённое участие: вручную отметь, что участник <b>подтвердил участие</b>.</p></div>
+
+<h2><span class="n">A</span>База входящая → взятие в работу</h2>
+<p class="note" style="margin-top:0">Принять поставку, проверить источник и качество, назначить ответственного, запустить SLA.</p>
+<div class="card pad0"><table>
+<thead><tr><th>Поле</th><th>Зачем</th><th>Что вносить</th></tr></thead>
+<tbody>
+<tr><td class="name">Ответственный <span class="badge b-req">обяз.</span></td><td>Кто ведёт сделку и отвечает за SLA</td><td>КИ</td></tr>
+<tr><td class="name">Источник <span class="badge b-req">обяз.</span></td><td>Канал (влияет на скрипт и правило проигрыша)</td><td><span class="badge b-auto">Лидген</span> авто; иначе заполнить вручную и <b>перепроверить реальный источник</b></td></tr>
+<tr><td class="name">Лид-Менеджер</td><td>Кто поставил — адресат эскалации SLA-3</td><td><span class="badge b-auto">Лидген</span> авто; при других источниках остаётся <b>пустым</b></td></tr>
+<tr><td class="name">Дополнительно об источнике</td><td>Детализация партии/канала</td><td><span class="badge b-auto">Лидген</span> авто («Импорт …»); иначе вписать, откуда лид</td></tr>
+<tr><td class="name">Бизнес-клуб (заказчик)</td><td>Под какой клуб квалифицируем</td><td><span class="badge b-auto">Лидген</span> авто; иначе проставить самому (можно на «Звонок-знакомство»): One · Globall · Ladies · Future · Атланты · Маркетплейсы · CTU · СЧ · Фестиваль АС</td></tr>
+<tr><td class="name">Поля «Взят в работу» <span class="badge b-req">обяз.</span></td><td>Факт начала обработки</td><td>Зафиксировать факт взятия в работу</td></tr>
+<tr><td class="name">Пол</td><td>Атрибутика участника (не блокирует переход)</td><td>Муж / Жен</td></tr>
+<tr><td class="name">Дата первого касания <span class="badge b-req">обяз.</span></td><td>Контроль SLA</td><td>Дата, в какой день первый раз коснулись</td></tr>
+<tr><td class="name">Клиент (контакт)</td><td>Связь с человеком и его контактами</td><td>ФИО + телефон/почта; проверить корректность</td></tr>
+<tr><td class="name">Комментарий</td><td>Контекст сделки «в 10 секунд» (ведётся постоянно)</td><td>Готовность, город, роль, ссылка rusprofile, ключевые факты</td></tr>
+</tbody>
+</table></div>
+<div class="card"><h3>Чек-лист перед переходом → «Звонок-знакомство»</h3><ul class="chk">
+<li class="req">Ответственный КИ назначен</li>
+<li class="req">Источник заполнен (и перепроверен, если не Лидген)</li>
+</ul><p class="note" style="margin:6px 0 0">Релевантную поставку берём в работу сразу — отдельно «фиксировать факт» или заводить задачу-гейт перед переходом не требуется.</p></div>
+
+<h2><span class="n">B</span>Звонок-знакомство</h2>
+<p class="note" style="margin-top:0">Подтвердить качество, начать сбор квалификации, назначить встречу. Все квалификационные поля собираются <b>с этого этапа и далее</b>; от Лидгена приходят, иначе — руками.</p>
+<div class="card pad0"><table>
+<thead><tr><th>Поле</th><th>Зачем</th><th>Что вносить</th></tr></thead>
+<tbody>
+<tr><td class="name">Итоговое качество лида <span class="badge b-req">обяз.</span></td><td>Качество = первый шаг КИ; подтверждается на звонке</td><td><span class="badge b-auto">Лидген</span> авто (Готов ко встрече / Готов к мероприятию); др. источники — КИ ставит «Готов ко встрече»; <b>внутренняя база — не проставляется</b></td></tr>
+<tr><td class="name">Город проживания</td><td>Критерий географии (СФФ — Москва/МО), логистика</td><td><span class="badge b-auto">Лидген</span> или уточнить на звонке</td></tr>
+<tr><td class="name">ФИО, от кого рекомендация</td><td>Контекст тёплого захода</td><td>Если источник — рекомендация: от Лидгена в поставке, иначе вручную</td></tr>
+<tr><td class="name">Сфера деятельности (основная)</td><td>Профиль для маршрута и релевантности</td><td>Выпадающий список отраслей</td></tr>
+<tr><td class="name">Специфика компании основная</td><td>Чем <b>конкретно</b> занимается</td><td>Текст. Пример: сфера = строительство, специфика = «строит виллы на Бали»</td></tr>
+<tr><td class="name">Роль/должность основная</td><td>Тип критерия (собственник vs топ)</td><td>Выпадающий список</td></tr>
+<tr><td class="name">Доля в основной компании %</td><td>Критерий собственника (доля ↔ порог выручки)</td><td>% доли</td></tr>
+<tr><td class="name">ОКВЭД · Опыт в должности · Ссылка Rusprofile</td><td>Верификация и вес делового опыта</td><td>Код ОКВЭД, стаж, URL rusprofile</td></tr>
+</tbody>
+</table></div>
+<div class="card"><h3>Чек-лист перед переходом → «Встреча-знакомство»</h3><ul class="chk">
+<li class="req">Итоговое качество поставки подтверждено на звонке</li>
+<li class="req">Следующий шаг / задача по организации встречи</li>
+</ul><p class="note" style="margin:6px 0 0">Дата/время, тип, место и куратор встречи проставляются <b>уже внутри этапа «Встреча-знакомство»</b>, а не как условие перехода на него.</p></div>
+
+<h2><span class="n">C</span>Встреча-знакомство</h2>
+<p class="note" style="margin-top:0">Провести встречу, снять и подтвердить квалификацию, собрать обогащение. Здесь же дозаполняется бóльшая часть модели данных.</p>
+<div class="card pad0"><table>
+<thead><tr><th>Поле</th><th>Зачем</th><th>Что вносить</th></tr></thead>
+<tbody>
+<tr><td class="name">Филиал клуба (выбор)</td><td>Территориальная принадлежность клуба</td><td>Филиал (проставляется на встрече)</td></tr>
+<tr><td class="name">Дата и время встречи <span class="badge b-req">обяз.</span></td><td>Факт назначенной встречи</td><td>Дата + время</td></tr>
+<tr><td class="name">Место · Тип · Календарь встречи</td><td>Где и в каком формате</td><td>Место: Офис К1 · Офис СБ1 · Офис Клиента · Zoom · Внешняя Площадка · Мероприятие; Тип: Очная · Zoom · Мероприятие; Календарь: Москва · СПБ · ПВБ</td></tr>
+<tr><td class="name">Куратор-привлечения</td><td><b>Кто проводит встречу</b></td><td>Отметить себя (или фактического ведущего)</td></tr>
+<tr><td class="name">Возраст</td><td>Критерий (СФФ — до 45)</td><td><span class="badge b-auto">Лидген</span> или уточнить на встрече</td></tr>
+<tr><td class="name">Релевантный совокупный опыт</td><td>Подтверждение делового опыта</td><td>Кратко: годы/роли релевантного опыта</td></tr>
+<tr><td class="name">Дата квалификации лида</td><td>Когда подтвердили квалификацию</td><td>Дата подтверждения</td></tr>
+<tr><td class="name">«Встреча проведена» → Оборот · Сфера · Роль · Предоставил почту</td><td>Снять и подтвердить квалификацию</td><td>Оборот (поле карточки контакта, секция «Об участнике»): до 20 / 20-50 / 50-150 / 150-500 / 500-1000 млн · 1-3 / 3-10 / 10-15 / свыше 15 млрд ₽</td></tr>
+<tr><td class="name">Доп. бизнес 1–3</td><td>Полнее показать масштаб (до 4 бизнесов)</td><td>Те же поля, что у основного бизнеса — по мере выяснения</td></tr>
+</tbody>
+</table></div>
+<div class="callout ok"><b>Блок «Обогащение» — собирается большей частью здесь.</b> Все эти поля нужны для <b>конверсионного движка</b> и <b>траекторной маршрутизации</b>: чем качественнее и структурнее данные, тем лучше работают matching, рекомендации следующего шага и подбор форматов/участников.</div>
+<div class="card pad0"><table>
+<thead><tr><th>Поле обогащения</th><th>Что внести</th></tr></thead>
+<tbody>
+<tr><td class="name">Цели/задачи по клубу</td><td>Что человек хочет получить от клуба — основа маршрута и проблематизации</td></tr>
+<tr><td class="name">Состоял ли в сообществе (в каком)</td><td>Опыт клубов; влияет на коммуникацию и ожидания</td></tr>
+<tr><td class="name">Связи и знакомства внутри клуба</td><td>Тёплые точки входа в сообщество</td></tr>
+<tr><td class="name">Ключевые проекты · новые запускающиеся проекты</td><td>Чем силён и о чём говорить; актуальные запуски как повод</td></tr>
+<tr><td class="name">Чем участник полезен Клубу</td><td>Ценность для сообщества — двусторонний fit</td></tr>
+<tr><td class="name">Увлечения/хобби</td><td>Лайфстайл-форматы и личный контакт</td></tr>
+<tr><td class="name">Личный доход</td><td>Дополнительный критерий (напр. СФФ)</td></tr>
+<tr><td class="name">Семья/дети</td><td>Личный контакт, лайфстайл</td></tr>
+<tr><td class="name">Ссылки на упоминания в сети</td><td>Верификация статуса и публичности (соцсети, интервью, публикации)</td></tr>
+<tr><td class="name">Дополнительная информация</td><td>Прочий полезный контекст</td></tr>
+</tbody>
+</table></div>
+
+<h2><span class="n">D</span>Конверсионные события · Активация → Адмиссия</h2>
+<div class="card pad0"><table>
+<thead><tr><th>Поле</th><th>Зачем</th><th>Что вносить</th></tr></thead>
+<tbody>
+<tr><td class="name">Мероприятие ОФ <span class="badge b-req">обяз. для Активации/Демонстрации</span></td><td>Привязка сделки к событию, через которое ведём участника</td><td>Текущее конверсионное событие (одно поле на все, ротация). <b>Дублировать статус во вкладке «Посещения мероприятий»</b> — см. блок наверху</td></tr>
+</tbody>
+</table></div>
+
+<h2><span class="n">E</span>Контракт</h2>
+<p class="note" style="margin-top:0">Коммерческое оформление. Здесь же <b>заранее готовятся поля передачи</b> (на самом этапе «На передаче» КИ их уже не трогает).</p>
+<div class="card pad0"><table>
+<thead><tr><th>Поле</th><th>Зачем</th><th>Что вносить</th></tr></thead>
+<tbody>
+<tr><td class="name">Тариф <span class="badge b-req">обяз.</span></td><td>Тарифный план участия</td><td>Федеральный Москва · Федеральный Санкт-Петербург · Региональный · Лайт · Globall · Globall Европа · Импакт · Дети · CFF</td></tr>
+<tr><td class="name">Тип договора <span class="badge b-req">обяз.</span></td><td>Категория договора</td><td>Стандартный · Стандартный по акции · Продление · Продление по акции · Онлайн · Региональный · Региональный по акции</td></tr>
+<tr><td class="name">Оплата от <span class="badge b-req">обяз.</span></td><td>Тип плательщика</td><td>Физ. лицо · Юр. лицо · Сайт</td></tr>
+<tr><td class="name">Организация-продавец <span class="badge b-req">обяз.</span></td><td>Юрлицо-продавец</td><td>Деловой Клуб · КМС · Финбизтех · КТГ · АНО</td></tr>
+<tr><td class="name">Дата договора / Дата оплаты <span class="badge b-req">обяз.</span></td><td>Договорные даты</td><td>Даты</td></tr>
+<tr><td class="name">Вид платежа</td><td>Схема оплаты</td><td>Полная · Рассрочка (2 / 3 / 4 транша)</td></tr>
+<tr><td class="name">Файлы (Согласие, договор)</td><td>Документальное подтверждение</td><td>Сканы документов</td></tr>
+<tr><td class="name">Дата активации</td><td><b>Старт членства</b></td><td>Дата старта</td></tr>
+<tr><td class="name">Компания плательщик</td><td>Юрлицо-плательщик</td><td>Компания при оформлении</td></tr>
+<tr><td class="name">Разбивка сумм · Для рассрочки</td><td>Детализация платежей</td><td>Тариф-адмиссия\вериф (регсбор) (КТГ), Тариф-регсбор НДС (кмс\дк); суммы и даты платежей 1–4 (по числу траншей)</td></tr>
+<tr><td class="name">Таргет-группа <span class="note" style="font-weight:400">· тех. поле (карточка контакта)</span></td><td>В какой клуб итогово поставляем (важно для передачи)</td><td>Частично дублирует «Бизнес-клуб»</td></tr>
+<tr><td class="name">День рождения</td><td>Персонализация, точный возраст</td><td>ДД.ММ.ГГГГ — на этапе документов</td></tr>
+<tr><td class="name">Критерий принятия в клуб <span class="badge b-req">обяз.</span></td><td>Доказательство релевантности для приёмки клубом</td><td>Подтверждение + ссылки rusprofile</td></tr>
+<tr><td class="name">Комментарий для Сообщества Участников <span class="badge b-req">обяз.</span></td><td>Контекст для принимающей команды</td><td>Сводка: кто, запрос, чем полезен</td></tr>
+<tr><td class="name">Файлы, подтверждающие релевантность <span class="badge b-req">обяз.</span></td><td>Доказательная база для приёмки</td><td>Документы</td></tr>
+</tbody>
+</table></div>
+<div class="card"><h3>Чек-лист готовности (на «Контракте»)</h3><ul class="chk">
+<li class="req">Тариф и тип договора</li>
+<li class="req">Продавец и плательщик</li>
+<li class="req">Договорные даты</li>
+<li class="req">Критерий принятия + комментарий для сообщества + файлы релевантности</li>
+<li>Разбивка сумм; график оплаты (для рассрочки)</li>
+</ul></div>
+
+<h2><span class="n">F</span>На передаче</h2>
+<div class="rule warn"><h3><span class="ic">!</span>На этапе «На передаче» КИ ничего не заполняет</h3><p>Это техническая стадия: передача встроена в автоматизацию, копия карточки уходит сразу принимающему. Все поля передачи (критерий принятия, комментарий для сообщества, файлы релевантности) готовятся заранее — на «Контракте».</p></div>
+
+<h2><span class="n">·</span>Дисциплина задач и фиксации</h2>
+<div class="card">
+<h3>Каждая задача — 4 параметра</h3>
+<div class="grid g4">
+<div class="lbox"><h3>Канал</h3><p>Звонок, WhatsApp, Telegram, чат в CRM, письмо</p></div>
+<div class="lbox"><h3>Цель</h3><p>Дозвониться, согласовать время, подтвердить готовность, вернуть на связь, контроль передачи</p></div>
+<div class="lbox"><h3>Дата</h3><p>Когда выполняем</p></div>
+<div class="lbox"><h3>Время</h3><p>Конкретный слот. Если клиент назвал время — ставим на него, не «на весь день»</p></div>
+</div>
+</div>
+<div class="rule warn"><h3><span class="ic">!</span>Запреты по задачам</h3><p>Не оставлять сделку на открытом этапе без активной задачи (сделка-«невидимка»). Не переносить срок текущей задачи как основной способ работы — закрыть и создать новую (чистый след касаний). Не закрывать задачу без итога в ленте.</p></div>
+
+<h3>Что фиксируем в ленте после касания</h3>
+<div class="card pad0"><table>
+<thead><tr><th>Действие</th><th>Что фиксируем</th><th>Пример записи</th></tr></thead>
+<tbody>
+<tr><td class="name">Недозвон</td><td>Факт + следующий шаг</td><td>Недозвон, не взял трубку. Следующий шаг: звонок 05.03 15:00</td></tr>
+<tr><td class="name">Недозвон + сообщение</td><td>Факт сообщения + шаг</td><td>Недозвон. Сообщение в WhatsApp. Следующий шаг: звонок 06.03 11:30</td></tr>
+<tr><td class="name">Просит перенести</td><td>Куда, дата/время, канал</td><td>Занят, перенос на 09.03 12:00. Следующий шаг: звонок 09.03 12:00</td></tr>
+<tr><td class="name">Перевод на этап</td><td>Причина + контекст запроса</td><td>Заинтересован, презентацию в WhatsApp. Цель: масштабирование, оборот 120 млн/год, сфера IT, опыт сообществ: нет</td></tr>
+<tr><td class="name">Закрытие — Корзина</td><td>Тип + причина + пояснение</td><td>Проиграна, Корзина. Причина: выбрал конкурента. Подробнее: другой клуб из-за онлайн-формата</td></tr>
+</tbody>
+</table></div>
+<p class="note">Цель фиксации: любой участник команды, открыв сделку, за 10 секунд понимает, что сделано, почему сделка на этом этапе и что запланировано дальше.</p>
+
+<h2><span class="n">·</span>Закрытие в проигрыш</h2>
+<div class="card">
+<h3>Чек-лист (Возврат в Лидген(неквал) / Корзина)</h3>
+<ul class="chk">
+<li class="req">Все активные задачи закрыты или сняты</li>
+<li class="req">Выбран корректный этап проигрыша</li>
+<li class="req">Указана причина из утверждённого списка для этого этапа</li>
+<li class="req">Заполнено «Причина отказа подробнее» — 1–2 предложения конкретики</li>
+<li class="req">Оставлен комментарий в ленте: что произошло и почему закрыто</li>
+</ul>
+<p class="note">Поля причины в Битриксе разные по этапам: <b>Корзина</b> (C10:LOSE) → «Причина отказа (Привлечение Корзина)». <b>Возврат в Лидген(неквал)</b> (C10:UC_EA3R76) → отдельное поле «Причина отказа (Привлечение Возврат в Лидген)».</p>
+</div>
+</section>
+<section class="panel" id="t3">
+<h2><span class="n">3</span>Коммуникационная рамка звонков</h2>
+<div class="callout"><b>Вайб.</b> Статусно, спокойно, тепло, точно, без суеты и инфобизнесового блеска. Мы не массово продаём — точечно приглашаем. Говорим с равным, а не с «лидом». Не выпрашиваем время — предлагаем аккуратный полезный следующий шаг.</div>
+<div class="card">
+<h3>«Продаём не продавая»</h3>
+<table>
+<thead><tr><th>Плохо</th><th>Лучше</th></tr></thead>
+<tbody>
+<tr><td>Хотим продать вам участие</td><td>Предлагаем познакомиться с клубной средой</td></tr>
+<tr><td>У нас много мероприятий</td><td>Форматов много, но важно подобрать те, что отвечают вашей задаче</td></tr>
+<tr><td>Вы нам понравились</td><td>Ваш опыт может быть ценен для сообщества</td></tr>
+<tr><td>Когда оплатите?</td><td>Если ваше ощущение сохраняется, можем перейти к оформлению</td></tr>
+<tr><td>Мы дадим вам клиентов</td><td>Среда создаёт доверенные деловые возможности, если человек умеет быть полезным</td></tr>
+</tbody>
+</table>
+<p class="note">Внутренний вопрос КИ — не «как закрыть?», а «какое следующее состояние должен пройти человек, чтобы его решение стало естественным?»</p>
+</div>
+
+<h2><span class="n">·</span>Перед первым касанием</h2>
+<div class="two">
+<div class="card"><h3>Собрать</h3><p class="kv">Имя и обращение · компания, роль, масштаб · отрасль, город · источник контакта · был ли прошлый контакт с клубом · какой клуб релевантен · гипотеза пользы · возможный следующий шаг.</p></div>
+<div class="card"><h3>Ответить себе</h3><ol style="margin:0;padding-left:18px;font-size:13.5px"><li>Почему человек релевантен клубу?</li><li>Почему клуб релевантен ему?</li><li>Какой первый шаг лёгкий, но содержательный?</li><li>Через что активировать: люди, бизнес-запрос, форум, статус среды, событие?</li><li>Какие красные флаги проверить?</li></ol></div>
+</div>
+
+<h2><span class="n">·</span>Скрипты — входящие лиды</h2>
+<div class="say"><span class="l">Входящая заявка</span>«Добрый день, [имя]. Меня зовут [имя], я из ClubFirst / Клуба Первых. Ваш контакт передали в контексте знакомства с клубом. Правильно понимаю, что интерес к клубу у вас есть или был?»<br><br><b>Если да:</b> «Клуб — это среда, её лучше почувствовать через людей и форматы. Предлагаю короткую встречу на 30 минут: расскажу, как устроен клуб, задам пару вопросов про ваши задачи и предложу маршрут знакомства, чтобы вы поняли, ваше это или нет. Как вам идея?»</div>
+<div class="say"><span class="l">Заявка на мероприятие</span>«[Имя], здравствуйте. Вы оставили заявку на участие в клубном мероприятии. Важно пояснить: событие прежде всего проходит для участников сообщества, а гостей мы приглашаем точечно. Чтобы встреча была ценной и для вас, и для участников, нам нужно коротко синхронизироваться: что это за формат, чего ждать, как подготовиться и какие ещё форматы вам релевантны. Давайте короткую Zoom-встречу на 20–30 минут.»</div>
+<div class="say"><span class="l">Партнёрская рекомендация</span>«[Имя], добрый день. Ваш контакт мне передал [источник/имя рекомендателя] в контексте ClubFirst. Он отметил, что ваш опыт и масштаб бизнеса могут быть релевантны клубной среде. Я бы не перегружал вас деталями, а предложил короткую встречу на 30 минут — понять ваши задачи и что именно может быть полезно.»</div>
+<div class="say"><span class="l">Партнёрская рекомендация / банк (ВСП)</span>«[Имя], добрый день. Ваш контакт передали наши партнёры: отметили, что вам может быть релевантно знакомство с ClubFirst. Это закрытая деловая среда собственников и руководителей, где есть доверие, опыт, рекомендации и живые форматы. Я бы предложил не перегружать вас деталями, а сделать короткую встречу на 30 минут и понять, что именно может быть полезно.»</div>
+
+<h2><span class="n">·</span>Скрипты — работа с базой</h2>
+<div class="say"><span class="l">Реактивация старой базы</span>«[Имя], добрый день. Александр, Клуб Первых. Вижу, мы с вами когда-то уже касались темы клуба, но тогда почему-то не сложилось. Прошло время — клуб сильно изменился, наверняка и у вас контекст изменился. Я бы предложил перезагрузить знакомство и заново посмотреть, есть ли сейчас совпадение между вами и клубом. Что скажете?»</div>
+<div class="say"><span class="l">Если «не помню контакт»</span>«Да, такое бывает, база хранит не весь контекст. Тогда просто коротко сверимся: вы сейчас занимаетесь бизнесом / руководите компанией? Если да — возможно, знакомство с клубом вам действительно может быть полезно. Если нет — не буду отвлекать.»</div>
+<div class="say"><span class="l">Если «нет времени»</span>«Понял. Тогда коротко: сейчас реально не время или в принципе тема клубов вам неинтересна? Мне важно не забрать у вас время, а понять, стоит ли аккуратно вернуться позже.»</div>
+
+<h2><span class="n">·</span>Возражения</h2>
+<div class="two">
+<div class="say"><span class="l">«У меня нет времени»</span>«Тогда вопрос не в том, есть ли время вообще, а есть ли задача, ради которой стоит выделить 30 минут. Давайте коротко поймём: есть ли сейчас вопрос, где сильное окружение может быть полезно?»</div>
+<div class="say"><span class="l">«Мне нужны клиенты»</span>«Если цель — быстро всем продать, клуб не лучший инструмент. Здесь ценность строится через доверие, репутацию и полезность. Именно поэтому деловые возможности тут часто качественнее обычного нетворкинга.»</div>
+<div class="say"><span class="l">«Дорого»</span>«Я бы не спорил с ценой отдельно от ценности. Если клуб — это просто “мероприятия”, цена кажется высокой. Если это среда, где вы находите людей своего уровня, новые решения и доверие, смотреть нужно иначе. Давайте сначала честно поймём, есть ли для вас такая ценность.»</div>
+<div class="say"><span class="l">«Я уже в другом клубе»</span>«Отлично, значит формат сообществ вам объяснять не нужно. Вопрос тоньше: какого типа среда вам нужна сейчас — бизнесовость, масштаб, тепло, форум, международка? Давайте сравнивать не бренды, а вашу задачу.»</div>
+<div class="say"><span class="l">«Пришлите презентацию»</span>«Пришлю, но презентация покажет только внешний слой. Клуб — это люди и правила взаимодействия. Чтобы не тратить ваше время на общие материалы, я бы сначала понял ваш запрос и отправил то, что релевантно именно вам.»</div>
+<div class="say"><span class="l">«Я подумаю»</span>«Конечно. Чтобы подумать предметно, давайте зафиксируем: над чем именно — цена, время, формат, люди, ценность, fit? Поймём точку сомнения — либо закроем её, либо честно признаем, что сейчас не совпало.»</div>
+</div>
+
+<h2><span class="n">·</span>Сообщения WhatsApp / Telegram</h2>
+<div class="say"><span class="l">После первого звонка</span>«[Имя], спасибо за разговор. Как договорились, предлагаю короткую встречу-знакомство на 30 минут. Цель не «презентовать клуб», а понять ваши задачи и спланировать, через какие форматы и людей лучше почувствовать ClubFirst. Удобно [вариант 1] или [вариант 2]?»</div>
+<div class="say"><span class="l">После Zoom</span>«[Имя], спасибо за встречу. Зафиксировал, что вам важно: [1], [2], [3]. Первым шагом предлагаю [формат / встреча / участник] — посмотреть именно на [что проверяем]. После коротко обсудим, что откликнулось и что ещё нужно увидеть.»</div>
+<div class="say"><span class="l">Если человек подвис</span>«[Имя], добрый день. Не хочу дожимать, это не наш стиль. Но аккуратно вернусь к вопросу: кажется, мы пока не до конца поняли, что вам нужно увидеть, чтобы решить — ваше это или нет. Давайте коротко сверимся: либо спланируем следующий точный шаг, либо честно закроем вопрос.»</div>
+<div class="say"><span class="l">Полезный пинг вместо «ну что?»</span>«[Имя], добрый день. Вспомнил про вас: у нас есть участник с похожим контекстом по [тема / отрасль / задача]. Кажется, вам мог бы быть полезен этот контакт. Хотите, коротко расскажу?»</div>
+
+<h2><span class="n">·</span>Фиксация в CRM</h2>
+<p class="note" style="margin-top:0">График касаний и эскалация по SLA-3 — на вкладке <b>«Клубы и источники»</b>, в описании источников.</p>
+<div class="rule warn"><h3><span class="ic">!</span>В CRM фиксируем состояние, а не действие</h3><p>Плохо: «подумает» / «не отвечает» / «дорого». Хорошо: «После Zoom интерес к бизнес-миссиям, но визит не подтвердил. Гипотеза: нет сильной проблематизации, клуб воспринимает как мероприятия. Следующий пинг через релевантного участника по теме [X]».</p></div>
+</section>
+<section class="panel" id="t4">
+<h2><span class="n">4</span>Устройство встречи-знакомства</h2>
+<div class="grid g4">
+<div class="lbox eng"><h3>Формат</h3><p>Zoom, 30–40 минут. Спокойно, включённо, без давления.</p></div>
+<div class="lbox"><h3>Роль ведущего</h3><p>Не «продавец программы», а проводник по первому опыту участия.</p></div>
+<div class="lbox"><h3>Цель</h3><p>Снять тревогу, показать индивидуальный маршрут, довести до конкретного следующего шага.</p></div>
+<div class="lbox"><h3>Итог</h3><p>Назначено первое активационное событие или зафиксировано окно подтверждения.</p></div>
+</div>
+<div class="callout">Встреча считается успешной не когда человек «всё понял», а когда он сказал твёрдое «да, приду» или есть зафиксированное окно на подтверждение. Встреча — это не презентация клуба, а договорённость о маршруте знакомства.</div>
+
+<h2><span class="n">·</span>Тайминг</h2>
+<div class="card pad0"><div class="tl">
+<div class="row"><div class="tm">3 мин</div><div class="ct"><b>Приветствие и рамка.</b> Создать спокойный вход, обозначить роль ведущего и цель созвона.</div></div>
+<div class="row"><div class="tm">7–10 мин</div><div class="ct"><b>Выявление запроса.</b> Понять, что человек ищет, что для него важно, чего он точно не хочет.</div></div>
+<div class="row"><div class="tm">4–5 мин</div><div class="ct"><b>Панорама маршрута.</b> Событие на атмосферу клуба → личная глубокая встреча → событие под его запрос.</div></div>
+<div class="row"><div class="tm">2–3 мин</div><div class="ct"><b>Ответственность участия.</b> Маршрут собирается персонально, от участника ждём вовлечённости.</div></div>
+<div class="row"><div class="tm">4–5 мин</div><div class="ct"><b>Назначение активационного события.</b> Зафиксировать конкретное событие, дату или окно подтверждения.</div></div>
+<div class="row"><div class="tm">1 мин</div><div class="ct"><b>Завершение.</b> Повторить следующий шаг и договорённость.</div></div>
+</div></div>
+
+<h2><span class="n">·</span>Скрипт по блокам</h2>
+<div class="say"><span class="l">1 · Открытие</span>«Спасибо, что нашли время. Эта встреча про то, чтобы понять, что для вас сейчас актуально, и собрать для вас первый маршрут знакомства. Я — ваш проводник по пробному опыту участия. Моя задача — провести вас по ключевым касаниям так, чтобы вы почувствовали клуб, а не просто послушали о нём.»</div>
+<div class="say"><span class="l">2 · Выявление запроса</span>«Чтобы я предложил действительно подходящий маршрут, хочу сначала понять вас чуть лучше.»<br>· Что вы сейчас ищете для себя через такое сообщество?<br>· Что для вас особенно важно в первых касаниях?<br>· Какой опыт участия в сообществах у вас уже был?<br>· По каким признакам вы поймёте, что это ваше окружение?</div>
+<div class="say"><span class="l">3 · Панорама маршрута</span>«Вам предстоит индивидуальная программа знакомства. Сначала я приглашу вас на событие, которое позволит почувствовать дух клуба. Затем — на более глубокую личную встречу с одним из участников. И после — на событие, которое мы подберём уже под ваш запрос. Возможно, второй и третий этап даже получится совместить.»</div>
+<div class="say"><span class="l">4 · Ответственность участия</span>«Нам важно не просто формально вас куда-то пригласить. Мы собираем этот маршрут под вас лично, поэтому нам важна ваша вовлечённость. Если договорились о шаге — важно, чтобы вы в него вошли: за этим стоит внимание команды и персональная подготовка.»</div>
+<div class="say"><span class="l">5 · Фиксация активации</span>«Давайте сразу зафиксируем первый шаг. Из того, что вам подходит, я бы предложил вот это событие…»<br><b>Если «да»:</b> «Отлично, фиксируем: вы идёте на [событие] [дата/время]».<br><b>Если сомневается:</b> «Хорошо, тогда зафиксируем окно, в которое вы дадите финальный ответ, и я напишу вам в мессенджер».</div>
+<div class="say"><span class="l">6 · Закрытие</span>«Тогда договорённость такая: ваш первый шаг — [событие / окно подтверждения]. После этого я проведу вас дальше по следующему касанию маршрута.»</div>
+
+<h2><span class="n">·</span>Рефлексия вокруг события</h2>
+<div class="two">
+<div class="card"><h3>Вопросы до события</h3><ul class="chk"><li>Что вам важно увидеть на встрече?</li><li>Как поймёте, что люди здесь вашего уровня?</li><li>На что будете обращать внимание?</li><li>С кем было бы особенно полезно поговорить?</li><li>Что должно произойти, чтобы сказать «да, мне близко»?</li></ul></div>
+<div class="card"><h3>Вопросы после события</h3><ul class="chk"><li>Что откликнулось? Где узнали себя?</li><li>Что не совпало с ожиданиями?</li><li>Что стало понятнее про клуб?</li><li>Что ещё нужно проверить?</li><li>Ваша задача стала яснее или поменялась?</li><li>Если продолжать знакомство, куда логично пойти дальше?</li></ul></div>
+</div>
+
+<div class="rule warn"><h3><span class="ic">!</span>Что нельзя на встрече</h3><p>Длинная презентация · перечислять все мероприятия · говорить 80% времени · спорить с поверхностным запросом · закрывать оплату до появления состояния · обещать сделки · делать вид, что клуб подходит всем · отпускать человека без конкретного следующего шага.</p></div>
+<p class="note">Первые активационные события для встречи: <b>Гостевая встреча</b> (ClubFirst, каждый чт 16:30–19:00, потенциалу бесплатно), <b>Нетворкинг сессия</b> (ClubFirst Future). Полный каталог и подбор под запрос — вкладка «События».</p>
+</section>
+<section class="panel" id="t5">
+<h2><span class="n">5</span>Конверсионные события и приглашения</h2>
+<div class="callout"><b>Конверсионное событие</b> — управляемое воздействие, которое должно изменить состояние потенциального участника и продвинуть его <b>вправо</b> по карте. Формат сам по себе не доказывает эффект: доказательство — связка «приглашён/пришёл → у формата есть целевое состояние → после зафиксирован следующий шаг → участник реально двинулся дальше».</div>
+
+<h2><span class="n">·</span>Состояния: как распознать достижение</h2>
+<p class="note" style="margin-top:0">Состояние не «ставится» полем — оно выводится из отчёта поставщика и разговора КИ. Главный признак — что поменялось в голове потенциального участника.</p>
+<table>
+<thead><tr><th>Состояние</th><th>Как поймём (триггер)</th><th>Срок годности эффекта <span class="badge b-hyp">ориентир</span></th><th>Частая ошибка</th></tr></thead>
+<tbody>
+<tr><td class="name"><span class="st st1">Активация</span></td><td>Тяга вперёд: сам тянется дальше («а что дальше?»), был содержательный опыт</td><td>5 раб. дней / 14 кал. дней</td><td>Засчитать вежливость без тяги</td></tr>
+<tr><td class="name"><span class="st st2">Демонстрация</span></td><td>Увидел механику клуба + сам сформулировал пользу себе/сообществу</td><td>7 раб. дней / 21 кал. день</td><td>Принять восторг за понимание ценности</td></tr>
+<tr><td class="name"><span class="st st3">Проблематизация</span></td><td>Сам назвал свою проблему/боль (которую не решает сам) и цену бездействия</td><td>10 раб. дней / 30 кал. дней</td><td>Принять обычную задачу/интерес за осознанную проблему</td></tr>
+<tr><td class="name"><span class="st st4">Адмиссия</span></td><td>Все 3: причина вызова + сверка с держателем ценностей + зафиксированный результат</td><td>gate, срока нет</td><td>Свести к проверке платёжеспособности</td></tr>
+<tr><td class="name"><span class="pill" style="background:var(--accent-soft);color:var(--accent)">Готов к контракту</span></td><td>Все 3: готовность обсуждать условия + нет блокеров + операционный шаг контрактации</td><td>5 раб. дней / 21 кал. день</td><td>Счесть готовностью обычный интерес</td></tr>
+</tbody>
+</table>
+<p class="note">Мягкий порог (рабочие дни) — за сколько КИ обязан сделать следующий шаг, пока эффект «горячий». Жёсткий (календарные дни) — после этого эффект мёртв, нужен повторный разогрев. Точные сроки ещё уточняются. <span class="badge b-hyp">на уточнение</span></p>
+
+<h2><span class="n">·</span>Каталог форматов</h2>
+<div class="controls">
+<div class="cg"><label>Состояние</label><div class="chips" id="fstate"></div></div>
+<div class="cg"><label>Заказчик</label><div class="chips" id="fcust"></div></div>
+<div class="cg"><label>Поиск по названию</label><input class="search" id="search" placeholder="напр. гостевая, 1-1, бизнес-миссии"></div>
+</div>
+<div class="count" id="count"></div>
+<div class="card pad0"><table id="tbl">
+<thead><tr><th>Формат</th><th>Состояние</th><th>Заказчик</th><th>Организатор</th><th>Частота</th><th>Стоимость (привл.)</th><th>Примечание</th></tr></thead>
+<tbody></tbody>
+</table></div>
+<p class="note"><span class="todo">уточнить</span> — пробел в данных таблицы «Конверсионные события» (стоимость, частота, квоты). 16 форматов, снимок июнь 2026.</p>
+
+<h2><span class="n">·</span>Как приглашать и кого отмечать</h2>
+<div class="card">
+<h3>Статусы участия в событии</h3>
+<table>
+<thead><tr><th>Статус</th><th>Смысл</th></tr></thead>
+<tbody>
+<tr><td class="name">Приглашён</td><td>Участнику предложили событие</td></tr>
+<tr><td class="name">Подтвердил</td><td>Выразил намерение участвовать («Пойду»)</td></tr>
+<tr><td class="name">Пришёл</td><td>Есть факт участия («На мероприятии»)</td></tr>
+<tr><td class="name">Отказался</td><td>Участник отказался («Отказ»)</td></tr>
+<tr><td class="name">Не пришёл</td><td>Приглашение/намерение не стало участием после даты события</td></tr>
+</tbody>
+</table>
+<p class="note">Если посещение сначала было в «Отказ», но позже перешло в «На мероприятии» — считается «Пришёл», а не «Не пришёл».</p>
+</div>
+<div class="rule"><h3><span class="ic">→</span>Кого и на что звать</h3><p>Формат подбираем <b>под целевое состояние и запрос человека</b>: на атмосферу — активационное событие; под отраслевой/лайфстайл-запрос — демонстрационное; для проработки запроса — 1-1. Готовых вступать не гоняем по цепочке. Партнёрское мероприятие становится конверсионным, только когда после него есть управляемый следующий шаг.</p></div>
+<div class="card">
+<h3>Условия, чтобы событие засчиталось как конверсионное <span class="badge b-hyp">список к утверждению</span></h3>
+<ul class="chk">
+<li class="req">Задано целевое состояние и класс события <span class="badge b-doc">из онтологии</span></li>
+<li>Формат есть в каталоге (плюс конверсионные движки, если применяются) <span class="badge b-hyp">гипотеза</span></li>
+<li>Поставщик события фиксирует посещение (кто пришёл) — не КИ <span class="badge b-hyp">проектируется</span></li>
+<li>Поставщик передаёт отчёт: кто был, что происходило, наблюдения по участнику <span class="badge b-hyp">проектируется</span></li>
+<li>КИ проводит пост-ивент контакт (Zoom/звонок), детектирует состояние <span class="badge b-hyp">проектируется</span></li>
+<li class="req">Определён следующий шаг: звонок, встреча, задача, адмиссия, контракт, возврат или проигрыш <span class="badge b-doc">из онтологии</span></li>
+</ul>
+<p class="note">Закреплены пункты 1 и 6 (из онтологии). Пункты 2–5 — проектируемый набор, ещё не утверждён (см. «Открытые вопросы»). Две роли: <b>поставщик события</b> (организатор формата — ПАУ, Клубные активности…) отвечает за проведение, фиксацию посещения и отчёт; <b>КИ</b> — за пост-ивент контакт и детекцию состояния.</p>
+</div>
+
+<h2><span class="n">·</span>Рефлексия после конверсионного события — как разговаривать</h2>
+<div class="callout"><b>Рефлексия — ключевой шаг после события.</b> Именно через неё КИ детектирует состояние участника и мягко ведёт к следующему шагу. Формат: <b>Zoom или телефонный разговор, 10–20 минут</b>. Логика: считать уровень эмпатии → вести рефлексию под этот уровень → закрыть смыслом → предложить следующий шаг. <span class="note">Вопросы до/после визита для встречи-знакомства — на вкладке «Встреча».</span></div>
+
+<h3>Шаг 1. Считать уровень эмпатии</h3>
+<p class="note" style="margin-top:0">Экспресс-тест — вопрос <b>«Как вам здесь сегодня?»</b>. По ответу и манере определяем уровень и подбираем язык рефлексии.</p>
+<div class="grid g3">
+<div class="state" style="border-left:4px solid var(--s1)">
+<h3><span class="dot" style="background:var(--s1)"></span> Низкая</h3>
+<p class="quote">«Норм, посмотрим, есть ли польза»</p>
+<ul class="chk">
+<li>Говорит больше, чем слушает</li>
+<li>Нет или минимум реакции на тебя</li>
+<li>Интонация ровная / контролирующая</li>
+</ul>
+<p class="note"><b>Фокус:</b> результат, статус, эффективность. <b>Ощущение:</b> дистанция, «оценка».</p>
+</div>
+<div class="state" style="border-left:4px solid var(--s2)">
+<h3><span class="dot" style="background:var(--s2)"></span> Средняя</h3>
+<p class="quote">«Интересно, уже пару идей взял»</p>
+<ul class="chk">
+<li>Баланс: спрашивает и отвечает</li>
+<li>Живой контакт (улыбка, реакция)</li>
+<li>Коротко делится про себя и опыт</li>
+<li>Держит диалог без перегруза</li>
+</ul>
+<p class="note"><b>Фокус:</b> и люди, и польза. <b>Ощущение:</b> комфортный, «рабочий» контакт.</p>
+</div>
+<div class="state" style="border-left:4px solid var(--s4)">
+<h3><span class="dot" style="background:var(--s4)"></span> Высокая</h3>
+<p class="quote">«Очень откликается атмосфера, люди…»</p>
+<ul class="chk">
+<li>Много реакции на тебя (эмоции, включённость)</li>
+<li>Делится личным почти сразу</li>
+<li>Слушает глубоко, вовлекается</li>
+</ul>
+<p class="note"><b>Фокус:</b> люди, атмосфера, переживания. <b>Ощущение:</b> тепло, иногда «слишком близко».</p>
+</div>
+</div>
+
+<h3>Шаг 2. Структура рефлексии под уровень эмпатии</h3>
+<p class="note" style="margin-top:0">6 этапов разговора. Берём вопрос из колонки, соответствующей считанному уровню эмпатии.</p>
+<div class="card pad0"><table>
+<thead><tr><th>Этап</th><th><span class="st st1">Низкая</span></th><th><span class="st st2">Средняя</span></th><th><span class="st st4">Высокая</span></th></tr></thead>
+<tbody>
+<tr><td class="name">Сонастройка</td><td>Как ты оцениваешь своё участие в мероприятии по шкале 1–10?</td><td>Как ты сейчас? Одним-двумя словами.</td><td>Как ты сейчас? С каким состоянием ты здесь?</td></tr>
+<tr><td class="name">Наблюдения / чувства</td><td>Какие моменты показались тебе значимыми или полезными на мероприятии?</td><td>Какие эмоции были по ходу встречи?</td><td>Какие эмоции ты проживал во время встречи?</td></tr>
+<tr><td class="name">Опыт (BART) <span class="note" style="font-weight:400">границы · цели · роли · лидерство</span></td><td>Какую роль ты фактически занял в процессе? Что дало результат, а что нет?</td><td>Что для тебя было ключевым в этой встрече? Почему это оказалось важным? Что у тебя получилось хорошо?</td><td>О чём для тебя был этот опыт? На что это похоже в твоей жизни?</td></tr>
+<tr><td class="name">Выводы</td><td>Какие 1–2 рабочих инсайта ты забираешь? Что из увиденного можно использовать как инструмент?</td><td>Какие 1–2 главных инсайта ты забираешь? Что из этого для тебя новое или неожиданное?</td><td>Что у тебя на мероприятии получилось?</td></tr>
+<tr><td class="name">Применение</td><td>Где конкретно ты применишь это в ближайшую неделю? Какой результат хочешь получить? Какие риски есть и как ты их контролируешь?</td><td>Где ты применишь это в ближайшее время? Какой конкретный шаг сделаешь? Как поймёшь, что это дало результат?</td><td>Что из этого опыта ты хочешь забрать с собой? Где в жизни это может быть полезно? Какой маленький шаг ты готов сделать?</td></tr>
+<tr><td class="name">Ограничения</td><td>Что может помешать реализации? Что тебе нужно, чтобы довести до результата?</td><td>Что может помешать? Какая поддержка или ресурс тебе нужен?</td><td>Что может тебя выбить из этого состояния? Какая поддержка тебе сейчас нужна?</td></tr>
+</tbody>
+</table></div>
+
+<h3>Шаг 3. Закрытие <span class="note" style="font-weight:400">рефлексия → продажа</span></h3>
+<div class="say"><span class="l">Свести опыт в смысл и горизонт результата</span>· Если собрать сегодняшнюю встречу в одно предложение — что это было для тебя?<br>· Что будет для тебя реальным результатом через 1–2 недели?<br>· Как тебе кажется, что нужно, чтобы этот результат закрепился?<br>· Насколько тебе сейчас важна регулярная работа над этим?</div>
+
+<h3>Шаг 4. Предложение следующего шага <span class="note" style="font-weight:400">мягкая продажа</span></h3>
+<div class="say"><span class="l">Проверить готовность и пригласить дальше</span>· Насколько тебе откликается идея продолжить в таком формате?<br>· Если оценить готовность — где ты сейчас по шкале 1–10?<br>· Что должно произойти, чтобы это стало для тебя 8–10?<br>· Готов ли ты сделать следующий шаг уже сейчас?</div>
+<p class="note">После рефлексии — обязательный следующий шаг (звонок, встреча, событие, адмиссия, контракт, возврат или проигрыш) и фиксация состояния в CRM.</p>
+
+<h2><span class="n">·</span>Правила событий</h2>
+<div class="grid g2">
+<div class="rule"><h3><span class="ic">✓</span>Событие должно двигать вправо</h3><p>Не переводит в следующее состояние — не конверсионное для привлечения.</p></div>
+<div class="rule"><h3><span class="ic">✓</span>Без следующего шага — дефект</h3><p>После формата обязан быть звонок, встреча, задача, адмиссия, контракт, возврат или проигрыш.</p></div>
+<div class="rule"><h3><span class="ic">✓</span>Посещение ≠ прогресс</h3><p>Мог прийти, но не изменить состояние и не пойти дальше.</p></div>
+<div class="rule"><h3><span class="ic">✓</span>Формат ≠ состояние</h3><p>Один формат может работать на несколько состояний; в отчётности фиксируем главный эффект.</p></div>
+</div>
+<div class="q"><h3>Маршрутизация и расчётная конверсия</h3><p>Автоматическая подсказка «куда вести дальше» и пересчёт расчётной конверсии — проектируемый контур, пока не закреплён. Сегодня следующий шаг определяет КИ по состоянию и сигналам. Детали — вкладка «Открытые вопросы». <span class="badge b-hyp">гипотеза</span></p></div>
+</section>
+<section class="panel" id="t6">
+<h2><span class="n">·</span>Открытые вопросы — на уточнение</h2>
+<p class="lead" style="margin-bottom:6px">Сюда вынесено всё, что ещё не закреплено в онтологии и регламентах. В рабочих инструкциях этого нет: <b>не действуем по этим пунктам как по правилу</b>, пока владелец онтологии не закрепит. Источник актуальных значений полей и причин — Битрикс; каноническая трактовка — онтология.</p>
+
+<h2><span class="n">·</span>Стадии и маршруты</h2>
+<div class="rule"><h3><span class="ic">✓</span>Названия стадий в Битрикс — закрыто (снимок 2026-06-15)</h3><p>Фактические значения зафиксированы выгрузкой: «Звонок-знакомство» (C10:PREPARATION), «Встреча-знакомство» (C10:UC_9E0XYG), «Возврат в Лидген(неквал)» (C10:UC_EA3R76). Автоматизация использует эти значения; в рабочем тексте «Возврат (неквал)» — короткий синоним стадии «Возврат в Лидген(неквал)».</p></div>
+<div class="q"><h3>Механика «Прогрева» — граница</h3><p>Базовый маршрут закреплён в слое решений: текущая сделка закрывается в «Корзину», автоматика создаёт новую сделку в отдельной воронке «Прогрев» (тот же ответственный) с обязательной задачей на план касаний и возврата; канонические причины — «Клиенту не интересно сейчас», «Дорого / нет бюджета», «Выбрал конкурента». Открыто: точная техническая передача в Битрикс и граница — когда проигрыш остаётся в «Корзине», а когда порождает «Прогрев».</p></div>
+<div class="q"><h3>Критерий «Передано в клуб»</h3><p>Что именно считается приёмкой: стадия WON, факт принятия клубной командой, оплата, договор или отдельное подтверждение.</p></div>
+
+<h2><span class="n">·</span>Поля и причины проигрыша</h2>
+<div class="q"><h3>Коды некоторых Bitrix-полей</h3><p>Пер-этапная обязательность полей зафиксирована на вкладке «Поля по этапам» (бейджи «обяз.» из выгрузки stage-requiredness). Остаётся уточнить точные коды отдельных полей (напр. поле причины «Возврат в Лидген») и финальную привязку смарт-полей к этапам.</p></div>
+<div class="q"><h3>Финальный список причин проигрыша</h3><p>Текущий список причин в Битрикс против списков в регламентах (Битрикс актуальнее). Финальный перечень причин проигрыша прорабатывался отдельно; нужна выгрузка актуальных enum-значений и карта «значение Битрикс → канонический маршрут → каноническая причина».</p></div>
+
+<h2><span class="n">·</span>Состояния и события</h2>
+<div class="q"><h3>Сроки протухания эффекта</h3><p>5/14, 7/21, 10/30, 5/21 (раб./кал. дни) заданы экспертно как ориентиры, не жёсткие дедлайны. Нужны ли поправки по формату внутри состояния.</p></div>
+<div class="q"><h3>Минимальное доказательство состояния</h3><p>Что достаточно, чтобы признать состояние достигнутым: поведение участника, решение КИ, CRM-стадия, событие или комбинация. Граница между «Встреча-знакомство» и первым конверсионным событием, если знакомство происходит внутри мероприятия.</p></div>
+<div class="q"><h3>«Апория» как рабочий термин</h3><p>«Апория» (неразрешимое самим противоречие) — рабочий, ещё не канонический термин из свода конверсионных событий; в онтологии и мастер-доке используется «осознанная проблема/боль + цена бездействия». Решить: закреплять ли «апорию» как канон или оставить «задача + цена бездействия». Влияет на зачёт Проблематизации.</p></div>
+<div class="q"><h3>Каталог: пробелы «уточнить»</h3><p>Стоимость, частота, поставщик, квоты по ряду форматов; возможный дубль «Личной встречи». Источники конверсионных движков — собрать и внести в каталог.</p></div>
+
+<h2><span class="n">·</span>Маршрутизация и расчётная конверсия</h2>
+<div class="q"><h3>Расчётная конверсия</h3><p>Определить: база, что повышает/понижает, горизонт, считается на сделку или на человека, как влияет протухание эффекта.</p></div>
+<div class="q"><h3>Траекторная маршрутизация</h3><p>Рекомендует (КИ решает) или предписывает с override. Где живёт рекомендация: Битрикс, дашборд КИ или оба. Анализ звонков/Zoom — ручной, авто (LLM) или гибрид на старте.</p></div>
+
+<h2><span class="n">·</span>Owner-level решения</h2>
+<div class="decide">
+<div class="item"><div>Владелец онтологии Привлечения<span>Кто имеет право менять определения состояний, переходов и доказательств.</span></div></div>
+<div class="item"><div>Канонический список форматов по классам<span>Что канонически активационное / демонстрационное / проблематизационное / адмиссионное, а что остаётся партнёрским лидгеном.</span></div></div>
+<div class="item"><div>Экономические правила контуров<span>Что связывает лидген, владельцев программ, привлечение и клуб: комиссия за лид, билет, закрытие, хвост монетизации.</span></div></div>
+</div>
+<p class="note">Перенос проработанного — в онтологию: 02-state-layer, registry, changelog. Drift между регламентом и Битрикс классифицирует Технолог бизнес-процессов из Центра Технологизации.</p>
+</section>
+
+<div class="foot">
+Источники: онтология модуля «Привлечение» (<span class="note">docs/modules/attraction/ontology</span>), Регламент обработки входящих лидов, Регламент работы с задачами в сделках, Правила проигрыша сделки, Мастер-документ коммуникации ClubFirst, Устройство встречи знакомства, таблица «Конверсионные события». Иерархия источников: Битрикс — фактическая настройка; регламенты — evidence; онтология — каноническая трактовка. При расхождении — спрашиваем владельца онтологии. Снимок: июнь 2026.
+</div>
+</div>
+<script>
+document.querySelectorAll('#tabs .tab').forEach(t=>{t.onclick=()=>{
+  document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  t.classList.add('active');document.getElementById(t.dataset.t).classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});};});
+
+const DATA=[
+ {name:"Гостевая встреча",states:["Активация"],cust:["СФ"],org:"ПАУ",freq:"каждый чт, 16:30–19:00",cost:"5000 ₽ / потенциал",note:"Потенциалу бесплатно. Первое погружение в среду."},
+ {name:"Нетворкинг сессия",states:["Активация"],cust:["СФФ"],org:"Клубные активности",freq:"1 раз в месяц",cost:"уточнить",note:"Первичное вовлечение."},
+ {name:"БКМ — Большое клубное мероприятие",states:["Активация","Демонстрация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Может давать и первый опыт, и демонстрацию устройства клуба."},
+ {name:"Отраслевая конференция",states:["Активация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Требует следующего шага после события."},
+ {name:"Отраслевая встреча",states:["Демонстрация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Подбирается из запроса лида. Релевантная среда и люди."},
+ {name:"Лайфстайл мероприятия",states:["Демонстрация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Покер, теннис, гольф, театры. Из запроса лида."},
+ {name:"Горячее кресло",states:["Демонстрация"],cust:["СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Показывает механику разбора и ценность участников."},
+ {name:"Клубное мероприятие в гостиной",states:["Демонстрация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Камерный формат. Уточнить квоты."},
+ {name:"1-1 с продюсером",states:["Проблематизация","Адмиссия"],cust:["СФФ"],org:"Привлечение",freq:"по запросу лида",cost:"уточнить",note:"Сильный формат для проработки запроса и fit."},
+ {name:"1-1 с активным участником",states:["Проблематизация"],cust:["СФ","СФФ"],org:"ПАУ",freq:"по запросу лида",cost:"уточнить",note:"Работает через peer-доказательство и конкретизацию задачи."},
+ {name:"1-1 с основателями",states:["Адмиссия"],cust:["СФ"],org:"Привлечение",freq:"по запросу лида",cost:"уточнить",note:"Финальная ценностная сверка. Если сомневаемся в ценностях."},
+ {name:'ОП «Построение сообществ»',states:["Активация","Демонстрация"],cust:["СФ","СФФ"],org:"уточнить",freq:"уточнить",cost:"уточнить",note:"Надформат/программа. Формат, если допроектирован под переход."},
+ {name:"Бизнес-миссии",states:["Активация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Важен post-event route."},
+ {name:"Путешествия",states:["Активация"],cust:["СФ","СФФ"],org:"Клубные активности",freq:"уточнить",cost:"уточнить",note:"Важен post-event route. Уточнить адмиссионную оценку."},
+ {name:"Личная встреча — живой контакт",states:["Активация","Демонстрация"],cust:["СФ","СФФ"],org:"Привлечение",freq:"уточнить",cost:"уточнить",note:"Живой контакт как отдельный формат. Проверить дубль."},
+ {name:"Сопровождение на мероприятии",states:["Демонстрация"],cust:["СФ","СФФ"],org:"ПАУ",freq:"по запросу лида",cost:"5000 ₽ / потенциал",note:"Помогает увидеть формат изнутри. Доп. сопровождение на клубных мероприятиях."}
+];
+const SC={"Активация":"s1","Демонстрация":"s2","Проблематизация":"s3","Адмиссия":"s4"};
+let fState="",fCust="",q="";
+function badges(a){return a.map(s=>`<span class="st st${SC[s].slice(1)}">${s}</span>`).join('')}
+function buildChips(){
+  const stWrap=document.getElementById('fstate');const cuWrap=document.getElementById('fcust');
+  if(!stWrap||!cuWrap)return;
+  const states=["Активация","Демонстрация","Проблематизация","Адмиссия"];
+  stWrap.innerHTML=`<span class="chip active" data-v="">Все</span>`+states.map(s=>`<span class="chip ${SC[s]}" data-v="${s}">${s}</span>`).join('');
+  cuWrap.innerHTML=`<span class="chip active" data-v="">Все</span>`+["СФ","СФФ"].map(c=>`<span class="chip" data-v="${c}">${c}</span>`).join('');
+  stWrap.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{fState=c.dataset.v;stWrap.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));c.classList.add('active');render();});
+  cuWrap.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{fCust=c.dataset.v;cuWrap.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));c.classList.add('active');render();});
+}
+function render(){
+  const tb=document.querySelector('#tbl tbody');if(!tb)return;
+  const rows=DATA.filter(d=>(!fState||d.states.includes(fState))&&(!fCust||d.cust.includes(fCust))&&(!q||d.name.toLowerCase().includes(q)));
+  tb.innerHTML=rows.map(d=>`<tr><td class="name">${d.name}</td><td>${badges(d.states)}</td><td>${d.cust.join(', ')}</td><td>${d.org}</td><td>${d.freq}</td><td>${/уточнить/i.test(d.cost)?'<span class="todo">'+d.cost+'</span>':d.cost}</td><td class="note">${d.note||'—'}</td></tr>`).join('');
+  const c=document.getElementById('count');if(c)c.textContent=`Показано форматов: ${rows.length} из ${DATA.length}`;
+}
+const srch=()=>{const i=document.getElementById('search');if(i)i.oninput=()=>{q=i.value.toLowerCase();render();};};
+buildChips();render();srch();
+</script>
+</body>
+</html>

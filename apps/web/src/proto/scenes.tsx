@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react'
 
 import type {
   ActivitiesWorkloadReport,
@@ -34,7 +34,7 @@ import {
 import { revenueVelocityTooltips } from '@/lib/revenue-velocity-tooltips'
 import { buildDashboardQueryFromProtoFilters } from '@/proto/live-reporting'
 import { OntologyHubScene } from '@/proto/ontology-hub'
-import { PlaybookScene } from '@/proto/playbook-scene'
+import { managerOptions, sceneMetadata, sourceOptions } from '@/proto/scene-registry'
 import type {
   ActivityMatrixRow,
   ActivityMatrixStageRow,
@@ -49,6 +49,14 @@ import type {
   SceneComponentProps,
   TocStageDistribution,
 } from '@/proto/types'
+
+export {
+  createDefaultFilters,
+  defaultFilters,
+  managerOptions,
+  sceneMetadata,
+  sourceOptions,
+} from '@/proto/scene-registry'
 
 type SalesRow = {
   source: string
@@ -1604,72 +1612,6 @@ function FunnelStageDistributionChart({
   )
 }
 
-export const managerOptions: PickerOption[] = [
-  { id: '78', label: 'Егоров Андрей', meta: 'Менеджер' },
-  { id: '11234', label: 'Ромашова Ольга', meta: 'Менеджер' },
-  { id: '7824', label: 'Мусальникова Кристина', meta: 'Менеджер' },
-  { id: '6994', label: 'Кузнецова Анастасия', meta: 'Менеджер' },
-  { id: '7814', label: 'Дарья Бычкова', meta: 'Менеджер' },
-  { id: '72', label: 'Крохалева Мария', meta: 'Менеджер' },
-  { id: '2236', label: 'Потапова Мария', meta: 'Менеджер' },
-  { id: '2764', label: 'Каньков Вячеслав', meta: 'Менеджер' },
-  { id: '13020', label: 'Какулия Илья', meta: 'Менеджер' },
-]
-
-export const sourceOptions: PickerOption[] = [
-  { id: 'paid-search', label: 'Платный поиск', meta: 'Высокий интент' },
-  { id: 'partners', label: 'Партнёры', meta: 'Реферальный поток' },
-  { id: 'webinars', label: 'Вебинары', meta: 'Тёплые лиды' },
-  { id: 'organic', label: 'Органика', meta: 'Поиск' },
-  { id: 'events', label: 'События', meta: 'Оффлайн' },
-]
-
-function normalizeDateForInput(date: Date) {
-  const normalized = new Date(date)
-  normalized.setHours(12, 0, 0, 0)
-
-  return normalized
-}
-
-function shiftDate(date: Date, days: number) {
-  const shifted = normalizeDateForInput(date)
-  shifted.setDate(shifted.getDate() + days)
-
-  return shifted
-}
-
-function formatDateInputValue(date: Date) {
-  const normalized = normalizeDateForInput(date)
-  const year = normalized.getFullYear()
-  const month = String(normalized.getMonth() + 1).padStart(2, '0')
-  const day = String(normalized.getDate()).padStart(2, '0')
-
-  return `${year}-${month}-${day}`
-}
-
-function startOfCalendarWeek(date: Date) {
-  const normalized = normalizeDateForInput(date)
-  const daysSinceMonday = (normalized.getDay() + 6) % 7
-
-  return shiftDate(normalized, -daysSinceMonday)
-}
-
-export function createDefaultFilters(today = new Date()): ProtoFilterState {
-  const currentWeekStart = startOfCalendarWeek(today)
-  const previousWeekStart = shiftDate(currentWeekStart, -7)
-  const previousWeekEnd = shiftDate(previousWeekStart, 6)
-
-  return {
-    rangeStart: formatDateInputValue(previousWeekStart),
-    rangeEnd: formatDateInputValue(previousWeekEnd),
-    compareRanges: [],
-    managers: [],
-    sources: [],
-  }
-}
-
-export const defaultFilters: ProtoFilterState = createDefaultFilters()
-
 function PanelHeading({
   id,
   title,
@@ -2732,7 +2674,7 @@ function distributeSalesPlanMonths(
   }))
 }
 
-function SalesPlanScene({
+export function SalesPlanScene({
   runtimeData,
   salesPlanQuarter,
   salesPlanLoading,
@@ -3989,7 +3931,7 @@ function SalesKpiCards({
   )
 }
 
-function SalesScene({ filters, runtimeData }: SceneComponentProps) {
+export function SalesScene({ filters, runtimeData }: SceneComponentProps) {
   return (
     <div className="space-y-6">
       <SalesKpiCards
@@ -5531,7 +5473,7 @@ function RevenueVelocityHeader({
   )
 }
 
-function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
+export function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
   const [view, setView] = useState<RevenueVelocityView>('systemState')
   const [dimension, setDimension] = useState<RevenueVelocityDimension>('manager')
   const [sort, setSort] = useState<{
@@ -5963,7 +5905,7 @@ function RevenueVelocityScene({ filters, runtimeData }: SceneComponentProps) {
   )
 }
 
-function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
+export function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
   const [sliceMode, setSliceMode] = useState<'summary' | 'managers' | 'sources'>('summary')
   const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !runtimeData?.cohorts
   const sceneData = getCohortSceneData(runtimeData)
@@ -6157,7 +6099,7 @@ function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
   )
 }
 
-function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
+export function FunnelFlowScene({ filters, runtimeData }: SceneComponentProps) {
   const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !runtimeData?.tocFlow
   const sceneData = getTocSceneData(runtimeData)
 
@@ -6731,7 +6673,7 @@ function UnitEconomicsManagerDetails({ row }: { row: UnitEconomicsManagerRow }) 
   )
 }
 
-function UnitEconomicsScene({ filters, runtimeData }: SceneComponentProps) {
+export function UnitEconomicsScene({ filters, runtimeData }: SceneComponentProps) {
   const [expandedManagerId, setExpandedManagerId] = useState<string | null>(null)
   const savedEventParticipantMode =
     runtimeData?.unitEconomicsSettings?.eventParticipantMode ?? 'invited'
@@ -7077,102 +7019,18 @@ function UnitEconomicsScene({ filters, runtimeData }: SceneComponentProps) {
   )
 }
 
-export const scenes: ProtoScene[] = [
-  {
-    id: 'sales',
-    label: 'Отчет по продажам',
-    description: 'Источники, качество и проход по ключевым этапам после статуса “Готов ко встрече”.',
-    focus: 'Продажи / источники / качество',
-    kpis: [
-      { label: 'Создано сделок', value: '182', note: 'за активный диапазон' },
-      { label: 'Готов ко встрече', value: '74', note: '41% от созданных' },
-      { label: 'Конверсия в звонок', value: '53%', note: 'из качества в звонок-знакомство' },
-      { label: 'Win-rate', value: '18%', note: 'по всей выборке' },
-      { label: 'Средний цикл', value: '28 дн.', note: 'успешная сделка' },
-    ],
-    component: SalesScene,
-  },
-  {
-    id: 'sales-plan',
-    label: 'План продаж',
-    description: 'План продаж по менеджерам и таргет-группам/клубам заказчика.',
-    focus: 'План / факт / клубы',
-    kpis: [],
-    component: SalesPlanScene,
-  },
-  {
-    id: 'ontology',
-    label: 'Онтология',
-    description: 'Карта процесса, источники, статусы актуальности и связанные отчеты.',
-    focus: 'Смыслы / источники / расхождения',
-    kpis: [],
-    component: OntologyHubScene,
-  },
-  {
-    id: 'playbook',
-    label: 'Плейбук КИ',
-    description: 'Операционный справочник комьюнити-интегратора: этапы, поля, звонки, встреча, события и рефлексия.',
-    focus: 'Ввод в роль / операционка / справочник',
-    kpis: [],
-    component: PlaybookScene,
-  },
-  {
-    id: 'activities-calls',
-    label: 'Отчет активности',
-    description: 'Матричная структура по менеджерам и этапам: дела, звонки и переносы дедлайнов.',
-    focus: 'Дела / звонки / дисциплина',
-    kpis: [
-      { label: 'Создано задач', value: '486', note: 'за активный диапазон', compare: 'пред. период: 441', delta: '+10%', deltaTone: 'positive' },
-      { label: 'Перенесён дедлайн', value: '92', note: '19% от всех дел', compare: 'пред. период: 104', delta: '-12%', deltaTone: 'positive' },
-      { label: 'Закрыто задач', value: '401', note: '82% от созданных', compare: 'пред. период: 362', delta: '+11%', deltaTone: 'positive' },
-      { label: 'Звонков на сделку', value: '2.8', note: 'среднее по воронке', compare: 'пред. период: 2.4', delta: '+17%', deltaTone: 'positive' },
-      { label: 'Задач на сделку', value: '4.6', note: 'среднее по воронке', compare: 'пред. период: 4.9', delta: '-6%', deltaTone: 'neutral' },
-    ],
-    component: ActivitiesScene,
-  },
-  {
-    id: 'cohorts',
-    label: 'Когортный отчет',
-    description: 'Создание сделки по месяцам, закрытие по окнам времени и когортная конверсия.',
-    focus: 'Когорты / цикл / закрытие',
-    kpis: [
-      { label: 'Средняя когортная конверсия', value: '24%', note: 'среднее по когортам за год' },
-      { label: 'В 1 месяц', value: '8%', note: 'среднее по когортам за год' },
-      { label: 'Во 2 месяц', value: '9%', note: 'среднее по когортам за год' },
-      { label: 'В 3 месяц', value: '5%', note: 'среднее по когортам за год' },
-      { label: 'В 4+ месяц', value: '2%', note: 'среднее по когортам за год' },
-      { label: 'Средний цикл', value: '67 дн.', note: 'среднее по выигранным сделкам за год' },
-    ],
-    component: CohortsScene,
-  },
-  {
-    id: 'revenue-velocity',
-    label: 'Денежная скорость',
-    description: 'Состояние денежной системы, оперативные действия и когортная эффективность.',
-    focus: 'Денежная скорость / действия / клубы',
-    kpis: [],
-    component: RevenueVelocityScene,
-  },
-  {
-    id: 'unit-economics',
-    label: 'Финрезультат',
-    description: 'P&L модуля: переменные расходы, EBITDA, Net Profit и экономика источников.',
-    focus: 'P&L / расходы / маржа',
-    kpis: [],
-    component: UnitEconomicsScene,
-  },
-  {
-    id: 'funnel-flow',
-    label: 'Движение по воронке',
-    description: 'Сколько сделок копится на этапах, какая пропускная способность и где ограничение системы.',
-    focus: 'Очередь / throughput / ограничения',
-    kpis: [
-      { label: 'Сделок в работе', value: '223', note: 'вся очередь на конец периода', compare: 'пред. период: 205', delta: '+9%', deltaTone: 'negative' },
-      { label: 'Выход за период', value: '68', note: 'через все этапы воронки', compare: 'пред. период: 61', delta: '+11%', deltaTone: 'positive' },
-      { label: 'Главное ограничение', value: 'Проблематизация', note: 'самый плотный этап', compare: '17 сделок в очереди' },
-      { label: 'Средний WIP', value: '31', note: 'на один активный этап', compare: 'пред. период: 28', delta: '+3', deltaTone: 'negative' },
-      { label: 'Средний цикл этапа', value: '9 дн.', note: 'по этапам с накоплением', compare: 'пред. период: 10 дн.', delta: '-1 дн.', deltaTone: 'positive' },
-    ],
-    component: FunnelFlowScene,
-  },
-]
+const sceneComponents: Record<string, ComponentType<SceneComponentProps>> = {
+  sales: SalesScene,
+  'sales-plan': SalesPlanScene,
+  ontology: OntologyHubScene,
+  'activities-calls': ActivitiesScene,
+  cohorts: CohortsScene,
+  'revenue-velocity': RevenueVelocityScene,
+  'unit-economics': UnitEconomicsScene,
+  'funnel-flow': FunnelFlowScene,
+}
+
+export const scenes: ProtoScene[] = sceneMetadata.map((scene) => ({
+  ...scene,
+  component: sceneComponents[scene.id] ?? SalesScene,
+}))

@@ -413,6 +413,86 @@ describe("buildSourceQualityConversionReport", () => {
       { stageId: "C10:WON", reachedDeals: 0, conversionRate: 0 }
     ]);
   });
+
+  it("does not count the current stage when a deal only has future stage history", () => {
+    const result = buildSourceQualityConversionReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      deals: [
+        {
+          id: "1",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 12000,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: "3.1 Готов ко встрече",
+          dateCreate: "2026-04-02T09:00:00.000Z",
+          dateModify: "2026-05-08T11:00:00.000Z",
+          dateClosed: "2026-05-08T11:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "WEB",
+          name: "Website",
+          semanticId: null,
+          sortOrder: 10
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:NEW",
+          name: "База входящая",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:WON",
+          name: "Передано в клуб",
+          semanticId: "S",
+          sortOrder: 20
+        }
+      ],
+      stageHistory: [
+        {
+          id: "T1",
+          ownerId: "1",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-05-08T11:00:00.000Z"
+        }
+      ]
+    });
+
+    expect(result.totalCreatedDeals).toBe(1);
+    expect(result.totalWonDeals).toBe(0);
+    expect(result.rows[0]?.stageMetrics.map((stage) => ({
+      stageId: stage.stageId,
+      reachedDeals: stage.reachedDeals,
+      conversionRate: stage.conversionRate
+    }))).toEqual([
+      { stageId: "C10:NEW", reachedDeals: 0, conversionRate: 0 },
+      { stageId: "C10:WON", reachedDeals: 0, conversionRate: 0 }
+    ]);
+  });
+
   it("counts wins by won-stage history instead of dateModify when dateClosed is missing", () => {
     const baseInput = {
       wonStageIds: ["C10:WON"],

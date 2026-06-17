@@ -2441,7 +2441,7 @@ describe("createApp", () => {
         expect(body.totalCreatedDeals).toBe(4);
       });
 
-    await request(app)
+    const activitiesResponse = await request(app)
       .get("/api/reports/activities-workload")
       .query({
         periodDays: 30,
@@ -2452,6 +2452,24 @@ describe("createApp", () => {
       .expect(({ body }) => {
         expect(body.totalCreatedCount).toBe(5);
         expect(body.comparisons).toHaveLength(1);
+      });
+    expect(activitiesResponse.headers["cache-control"]).toContain("no-store");
+
+    const activitiesEtag = activitiesResponse.headers.etag;
+    if (!activitiesEtag) {
+      throw new Error("Expected activities workload response to include an ETag");
+    }
+    await request(app)
+      .get("/api/reports/activities-workload")
+      .set("If-None-Match", activitiesEtag)
+      .query({
+        periodDays: 30,
+        compareFrom: ["2026-03-01T00:00:00.000Z"],
+        compareTo: ["2026-03-31T23:59:59.999Z"]
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalCreatedCount).toBe(5);
       });
 
     expect(receivedActivitiesInput).toEqual({

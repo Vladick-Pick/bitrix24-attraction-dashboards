@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiClient } from '@/lib/api-client'
@@ -19,7 +20,7 @@ import type {
 } from '@/lib/dashboard-types'
 import { createCompareRange, ProtoApp } from '@/proto/proto-app'
 import { createDefaultCallAnalysisFilters } from '@/proto/call-analysis-workspace'
-import { createDefaultFilters } from '@/proto/scenes'
+import { createDefaultFilters } from '@/proto/scene-registry'
 import type { AuthUser, PaperclipThreadEntry } from '@/proto/types'
 
 function createDeferred<T>() {
@@ -1382,6 +1383,52 @@ function createSalesPlan(plannedDeals: number): SalesPlanData {
   }
 }
 
+function createLeadgenOwner(): AuthUser {
+  return {
+    id: 1,
+    login: 'owner@example.com',
+    firstName: 'Владислав',
+    lastName: 'Богдан',
+    role: 'admin',
+    isSuperAdmin: true,
+    modules: [
+      {
+        id: 'attraction',
+        slug: 'attraction',
+        name: 'Привлечение',
+        role: 'leader',
+        permissions: [
+          'comments:create',
+          'comments:update',
+          'comments:archive',
+          'module-users:manage',
+        ],
+        paperclipCompanyId: null,
+        paperclipProjectId: null,
+        paperclipGoalId: null,
+        paperclipTriageAgentId: null,
+      },
+      {
+        id: 'leadgen',
+        slug: 'leadgen',
+        name: 'Лидогенерация',
+        role: 'leader',
+        permissions: [
+          'comments:create',
+          'comments:update',
+          'comments:archive',
+          'module-users:manage',
+        ],
+        bitrixCategoryId: '28',
+        paperclipCompanyId: null,
+        paperclipProjectId: null,
+        paperclipGoalId: null,
+        paperclipTriageAgentId: null,
+      },
+    ],
+  }
+}
+
 describe('ProtoApp', () => {
   beforeEach(() => {
     vi.useRealTimers()
@@ -1431,7 +1478,7 @@ describe('ProtoApp', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^анализ звонков$/i }))
 
     expect(await screen.findByRole('heading', { name: /^анализ звонков$/i })).toBeInTheDocument()
-    expect(apiClient.getCallAnalysisQueue).toHaveBeenCalled()
+    await waitFor(() => expect(apiClient.getCallAnalysisQueue).toHaveBeenCalled())
     expect(await screen.findAllByText(/ID 221930/i)).toHaveLength(2)
     expect(await screen.findByText(/Менеджер провел диагностику/i)).toBeInTheDocument()
     expect(screen.getByText(/Добрый день\. Расскажите/i)).toBeInTheDocument()
@@ -2354,6 +2401,29 @@ describe('ProtoApp', () => {
     await waitFor(() => expect(apiClient.getTocFlowReport).toHaveBeenCalled())
   })
 
+  it('settles the activity report under StrictMode after all lazy live reports resolve', async () => {
+    render(
+      <StrictMode>
+        <ProtoApp />
+      </StrictMode>,
+    )
+
+    await waitFor(() => expect(apiClient.getDashboard).toHaveBeenCalled())
+    await userEvent.click(screen.getByRole('button', { name: /^отчет активности$/i }))
+
+    await waitFor(() => {
+      expect(apiClient.getActivitiesWorkloadReport).toHaveBeenCalled()
+      expect(apiClient.getCallsWorkloadReport).toHaveBeenCalled()
+      expect(apiClient.getAcquisitionOutcomesReport).toHaveBeenCalled()
+      expect(apiClient.getTargetGroupConversionReport).toHaveBeenCalled()
+      expect(apiClient.getConversionEventsReport).toHaveBeenCalled()
+    })
+    expect(await screen.findByRole('heading', { name: /^сводка по менеджерам$/i })).toBeInTheDocument()
+    expect(
+      screen.queryByText(/загружаю live-данные отч[её]та активности/i),
+    ).not.toBeInTheDocument()
+  })
+
   it('finishes a lazy attraction scene request after leaving and returning to its tab', async () => {
     const activitiesDeferred = createDeferred<
       Awaited<ReturnType<typeof apiClient.getActivitiesWorkloadReport>>
@@ -2867,49 +2937,7 @@ describe('ProtoApp', () => {
     vi.mocked(apiClient.getMeta)
       .mockResolvedValueOnce(attractionMeta)
       .mockResolvedValueOnce(leadgenMeta)
-    const owner: AuthUser = {
-      id: 1,
-      login: 'owner@example.com',
-      firstName: 'Владислав',
-      lastName: 'Богдан',
-      role: 'admin' as const,
-      isSuperAdmin: true,
-      modules: [
-        {
-          id: 'attraction',
-          slug: 'attraction',
-          name: 'Привлечение',
-          role: 'leader' as const,
-          permissions: [
-            'comments:create',
-            'comments:update',
-            'comments:archive',
-            'module-users:manage',
-          ],
-          paperclipCompanyId: null,
-          paperclipProjectId: null,
-          paperclipGoalId: null,
-          paperclipTriageAgentId: null,
-        },
-        {
-          id: 'leadgen',
-          slug: 'leadgen',
-          name: 'Лидогенерация',
-          role: 'leader' as const,
-          permissions: [
-            'comments:create',
-            'comments:update',
-            'comments:archive',
-            'module-users:manage',
-          ],
-          bitrixCategoryId: '28',
-          paperclipCompanyId: null,
-          paperclipProjectId: null,
-          paperclipGoalId: null,
-          paperclipTriageAgentId: null,
-        },
-      ],
-    }
+    const owner = createLeadgenOwner()
 
     render(<ProtoApp currentUser={owner} />)
 
@@ -2926,6 +2954,8 @@ describe('ProtoApp', () => {
 
     vi.mocked(apiClient.getActivitiesWorkloadReport).mockClear()
     vi.mocked(apiClient.getCallsWorkloadReport).mockClear()
+    vi.mocked(apiClient.getLeadgenActivitiesWorkloadReport).mockClear()
+    vi.mocked(apiClient.getLeadgenCallsWorkloadReport).mockClear()
     vi.mocked(apiClient.getAttractionOntology).mockClear()
     await userEvent.click(leadgenModuleButton)
 
@@ -2957,8 +2987,15 @@ describe('ProtoApp', () => {
     expect(screen.getByText('Всего сделок')).toBeInTheDocument()
     expect(screen.getByText('Новый лид')).toBeInTheDocument()
     expect(screen.queryByText('Ответственные')).not.toBeInTheDocument()
+    expect(apiClient.getLeadgenActivitiesWorkloadReport).not.toHaveBeenCalled()
+    expect(apiClient.getLeadgenCallsWorkloadReport).not.toHaveBeenCalled()
 
     await userEvent.click(leadgenActivityReportButton)
+
+    await waitFor(() => {
+      expect(apiClient.getLeadgenActivitiesWorkloadReport).toHaveBeenCalledTimes(1)
+      expect(apiClient.getLeadgenCallsWorkloadReport).toHaveBeenCalledTimes(1)
+    })
 
     expect(leadgenSalesReportButton).toHaveClass('tab-chip')
     expect(leadgenSalesReportButton).not.toHaveClass('tab-chip-active')
@@ -3014,6 +3051,122 @@ describe('ProtoApp', () => {
       expect(apiClient.getCallsWorkloadReport).not.toHaveBeenCalled()
       expect(apiClient.getAttractionOntology).not.toHaveBeenCalled()
     })
+
+    await userEvent.click(leadgenSalesReportButton)
+    await userEvent.click(leadgenActivityReportButton)
+
+    expect(apiClient.getLeadgenActivitiesWorkloadReport).toHaveBeenCalledTimes(1)
+    expect(apiClient.getLeadgenCallsWorkloadReport).toHaveBeenCalledTimes(1)
+  })
+
+  it('reloads leadgen workload for changed filters only when the activity report is active', async () => {
+    render(<ProtoApp currentUser={createLeadgenOwner()} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^лидогенерация$/i }))
+    expect(await screen.findByRole('heading', { name: /^лидогенерация$/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(apiClient.getLeadgenFunnelReport).toHaveBeenCalledWith(
+        'leadgen',
+        expect.objectContaining({ preset: 'custom' }),
+      )
+    })
+    vi.mocked(apiClient.getLeadgenFunnelReport).mockClear()
+    vi.mocked(apiClient.getLeadgenActivitiesWorkloadReport).mockClear()
+    vi.mocked(apiClient.getLeadgenCallsWorkloadReport).mockClear()
+
+    const startInput = screen.getByLabelText(
+      'Дата начала основного диапазона',
+    ) as HTMLInputElement
+    const endInput = screen.getByLabelText(
+      'Дата конца основного диапазона',
+    ) as HTMLInputElement
+    const applyButton = screen.getByRole('button', { name: /^применить фильтры$/i })
+
+    fireEvent.input(startInput, { target: { value: '2026-05-01' } })
+    fireEvent.input(endInput, { target: { value: '2026-05-31' } })
+    await userEvent.click(applyButton)
+
+    await waitFor(() => {
+      expect(apiClient.getLeadgenFunnelReport).toHaveBeenCalledWith(
+        'leadgen',
+        expect.objectContaining({
+          from: '2026-05-01T00:00:00.000+03:00',
+          to: '2026-05-31T23:59:59.999+03:00',
+        }),
+      )
+    })
+    expect(apiClient.getLeadgenActivitiesWorkloadReport).not.toHaveBeenCalled()
+    expect(apiClient.getLeadgenCallsWorkloadReport).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /^отчет активности$/i }))
+
+    await waitFor(() => {
+      expect(apiClient.getLeadgenActivitiesWorkloadReport).toHaveBeenCalledWith(
+        'leadgen',
+        expect.objectContaining({
+          from: '2026-05-01T00:00:00.000+03:00',
+          to: '2026-05-31T23:59:59.999+03:00',
+        }),
+      )
+      expect(apiClient.getLeadgenCallsWorkloadReport).toHaveBeenCalledWith(
+        'leadgen',
+        expect.objectContaining({
+          from: '2026-05-01T00:00:00.000+03:00',
+          to: '2026-05-31T23:59:59.999+03:00',
+        }),
+      )
+    })
+    expect(apiClient.getLeadgenActivitiesWorkloadReport).toHaveBeenCalledTimes(1)
+    expect(apiClient.getLeadgenCallsWorkloadReport).toHaveBeenCalledTimes(1)
+
+    fireEvent.input(startInput, { target: { value: '2026-06-01' } })
+    fireEvent.input(endInput, { target: { value: '2026-06-30' } })
+    await userEvent.click(applyButton)
+
+    await waitFor(() => {
+      expect(apiClient.getLeadgenActivitiesWorkloadReport).toHaveBeenCalledTimes(2)
+      expect(apiClient.getLeadgenCallsWorkloadReport).toHaveBeenCalledTimes(2)
+    })
+    expect(apiClient.getLeadgenActivitiesWorkloadReport).toHaveBeenLastCalledWith(
+      'leadgen',
+      expect.objectContaining({
+        from: '2026-06-01T00:00:00.000+03:00',
+        to: '2026-06-30T23:59:59.999+03:00',
+      }),
+    )
+    expect(apiClient.getLeadgenCallsWorkloadReport).toHaveBeenLastCalledWith(
+      'leadgen',
+      expect.objectContaining({
+        from: '2026-06-01T00:00:00.000+03:00',
+        to: '2026-06-30T23:59:59.999+03:00',
+      }),
+    )
+  })
+
+  it('keeps the leadgen sales report usable when the activity workload fails', async () => {
+    render(<ProtoApp currentUser={createLeadgenOwner()} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^лидогенерация$/i }))
+    expect(await screen.findByRole('heading', { name: /^лидогенерация$/i })).toBeInTheDocument()
+    expect(screen.getByText('Всего сделок')).toBeInTheDocument()
+    expect(screen.getByText('Новый лид')).toBeInTheDocument()
+
+    vi.mocked(apiClient.getLeadgenActivitiesWorkloadReport).mockClear()
+    vi.mocked(apiClient.getLeadgenCallsWorkloadReport).mockClear()
+    vi.mocked(apiClient.getLeadgenActivitiesWorkloadReport).mockRejectedValueOnce(
+      new Error('Workload offline'),
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /^отчет активности$/i }))
+
+    expect(await screen.findByText('Workload offline')).toBeInTheDocument()
+    expect(screen.queryByText('Всего сделок')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^отчет по продажам$/i }))
+
+    expect(screen.queryByText('Workload offline')).not.toBeInTheDocument()
+    expect(screen.getByText('Всего сделок')).toBeInTheDocument()
+    expect(screen.getByText('Новый лид')).toBeInTheDocument()
   })
 
   it('lets a super admin grant explicit module access and role from the account page', async () => {

@@ -3,6 +3,8 @@ import type {
   UnitEconomicsCostRulesInput,
   UnitEconomicsReport
 } from "@bitrix24-reporting/contracts";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
@@ -14,6 +16,23 @@ import {
   redactWebhookUrl
 } from "../src/bitrix/security";
 import { createApp } from "../src/server/app";
+
+function getPlaybookInlineScriptHash() {
+  const playbookHtml = readFileSync(
+    new URL(
+      "../../../docs/modules/attraction/playbook/playbook-ki.html",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  const script = playbookHtml.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/)?.[1];
+
+  if (!script) {
+    throw new Error("Playbook inline script not found.");
+  }
+
+  return `'sha256-${createHash("sha256").update(script).digest("base64")}'`;
+}
 
 function createEmptyRevenueVelocityReport(): RevenueVelocityReport {
   return {
@@ -562,6 +581,9 @@ describe("Bitrix transport security", () => {
         expect(response.headers["permissions-policy"]).toContain("camera=()");
         expect(response.headers["content-security-policy"]).toContain(
           "default-src 'self'"
+        );
+        expect(response.headers["content-security-policy"]).toContain(
+          `script-src 'self' ${getPlaybookInlineScriptHash()}`
         );
       });
   });

@@ -126,6 +126,13 @@ function App() {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
+          if (getErrorStatus(error) === 404) {
+            setCurrentUser(null)
+            setAuthStatus('authenticated')
+            setAuthError(null)
+            return
+          }
+
           setAuthStatus('unauthenticated')
           setCurrentUser(null)
           setAuthError(getErrorStatus(error) === 401 ? null : resolveAuthError(error))

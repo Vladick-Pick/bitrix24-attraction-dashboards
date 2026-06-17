@@ -2,9 +2,7 @@ import type {
   AcquisitionOutcomesReport,
   ActivitiesWorkloadReport,
   AttractionOntologyResponse,
-  CallAnalysisQueueCallType,
   CallAnalysisQueueResponse,
-  CallAnalysisQueueStatus,
   CallsWorkloadReport,
   CohortConversionReport,
   ConversionEventsReport,
@@ -74,6 +72,13 @@ import {
   registerAttractionReportRoutes,
   registerAttractionSettingsRoutes
 } from "./routes/attraction-routes.js";
+import {
+  createAttractionCallRouteHandlers,
+  type CallAnalysisQueueRequest,
+  type CallAnalysisRunner
+} from "./routes/attraction-call-handlers.js";
+import { createAttractionReportRouteHandlers } from "./routes/attraction-report-handlers.js";
+import { createCommentRouteHandlers } from "./routes/comment-handlers.js";
 import { registerCommentRoutes } from "./routes/comment-routes.js";
 import { registerLeadgenRoutes } from "./routes/leadgen-routes.js";
 import { registerModuleAdminRoutes } from "./routes/module-admin-routes.js";
@@ -98,7 +103,6 @@ import {
   buildTelegramActivityReportMessages,
   getNextDailyActivityReportDelayMs
 } from "./telegram-activity-report.js";
-import { CallAnalysisServiceError } from "./call-analysis-service.js";
 
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
@@ -164,12 +168,7 @@ interface AppService {
     input: RangeRequest
   ): Promise<ManagerActionOutcomeReport>;
   getCallsWorkloadReport(input: RangeRequest): Promise<CallsWorkloadReport>;
-  getCallAnalysisQueue(
-    input: RangeRequest & {
-      callTypes?: CallAnalysisQueueCallType[];
-      analysisStatuses?: CallAnalysisQueueStatus[];
-    }
-  ): Promise<CallAnalysisQueueResponse>;
+  getCallAnalysisQueue(input: CallAnalysisQueueRequest): Promise<CallAnalysisQueueResponse>;
   getConversionEventsReport(input: RangeRequest): Promise<ConversionEventsReport>;
   getCohortConversionReport(input: RangeRequest): Promise<CohortConversionReport>;
   getTocFlowReport(input: RangeRequest): Promise<TocFlowReport>;
@@ -231,14 +230,6 @@ interface ModuleService {
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
   }): Promise<ManualSyncSummary>;
-}
-
-interface CallAnalysisRunner {
-  analyzeCall(input: {
-    callId: string;
-    triggerMode?: "manual" | "automatic";
-  }): Promise<unknown>;
-  getCallAnalysisResult?(callId: string): Promise<unknown>;
 }
 
 interface DashboardPaperclipReadyReport {
@@ -398,10 +389,6 @@ const reportQuerySchema = z
 
 const updateWonStagesSchema = z.object({
   stageIds: z.array(z.string().min(1)).min(1)
-});
-
-const syncRunHistoryQuerySchema = z.object({
-  limit: z.coerce.number().int().positive().max(100).default(5)
 });
 
 const protoCommentAnchorSchema = z.object({
@@ -683,7 +670,6 @@ const managerWhitelistSettingsBodySchema = z.object({
   managerIds: z.array(z.string().trim().min(1))
 });
 
-const callAnalysisCallIdSchema = z.string().trim().min(1).max(200);
 const callAnalysisQueueQuerySchema = z.object({
   callTypes: z
     .preprocess(
@@ -773,12 +759,7 @@ function parseRangeRequest(query: unknown): RangeRequest {
   };
 }
 
-function parseCallAnalysisQueueRequest(
-  query: unknown
-): RangeRequest & {
-  callTypes?: CallAnalysisQueueCallType[];
-  analysisStatuses?: CallAnalysisQueueStatus[];
-} {
+function parseCallAnalysisQueueRequest(query: unknown): CallAnalysisQueueRequest {
   const base = parseRangeRequest(query);
   const parsed = callAnalysisQueueQuerySchema.parse(query);
 
@@ -822,17 +803,6 @@ function createErrorResponse(code: string, details?: unknown) {
     code,
     ...(details === undefined ? {} : { details })
   };
-}
-
-function isOntologySourceLookupError(error: unknown) {
-  return (
-    error !== null &&
-    typeof error === "object" &&
-    "code" in error &&
-    ((error as { code?: unknown }).code === "SOURCE_NOT_FOUND" ||
-      (error as { code?: unknown }).code === "SOURCE_NOT_READABLE" ||
-      (error as { code?: unknown }).code === "SOURCE_OUTSIDE_ALLOWLIST")
-  );
 }
 
 function summarizeReportQuery(request: express.Request) {
@@ -1346,6 +1316,24 @@ function createSecurityHeadersMiddleware() {
       "camera=(), microphone=(), geolocation=(), payment=()"
     );
     response.setHeader("Content-Security-Policy", contentSecurityPolicy);
+    next();
+  };
+}
+
+function createApiNoStoreMiddleware() {
+  return (
+    request: express.Request,
+    response: express.Response,
+    next: express.NextFunction
+  ) => {
+    if (request.path.startsWith("/api/")) {
+      delete request.headers["if-none-match"];
+      delete request.headers["if-modified-since"];
+      response.setHeader("Cache-Control", "no-store");
+      response.setHeader("Pragma", "no-cache");
+      response.setHeader("Expires", "0");
+    }
+
     next();
   };
 }
@@ -1935,6 +1923,7 @@ export function createApp(
   }
 
   app.use(createSecurityHeadersMiddleware());
+  app.use(createApiNoStoreMiddleware());
 
   app.use(
     cors({
@@ -2307,100 +2296,15 @@ export function createApp(
     }
   });
 
-  registerAttractionCallRoutes(app, {
-    listCallAnalysisQueue: async (request, response, next) => {
-      const moduleId = requestModuleId(request);
-      if (moduleId !== "attraction") {
-        next("route");
-        return;
-      }
-
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      try {
-        response.json(
-          await service.getCallAnalysisQueue(
-            parseCallAnalysisQueueRequest(request.query)
-          )
-        );
-      } catch (error) {
-        next(error);
-      }
-    },
-    analyzeCall: async (request, response, next) => {
-      const moduleId = requestModuleId(request);
-      if (moduleId !== "attraction") {
-        next("route");
-        return;
-      }
-
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      if (!config.callAnalysis) {
-        response.status(503).json(createErrorResponse("CALL_ANALYSIS_NOT_CONFIGURED"));
-        return;
-      }
-
-      try {
-        const callId = callAnalysisCallIdSchema.parse(
-          requestRouteParam(request, "callId")
-        );
-        response.json(
-          await config.callAnalysis.analyzeCall({
-            callId,
-            triggerMode: "manual"
-          })
-        );
-      } catch (error) {
-        if (error instanceof CallAnalysisServiceError) {
-          response
-            .status(error.statusCode)
-            .json(createErrorResponse(error.code));
-          return;
-        }
-
-        next(error);
-      }
-    },
-    getCallAnalysis: async (request, response, next) => {
-      const moduleId = requestModuleId(request);
-      if (moduleId !== "attraction") {
-        next("route");
-        return;
-      }
-
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      if (!config.callAnalysis?.getCallAnalysisResult) {
-        response.status(503).json(createErrorResponse("CALL_ANALYSIS_NOT_CONFIGURED"));
-        return;
-      }
-
-      try {
-        const callId = callAnalysisCallIdSchema.parse(
-          requestRouteParam(request, "callId")
-        );
-        const result = await config.callAnalysis.getCallAnalysisResult(callId);
-        if (!result) {
-          response.status(404).json(createErrorResponse("CALL_ANALYSIS_NOT_FOUND"));
-          return;
-        }
-
-        response.json({
-          status: "ready",
-          result
-        });
-      } catch (error) {
-        next(error);
-      }
-    }
-  });
+  registerAttractionCallRoutes(
+    app,
+    createAttractionCallRouteHandlers({
+      service,
+      ...(config.callAnalysis ? { callAnalysis: config.callAnalysis } : {}),
+      parseCallAnalysisQueueRequest,
+      denyIfMissingAttractionAccess
+    })
+  );
 
   async function deliverCommentToPaperclip(
     comment: DashboardCommentRecord,
@@ -2560,369 +2464,25 @@ export function createApp(
     );
   }
 
-  registerCommentRoutes(app, {
-    getProtoComments: async (_request, response, next) => {
-      if (!config.protoComments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      try {
-        response.json(await config.protoComments.getProtoComments());
-      } catch (error) {
-        next(error);
-      }
-    },
-    replaceProtoComments: async (request, response, next) => {
-      if (!config.protoComments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      try {
-        const payload = protoCommentsBodySchema.parse(request.body);
-        response.json(
-          await config.protoComments.replaceProtoComments({
-            comments: payload.comments.map((comment) => ({
-              id: comment.id,
-              sceneId: comment.sceneId,
-              x: comment.x,
-              y: comment.y,
-              text: comment.text,
-              status: comment.status,
-              archivedAt: comment.archivedAt ?? null,
-              createdAt: comment.createdAt,
-              updatedAt: comment.updatedAt,
-              ...(comment.anchor ? { anchor: comment.anchor } : {})
-            })),
-            updatedAt: new Date().toISOString()
-          })
-        );
-      } catch (error) {
-        next(error);
-      }
-    },
-    listComments: async (request, response, next) => {
-      if (!config.comments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      const access = requireModuleAccess(response, undefined, requestModuleId(request));
-      if (!access) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      try {
-        const store = await config.comments.getDashboardComments(access.module.id);
-        response.json({
-          ...store,
-          comments: await refreshOpenDashboardComments(store.comments)
-        });
-      } catch (error) {
-        next(error);
-      }
-    },
-    createComment: async (request, response, next) => {
-      if (!config.comments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      const access = requireModuleAccess(
-        response,
-        "comments:create",
-        requestModuleId(request)
-      );
-      if (!access) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      try {
-        const payload = createCommentBodySchema.parse(request.body);
-        const now = new Date().toISOString();
-        const created = await config.comments.createDashboardComment({
-          id: randomUUID(),
-          moduleId: access.module.id,
-          authorUserId: access.session.user.id,
-          authorLogin: access.session.user.login,
-          sceneId: payload.sceneId,
-          x: payload.x,
-          y: payload.y,
-          text: payload.text,
-          status: "open",
-          archivedAt: null,
-          createdAt: now,
-          updatedAt: now,
-          ...(payload.anchor ? { anchor: payload.anchor } : {}),
-          ...(payload.context ? { context: payload.context } : {}),
-          paperclipIssueId: null,
-          paperclipIssueIdentifier: null,
-          paperclipStatus: "queued",
-          paperclipSyncStatus: "queued",
-          paperclipError: null,
-          paperclipLastSyncedAt: null,
-          paperclipRetryCount: 0
-        });
-        const delivered = await deliverCommentToPaperclip(created, access.module);
-        response.status(201).json({ comment: delivered ?? created });
-      } catch (error) {
-        next(error);
-      }
-    },
-    updateComment: async (request, response, next) => {
-      if (!config.comments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      const access = requireModuleAccess(
-        response,
-        "comments:update",
-        requestModuleId(request)
-      );
-      if (!access) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      try {
-        const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
-        if (!existing || existing.moduleId !== access.module.id) {
-          response.status(404).json(createErrorResponse("NOT_FOUND"));
-          return;
-        }
-        if (
-          existing.authorUserId !== access.session.user.id &&
-          access.module.role !== "leader"
-        ) {
-          response.status(403).json(createErrorResponse("FORBIDDEN"));
-          return;
-        }
-
-        const payload = updateCommentBodySchema.parse(request.body);
-        const comment = await config.comments.updateDashboardComment({
-          id: existing.id,
-          ...(payload.text ? { text: payload.text } : {}),
-          ...(payload.context ? { context: payload.context } : {}),
-          updatedAt: new Date().toISOString()
-        });
-        response.json({ comment });
-      } catch (error) {
-        next(error);
-      }
-    },
-    archiveComment: async (request, response, next) => {
-      if (!config.comments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      const access = requireModuleAccess(
-        response,
-        "comments:archive",
-        requestModuleId(request)
-      );
-      if (!access) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      try {
-        const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
-        if (!existing || existing.moduleId !== access.module.id) {
-          response.status(404).json(createErrorResponse("NOT_FOUND"));
-          return;
-        }
-        const now = new Date().toISOString();
-        const comment = await config.comments.archiveDashboardComment({
-          id: existing.id,
-          archivedAt: now,
-          updatedAt: now
-        });
-        response.json({ comment });
-      } catch (error) {
-        next(error);
-      }
-    },
-    reworkComment: async (request, response, next) => {
-      if (!config.comments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      const access = requireModuleAccess(
-        response,
-        "comments:update",
-        requestModuleId(request)
-      );
-      if (!access) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      try {
-        const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
-        if (!existing || existing.moduleId !== access.module.id) {
-          response.status(404).json(createErrorResponse("NOT_FOUND"));
-          return;
-        }
-        if (
-          existing.authorUserId !== access.session.user.id &&
-          access.module.role !== "leader"
-        ) {
-          response.status(403).json(createErrorResponse("FORBIDDEN"));
-          return;
-        }
-        if (!existing.paperclipIssueId) {
-          response.status(409).json(createErrorResponse("PAPERCLIP_ISSUE_NOT_LINKED"));
-          return;
-        }
-        if (!config.paperclip) {
-          const failed = await config.comments.updateDashboardCommentPaperclip({
-            id: existing.id,
-            paperclipStatus: "failed",
-            paperclipSyncStatus: "failed",
-            paperclipError: "Paperclip integration is not configured.",
-            paperclipLastSyncedAt: new Date().toISOString(),
-            incrementRetryCount: true
-          });
-          response.status(503).json({
-            ...createErrorResponse("PAPERCLIP_NOT_CONFIGURED"),
-            comment: failed ?? existing
-          });
-          return;
-        }
-
-        const payload = reworkCommentBodySchema.parse(request.body);
-        await config.comments.updateDashboardCommentPaperclip({
-          id: existing.id,
-          paperclipStatus: "in_work",
-          paperclipSyncStatus: "syncing",
-          paperclipError: null
-        });
-
-        try {
-          await addDashboardReworkComment({
-            paperclip: config.paperclip,
-            issueId: existing.paperclipIssueId,
-            body: buildPaperclipReworkComment({
-              module: access.module,
-              authorLogin: access.session.user.login,
-              comment: existing,
-              text: payload.text
-            })
-          });
-
-          const synced = await config.comments.updateDashboardCommentPaperclip({
-            id: existing.id,
-            paperclipStatus: "in_work",
-            paperclipSyncStatus: "sent",
-            paperclipError: null,
-            paperclipLastSyncedAt: new Date().toISOString()
-          });
-          response.json({ comment: synced ?? existing });
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "Paperclip issue comment failed.";
-          const failed = await config.comments.updateDashboardCommentPaperclip({
-            id: existing.id,
-            paperclipStatus: "failed",
-            paperclipSyncStatus: "failed",
-            paperclipError: message,
-            paperclipLastSyncedAt: new Date().toISOString(),
-            incrementRetryCount: true
-          });
-          response.status(502).json({
-            ...createErrorResponse("PAPERCLIP_REWORK_FAILED"),
-            comment: failed ?? existing
-          });
-        }
-      } catch (error) {
-        next(error);
-      }
-    },
-    retryComment: async (request, response, next) => {
-      if (!config.comments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      const access = requireModuleAccess(
-        response,
-        "comments:create",
-        requestModuleId(request)
-      );
-      if (!access) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      try {
-        const existing = await config.comments.getDashboardCommentById(requestRouteParam(request, "id"));
-        if (!existing || existing.moduleId !== access.module.id) {
-          response.status(404).json(createErrorResponse("NOT_FOUND"));
-          return;
-        }
-        if (
-          existing.authorUserId !== access.session.user.id &&
-          access.module.role !== "leader"
-        ) {
-          response.status(403).json(createErrorResponse("FORBIDDEN"));
-          return;
-        }
-        if (existing.paperclipIssueId) {
-          response.status(409).json({
-            ...createErrorResponse("PAPERCLIP_ISSUE_ALREADY_LINKED"),
-            comment: existing
-          });
-          return;
-        }
-        const delivered = await deliverCommentToPaperclip(existing, access.module);
-        response.json({ comment: delivered ?? existing });
-      } catch (error) {
-        next(error);
-      }
-    },
-    listCommentNotifications: async (request, response, next) => {
-      if (!config.comments) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      const access = requireModuleAccess(response, undefined, requestModuleId(request));
-      if (!access) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      try {
-        const store = await config.comments.getDashboardComments(access.module.id);
-        const refreshedComments = await refreshOpenDashboardComments(store.comments);
-        response.json({
-          notifications: refreshedComments
-            .filter((comment): comment is DashboardCommentView => Boolean(comment))
-            .filter((comment) => (comment.status ?? "open") === "open")
-            .map((comment) => ({
-              id: comment.id,
-              sceneId: comment.sceneId,
-              text: comment.text,
-              status: comment.paperclipStatus,
-              paperclipSyncStatus: comment.paperclipSyncStatus,
-              paperclipIssueIdentifier: comment.paperclipIssueIdentifier,
-              paperclipError: comment.paperclipError,
-              paperclipReadyReport: comment.paperclipReadyReport ?? null,
-              paperclipThread: comment.paperclipThread ?? [],
-              updatedAt: comment.updatedAt
-            }))
-        });
-      } catch (error) {
-        next(error);
-      }
-    }
-  });
+  registerCommentRoutes(
+    app,
+    createCommentRouteHandlers({
+      ...(config.comments ? { comments: config.comments } : {}),
+      ...(config.protoComments ? { protoComments: config.protoComments } : {}),
+      ...(config.paperclip ? { paperclip: config.paperclip } : {}),
+      parseProtoCommentsBody: (body) => protoCommentsBodySchema.parse(body),
+      parseCreateCommentBody: (body) => createCommentBodySchema.parse(body),
+      parseUpdateCommentBody: (body) => updateCommentBodySchema.parse(body),
+      parseReworkCommentBody: (body) => reworkCommentBodySchema.parse(body),
+      requireModuleAccess,
+      deliverCommentToPaperclip,
+      refreshOpenDashboardComments,
+      addDashboardReworkComment,
+      buildPaperclipReworkComment,
+      createId: randomUUID,
+      now: () => new Date().toISOString()
+    })
+  );
 
   registerModuleAdminRoutes(app, {
     listModuleUsers: async (request, response, next) => {
@@ -3206,335 +2766,19 @@ export function createApp(
     }
   });
 
-  registerAttractionReportRoutes(app, {
-    getDashboard: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "dashboard",
-        handler: () => service.getDashboard(parseRangeRequest(request.query))
-      });
-    },
-    getSourceQualityConversionReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "source-quality-conversion",
-        handler: () =>
-          service.getSourceQualityConversionReport(parseRangeRequest(request.query))
-      });
-    },
-    getActivitiesWorkloadReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "activities-workload",
-        handler: () =>
-          service.getActivitiesWorkloadReport(parseRangeRequest(request.query))
-      });
-    },
-    getAcquisitionOutcomesReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "acquisition-outcomes",
-        handler: () =>
-          service.getAcquisitionOutcomesReport(parseRangeRequest(request.query))
-      });
-    },
-    getTargetGroupConversionReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "target-group-conversion",
-        handler: () =>
-          service.getTargetGroupConversionReport(parseRangeRequest(request.query))
-      });
-    },
-    getManagerActionOutcomeReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "manager-action-outcomes",
-        handler: () =>
-          service.getManagerActionOutcomeReport(parseRangeRequest(request.query))
-      });
-    },
-    getCallsWorkloadReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "calls-workload",
-        handler: () => service.getCallsWorkloadReport(parseRangeRequest(request.query))
-      });
-    },
-    getConversionEventsReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "conversion-events",
-        handler: () =>
-          service.getConversionEventsReport(parseRangeRequest(request.query))
-      });
-    },
-    getCohortConversionReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "cohort-conversion",
-        handler: () =>
-          service.getCohortConversionReport(parseRangeRequest(request.query))
-      });
-    },
-    getTocFlowReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "toc-flow",
-        handler: () => service.getTocFlowReport(parseRangeRequest(request.query))
-      });
-    },
-    getRevenueVelocityReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "revenue-velocity",
-        handler: () =>
-          service.getRevenueVelocityReport(parseRevenueVelocityRequest(request.query))
-      });
-    },
-    getUnitEconomicsReport: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "unit-economics",
-        handler: () =>
-          service.getUnitEconomicsReport(parseRangeRequest(request.query))
-      });
-    },
-    getMeta: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId: "attraction",
-        route: "meta",
-        handler: () => service.getMeta()
-      });
-    },
-    getSyncRuns: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      if (!service.getSyncRuns) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      try {
-        const query = syncRunHistoryQuerySchema.parse(request.query);
-        response.json(await service.getSyncRuns({ limit: query.limit }));
-      } catch (error) {
-        next(error);
-      }
-    },
-    getOntology: async (_request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      if (!service.getAttractionOntology) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      try {
-        response.json(await service.getAttractionOntology());
-      } catch (error) {
-        next(error);
-      }
-    },
-    getOntologySource: async (request, response, next) => {
-      if (denyIfMissingAttractionAccess(response)) {
-        return;
-      }
-
-      if (!service.getAttractionOntologySourceDocument) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      try {
-        response.json(
-          await service.getAttractionOntologySourceDocument(
-            requestRouteParam(request, "sourceId")
-          )
-        );
-      } catch (error) {
-        if (isOntologySourceLookupError(error)) {
-          response.status(404).json(createErrorResponse("NOT_FOUND"));
-          return;
-        }
-
-        next(error);
-      }
-    },
-    getModuleOntology: async (request, response, next) => {
-      const moduleId = requestModuleId(request);
-      if (moduleId !== "attraction") {
-        next("route");
-        return;
-      }
-
-      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      if (!service.getAttractionOntology) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      try {
-        response.json(await service.getAttractionOntology());
-      } catch (error) {
-        next(error);
-      }
-    },
-    getModuleOntologySource: async (request, response, next) => {
-      const moduleId = requestModuleId(request);
-      if (moduleId !== "attraction") {
-        next("route");
-        return;
-      }
-
-      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      if (!service.getAttractionOntologySourceDocument) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      try {
-        response.json(
-          await service.getAttractionOntologySourceDocument(
-            requestRouteParam(request, "sourceId")
-          )
-        );
-      } catch (error) {
-        if (isOntologySourceLookupError(error)) {
-          response.status(404).json(createErrorResponse("NOT_FOUND"));
-          return;
-        }
-
-        next(error);
-      }
-    },
-    getModuleMeta: async (request, response, next) => {
-      const moduleId = requestModuleId(request);
-      const moduleService = moduleServices.get(moduleId);
-      const getMeta = moduleService?.getMeta;
-      if (!getMeta) {
-        response.status(404).json(createErrorResponse("NOT_FOUND"));
-        return;
-      }
-
-      if (auth && !requireModuleAccess(response, undefined, moduleId)) {
-        response.status(403).json(createErrorResponse("FORBIDDEN"));
-        return;
-      }
-
-      await sendTimedJson({
-        request,
-        response,
-        next,
-        moduleId,
-        route: `${moduleId}.meta`,
-        handler: () => getMeta()
-      });
-    }
-  });
+  registerAttractionReportRoutes(
+    app,
+    createAttractionReportRouteHandlers({
+      service,
+      getModuleService: (moduleId) => moduleServices.get(moduleId),
+      authEnabled: Boolean(auth),
+      denyIfMissingAttractionAccess,
+      requireModuleAccess,
+      parseRangeRequest,
+      parseRevenueVelocityRequest,
+      sendTimedJson
+    })
+  );
 
   registerAttractionSettingsRoutes(app, {
     getSalesPlan: async (request, response, next) => {

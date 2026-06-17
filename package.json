@@ -2,6 +2,10 @@
   "name": "bitrix24-reporting-local",
   "private": true,
   "packageManager": "pnpm@10.9.0",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=10 <11"
+  },
   "scripts": {
     "prepare:local": "node ./scripts/prepare-local-dev.mjs",
     "ontology:validate": "node ./scripts/validate-attraction-ontology.mjs docs/modules/attraction/ontology/registry/attraction-ontology.json",

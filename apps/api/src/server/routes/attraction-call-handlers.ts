@@ -47,6 +47,16 @@ export interface CreateAttractionCallRouteHandlersInput {
   service: AttractionCallRouteService;
   callAnalysis?: CallAnalysisRunner;
   parseCallAnalysisQueueRequest(query: unknown): CallAnalysisQueueRequest;
+  scopeCallAnalysisQueueRequest?(
+    request: express.Request,
+    response: express.Response,
+    input: CallAnalysisQueueRequest
+  ): Promise<CallAnalysisQueueRequest>;
+  denyIfMissingCallAnalysisAccess?(
+    request: express.Request,
+    response: express.Response,
+    callId: string
+  ): Promise<boolean>;
   denyIfMissingAttractionAccess(response: express.Response): boolean;
 }
 
@@ -76,6 +86,8 @@ export function createAttractionCallRouteHandlers({
   service,
   callAnalysis,
   parseCallAnalysisQueueRequest,
+  scopeCallAnalysisQueueRequest,
+  denyIfMissingCallAnalysisAccess,
   denyIfMissingAttractionAccess
 }: CreateAttractionCallRouteHandlersInput): AttractionCallRouteHandlers {
   return {
@@ -91,9 +103,12 @@ export function createAttractionCallRouteHandlers({
       }
 
       try {
+        const input = parseCallAnalysisQueueRequest(request.query);
         response.json(
           await service.getCallAnalysisQueue(
-            parseCallAnalysisQueueRequest(request.query)
+            scopeCallAnalysisQueueRequest
+              ? await scopeCallAnalysisQueueRequest(request, response, input)
+              : input
           )
         );
       } catch (error) {
@@ -120,6 +135,12 @@ export function createAttractionCallRouteHandlers({
         const callId = callAnalysisCallIdSchema.parse(
           requestRouteParam(request, "callId")
         );
+        if (
+          denyIfMissingCallAnalysisAccess &&
+          (await denyIfMissingCallAnalysisAccess(request, response, callId))
+        ) {
+          return;
+        }
         response.json(
           await callAnalysis.analyzeCall({
             callId,
@@ -157,6 +178,12 @@ export function createAttractionCallRouteHandlers({
         const callId = callAnalysisCallIdSchema.parse(
           requestRouteParam(request, "callId")
         );
+        if (
+          denyIfMissingCallAnalysisAccess &&
+          (await denyIfMissingCallAnalysisAccess(request, response, callId))
+        ) {
+          return;
+        }
         const result = await callAnalysis.getCallAnalysisResult(callId);
         if (!result) {
           response.status(404).json(createErrorResponse("CALL_ANALYSIS_NOT_FOUND"));

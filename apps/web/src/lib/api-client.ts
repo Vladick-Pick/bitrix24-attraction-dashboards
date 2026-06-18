@@ -1178,8 +1178,21 @@ function normalizeManagerWhitelistSettings(value: unknown): ManagerWhitelistSett
         enabled: setting.enabled !== false,
         sortOrder: asNumber(setting.sortOrder),
         updatedAt: asString(setting.updatedAt),
+        teamId: asNullableString(setting.teamId),
+        teamName: asNullableString(setting.teamName),
       }
     }).filter((setting) => setting.managerId),
+    teams: asArray(data.teams, (entry) => {
+      const team = isRecord(entry) ? entry : {}
+
+      return {
+        id: asString(team.id),
+        name: asString(team.name, asString(team.id)),
+        managerIds: asArray(team.managerIds, (managerId) => asString(managerId)).filter(Boolean),
+        sortOrder: asNumber(team.sortOrder),
+        updatedAt: asString(team.updatedAt),
+      }
+    }).filter((team) => team.id && team.name),
   }
 }
 

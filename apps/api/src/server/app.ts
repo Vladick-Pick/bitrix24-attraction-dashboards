@@ -88,6 +88,11 @@ import {
 } from "./routes/platform-routes.js";
 import { registerSyncRoutes } from "./routes/sync-routes.js";
 import {
+  buildManagerTeams,
+  NO_ATTRACTION_MANAGER_MATCH_ID,
+  resolveAttractionManagerAccessScope
+} from "../domain/attraction-managers.js";
+import {
   type ModuleCapabilityAdapter,
   createAttractionCapabilityAdapter,
   createLeadgenCapabilityAdapter,
@@ -208,7 +213,11 @@ interface AppService {
   replaceManagerWhitelistSettings?(
     input: ManagerWhitelistSettingsInput
   ): Promise<ManagerWhitelistSettingsData>;
-  getMeta(): Promise<MetaResponse>;
+  isCallInAttractionManagerScope?(
+    callId: string,
+    managerIds: string[]
+  ): Promise<boolean>;
+  getMeta(input?: RangeRequest): Promise<MetaResponse>;
   getSyncRuns?(input?: { limit?: number }): Promise<SyncRunHistoryResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
@@ -226,7 +235,7 @@ interface ModuleService {
   getAttractionOntologySourceDocument?(
     sourceId: string
   ): Promise<OntologySourceDocumentResponse>;
-  getMeta?(): Promise<MetaResponse>;
+  getMeta?(input?: RangeRequest): Promise<MetaResponse>;
   performSync(input?: {
     onProgress?: (event: SyncProgressEvent) => void;
   }): Promise<ManualSyncSummary>;
@@ -667,7 +676,16 @@ const conversionEventTypeSettingsBodySchema = z.object({
 });
 
 const managerWhitelistSettingsBodySchema = z.object({
-  managerIds: z.array(z.string().trim().min(1))
+  managerIds: z.array(z.string().trim().min(1)),
+  teams: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).nullable().optional(),
+        name: z.string().trim().min(1),
+        managerIds: z.array(z.string().trim().min(1))
+      })
+    )
+    .optional()
 });
 
 const callAnalysisQueueQuerySchema = z.object({
@@ -1865,6 +1883,120 @@ export function createApp(
     return false;
   }
 
+  async function scopeAttractionRangeRequest<T extends RangeRequest>(
+    response: express.Response,
+    input: T
+  ): Promise<T> {
+    if (!auth) {
+      return input;
+    }
+
+    const access = requireModuleAccess(response, undefined, "attraction");
+    if (!access || access.session.user.isSuperAdmin || access.module.role === "leader") {
+      return input;
+    }
+
+    if (!service.getManagerWhitelistSettings) {
+      return addNoAttractionManagerMatchFilter(input);
+    }
+
+    const whitelist = await service.getManagerWhitelistSettings();
+    const allowedManagerIds = resolveAttractionManagerAccessScope({
+      settings: whitelist.settings,
+      defaultManagerId: access.module.defaultManagerId,
+      canSeeAllTeams: false
+    });
+    const allowedManagerIdSet = new Set(allowedManagerIds);
+    const requestedManagerIds = input.filters?.managerIds ?? [];
+    const scopedManagerIds =
+      requestedManagerIds.length > 0
+        ? requestedManagerIds.filter((managerId) => allowedManagerIdSet.has(managerId))
+        : allowedManagerIds;
+
+    if (scopedManagerIds.length === 0) {
+      return addNoAttractionManagerMatchFilter(input);
+    }
+
+    return {
+      ...input,
+      filters: {
+        ...(input.filters ?? {}),
+        managerIds: scopedManagerIds
+      }
+    };
+  }
+
+  function addNoAttractionManagerMatchFilter<T extends RangeRequest>(input: T): T {
+    return {
+      ...input,
+      filters: {
+        ...(input.filters ?? {}),
+        managerIds: [NO_ATTRACTION_MANAGER_MATCH_ID]
+      }
+    };
+  }
+
+  async function resolveAttractionAccessManagerIds(response: express.Response) {
+    if (!auth || !service.getManagerWhitelistSettings) {
+      return null;
+    }
+
+    const access = requireModuleAccess(response, undefined, "attraction");
+    if (!access || access.session.user.isSuperAdmin || access.module.role === "leader") {
+      return null;
+    }
+
+    const whitelist = await service.getManagerWhitelistSettings();
+    return resolveAttractionManagerAccessScope({
+      settings: whitelist.settings,
+      defaultManagerId: access.module.defaultManagerId,
+      canSeeAllTeams: false
+    });
+  }
+
+  async function denyIfMissingCallAnalysisAccess(
+    response: express.Response,
+    callId: string
+  ) {
+    const allowedManagerIds = await resolveAttractionAccessManagerIds(response);
+    if (!allowedManagerIds) {
+      return false;
+    }
+    if (!service.isCallInAttractionManagerScope) {
+      response.status(403).json(createErrorResponse("FORBIDDEN"));
+      return true;
+    }
+
+    const allowed = await service.isCallInAttractionManagerScope(callId, allowedManagerIds);
+    if (allowed) {
+      return false;
+    }
+
+    response.status(403).json(createErrorResponse("FORBIDDEN"));
+    return true;
+  }
+
+  async function scopeManagerWhitelistSettingsResponse(
+    response: express.Response,
+    data: ManagerWhitelistSettingsData
+  ): Promise<ManagerWhitelistSettingsData> {
+    const allowedManagerIds = await resolveAttractionAccessManagerIds(response);
+    if (!allowedManagerIds) {
+      return data;
+    }
+
+    const allowedManagerIdSet = new Set(allowedManagerIds);
+    const settings = data.settings.filter((setting) =>
+      allowedManagerIdSet.has(setting.managerId)
+    );
+    return {
+      ...data,
+      options: data.options.filter((manager) => allowedManagerIdSet.has(manager.id)),
+      settings,
+      teams: buildManagerTeams(settings)
+    };
+  }
+
   async function runSyncRequest(input: {
     request: express.Request;
     response: express.Response;
@@ -2306,6 +2438,10 @@ export function createApp(
       service,
       ...(config.callAnalysis ? { callAnalysis: config.callAnalysis } : {}),
       parseCallAnalysisQueueRequest,
+      scopeCallAnalysisQueueRequest: (_request, response, input) =>
+        scopeAttractionRangeRequest(response, input),
+      denyIfMissingCallAnalysisAccess: (_request, response, callId) =>
+        denyIfMissingCallAnalysisAccess(response, callId),
       denyIfMissingAttractionAccess
     })
   );
@@ -2780,6 +2916,10 @@ export function createApp(
       requireModuleAccess,
       parseRangeRequest,
       parseRevenueVelocityRequest,
+      scopeRangeRequest: (_request, response, input) =>
+        scopeAttractionRangeRequest(response, input),
+      scopeRevenueVelocityRequest: (_request, response, input) =>
+        scopeAttractionRangeRequest(response, input),
       sendTimedJson
     })
   );
@@ -2970,7 +3110,12 @@ export function createApp(
       }
 
       try {
-        response.json(await service.getManagerWhitelistSettings());
+        response.json(
+          await scopeManagerWhitelistSettingsResponse(
+            response,
+            await service.getManagerWhitelistSettings()
+          )
+        );
       } catch (error) {
         next(error);
       }
@@ -2987,11 +3132,23 @@ export function createApp(
 
       try {
         const payload = managerWhitelistSettingsBodySchema.parse(request.body);
-        const result = await service.replaceManagerWhitelistSettings(payload);
+        const managerWhitelistInput: ManagerWhitelistSettingsInput = {
+          managerIds: payload.managerIds,
+          ...(payload.teams !== undefined
+            ? {
+                teams: payload.teams.map((team) => ({
+                  name: team.name,
+                  managerIds: team.managerIds,
+                  ...(team.id !== undefined ? { id: team.id } : {})
+                }))
+              }
+            : {})
+        };
+        const result = await service.replaceManagerWhitelistSettings(managerWhitelistInput);
         if (config.authStore) {
           await config.authStore.clearModuleDefaultManagersExcept({
             moduleId: "attraction",
-            managerIds: payload.managerIds
+            managerIds: managerWhitelistInput.managerIds
           });
         }
         response.json(result);

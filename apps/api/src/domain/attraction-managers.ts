@@ -1,4 +1,9 @@
-import type { ManagerDirectoryEntry, ReportFilters } from "@bitrix24-reporting/contracts";
+import type {
+  ManagerDirectoryEntry,
+  ManagerTeamSetting,
+  ManagerWhitelistSetting,
+  ReportFilters
+} from "@bitrix24-reporting/contracts";
 
 export const ATTRACTION_MANAGER_CATALOG = [
   { id: "78", name: "Егоров Андрей" },
@@ -19,7 +24,7 @@ export const ATTRACTION_MANAGER_IDS = ATTRACTION_MANAGER_CATALOG.map(
 const attractionManagerOrder = new Map(
   ATTRACTION_MANAGER_IDS.map((id, index) => [id, index])
 );
-const NO_ATTRACTION_MANAGER_MATCH_ID = "__NO_ATTRACTION_MANAGER_MATCH__";
+export const NO_ATTRACTION_MANAGER_MATCH_ID = "__NO_ATTRACTION_MANAGER_MATCH__";
 
 export function normalizeAttractionManagerFilters(
   filters: ReportFilters | undefined,
@@ -42,6 +47,76 @@ export function normalizeAttractionManagerFilters(
           : [NO_ATTRACTION_MANAGER_MATCH_ID]
         : effectiveManagerIds
   };
+}
+
+export function resolveAttractionManagerAccessScope(input: {
+  settings: ManagerWhitelistSetting[];
+  defaultManagerId: string | null | undefined;
+  canSeeAllTeams: boolean;
+}) {
+  const enabledSettings = input.settings
+    .filter((setting) => setting.enabled)
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+
+  if (input.canSeeAllTeams) {
+    return enabledSettings.map((setting) => setting.managerId);
+  }
+
+  const defaultManagerId = input.defaultManagerId?.trim();
+  if (!defaultManagerId) {
+    return [];
+  }
+
+  const ownSetting = enabledSettings.find(
+    (setting) => setting.managerId === defaultManagerId
+  );
+  const teamId = ownSetting?.teamId?.trim();
+
+  if (!ownSetting || !teamId) {
+    return ownSetting ? [ownSetting.managerId] : [];
+  }
+
+  return enabledSettings
+    .filter((setting) => setting.teamId === teamId)
+    .map((setting) => setting.managerId);
+}
+
+export function buildManagerTeams(
+  settings: ManagerWhitelistSetting[]
+): ManagerTeamSetting[] {
+  const teams = new Map<string, ManagerTeamSetting>();
+
+  for (const setting of [...settings].sort(
+    (left, right) => left.sortOrder - right.sortOrder
+  )) {
+    const teamId = setting.teamId?.trim();
+    const teamName = setting.teamName?.trim();
+    if (!setting.enabled || !teamId || !teamName) {
+      continue;
+    }
+
+    const existing = teams.get(teamId);
+    if (existing) {
+      existing.managerIds.push(setting.managerId);
+      existing.sortOrder = Math.min(existing.sortOrder, setting.sortOrder);
+      if (setting.updatedAt > existing.updatedAt) {
+        existing.updatedAt = setting.updatedAt;
+      }
+      continue;
+    }
+
+    teams.set(teamId, {
+      id: teamId,
+      name: teamName,
+      managerIds: [setting.managerId],
+      sortOrder: setting.sortOrder,
+      updatedAt: setting.updatedAt
+    });
+  }
+
+  return Array.from(teams.values()).sort(
+    (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "ru")
+  );
 }
 
 export function sortAttractionManagers(rows: ManagerDirectoryEntry[]) {

@@ -43,14 +43,14 @@ export interface AttractionReportRouteService {
   getTocFlowReport(input: RangeRequest): Promise<unknown>;
   getRevenueVelocityReport(input: RevenueVelocityRequest): Promise<unknown>;
   getUnitEconomicsReport(input: RangeRequest): Promise<unknown>;
-  getMeta(): Promise<unknown>;
+  getMeta(input?: RangeRequest): Promise<unknown>;
   getSyncRuns?(input?: { limit?: number }): Promise<unknown>;
   getAttractionOntology?(): Promise<unknown>;
   getAttractionOntologySourceDocument?(sourceId: string): Promise<unknown>;
 }
 
 export interface ModuleReportRouteService {
-  getMeta?(): Promise<unknown>;
+  getMeta?(input?: RangeRequest): Promise<unknown>;
 }
 
 export type SendTimedJson = <T>(input: {
@@ -74,6 +74,16 @@ export interface CreateAttractionReportRouteHandlersInput {
   ): unknown | null;
   parseRangeRequest(query: unknown): RangeRequest;
   parseRevenueVelocityRequest(query: unknown): RevenueVelocityRequest;
+  scopeRangeRequest?(
+    request: express.Request,
+    response: express.Response,
+    input: RangeRequest
+  ): Promise<RangeRequest>;
+  scopeRevenueVelocityRequest?(
+    request: express.Request,
+    response: express.Response,
+    input: RevenueVelocityRequest
+  ): Promise<RevenueVelocityRequest>;
   sendTimedJson: SendTimedJson;
 }
 
@@ -120,8 +130,28 @@ export function createAttractionReportRouteHandlers({
   requireModuleAccess,
   parseRangeRequest,
   parseRevenueVelocityRequest,
+  scopeRangeRequest,
+  scopeRevenueVelocityRequest,
   sendTimedJson
 }: CreateAttractionReportRouteHandlersInput): AttractionReportRouteHandlers {
+  const parseScopedRangeRequest = async (
+    request: express.Request,
+    response: express.Response
+  ) => {
+    const input = parseRangeRequest(request.query);
+    return scopeRangeRequest ? scopeRangeRequest(request, response, input) : input;
+  };
+
+  const parseScopedRevenueVelocityRequest = async (
+    request: express.Request,
+    response: express.Response
+  ) => {
+    const input = parseRevenueVelocityRequest(request.query);
+    return scopeRevenueVelocityRequest
+      ? scopeRevenueVelocityRequest(request, response, input)
+      : input;
+  };
+
   return {
     getDashboard: async (request, response, next) => {
       if (denyIfMissingAttractionAccess(response)) {
@@ -134,7 +164,8 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "dashboard",
-        handler: () => service.getDashboard(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getDashboard(await parseScopedRangeRequest(request, response))
       });
     },
     getSourceQualityConversionReport: async (request, response, next) => {
@@ -148,8 +179,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "source-quality-conversion",
-        handler: () =>
-          service.getSourceQualityConversionReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getSourceQualityConversionReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getActivitiesWorkloadReport: async (request, response, next) => {
@@ -163,8 +196,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "activities-workload",
-        handler: () =>
-          service.getActivitiesWorkloadReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getActivitiesWorkloadReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getAcquisitionOutcomesReport: async (request, response, next) => {
@@ -178,8 +213,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "acquisition-outcomes",
-        handler: () =>
-          service.getAcquisitionOutcomesReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getAcquisitionOutcomesReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getTargetGroupConversionReport: async (request, response, next) => {
@@ -193,8 +230,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "target-group-conversion",
-        handler: () =>
-          service.getTargetGroupConversionReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getTargetGroupConversionReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getManagerActionOutcomeReport: async (request, response, next) => {
@@ -208,8 +247,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "manager-action-outcomes",
-        handler: () =>
-          service.getManagerActionOutcomeReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getManagerActionOutcomeReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getCallsWorkloadReport: async (request, response, next) => {
@@ -223,7 +264,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "calls-workload",
-        handler: () => service.getCallsWorkloadReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getCallsWorkloadReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getConversionEventsReport: async (request, response, next) => {
@@ -237,8 +281,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "conversion-events",
-        handler: () =>
-          service.getConversionEventsReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getConversionEventsReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getCohortConversionReport: async (request, response, next) => {
@@ -252,8 +298,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "cohort-conversion",
-        handler: () =>
-          service.getCohortConversionReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getCohortConversionReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getTocFlowReport: async (request, response, next) => {
@@ -267,7 +315,8 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "toc-flow",
-        handler: () => service.getTocFlowReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getTocFlowReport(await parseScopedRangeRequest(request, response))
       });
     },
     getRevenueVelocityReport: async (request, response, next) => {
@@ -281,8 +330,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "revenue-velocity",
-        handler: () =>
-          service.getRevenueVelocityReport(parseRevenueVelocityRequest(request.query))
+        handler: async () =>
+          service.getRevenueVelocityReport(
+            await parseScopedRevenueVelocityRequest(request, response)
+          )
       });
     },
     getUnitEconomicsReport: async (request, response, next) => {
@@ -296,8 +347,10 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "unit-economics",
-        handler: () =>
-          service.getUnitEconomicsReport(parseRangeRequest(request.query))
+        handler: async () =>
+          service.getUnitEconomicsReport(
+            await parseScopedRangeRequest(request, response)
+          )
       });
     },
     getMeta: async (request, response, next) => {
@@ -311,7 +364,12 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId: "attraction",
         route: "meta",
-        handler: () => service.getMeta()
+        handler: async () =>
+          service.getMeta(
+            scopeRangeRequest
+              ? await scopeRangeRequest(request, response, {})
+              : undefined
+          )
       });
     },
     getSyncRuns: async (request, response, next) => {
@@ -447,7 +505,12 @@ export function createAttractionReportRouteHandlers({
         next,
         moduleId,
         route: `${moduleId}.meta`,
-        handler: () => getMeta()
+        handler: async () =>
+          getMeta(
+            moduleId === "attraction" && scopeRangeRequest
+              ? await scopeRangeRequest(request, response, {})
+              : undefined
+          )
       });
     }
   };

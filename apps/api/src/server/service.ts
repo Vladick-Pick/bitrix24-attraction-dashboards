@@ -74,6 +74,7 @@ import {
 } from "../domain/operational-reports.js";
 import {
   ATTRACTION_MANAGER_CATALOG,
+  buildManagerTeams,
   normalizeAttractionManagerFilters,
   sortAttractionManagers
 } from "../domain/attraction-managers.js";
@@ -277,7 +278,11 @@ export interface ReportingService {
   replaceManagerWhitelistSettings(
     input: ManagerWhitelistSettingsInput
   ): Promise<ManagerWhitelistSettingsData>;
-  getMeta(): Promise<{
+  isCallInAttractionManagerScope(
+    callId: string,
+    managerIds: string[]
+  ): Promise<boolean>;
+  getMeta(input?: { filters?: ReportFilters }): Promise<{
     stageCatalog: StageCatalogEntry[];
     managerCatalog: ManagerDirectoryEntry[];
     sourceCatalog: SourceCatalogEntry[];
@@ -1156,7 +1161,8 @@ export function createReportingService(
 
       return {
         options: sortAttractionManagers(sortManagers(Array.from(optionsById.values()))),
-        settings
+        settings,
+        teams: buildManagerTeams(settings)
       };
   };
 
@@ -1969,6 +1975,9 @@ export function createReportingService(
       await input.repository.replaceManagerWhitelistSettings({
         moduleKey: "attraction",
         managerIds: selectedIds,
+        ...(settingsInput.teams !== undefined
+          ? { teams: settingsInput.teams }
+          : {}),
         updatedAt: nowFactory().toISOString()
       });
 
@@ -2708,6 +2717,35 @@ export function createReportingService(
       };
     },
 
+    async isCallInAttractionManagerScope(callId, managerIds) {
+      const managerIdSet = new Set(managerIds);
+      if (managerIdSet.size === 0) {
+        return false;
+      }
+
+      const [calls, activities, deals] = await Promise.all([
+        input.repository.getAllCalls(),
+        input.repository.getAllActivities(),
+        input.repository.getAllDeals()
+      ]);
+      const call = calls.find((row) => row.id === callId);
+      if (!call) {
+        return false;
+      }
+
+      const activity = call.crmActivityId
+        ? activities.find((row) => row.id === call.crmActivityId) ?? null
+        : null;
+      const dealId = resolveCallDealId(call, activity);
+      const deal = dealId ? deals.find((row) => row.id === dealId) ?? null : null;
+      if (!deal || !allowedCategoryIds.has(normalizeCategoryId(deal.categoryId))) {
+        return false;
+      }
+
+      const managerId = resolveCallManagerId(call, activity, deal);
+      return Boolean(managerId && managerIdSet.has(managerId));
+    },
+
     async getConversionEventsReport({
       periodDays,
       range,
@@ -3142,8 +3180,8 @@ export function createReportingService(
       return loadAttractionOntologySourceDocument({ sourceId });
     },
 
-    async getMeta() {
-      const managerScope = await getAttractionManagerScope();
+    async getMeta(metaInput = {}) {
+      const managerScope = metaInput.filters?.managerIds ?? await getAttractionManagerScope();
       const scopeKey = buildCategoryScopeKey(input.dealCategoryIds, managerScope);
       const [deals, stageCatalog, wonStageIds, lastSync, snapshotStats] =
         await Promise.all([

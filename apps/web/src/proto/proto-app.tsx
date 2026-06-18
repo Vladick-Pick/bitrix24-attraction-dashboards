@@ -53,7 +53,11 @@ import {
   mapCohortSceneData,
   mapTocFlowSceneData,
 } from '@/proto/live-reporting'
-import { ModuleSettingsPanel } from '@/proto/module-settings-panel'
+import {
+  createEmptyManagerWhitelistDraftState,
+  ModuleSettingsPanel,
+} from '@/proto/module-settings-panel'
+import type { ManagerWhitelistDraftState } from '@/proto/module-settings-panel'
 import type {
   CompareRange,
   AuthUser,
@@ -151,6 +155,7 @@ type LeadgenWorkloadData = {
 type LeadgenLoadStatus = 'idle' | 'loading' | 'error'
 
 type ProtoRoute = 'dashboard' | 'calls' | 'account' | 'ontology' | 'playbook'
+type AccountTab = 'profile' | 'module' | 'settings' | 'users'
 type SceneLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 type AttractionSceneLoadKey =
   | 'sales'
@@ -797,6 +802,16 @@ function buildWhitelistedManagerOptions(
     }))
 }
 
+const MANAGER_TEAM_FILTER_PREFIX = 'team:'
+const MANAGER_ALL_TEAMS_FILTER_ID = `${MANAGER_TEAM_FILTER_PREFIX}__all__`
+
+type ManagerTeamFilterOption = {
+  id: string
+  name: string
+  managerIds: string[]
+  sortOrder: number
+}
+
 function shiftDateInputValue(value: string, days: number) {
   const date = new Date(`${value}T12:00:00`)
   date.setDate(date.getDate() + days)
@@ -829,17 +844,231 @@ function cloneFilters(filters: ProtoFilterState): ProtoFilterState {
   }
 }
 
+function getUserModule(user: AuthUser | null | undefined, moduleId = 'attraction') {
+  return (
+    user?.modules.find((item) => item.id === moduleId) ??
+    user?.modules.find((item) => item.id === 'attraction' || item.slug === 'attraction') ??
+    null
+  )
+}
+
 function getDefaultManagerIdForModule(
   user: AuthUser | null | undefined,
   moduleId = 'attraction',
 ) {
-  const module =
-    user?.modules.find((item) => item.id === moduleId) ??
-    user?.modules.find((item) => item.id === 'attraction' || item.slug === 'attraction') ??
-    null
+  const module = getUserModule(user, moduleId)
   const defaultManagerId = module?.defaultManagerId?.trim()
 
   return defaultManagerId || null
+}
+
+function canSeeAllManagerTeams(
+  user: AuthUser | null | undefined,
+  moduleId = 'attraction',
+) {
+  if (!user) {
+    return true
+  }
+
+  const module = getUserModule(user, moduleId)
+
+  return user?.isSuperAdmin === true || module?.role === 'leader'
+}
+
+function sameStringSet(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  const rightSet = new Set(right)
+  return left.every((item) => rightSet.has(item))
+}
+
+function getEnabledWhitelistManagerIds(
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
+) {
+  return (managerWhitelistSettings?.settings ?? [])
+    .filter((setting) => setting.enabled)
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((setting) => setting.managerId)
+}
+
+function getConfiguredManagerTeams(
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
+): ManagerTeamFilterOption[] {
+  const enabledManagerIds = new Set(getEnabledWhitelistManagerIds(managerWhitelistSettings))
+  const savedTeams = (managerWhitelistSettings?.teams ?? [])
+    .map((team) => ({
+      id: team.id,
+      name: team.name,
+      managerIds: team.managerIds.filter((managerId) => enabledManagerIds.has(managerId)),
+      sortOrder: team.sortOrder,
+    }))
+    .filter((team) => team.id && team.name && team.managerIds.length > 0)
+
+  if (savedTeams.length > 0) {
+    return savedTeams.sort(
+      (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name),
+    )
+  }
+
+  const teams = new Map<string, ManagerTeamFilterOption>()
+  for (const setting of managerWhitelistSettings?.settings ?? []) {
+    if (!setting.enabled || !setting.teamId || !setting.teamName) {
+      continue
+    }
+
+    const existing = teams.get(setting.teamId)
+    if (existing) {
+      existing.managerIds.push(setting.managerId)
+      existing.sortOrder = Math.min(existing.sortOrder, setting.sortOrder)
+      continue
+    }
+
+    teams.set(setting.teamId, {
+      id: setting.teamId,
+      name: setting.teamName,
+      managerIds: [setting.managerId],
+      sortOrder: setting.sortOrder,
+    })
+  }
+
+  return Array.from(teams.values()).sort(
+    (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name),
+  )
+}
+
+function getAllowedManagerIdsForUser(
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
+  user: AuthUser | null | undefined,
+  moduleId = 'attraction',
+) {
+  const enabledManagerIds = getEnabledWhitelistManagerIds(managerWhitelistSettings)
+  if (canSeeAllManagerTeams(user, moduleId)) {
+    return enabledManagerIds
+  }
+
+  const defaultManagerId = getDefaultManagerIdForModule(user, moduleId)
+  if (!defaultManagerId) {
+    return []
+  }
+
+  const ownTeam = getConfiguredManagerTeams(managerWhitelistSettings).find((team) =>
+    team.managerIds.includes(defaultManagerId),
+  )
+  if (ownTeam) {
+    return ownTeam.managerIds
+  }
+
+  return enabledManagerIds.includes(defaultManagerId) ? [defaultManagerId] : []
+}
+
+function buildManagerScopePickerOptions(input: {
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings']
+  fallbackOptions: PickerOption[]
+  user: AuthUser | null | undefined
+  moduleId: string
+  moduleSlug: string
+}) {
+  if (input.moduleSlug !== 'attraction') {
+    return input.fallbackOptions
+  }
+
+  const canSeeAllTeams = canSeeAllManagerTeams(input.user, input.moduleId)
+  if (!input.managerWhitelistSettings) {
+    if (canSeeAllTeams) {
+      return input.fallbackOptions
+    }
+
+    const defaultManagerId = getDefaultManagerIdForModule(input.user, input.moduleId)
+    return defaultManagerId
+      ? input.fallbackOptions.filter((option) => option.id === defaultManagerId)
+      : []
+  }
+
+  const allowedManagerIds = new Set(
+    getAllowedManagerIdsForUser(
+      input.managerWhitelistSettings,
+      input.user,
+      input.moduleId,
+    ),
+  )
+  const managerOptions = buildWhitelistedManagerOptions(input.managerWhitelistSettings).filter(
+    (option) => allowedManagerIds.has(option.id),
+  )
+  const teamOptions = getConfiguredManagerTeams(input.managerWhitelistSettings)
+    .filter((team) => team.managerIds.some((managerId) => allowedManagerIds.has(managerId)))
+    .map((team) => ({
+      id: `${MANAGER_TEAM_FILTER_PREFIX}${team.id}`,
+      label: team.name,
+      meta: 'Команда',
+    }))
+
+  return [
+    ...(canSeeAllTeams && teamOptions.length > 0
+      ? [{ id: MANAGER_ALL_TEAMS_FILTER_ID, label: 'Все команды', meta: 'Команды' }]
+      : []),
+    ...teamOptions,
+    ...managerOptions,
+  ]
+}
+
+function resolveManagerScopeOptionManagerIds(
+  optionId: string,
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
+) {
+  if (optionId === MANAGER_ALL_TEAMS_FILTER_ID) {
+    return []
+  }
+
+  if (!optionId.startsWith(MANAGER_TEAM_FILTER_PREFIX)) {
+    return null
+  }
+
+  const teamId = optionId.slice(MANAGER_TEAM_FILTER_PREFIX.length)
+  const team = getConfiguredManagerTeams(managerWhitelistSettings).find(
+    (item) => item.id === teamId,
+  )
+
+  return team?.managerIds ?? null
+}
+
+function isManagerScopeOptionSelected(
+  optionId: string,
+  selectedManagerIds: string[],
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
+) {
+  const teamManagerIds = resolveManagerScopeOptionManagerIds(optionId, managerWhitelistSettings)
+
+  if (teamManagerIds !== null) {
+    return sameStringSet(selectedManagerIds, teamManagerIds)
+  }
+
+  return selectedManagerIds.includes(optionId)
+}
+
+function summarizeManagerScopeSelection(input: {
+  selectedManagerIds: string[]
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings']
+  options: PickerOption[]
+  fallback: string
+}) {
+  if (input.selectedManagerIds.length === 0) {
+    return input.fallback
+  }
+
+  const selectedTeam = getConfiguredManagerTeams(input.managerWhitelistSettings).find((team) =>
+    sameStringSet(input.selectedManagerIds, team.managerIds),
+  )
+  if (selectedTeam) {
+    return selectedTeam.name
+  }
+
+  return summarizeSelection(
+    input.selectedManagerIds,
+    input.options.filter((option) => !option.id.startsWith(MANAGER_TEAM_FILTER_PREFIX)),
+    input.fallback,
+  )
 }
 
 function createDefaultFiltersForUser(
@@ -981,6 +1210,8 @@ function MultiSelectField({
   options,
   selected,
   onToggle,
+  summary,
+  isOptionSelected,
 }: {
   label: string
   placeholder: string
@@ -988,9 +1219,11 @@ function MultiSelectField({
   options: PickerOption[]
   selected: string[]
   onToggle: (value: string) => void
+  summary?: string
+  isOptionSelected?: (option: PickerOption) => boolean
 }) {
   const [open, setOpen] = useState(false)
-  const summary = summarizeSelection(selected, options, emptyLabel)
+  const fieldSummary = summary ?? summarizeSelection(selected, options, emptyLabel)
 
   return (
     <div className="space-y-1.5">
@@ -998,7 +1231,7 @@ function MultiSelectField({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button type="button" className="field flex items-center justify-between text-left" aria-label={label}>
-            <span className="truncate">{summary}</span>
+            <span className="truncate">{fieldSummary}</span>
             <span className="text-slate-400">{open ? '−' : '+'}</span>
           </button>
         </PopoverTrigger>
@@ -1016,7 +1249,7 @@ function MultiSelectField({
                   <CommandItem
                     key={option.id}
                     value={`${option.label} ${option.meta}`}
-                    data-checked={selected.includes(option.id)}
+                    data-checked={isOptionSelected ? isOptionSelected(option) : selected.includes(option.id)}
                     className="cursor-pointer"
                     onSelect={() => onToggle(option.id)}
                   >
@@ -1443,6 +1676,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [activeModuleId, setActiveModuleId] = useState(initialModuleId)
   const [accountStatus, setAccountStatus] = useState<'idle' | 'saving' | 'error'>('idle')
   const [accountMessage, setAccountMessage] = useState<string | null>(null)
+  const [activeAccountTab, setActiveAccountTab] = useState<AccountTab>('settings')
   const [profileDraft, setProfileDraft] = useState({
     firstName: currentUser?.firstName ?? '',
     lastName: currentUser?.lastName ?? '',
@@ -1503,6 +1737,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const [managerWhitelistSettingsSaving, setManagerWhitelistSettingsSaving] = useState(false)
   const [managerWhitelistSettingsSaveError, setManagerWhitelistSettingsSaveError] = useState<string | null>(null)
   const [managerWhitelistSettingsNotice, setManagerWhitelistSettingsNotice] = useState<string | null>(null)
+  const [managerWhitelistDraft, setManagerWhitelistDraft] =
+    useState<ManagerWhitelistDraftState>(createEmptyManagerWhitelistDraftState)
   const [commentNotifications, setCommentNotifications] = useState<CommentNotification[]>([])
   const [readCommentNotificationKeys, setReadCommentNotificationKeys] = useState<Set<string>>(
     () => readStoredCommentNotificationKeys(),
@@ -1655,13 +1891,25 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     }
   }, [activeModuleId, availableModules])
 
+  useEffect(() => {
+    setManagerWhitelistDraft(createEmptyManagerWhitelistDraftState())
+  }, [activeModuleId])
+
   const canArchiveComments =
     activeModule?.permissions.includes('comments:archive') === true
   const canManageModuleUsers =
     activeModule?.permissions.includes('module-users:manage') === true
   const canManageModuleSettings = canManageModuleUsers || accountUser?.isSuperAdmin === true
+  const canSeeAccountUsersTab =
+    canManageModuleSettings || accountUser?.isSuperAdmin === true
   const platformModules = platformAccess?.modules ?? []
   const platformUsers = platformAccess?.users ?? []
+
+  useEffect(() => {
+    if (activeAccountTab === 'users' && !canSeeAccountUsersTab) {
+      setActiveAccountTab('settings')
+    }
+  }, [activeAccountTab, canSeeAccountUsersTab])
 
   const switchModule = useCallback((moduleId: string) => {
     setActiveModuleId(moduleId)
@@ -1800,6 +2048,42 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   const defaultManagerOptions = hasManagerWhitelistSettings
     ? whitelistedManagerOptions
     : availableManagerOptions
+  const managerScopeOptions = useMemo(
+    () =>
+      buildManagerScopePickerOptions({
+        managerWhitelistSettings: runtimeData.managerWhitelistSettings,
+        fallbackOptions: availableManagerOptions,
+        user: accountUser,
+        moduleId: activeModuleId,
+        moduleSlug: activeModuleSlug,
+      }),
+    [
+      accountUser,
+      activeModuleId,
+      activeModuleSlug,
+      availableManagerOptions,
+      runtimeData.managerWhitelistSettings,
+    ],
+  )
+  const visibleManagerOptions = useMemo(
+    () =>
+      managerScopeOptions.filter(
+        (option) => !option.id.startsWith(MANAGER_TEAM_FILTER_PREFIX),
+      ),
+    [managerScopeOptions],
+  )
+  const managerFilterEmptyLabel =
+    activeModuleSlug === 'attraction' && hasManagerWhitelistSettings
+      ? canSeeAllManagerTeams(accountUser, activeModuleId)
+        ? 'Все команды'
+        : 'Вся команда'
+      : 'Все менеджеры'
+  const managerFilterSummary = summarizeManagerScopeSelection({
+    selectedManagerIds: filters.managers,
+    managerWhitelistSettings: runtimeData.managerWhitelistSettings,
+    options: managerScopeOptions,
+    fallback: managerFilterEmptyLabel,
+  })
   const visibleLeadgenWorkload =
     leadgenWorkloadFilterKey === leadgenWorkloadRequestKey ? leadgenWorkload : null
   const isReportLoading = isLeadgenModule
@@ -2791,6 +3075,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         managerWhitelistSettings: saved,
         managerOptions: managerOptionsFromSettings,
       }))
+      setManagerWhitelistDraft(createEmptyManagerWhitelistDraftState())
       setFilters(keepAllowedManagers)
       setAppliedFilters(keepAllowedManagers)
       const syncNotice = 'Вайтлист менеджеров изменен. Нужна синхронизация данных.'
@@ -2823,6 +3108,23 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
         ? current[key].filter((item) => item !== value)
         : [...current[key], value],
     }))
+  }
+
+  function toggleManagerFilterValue(value: string) {
+    const managerIds = resolveManagerScopeOptionManagerIds(
+      value,
+      runtimeData.managerWhitelistSettings,
+    )
+
+    if (managerIds !== null) {
+      setFilters((current) => ({
+        ...current,
+        managers: sameStringSet(current.managers, managerIds) ? [] : managerIds,
+      }))
+      return
+    }
+
+    toggleFilterValue('managers', value)
   }
 
   function addCompareRange() {
@@ -3251,6 +3553,33 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
   }
 
   if (route === 'account') {
+    const accountTabs: Array<{ id: AccountTab; label: string; description: string }> = [
+      {
+        id: 'profile',
+        label: 'Профиль',
+        description: 'Имя, логин и пароль',
+      },
+      {
+        id: 'module',
+        label: 'Модуль',
+        description: 'Роль и права',
+      },
+      {
+        id: 'settings',
+        label: 'Настройки',
+        description: 'Цены, команды, события и расходы',
+      },
+      ...(canSeeAccountUsersTab
+        ? [
+            {
+              id: 'users' as const,
+              label: 'Пользователи',
+              description: 'Сотрудники и доступы',
+            },
+          ]
+        : []),
+    ]
+
     return (
       <main className="px-4 py-6 md:px-8 md:py-8">
         <div className="mx-auto flex w-full max-w-[1420px] flex-col gap-6">
@@ -3290,498 +3619,554 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             </div>
           ) : null}
 
-          <section className="panel grid gap-4 p-5">
-            <div>
-              <div className="subtle-label">Профиль</div>
-              <h2 className="mt-1 text-xl font-bold text-slate-900">Имя и вход</h2>
+          <nav className="panel p-3" aria-label="Разделы личного кабинета">
+            <div className="flex flex-wrap gap-2" role="tablist">
+              {accountTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeAccountTab === tab.id}
+                  aria-controls={`account-tab-${tab.id}`}
+                  className={cn(
+                    'tab-chip text-left',
+                    activeAccountTab === tab.id && 'tab-chip-active',
+                  )}
+                  onClick={() => setActiveAccountTab(tab.id)}
+                >
+                  <span className="block">{tab.label}</span>
+                  <span className="mt-0.5 block text-[0.68rem] font-semibold opacity-75">
+                    {tab.description}
+                  </span>
+                </button>
+              ))}
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="space-y-1.5">
-                <span className="subtle-label">Имя</span>
-                <input
-                  className="field"
-                  value={profileDraft.firstName}
-                  onChange={(event) =>
-                    setProfileDraft((current) => ({
-                      ...current,
-                      firstName: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="subtle-label">Фамилия</span>
-                <input
-                  className="field"
-                  value={profileDraft.lastName}
-                  onChange={(event) =>
-                    setProfileDraft((current) => ({
-                      ...current,
-                      lastName: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <div className="subtle-label">Логин для входа</div>
-              <div className="mt-1 font-semibold text-slate-900">
-                {accountUser?.login ?? 'Нет активной сессии'}
-              </div>
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary w-fit"
-              onClick={() => void handleSaveProfile()}
-              disabled={accountStatus === 'saving' || !accountUser}
-            >
-              Сохранить профиль
-            </button>
-          </section>
+          </nav>
 
-          <section className="panel grid gap-4 p-5">
-            <div>
-              <div className="subtle-label">Пароль</div>
-              <h2 className="mt-1 text-xl font-bold text-slate-900">Смена пароля</h2>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <input
-                className="field"
-                type="password"
-                placeholder="текущий пароль"
-                value={passwordDraft.currentPassword}
-                onChange={(event) =>
-                  setPasswordDraft((current) => ({
-                    ...current,
-                    currentPassword: event.target.value,
-                  }))
-                }
-              />
-              <input
-                className="field"
-                type="password"
-                placeholder="новый пароль"
-                value={passwordDraft.newPassword}
-                onChange={(event) =>
-                  setPasswordDraft((current) => ({
-                    ...current,
-                    newPassword: event.target.value,
-                  }))
-                }
-              />
-            </div>
-            <button
-              type="button"
-              className="btn btn-ghost w-fit"
-              onClick={() => void handleChangePassword()}
-              disabled={accountStatus === 'saving' || !passwordDraft.currentPassword}
-            >
-              Сменить пароль
-            </button>
-          </section>
-
-          <section className="panel grid gap-4 p-5">
-            <div>
-              <div className="subtle-label">Модуль</div>
-              <h2 className="mt-1 text-xl font-bold text-slate-900">
-                {activeModule?.name ?? 'Привлечение'}
-              </h2>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <div className="subtle-label">Роль</div>
-                <div className="mt-1 font-semibold text-slate-900">
-                  {activeModule?.role === 'leader' ? 'Лидер модуля' : 'Сотрудник'}
-                </div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <div className="subtle-label">Slug</div>
-                <div className="mt-1 font-semibold text-slate-900">
-                  {activeModule?.slug ?? activeModuleId}
-                </div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <div className="subtle-label">Права</div>
-                <div className="mt-1 font-semibold text-slate-900">
-                  {activeModule?.permissions.length ?? 0}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <ModuleSettingsPanel
-            canEdit={canManageModuleSettings}
-            pricingSettings={runtimeData.pricingSettings}
-            conversionEventTypeSettings={runtimeData.conversionEventTypeSettings}
-            unitEconomicsSettings={runtimeData.unitEconomicsSettings}
-            managerWhitelistSettings={runtimeData.managerWhitelistSettings}
-            pricingSettingsLoading={pricingSettingsLoading}
-            pricingSettingsSaving={pricingSettingsSaving}
-            pricingSettingsSaveError={pricingSettingsSaveError}
-            conversionEventTypeSettingsLoading={conversionEventTypeSettingsLoading}
-            conversionEventTypeSettingsSaving={conversionEventTypeSettingsSaving}
-            conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
-            unitEconomicsSettingsLoading={unitEconomicsSettingsLoading}
-            unitEconomicsSettingsSaving={unitEconomicsSettingsSaving}
-            unitEconomicsSettingsSaveError={unitEconomicsSettingsSaveError}
-            managerWhitelistSettingsLoading={managerWhitelistSettingsLoading}
-            managerWhitelistSettingsSaving={managerWhitelistSettingsSaving}
-            managerWhitelistSettingsSaveError={managerWhitelistSettingsSaveError}
-            managerWhitelistSettingsNotice={managerWhitelistSettingsNotice}
-            onPricingSettingsSave={handleSavePricingSettings}
-            onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
-            onUnitEconomicsCostRulesSave={handleSaveUnitEconomicsCostRules}
-            onManagerWhitelistSettingsSave={handleSaveManagerWhitelistSettings}
-          />
-
-          {accountUser?.isSuperAdmin ? (
+          <div
+            id="account-tab-profile"
+            role="tabpanel"
+            hidden={activeAccountTab !== 'profile'}
+            className="grid gap-6"
+          >
             <section className="panel grid gap-4 p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="subtle-label">Супер-админ</div>
-                  <h2 className="mt-1 text-xl font-bold text-slate-900">
-                    Доступы платформы
-                  </h2>
-                </div>
-                <span className="badge-chip badge-neutral">{platformAccessStatus}</span>
+              <div>
+                <div className="subtle-label">Профиль</div>
+                <h2 className="mt-1 text-xl font-bold text-slate-900">Имя и вход</h2>
               </div>
-              {platformAccessError ? (
-                <p className="text-sm font-semibold text-red-600">
-                  {platformAccessError}
-                </p>
-              ) : null}
-              {platformModules.length === 0 || platformUsers.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  {platformAccessStatus === 'loading'
-                    ? 'Загрузка доступов.'
-                    : 'Нет пользователей или модулей для настройки.'}
-                </p>
-              ) : (
-                <div className="grid gap-2">
-                  {platformUsers.map((user) => (
-                    <div
-                      key={user.id}
-                      className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 xl:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.8fr)]"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-bold text-slate-900">
-                          {user.login}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {user.isSuperAdmin
-                            ? 'Суперадмин'
-                            : user.disabled
-                              ? 'Отключен'
-                              : 'Пользователь'}
-                        </div>
-                      </div>
-                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                        {platformModules.map((module) => {
-                          const membership = getActivePlatformMembership(user, module.id)
-                          const locked = user.isSuperAdmin
-                          const checked = locked || Boolean(membership)
-                          const disabled =
-                            locked ||
-                            user.disabled ||
-                            platformAccessStatus === 'loading' ||
-                            platformAccessStatus === 'saving'
-
-                          return (
-                            <div
-                              key={module.id}
-                              className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3"
-                            >
-                              <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  disabled={disabled}
-                                  aria-label={`${user.login}: доступ к модулю ${module.name}`}
-                                  onChange={(event) =>
-                                    void handleTogglePlatformMembership(
-                                      user,
-                                      module.id,
-                                      event.target.checked,
-                                    )
-                                  }
-                                />
-                                <span className="min-w-0 truncate">{module.name}</span>
-                              </label>
-                              <select
-                                className="field"
-                                value={locked ? 'leader' : membership?.moduleRole ?? 'employee'}
-                                disabled={disabled || !membership}
-                                aria-label={`${user.login}: роль в модуле ${module.name}`}
-                                onChange={(event) =>
-                                  void handleChangePlatformRole(
-                                    user,
-                                    module.id,
-                                    event.target.value as ModuleRole,
-                                  )
-                                }
-                              >
-                                <option value="employee">Сотрудник</option>
-                                <option value="leader">Лидер</option>
-                              </select>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          ) : null}
-
-          {canManageModuleSettings ? (
-            <section className="panel grid gap-4 p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="subtle-label">Команда</div>
-                  <h2 className="mt-1 text-xl font-bold text-slate-900">
-                    Пользователи модуля
-                  </h2>
-                </div>
-                <span className="badge-chip badge-neutral">{moduleUsersStatus}</span>
-              </div>
-              {moduleUsersError ? (
-                <p className="text-sm font-semibold text-red-600">{moduleUsersError}</p>
-              ) : null}
-
-              <div className="grid gap-2 md:grid-cols-2">
-                <input
-                  className="field"
-                  placeholder="имя"
-                  value={newModuleUser.firstName}
-                  onChange={(event) =>
-                    setNewModuleUser((current) => ({
-                      ...current,
-                      firstName: event.target.value,
-                    }))
-                  }
-                />
-                <input
-                  className="field"
-                  placeholder="фамилия"
-                  value={newModuleUser.lastName}
-                  onChange={(event) =>
-                    setNewModuleUser((current) => ({
-                      ...current,
-                      lastName: event.target.value,
-                    }))
-                  }
-                />
-                <input
-                  className="field"
-                  type="text"
-                  placeholder="логин"
-                  value={newModuleUser.login}
-                  onChange={(event) =>
-                    setNewModuleUser((current) => ({
-                      ...current,
-                      login: event.target.value,
-                    }))
-                  }
-                />
-                <div className="flex gap-2">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="subtle-label">Имя</span>
                   <input
                     className="field"
-                    type="text"
-                    placeholder="пароль"
-                    value={newModuleUser.password}
+                    value={profileDraft.firstName}
                     onChange={(event) =>
-                      setNewModuleUser((current) => ({
+                      setProfileDraft((current) => ({
                         ...current,
-                        password: event.target.value,
+                        firstName: event.target.value,
                       }))
                     }
                   />
-                  <button type="button" className="btn btn-ghost px-3" onClick={handleGeneratePassword}>
-                    Сгенерировать
-                  </button>
-                </div>
-                <select
-                  className="field"
-                  value={newModuleUser.role}
-                  onChange={(event) =>
-                    setNewModuleUser((current) => ({
-                      ...current,
-                      role: event.target.value as ModuleRole,
-                    }))
-                  }
-                >
-                  <option value="employee">Сотрудник</option>
-                  <option value="leader">Лидер</option>
-                </select>
+                </label>
                 <label className="space-y-1.5">
-                  <span className="subtle-label">Менеджер по умолчанию</span>
-                  <select
+                  <span className="subtle-label">Фамилия</span>
+                  <input
                     className="field"
-                    aria-label="Менеджер по умолчанию для нового сотрудника"
-                    value={newModuleUser.defaultManagerId}
+                    value={profileDraft.lastName}
                     onChange={(event) =>
-                      setNewModuleUser((current) => ({
+                      setProfileDraft((current) => ({
                         ...current,
-                        defaultManagerId: event.target.value,
+                        lastName: event.target.value,
                       }))
                     }
-                  >
-                    <option value="">Не выбран</option>
-                    {defaultManagerOptions.map((manager) => (
-                      <option key={manager.id} value={manager.id}>
-                        {manager.label}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </label>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => void handleCreateModuleUser()}
-                  disabled={moduleUsersStatus === 'loading'}
-                >
-                  Создать сотрудника
-                </button>
               </div>
-
-              {createdCredentials ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                  <div className="subtle-label text-emerald-800">Новые доступы</div>
-                  <pre className="mt-2 whitespace-pre-wrap text-sm font-semibold text-emerald-950">
-                    {createdCredentials}
-                  </pre>
-                  <button
-                    type="button"
-                    className="btn btn-ghost mt-3"
-                    onClick={() => void handleCopyCredentials()}
-                  >
-                    Скопировать логин и пароль
-                  </button>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="subtle-label">Логин для входа</div>
+                <div className="mt-1 font-semibold text-slate-900">
+                  {accountUser?.login ?? 'Нет активной сессии'}
                 </div>
-              ) : null}
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary w-fit"
+                onClick={() => void handleSaveProfile()}
+                disabled={accountStatus === 'saving' || !accountUser}
+              >
+                Сохранить профиль
+              </button>
+            </section>
 
-              <div className="grid gap-2">
-                {moduleUsers.map((user) => {
-                  const defaultManagerExists =
-                    !user.defaultManagerId ||
-                    defaultManagerOptions.some((manager) => manager.id === user.defaultManagerId)
+            <section className="panel grid gap-4 p-5">
+              <div>
+                <div className="subtle-label">Пароль</div>
+                <h2 className="mt-1 text-xl font-bold text-slate-900">Смена пароля</h2>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  className="field"
+                  type="password"
+                  placeholder="текущий пароль"
+                  value={passwordDraft.currentPassword}
+                  onChange={(event) =>
+                    setPasswordDraft((current) => ({
+                      ...current,
+                      currentPassword: event.target.value,
+                    }))
+                  }
+                />
+                <input
+                  className="field"
+                  type="password"
+                  placeholder="новый пароль"
+                  value={passwordDraft.newPassword}
+                  onChange={(event) =>
+                    setPasswordDraft((current) => ({
+                      ...current,
+                      newPassword: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost w-fit"
+                onClick={() => void handleChangePassword()}
+                disabled={accountStatus === 'saving' || !passwordDraft.currentPassword}
+              >
+                Сменить пароль
+              </button>
+            </section>
+          </div>
 
-                  return (
-                    <div
-                      key={user.id}
-                      data-module-user-row="true"
-                      className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 xl:grid-cols-[1.2fr_1fr_1fr_9rem_minmax(12rem,0.9fr)_auto_auto]"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-bold text-slate-900">
-                          {user.login}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {user.disabled || user.membershipStatus === 'disabled'
-                            ? 'Удален'
-                            : 'Активен'}
-                        </div>
-                      </div>
-                      <input
-                        className="field"
-                        placeholder="имя"
-                        value={user.firstName ?? ''}
-                        onChange={(event) =>
-                          setModuleUsers((current) =>
-                            current.map((item) =>
-                              item.id === user.id
-                                ? { ...item, firstName: event.target.value }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
-                      <input
-                        className="field"
-                        placeholder="фамилия"
-                        value={user.lastName ?? ''}
-                        onChange={(event) =>
-                          setModuleUsers((current) =>
-                            current.map((item) =>
-                              item.id === user.id
-                                ? { ...item, lastName: event.target.value }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
-                      <select
-                        className="field"
-                        value={user.moduleRole}
-                        onChange={(event) =>
-                          setModuleUsers((current) =>
-                            current.map((item) =>
-                              item.id === user.id
-                                ? { ...item, moduleRole: event.target.value as ModuleRole }
-                                : item,
-                            ),
-                          )
-                        }
-                      >
-                        <option value="employee">Сотрудник</option>
-                        <option value="leader">Лидер</option>
-                      </select>
-                      <div className="grid gap-1">
-                        <select
-                          className="field"
-                          aria-label={`${user.login}: менеджер по умолчанию`}
-                          value={defaultManagerExists ? user.defaultManagerId ?? '' : ''}
-                          onChange={(event) =>
-                            setModuleUsers((current) =>
-                              current.map((item) =>
-                                item.id === user.id
-                                  ? { ...item, defaultManagerId: event.target.value || null }
-                                  : item,
-                              ),
-                            )
-                          }
-                        >
-                          <option value="">Не выбран</option>
-                          {defaultManagerOptions.map((manager) => (
-                            <option key={manager.id} value={manager.id}>
-                              {manager.label}
-                            </option>
-                          ))}
-                        </select>
-                        {defaultManagerExists ? null : (
-                          <span className="text-xs font-semibold text-amber-700">
-                            Нужно переназначить менеджера.
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        onClick={() =>
-                          void handleUpdateModuleUser(user, {
-                            firstName: user.firstName?.trim() || null,
-                            lastName: user.lastName?.trim() || null,
-                            role: user.moduleRole,
-                            defaultManagerId: user.defaultManagerId ?? null,
-                          })
-                        }
-                      >
-                        Обновить
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        onClick={() => void handleDeleteModuleUser(user)}
-                        disabled={user.disabled || user.membershipStatus === 'disabled'}
-                      >
-                        Удалить
-                      </button>
-                    </div>
-                  )
-                })}
+          <div
+            id="account-tab-module"
+            role="tabpanel"
+            hidden={activeAccountTab !== 'module'}
+            className="grid gap-6"
+          >
+            <section className="panel grid gap-4 p-5">
+              <div>
+                <div className="subtle-label">Модуль</div>
+                <h2 className="mt-1 text-xl font-bold text-slate-900">
+                  {activeModule?.name ?? 'Привлечение'}
+                </h2>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <div className="subtle-label">Роль</div>
+                  <div className="mt-1 font-semibold text-slate-900">
+                    {activeModule?.role === 'leader' ? 'Лидер модуля' : 'Сотрудник'}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <div className="subtle-label">Slug</div>
+                  <div className="mt-1 font-semibold text-slate-900">
+                    {activeModule?.slug ?? activeModuleId}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <div className="subtle-label">Права</div>
+                  <div className="mt-1 font-semibold text-slate-900">
+                    {activeModule?.permissions.length ?? 0}
+                  </div>
+                </div>
               </div>
             </section>
+          </div>
+
+          <div
+            id="account-tab-settings"
+            role="tabpanel"
+            hidden={activeAccountTab !== 'settings'}
+            className="grid gap-6"
+          >
+            <ModuleSettingsPanel
+              canEdit={canManageModuleSettings}
+              pricingSettings={runtimeData.pricingSettings}
+              conversionEventTypeSettings={runtimeData.conversionEventTypeSettings}
+              unitEconomicsSettings={runtimeData.unitEconomicsSettings}
+              managerWhitelistSettings={runtimeData.managerWhitelistSettings}
+              pricingSettingsLoading={pricingSettingsLoading}
+              pricingSettingsSaving={pricingSettingsSaving}
+              pricingSettingsSaveError={pricingSettingsSaveError}
+              conversionEventTypeSettingsLoading={conversionEventTypeSettingsLoading}
+              conversionEventTypeSettingsSaving={conversionEventTypeSettingsSaving}
+              conversionEventTypeSettingsSaveError={conversionEventTypeSettingsSaveError}
+              unitEconomicsSettingsLoading={unitEconomicsSettingsLoading}
+              unitEconomicsSettingsSaving={unitEconomicsSettingsSaving}
+              unitEconomicsSettingsSaveError={unitEconomicsSettingsSaveError}
+              managerWhitelistSettingsLoading={managerWhitelistSettingsLoading}
+              managerWhitelistSettingsSaving={managerWhitelistSettingsSaving}
+              managerWhitelistSettingsSaveError={managerWhitelistSettingsSaveError}
+              managerWhitelistSettingsNotice={managerWhitelistSettingsNotice}
+              managerWhitelistDraft={managerWhitelistDraft}
+              onManagerWhitelistDraftChange={setManagerWhitelistDraft}
+              onPricingSettingsSave={handleSavePricingSettings}
+              onConversionEventTypeSettingsSave={handleSaveConversionEventTypeSettings}
+              onUnitEconomicsCostRulesSave={handleSaveUnitEconomicsCostRules}
+              onManagerWhitelistSettingsSave={handleSaveManagerWhitelistSettings}
+            />
+          </div>
+
+          {canSeeAccountUsersTab ? (
+            <div
+              id="account-tab-users"
+              role="tabpanel"
+              hidden={activeAccountTab !== 'users'}
+              className="grid gap-6"
+            >
+              {accountUser?.isSuperAdmin ? (
+                <section className="panel grid gap-4 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="subtle-label">Супер-админ</div>
+                      <h2 className="mt-1 text-xl font-bold text-slate-900">
+                        Доступы платформы
+                      </h2>
+                    </div>
+                    <span className="badge-chip badge-neutral">{platformAccessStatus}</span>
+                  </div>
+                  {platformAccessError ? (
+                    <p className="text-sm font-semibold text-red-600">
+                      {platformAccessError}
+                    </p>
+                  ) : null}
+                  {platformModules.length === 0 || platformUsers.length === 0 ? (
+                    <p className="text-sm text-slate-500">
+                      {platformAccessStatus === 'loading'
+                        ? 'Загрузка доступов.'
+                        : 'Нет пользователей или модулей для настройки.'}
+                    </p>
+                  ) : (
+                    <div className="grid gap-2">
+                      {platformUsers.map((user) => (
+                        <div
+                          key={user.id}
+                          className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 xl:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.8fr)]"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-bold text-slate-900">
+                              {user.login}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {user.isSuperAdmin
+                                ? 'Суперадмин'
+                                : user.disabled
+                                  ? 'Отключен'
+                                  : 'Пользователь'}
+                            </div>
+                          </div>
+                          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                            {platformModules.map((module) => {
+                              const membership = getActivePlatformMembership(user, module.id)
+                              const locked = user.isSuperAdmin
+                              const checked = locked || Boolean(membership)
+                              const disabled =
+                                locked ||
+                                user.disabled ||
+                                platformAccessStatus === 'loading' ||
+                                platformAccessStatus === 'saving'
+
+                              return (
+                                <div
+                                  key={module.id}
+                                  className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3"
+                                >
+                                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={disabled}
+                                      aria-label={`${user.login}: доступ к модулю ${module.name}`}
+                                      onChange={(event) =>
+                                        void handleTogglePlatformMembership(
+                                          user,
+                                          module.id,
+                                          event.target.checked,
+                                        )
+                                      }
+                                    />
+                                    <span className="min-w-0 truncate">{module.name}</span>
+                                  </label>
+                                  <select
+                                    className="field"
+                                    value={locked ? 'leader' : membership?.moduleRole ?? 'employee'}
+                                    disabled={disabled || !membership}
+                                    aria-label={`${user.login}: роль в модуле ${module.name}`}
+                                    onChange={(event) =>
+                                      void handleChangePlatformRole(
+                                        user,
+                                        module.id,
+                                        event.target.value as ModuleRole,
+                                      )
+                                    }
+                                  >
+                                    <option value="employee">Сотрудник</option>
+                                    <option value="leader">Лидер</option>
+                                  </select>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              ) : null}
+
+              {canManageModuleSettings ? (
+                <section className="panel grid gap-4 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="subtle-label">Команда</div>
+                      <h2 className="mt-1 text-xl font-bold text-slate-900">
+                        Пользователи модуля
+                      </h2>
+                    </div>
+                    <span className="badge-chip badge-neutral">{moduleUsersStatus}</span>
+                  </div>
+                  {moduleUsersError ? (
+                    <p className="text-sm font-semibold text-red-600">{moduleUsersError}</p>
+                  ) : null}
+
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <input
+                      className="field"
+                      placeholder="имя"
+                      value={newModuleUser.firstName}
+                      onChange={(event) =>
+                        setNewModuleUser((current) => ({
+                          ...current,
+                          firstName: event.target.value,
+                        }))
+                      }
+                    />
+                    <input
+                      className="field"
+                      placeholder="фамилия"
+                      value={newModuleUser.lastName}
+                      onChange={(event) =>
+                        setNewModuleUser((current) => ({
+                          ...current,
+                          lastName: event.target.value,
+                        }))
+                      }
+                    />
+                    <input
+                      className="field"
+                      type="text"
+                      placeholder="логин"
+                      value={newModuleUser.login}
+                      onChange={(event) =>
+                        setNewModuleUser((current) => ({
+                          ...current,
+                          login: event.target.value,
+                        }))
+                      }
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        className="field"
+                        type="text"
+                        placeholder="пароль"
+                        value={newModuleUser.password}
+                        onChange={(event) =>
+                          setNewModuleUser((current) => ({
+                            ...current,
+                            password: event.target.value,
+                          }))
+                        }
+                      />
+                      <button type="button" className="btn btn-ghost px-3" onClick={handleGeneratePassword}>
+                        Сгенерировать
+                      </button>
+                    </div>
+                    <select
+                      className="field"
+                      value={newModuleUser.role}
+                      onChange={(event) =>
+                        setNewModuleUser((current) => ({
+                          ...current,
+                          role: event.target.value as ModuleRole,
+                        }))
+                      }
+                    >
+                      <option value="employee">Сотрудник</option>
+                      <option value="leader">Лидер</option>
+                    </select>
+                    <label className="space-y-1.5">
+                      <span className="subtle-label">Менеджер по умолчанию</span>
+                      <select
+                        className="field"
+                        aria-label="Менеджер по умолчанию для нового сотрудника"
+                        value={newModuleUser.defaultManagerId}
+                        onChange={(event) =>
+                          setNewModuleUser((current) => ({
+                            ...current,
+                            defaultManagerId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Не выбран</option>
+                        {defaultManagerOptions.map((manager) => (
+                          <option key={manager.id} value={manager.id}>
+                            {manager.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => void handleCreateModuleUser()}
+                      disabled={moduleUsersStatus === 'loading'}
+                    >
+                      Создать сотрудника
+                    </button>
+                  </div>
+
+                  {createdCredentials ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                      <div className="subtle-label text-emerald-800">Новые доступы</div>
+                      <pre className="mt-2 whitespace-pre-wrap text-sm font-semibold text-emerald-950">
+                        {createdCredentials}
+                      </pre>
+                      <button
+                        type="button"
+                        className="btn btn-ghost mt-3"
+                        onClick={() => void handleCopyCredentials()}
+                      >
+                        Скопировать логин и пароль
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="grid gap-2">
+                    {moduleUsers.map((user) => {
+                      const defaultManagerExists =
+                        !user.defaultManagerId ||
+                        defaultManagerOptions.some((manager) => manager.id === user.defaultManagerId)
+
+                      return (
+                        <div
+                          key={user.id}
+                          data-module-user-row="true"
+                          className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 xl:grid-cols-[1.2fr_1fr_1fr_9rem_minmax(12rem,0.9fr)_auto_auto]"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-bold text-slate-900">
+                              {user.login}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {user.disabled || user.membershipStatus === 'disabled'
+                                ? 'Удален'
+                                : 'Активен'}
+                            </div>
+                          </div>
+                          <input
+                            className="field"
+                            placeholder="имя"
+                            value={user.firstName ?? ''}
+                            onChange={(event) =>
+                              setModuleUsers((current) =>
+                                current.map((item) =>
+                                  item.id === user.id
+                                    ? { ...item, firstName: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                          <input
+                            className="field"
+                            placeholder="фамилия"
+                            value={user.lastName ?? ''}
+                            onChange={(event) =>
+                              setModuleUsers((current) =>
+                                current.map((item) =>
+                                  item.id === user.id
+                                    ? { ...item, lastName: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                          <select
+                            className="field"
+                            value={user.moduleRole}
+                            onChange={(event) =>
+                              setModuleUsers((current) =>
+                                current.map((item) =>
+                                  item.id === user.id
+                                    ? { ...item, moduleRole: event.target.value as ModuleRole }
+                                    : item,
+                                ),
+                              )
+                            }
+                          >
+                            <option value="employee">Сотрудник</option>
+                            <option value="leader">Лидер</option>
+                          </select>
+                          <div className="grid gap-1">
+                            <select
+                              className="field"
+                              aria-label={`${user.login}: менеджер по умолчанию`}
+                              value={defaultManagerExists ? user.defaultManagerId ?? '' : ''}
+                              onChange={(event) =>
+                                setModuleUsers((current) =>
+                                  current.map((item) =>
+                                    item.id === user.id
+                                      ? { ...item, defaultManagerId: event.target.value || null }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            >
+                              <option value="">Не выбран</option>
+                              {defaultManagerOptions.map((manager) => (
+                                <option key={manager.id} value={manager.id}>
+                                  {manager.label}
+                                </option>
+                              ))}
+                            </select>
+                            {defaultManagerExists ? null : (
+                              <span className="text-xs font-semibold text-amber-700">
+                                Нужно переназначить менеджера.
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={() =>
+                              void handleUpdateModuleUser(user, {
+                                firstName: user.firstName?.trim() || null,
+                                lastName: user.lastName?.trim() || null,
+                                role: user.moduleRole,
+                                defaultManagerId: user.defaultManagerId ?? null,
+                              })
+                            }
+                          >
+                            Обновить
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={() => void handleDeleteModuleUser(user)}
+                            disabled={user.disabled || user.membershipStatus === 'disabled'}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </main>
@@ -4086,7 +4471,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           <Suspense fallback={<SceneLoadingFallback label="Загружаю анализ звонков" />}>
             <LazyCallAnalysisWorkspace
               moduleId={activeModuleId}
-              managerOptions={availableManagerOptions}
+              managerOptions={visibleManagerOptions}
               sourceOptions={availableSourceOptions}
             />
           </Suspense>
@@ -4145,12 +4530,20 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 </div>
               </div>
               <MultiSelectField
-                label="Менеджеры"
-                placeholder="Поиск менеджера"
-                emptyLabel="Все менеджеры"
-                options={availableManagerOptions}
+                label="Менеджер / команда"
+                placeholder="Поиск менеджера или команды"
+                emptyLabel={managerFilterEmptyLabel}
+                options={managerScopeOptions}
                 selected={filters.managers}
-                onToggle={(value) => toggleFilterValue('managers', value)}
+                onToggle={toggleManagerFilterValue}
+                summary={managerFilterSummary}
+                isOptionSelected={(option) =>
+                  isManagerScopeOptionSelected(
+                    option.id,
+                    filters.managers,
+                    runtimeData.managerWhitelistSettings,
+                  )
+                }
               />
               <MultiSelectField
                 label="Источники"
@@ -4240,7 +4633,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             <p className="mt-3 text-sm text-slate-500">
               Основной: {formatRangeLabel(filters.rangeStart, filters.rangeEnd)} | Сравнение:{' '}
               {summarizeCompareRanges(filters.compareRanges)} | Менеджеры:{' '}
-              {summarizeSelection(filters.managers, availableManagerOptions, 'все')} | Источники:{' '}
+              {managerFilterSummary} | Источники:{' '}
               {summarizeSelection(filters.sources, availableSourceOptions, 'все')}
             </p>
             {isReportLoading ? (

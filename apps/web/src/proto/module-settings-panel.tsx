@@ -1,5 +1,19 @@
 import { useMemo, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import type {
   ConversionEventTypeSettingsData,
   ConversionEventTypeSettingsInput,
@@ -44,6 +58,32 @@ type ModuleSettingsPanelProps = {
   onManagerWhitelistSettingsSave?: (
     input: ManagerWhitelistSettingsInput,
   ) => Promise<void>
+  managerWhitelistDraft?: ManagerWhitelistDraftState
+  onManagerWhitelistDraftChange?: Dispatch<SetStateAction<ManagerWhitelistDraftState>>
+}
+
+export type ManagerTeamOption = {
+  id: string
+  name: string
+  sortOrder: number
+}
+
+export type ManagerWhitelistDraftState = {
+  managerIds: string[] | null
+  managerTeamIds: Record<string, string> | null
+  managerTeamOptions: ManagerTeamOption[] | null
+  isCreatingManagerTeam: boolean
+  newManagerTeamName: string
+}
+
+export function createEmptyManagerWhitelistDraftState(): ManagerWhitelistDraftState {
+  return {
+    managerIds: null,
+    managerTeamIds: null,
+    managerTeamOptions: null,
+    isCreatingManagerTeam: false,
+    newManagerTeamName: '',
+  }
 }
 
 const PNL_LEVEL_LABELS: Record<string, string> = {
@@ -74,6 +114,187 @@ function getEnabledWhitelistManagerIds(
     .map((setting) => setting.managerId)
 }
 
+function getManagerTeamIds(
+  managerWhitelistSettings: ManagerWhitelistSettingsData | undefined,
+) {
+  return Object.fromEntries(
+    (managerWhitelistSettings?.settings ?? []).map((setting) => {
+      const teamName = setting.teamName?.trim() ?? ''
+      const teamId = setting.teamId?.trim() || teamName
+
+      return [setting.managerId, teamId]
+    }),
+  )
+}
+
+function getManagerTeamOptions(
+  managerWhitelistSettings: ManagerWhitelistSettingsData | undefined,
+): ManagerTeamOption[] {
+  const teams = new Map<string, ManagerTeamOption>()
+
+  for (const team of managerWhitelistSettings?.teams ?? []) {
+    const id = team.id.trim()
+    const name = team.name.trim()
+    if (!id || !name) {
+      continue
+    }
+
+    teams.set(id, { id, name, sortOrder: team.sortOrder })
+  }
+
+  for (const setting of managerWhitelistSettings?.settings ?? []) {
+    const name = setting.teamName?.trim() ?? ''
+    const id = setting.teamId?.trim() || name
+    if (!id || !name || teams.has(id)) {
+      continue
+    }
+
+    teams.set(id, { id, name, sortOrder: setting.sortOrder })
+  }
+
+  return Array.from(teams.values())
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+}
+
+function buildManagerTeamSettingsInput(
+  managerIds: string[],
+  teamIdsByManagerId: Record<string, string>,
+  teamOptions: ManagerTeamOption[],
+) {
+  const optionById = new Map(teamOptions.map((team) => [team.id, team]))
+  const teams = new Map<string, { id: string; name: string; managerIds: string[] }>()
+
+  for (const managerId of managerIds) {
+    const teamId = (teamIdsByManagerId[managerId] ?? '').trim()
+    if (!teamId) {
+      continue
+    }
+
+    const option = optionById.get(teamId)
+    if (!option) {
+      continue
+    }
+
+    const team = teams.get(option.id)
+    if (team) {
+      team.managerIds.push(managerId)
+    } else {
+      teams.set(option.id, {
+        id: option.id,
+        name: option.name,
+        managerIds: [managerId],
+      })
+    }
+  }
+
+  return Array.from(teams.values()).map((team) => ({
+    id: team.id,
+    name: team.name,
+    managerIds: team.managerIds,
+  }))
+}
+
+function normalizeManagerTeamOptionKey(value: string) {
+  return value.trim().toLocaleLowerCase('ru-RU')
+}
+
+function createDraftManagerTeamId(name: string, options: ManagerTeamOption[]) {
+  const existingIds = new Set(options.map((option) => option.id))
+  if (!existingIds.has(name)) {
+    return name
+  }
+
+  for (let index = 2; index < 100; index += 1) {
+    const candidate = `${name}-${index}`
+    if (!existingIds.has(candidate)) {
+      return candidate
+    }
+  }
+
+  return `${name}-${Date.now()}`
+}
+
+function ManagerTeamPicker({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: ManagerTeamOption[]
+  disabled: boolean
+  onChange: (teamId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selectedTeam = options.find((option) => option.id === value)
+  const summary = selectedTeam?.name ?? 'Без команды'
+
+  function selectTeam(teamId: string) {
+    onChange(teamId)
+    setOpen(false)
+  }
+
+  return (
+    <div className="grid gap-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+      <span>Команда</span>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="field flex h-9 items-center justify-between text-left text-sm normal-case tracking-normal"
+            aria-label={label}
+            disabled={disabled}
+          >
+            <span className="truncate">{summary}</span>
+            <span className="text-slate-400">{open ? '−' : '+'}</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          sideOffset={8}
+          className="proto-select-popover w-[var(--radix-popover-trigger-width)] rounded-xl p-2"
+        >
+          <Command className="proto-select-command">
+            <CommandInput placeholder="Поиск команды" />
+            <CommandList className="proto-select-list">
+              <CommandEmpty>Ничего не найдено</CommandEmpty>
+              <CommandGroup heading="Команда">
+                <CommandItem
+                  value="Без команды"
+                  data-checked={!value}
+                  className="cursor-pointer"
+                  onSelect={() => selectTeam('')}
+                >
+                  <div className="flex min-w-0 flex-col">
+                    <strong className="truncate text-sm">Без команды</strong>
+                    <span className="truncate text-xs text-slate-500">Не входит в команду</span>
+                  </div>
+                </CommandItem>
+                {options.map((option) => (
+                  <CommandItem
+                    key={option.id}
+                    value={`${option.name} ${option.id}`}
+                    data-checked={value === option.id}
+                    className="cursor-pointer"
+                    onSelect={() => selectTeam(option.id)}
+                  >
+                    <div className="flex min-w-0 flex-col">
+                      <strong className="truncate text-sm">{option.name}</strong>
+                      <span className="truncate text-xs text-slate-500">{option.id}</span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
 function buildManagerWhitelistRows(
   managerWhitelistSettings: ManagerWhitelistSettingsData | undefined,
 ) {
@@ -92,6 +313,7 @@ function buildManagerWhitelistRows(
         id,
         name: option?.name ?? setting?.managerName ?? id,
         sortOrder: setting?.sortOrder ?? index * 10,
+        teamName: setting?.teamName ?? '',
       }
     })
     .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
@@ -178,6 +400,8 @@ export function ModuleSettingsPanel({
   onConversionEventTypeSettingsSave,
   onUnitEconomicsCostRulesSave,
   onManagerWhitelistSettingsSave,
+  managerWhitelistDraft,
+  onManagerWhitelistDraftChange,
 }: ModuleSettingsPanelProps) {
   const [draftPricingEdits, setDraftPricingEdits] = useState<
     Record<string, Partial<Pick<DealPricingRuleInput, 'attractionRevenueAmount' | 'enabled'>>>
@@ -256,8 +480,34 @@ export function ModuleSettingsPanel({
     () => getEnabledWhitelistManagerIds(managerWhitelistSettings),
     [managerWhitelistSettings],
   )
-  const [draftManagerIds, setDraftManagerIds] = useState<string[] | null>(null)
-  const selectedManagerIds = draftManagerIds ?? selectedManagerIdsFromSettings
+  const managerTeamIdsFromSettings = useMemo(
+    () => getManagerTeamIds(managerWhitelistSettings),
+    [managerWhitelistSettings],
+  )
+  const managerTeamOptionsFromSettings = useMemo(
+    () => getManagerTeamOptions(managerWhitelistSettings),
+    [managerWhitelistSettings],
+  )
+  const [localManagerWhitelistDraft, setLocalManagerWhitelistDraft] = useState(
+    createEmptyManagerWhitelistDraftState,
+  )
+  const managerWhitelistDraftState = managerWhitelistDraft ?? localManagerWhitelistDraft
+  const setManagerWhitelistDraftState =
+    onManagerWhitelistDraftChange ?? setLocalManagerWhitelistDraft
+  const selectedManagerIds =
+    managerWhitelistDraftState.managerIds ?? selectedManagerIdsFromSettings
+  const managerTeamIds =
+    managerWhitelistDraftState.managerTeamIds ?? managerTeamIdsFromSettings
+  const managerTeamOptions =
+    managerWhitelistDraftState.managerTeamOptions ?? managerTeamOptionsFromSettings
+  const { isCreatingManagerTeam, newManagerTeamName } = managerWhitelistDraftState
+
+  function patchManagerWhitelistDraft(patch: Partial<ManagerWhitelistDraftState>) {
+    setManagerWhitelistDraftState((current) => ({
+      ...current,
+      ...patch,
+    }))
+  }
 
   function updatePricingRule(
     ruleId: string,
@@ -312,12 +562,64 @@ export function ModuleSettingsPanel({
       return
     }
 
-    setDraftManagerIds((current) => {
-      const source = current ?? selectedManagerIdsFromSettings
+    setManagerWhitelistDraftState((current) => {
+      const source = current.managerIds ?? selectedManagerIdsFromSettings
 
-      return source.includes(managerId)
-        ? source.filter((id) => id !== managerId)
-        : [...source, managerId]
+      return {
+        ...current,
+        managerIds: source.includes(managerId)
+          ? source.filter((id) => id !== managerId)
+          : [...source, managerId],
+      }
+    })
+  }
+
+  function updateManagerTeamId(managerId: string, teamId: string) {
+    if (!canEdit) {
+      return
+    }
+
+    setManagerWhitelistDraftState((current) => ({
+      ...current,
+      managerTeamIds: {
+        ...(current.managerTeamIds ?? managerTeamIdsFromSettings),
+        [managerId]: teamId,
+      },
+    }))
+  }
+
+  function createManagerTeam() {
+    if (!canEdit) {
+      return
+    }
+
+    const teamName = newManagerTeamName.trim()
+    if (!teamName) {
+      return
+    }
+
+    setManagerWhitelistDraftState((current) => {
+      const source = current.managerTeamOptions ?? managerTeamOptionsFromSettings
+      const normalizedTeamName = teamName.toLocaleLowerCase('ru-RU')
+      const exists = source.some(
+        (option) => normalizeManagerTeamOptionKey(option.name) === normalizedTeamName,
+      )
+
+      return {
+        ...current,
+        managerTeamOptions: exists
+          ? source
+          : [
+              ...source,
+              {
+                id: createDraftManagerTeamId(teamName, source),
+                name: teamName,
+                sortOrder: source.length * 10,
+              },
+            ],
+        newManagerTeamName: '',
+        isCreatingManagerTeam: false,
+      }
     })
   }
 
@@ -663,26 +965,114 @@ export function ModuleSettingsPanel({
         ) : managerRows.length === 0 ? (
           <div className="mt-4 text-sm text-slate-500">Вайтлист менеджеров пуст.</div>
         ) : (
-          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {managerRows.map((manager) => (
-              <label
-                key={manager.id}
-                className="flex min-h-12 items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  className="mt-1"
-                  checked={selectedManagerIds.includes(manager.id)}
-                  disabled={!canEdit}
-                  onChange={() => toggleManager(manager.id)}
-                />
-                <span className="min-w-0">
-                  <span className="block font-semibold text-slate-900">{manager.name}</span>
-                  <span className="block truncate text-xs text-slate-500">{manager.id}</span>
-                </span>
-              </label>
-            ))}
-          </div>
+          <>
+            {canEdit ? (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="subtle-label">Команды</div>
+                    <div className="mt-1 text-sm text-slate-600">
+                      Создайте команду один раз, затем назначьте менеджеров через список.
+                    </div>
+                  </div>
+                  {!isCreatingManagerTeam ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => patchManagerWhitelistDraft({ isCreatingManagerTeam: true })}
+                    >
+                      Создать команду
+                    </button>
+                  ) : null}
+                </div>
+
+                {managerTeamOptions.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {managerTeamOptions.map((team) => (
+                      <span key={team.id} className="badge-chip badge-neutral">
+                        {team.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 text-sm text-slate-500">Команды пока не созданы.</div>
+                )}
+
+                {isCreatingManagerTeam ? (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,18rem)_auto_auto]">
+                    <input
+                      type="text"
+                      className="field h-10"
+                      value={newManagerTeamName}
+                      onChange={(event) =>
+                        patchManagerWhitelistDraft({
+                          newManagerTeamName: event.currentTarget.value,
+                        })
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          createManagerTeam()
+                        }
+                      }}
+                      aria-label="Название команды"
+                      placeholder="Название команды"
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={!newManagerTeamName.trim()}
+                      onClick={createManagerTeam}
+                    >
+                      Добавить команду
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => {
+                        patchManagerWhitelistDraft({
+                          newManagerTeamName: '',
+                          isCreatingManagerTeam: false,
+                        })
+                      }}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {managerRows.map((manager) => (
+                <div
+                  key={manager.id}
+                  className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm"
+                >
+                  <label className="flex min-h-12 items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={selectedManagerIds.includes(manager.id)}
+                      disabled={!canEdit}
+                      onChange={() => toggleManager(manager.id)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-slate-900">{manager.name}</span>
+                      <span className="block truncate text-xs text-slate-500">{manager.id}</span>
+                    </span>
+                  </label>
+                  <ManagerTeamPicker
+                    label={`Команда менеджера ${manager.name}`}
+                    value={managerTeamIds[manager.id] ?? ''}
+                    options={managerTeamOptions}
+                    disabled={!canEdit || !selectedManagerIds.includes(manager.id)}
+                    onChange={(teamId) => updateManagerTeamId(manager.id, teamId)}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {managerWhitelistSettingsNotice ? (
@@ -701,11 +1091,16 @@ export function ModuleSettingsPanel({
             className="btn btn-primary mt-4"
             disabled={managerWhitelistSettingsSaving}
             onClick={() =>
-              void onManagerWhitelistSettingsSave?.({
-                managerIds: managerRows
+              {
+                const managerIds = managerRows
                   .filter((manager) => selectedManagerIds.includes(manager.id))
-                  .map((manager) => manager.id),
-              })
+                  .map((manager) => manager.id)
+
+                void onManagerWhitelistSettingsSave?.({
+                  managerIds,
+                  teams: buildManagerTeamSettingsInput(managerIds, managerTeamIds, managerTeamOptions),
+                })
+              }
             }
           >
             {managerWhitelistSettingsSaving ? 'Сохранение...' : 'Сохранить менеджеров'}

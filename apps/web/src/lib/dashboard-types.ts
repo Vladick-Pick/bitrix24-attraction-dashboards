@@ -1484,15 +1484,31 @@ export interface ManagerWhitelistSetting {
   enabled: boolean
   sortOrder: number
   updatedAt: string
+  teamId?: string | null
+  teamName?: string | null
+}
+
+export interface ManagerTeamSetting {
+  id: string
+  name: string
+  managerIds: string[]
+  sortOrder: number
+  updatedAt: string
 }
 
 export interface ManagerWhitelistSettingsData {
   options: ManagerDirectoryEntry[]
   settings: ManagerWhitelistSetting[]
+  teams?: ManagerTeamSetting[]
 }
 
 export interface ManagerWhitelistSettingsInput {
   managerIds: string[]
+  teams?: Array<{
+    id?: string | null
+    name: string
+    managerIds: string[]
+  }>
 }
 
 export interface SourceCatalogEntry {

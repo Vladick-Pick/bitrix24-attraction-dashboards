@@ -9,6 +9,7 @@ import type {
   DashboardData,
   ConversionEventTypeSettingsInput,
   DealPricingRuleInput,
+  ManagerWhitelistSettingsInput,
   MetaResponse,
   SalesPlanData,
   SalesPlanInput,
@@ -36,6 +37,10 @@ function createDeferred<T>() {
 
 function formatExpectedDateTime(value: string) {
   return new Date(value).toLocaleString('ru-RU', { hour12: false })
+}
+
+async function openAccountTab(name: RegExp) {
+  await userEvent.click(await screen.findByRole('tab', { name }))
 }
 
 vi.mock('@/lib/api-client', () => ({
@@ -231,7 +236,7 @@ vi.mock('@/lib/api-client', () => ({
         },
       ],
     })),
-    saveManagerWhitelistSettings: vi.fn(async (input: { managerIds: string[] }) => ({
+    saveManagerWhitelistSettings: vi.fn(async (input: ManagerWhitelistSettingsInput) => ({
       options: [
         {
           id: '13020',
@@ -249,7 +254,15 @@ vi.mock('@/lib/api-client', () => ({
         enabled: true,
         sortOrder: index * 10,
         updatedAt: '2026-04-10T12:05:00.000Z',
+        teamId:
+          input.teams?.find((team) => team.managerIds.includes(managerId))?.id ??
+          input.teams?.find((team) => team.managerIds.includes(managerId))?.name ??
+          null,
+        teamName:
+          input.teams?.find((team) => team.managerIds.includes(managerId))?.name ??
+          null,
       })),
+      teams: input.teams ?? [],
     })),
     getUnitEconomicsSettings: vi.fn(async () => createUnitEconomicsSettings()),
     saveUnitEconomicsCostRules: vi.fn(async (input: UnitEconomicsCostRulesInput) => ({
@@ -2280,29 +2293,42 @@ describe('ProtoApp', () => {
       await screen.findByRole('button', { name: /^личный кабинет$/i }),
     )
 
-    expect(
-      await screen.findByRole('heading', { name: /^личный кабинет$/i }),
-    ).toBeInTheDocument()
-    expect(window.location.pathname).toBe('/account')
-    expect(screen.getByDisplayValue('Мария')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('Потапова')).toBeInTheDocument()
-    expect(screen.getByText(/логин для входа/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/модуль/i).length).toBeGreaterThan(0)
-    expect(screen.getByText('Привлечение')).toBeInTheDocument()
-    expect(
-      screen.getByRole('heading', { name: /^настройки модуля$/i }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('ClubFirst Russia / One')).toBeInTheDocument()
+	    expect(
+	      await screen.findByRole('heading', { name: /^личный кабинет$/i }),
+	    ).toBeInTheDocument()
+	    expect(window.location.pathname).toBe('/account')
+	    expect(screen.getByRole('tab', { name: /^профиль/i })).toBeInTheDocument()
+	    expect(screen.getByRole('tab', { name: /^модуль/i })).toBeInTheDocument()
+	    expect(screen.getByRole('tab', { name: /^настройки/i })).toHaveAttribute(
+	      'aria-selected',
+	      'true',
+	    )
+	    expect(screen.getByRole('tab', { name: /^пользователи/i })).toBeInTheDocument()
+	    expect(
+	      screen.getByRole('heading', { name: /^настройки модуля$/i }),
+	    ).toBeInTheDocument()
+	    expect(screen.getByText('ClubFirst Russia / One')).toBeInTheDocument()
     expect(screen.getByText('Федеральный')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /плановые мероприятия/i })).toBeInTheDocument()
-    expect(screen.getByText('Гостевая встреча')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /вайтлист менеджеров/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /расходы и финрезультат/i })).toBeInTheDocument()
-    expect(screen.getAllByText('Илья Какулия').length).toBeGreaterThan(0)
-    expect(screen.queryByText(/запланировано/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/пользователи модуля/i)).toBeInTheDocument()
-    expect(screen.getByText('employee@example.com')).toBeInTheDocument()
-    expect(
+	    expect(screen.getByRole('heading', { name: /плановые мероприятия/i })).toBeInTheDocument()
+	    expect(screen.getByText('Гостевая встреча')).toBeInTheDocument()
+	    expect(screen.getByRole('heading', { name: /вайтлист менеджеров/i })).toBeInTheDocument()
+	    expect(screen.getByRole('heading', { name: /расходы и финрезультат/i })).toBeInTheDocument()
+	    expect(screen.getAllByText('Илья Какулия').length).toBeGreaterThan(0)
+	    expect(screen.queryByText(/запланировано/i)).not.toBeInTheDocument()
+
+	    await openAccountTab(/^профиль/i)
+	    expect(screen.getByDisplayValue('Мария')).toBeInTheDocument()
+	    expect(screen.getByDisplayValue('Потапова')).toBeInTheDocument()
+	    expect(screen.getByText(/логин для входа/i)).toBeInTheDocument()
+
+	    await openAccountTab(/^модуль/i)
+	    expect(screen.getByRole('heading', { name: /^привлечение$/i })).toBeInTheDocument()
+	    expect(screen.getByText('Лидер модуля')).toBeInTheDocument()
+
+	    await openAccountTab(/^пользователи/i)
+	    expect(screen.getByText(/пользователи модуля/i)).toBeInTheDocument()
+	    expect(screen.getByText('employee@example.com')).toBeInTheDocument()
+	    expect(
       screen.queryByRole('heading', { name: /^pdca-дашборд метрик$/i }),
     ).not.toBeInTheDocument()
 
@@ -2638,22 +2664,284 @@ describe('ProtoApp', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: /егоров андрей/i }))
     await userEvent.click(screen.getByRole('button', { name: /сохранить менеджеров/i }))
 
-    await waitFor(() =>
-      expect(apiClient.saveManagerWhitelistSettings).toHaveBeenCalledWith({
-        managerIds: [],
-      }),
-    )
+	    await waitFor(() =>
+	      expect(apiClient.saveManagerWhitelistSettings).toHaveBeenCalledWith({
+	        managerIds: [],
+	        teams: [],
+	      }),
+	    )
 
-    await waitFor(() => {
-      const newManagerSelect = screen.getByLabelText(
-        /менеджер по умолчанию для нового сотрудника/i,
-      ) as HTMLSelectElement
+	    await openAccountTab(/^пользователи/i)
+	    await waitFor(() => {
+	      const newManagerSelect = screen.getByLabelText(
+	        /менеджер по умолчанию для нового сотрудника/i,
+	      ) as HTMLSelectElement
       const optionLabels = Array.from(newManagerSelect.options).map((option) =>
         option.textContent?.trim(),
       )
 
       expect(optionLabels).toEqual(['Не выбран'])
     })
+  })
+
+  it('lets module leaders create teams once and assign managers with a dropdown', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    vi.mocked(apiClient.getModuleUsers).mockResolvedValueOnce({ users: [] })
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+
+    expect(screen.queryByRole('textbox', { name: /^команда$/i })).not.toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('button', { name: /создать команду/i }))
+    await userEvent.type(screen.getByLabelText(/название команды/i), 'Привлечение')
+    await userEvent.click(screen.getByRole('button', { name: /добавить команду/i }))
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /команда менеджера илья какулия/i }),
+    )
+    await userEvent.click(await screen.findByRole('option', { name: /привлечение/i }))
+    await userEvent.click(
+      screen.getByRole('button', { name: /команда менеджера егоров андрей/i }),
+    )
+    await userEvent.click(await screen.findByRole('option', { name: /привлечение/i }))
+    await userEvent.click(screen.getByRole('button', { name: /сохранить менеджеров/i }))
+
+    await waitFor(() =>
+      expect(apiClient.saveManagerWhitelistSettings).toHaveBeenCalledWith({
+        managerIds: ['13020', '78'],
+        teams: [
+          {
+            id: 'Привлечение',
+            name: 'Привлечение',
+            managerIds: ['13020', '78'],
+          },
+        ],
+      }),
+    )
+  })
+
+  it('preserves saved manager team ids when assigning teams from the settings picker', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    vi.mocked(apiClient.getModuleUsers).mockResolvedValueOnce({ users: [] })
+    vi.mocked(apiClient.getManagerWhitelistSettings).mockResolvedValueOnce({
+      options: [
+        { id: '13020', name: 'Илья Какулия' },
+        { id: '78', name: 'Егоров Андрей' },
+      ],
+      settings: [
+        {
+          moduleKey: 'attraction',
+          managerId: '13020',
+          managerName: 'Илья Какулия',
+          enabled: true,
+          sortOrder: 0,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+          teamId: 'attraction',
+          teamName: 'Привлечение',
+        },
+        {
+          moduleKey: 'attraction',
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          enabled: true,
+          sortOrder: 10,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+          teamId: null,
+          teamName: null,
+        },
+      ],
+      teams: [
+        {
+          id: 'attraction',
+          name: 'Привлечение',
+          managerIds: ['13020'],
+          sortOrder: 0,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+    })
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+
+    expect(screen.queryAllByRole('combobox', { name: /команда менеджера/i })).toHaveLength(0)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /команда менеджера егоров андрей/i }),
+    )
+    await userEvent.click(await screen.findByRole('option', { name: /привлечение/i }))
+    await userEvent.click(screen.getByRole('button', { name: /сохранить менеджеров/i }))
+
+    await waitFor(() =>
+      expect(apiClient.saveManagerWhitelistSettings).toHaveBeenCalledWith({
+        managerIds: ['13020', '78'],
+        teams: [
+          {
+            id: 'attraction',
+            name: 'Привлечение',
+            managerIds: ['13020', '78'],
+          },
+        ],
+      }),
+    )
+  })
+
+  it('keeps unsaved manager team drafts after leaving and returning to account settings', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    vi.mocked(apiClient.getModuleUsers).mockResolvedValueOnce({ users: [] })
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+    await userEvent.click(await screen.findByRole('button', { name: /создать команду/i }))
+    await userEvent.type(screen.getByLabelText(/название команды/i), 'Привлечение штрих')
+    await userEvent.click(screen.getByRole('button', { name: /добавить команду/i }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /команда менеджера егоров андрей/i }),
+    )
+    await userEvent.click(await screen.findByRole('option', { name: /привлечение штрих/i }))
+
+    await userEvent.click(screen.getByRole('button', { name: /^к дашборду$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^личный кабинет$/i }))
+
+    expect(await screen.findAllByText('Привлечение штрих')).toHaveLength(2)
+    expect(
+      await screen.findByRole('button', { name: /команда менеджера егоров андрей/i }),
+    ).toHaveTextContent('Привлечение штрих')
+    expect(apiClient.saveManagerWhitelistSettings).not.toHaveBeenCalled()
+  })
+
+  it('keeps unsaved manager team drafts when switching account tabs', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    vi.mocked(apiClient.getModuleUsers).mockResolvedValueOnce({ users: [] })
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+    await userEvent.click(await screen.findByRole('button', { name: /создать команду/i }))
+    await userEvent.type(screen.getByLabelText(/название команды/i), 'Привлечение штрих')
+    await userEvent.click(screen.getByRole('button', { name: /добавить команду/i }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /команда менеджера егоров андрей/i }),
+    )
+    await userEvent.click(await screen.findByRole('option', { name: /привлечение штрих/i }))
+
+    await openAccountTab(/^профиль/i)
+    expect(screen.getByRole('heading', { name: /имя и вход/i })).toBeInTheDocument()
+    await openAccountTab(/^настройки/i)
+
+    expect(await screen.findAllByText('Привлечение штрих')).toHaveLength(2)
+    expect(
+      await screen.findByRole('button', { name: /команда менеджера егоров андрей/i }),
+    ).toHaveTextContent('Привлечение штрих')
+    expect(apiClient.saveManagerWhitelistSettings).not.toHaveBeenCalled()
   })
 
   it('warns module leaders when saved whitelist clears employee default managers', async () => {
@@ -2709,19 +2997,22 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp currentUser={leader} />)
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^личный кабинет$/i }),
-    )
-    expect(await screen.findByText('employee@example.com')).toBeInTheDocument()
+	    await userEvent.click(
+	      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+	    )
+	    await openAccountTab(/^пользователи/i)
+	    expect(await screen.findByText('employee@example.com')).toBeInTheDocument()
 
-    await userEvent.click(
-      await screen.findByRole('checkbox', { name: /илья какулия/i }),
-    )
+	    await openAccountTab(/^настройки/i)
+	    await userEvent.click(
+	      await screen.findByRole('checkbox', { name: /илья какулия/i }),
+	    )
     await userEvent.click(screen.getByRole('button', { name: /сохранить менеджеров/i }))
 
     await waitFor(() =>
       expect(apiClient.saveManagerWhitelistSettings).toHaveBeenCalledWith({
         managerIds: ['78'],
+        teams: [],
       }),
     )
     expect(
@@ -2793,11 +3084,12 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp currentUser={leader} />)
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^личный кабинет$/i }),
-    )
+	    await userEvent.click(
+	      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+	    )
+	    await openAccountTab(/^пользователи/i)
 
-    await userEvent.type(screen.getByPlaceholderText('логин'), 'ilya@example.com')
+	    await userEvent.type(screen.getByPlaceholderText('логин'), 'ilya@example.com')
     await userEvent.type(screen.getByPlaceholderText('пароль'), 'correct-password')
     await userEvent.selectOptions(
       await screen.findByLabelText(/менеджер по умолчанию для нового сотрудника/i),
@@ -2902,7 +3194,7 @@ describe('ProtoApp', () => {
     expect(await screen.findByText(/менеджеры:\s*илья какулия/i)).toBeInTheDocument()
 
     const callsBeforeClear = vi.mocked(apiClient.getDashboard).mock.calls.length
-    await userEvent.click(screen.getByRole('button', { name: /^менеджеры$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^менеджер \/ команда$/i }))
     const managerChoices = await screen.findAllByText('Илья Какулия')
     await userEvent.click(managerChoices[managerChoices.length - 1]!)
     await userEvent.click(screen.getByRole('button', { name: /применить фильтры/i }))
@@ -2918,6 +3210,41 @@ describe('ProtoApp', () => {
     expect(
       newDashboardCalls.some(([query]) => (query.managerIds ?? []).length === 0),
     ).toBe(true)
+  })
+
+  it('does not expose the global manager fallback to employees while whitelist settings load', async () => {
+    const employee = {
+      id: 2,
+      login: 'ilya@example.com',
+      firstName: 'Илья',
+      lastName: 'Какулия',
+      role: 'admin',
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'employee',
+          permissions: ['comments:create', 'comments:update'],
+          defaultManagerId: '13020',
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    } as unknown as AuthUser
+    vi.mocked(apiClient.getManagerWhitelistSettings).mockReturnValueOnce(
+      new Promise(() => {}),
+    )
+
+    render(<ProtoApp currentUser={employee} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /^менеджер \/ команда$/i }))
+
+    expect(screen.getAllByText('Какулия Илья').length).toBeGreaterThan(0)
+    expect(screen.queryAllByText('Егоров Андрей')).toHaveLength(0)
+
   })
 
   it('lets a super admin switch to the leadgen module and loads its isolated funnel report', async () => {
@@ -3345,12 +3672,13 @@ describe('ProtoApp', () => {
 
     render(<ProtoApp currentUser={owner} />)
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^личный кабинет$/i }),
-    )
+	    await userEvent.click(
+	      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+	    )
+	    await openAccountTab(/^пользователи/i)
 
-    expect(
-      await screen.findByRole('heading', { name: /^доступы платформы$/i }),
+	    expect(
+	      await screen.findByRole('heading', { name: /^доступы платформы$/i }),
     ).toBeInTheDocument()
     const leadgenAccess = screen.getByRole('checkbox', {
       name: 'leader@example.com: доступ к модулю Лидогенерация',
@@ -4784,12 +5112,105 @@ describe('ProtoApp', () => {
   it('keeps the manager filter prebuilt to the attraction team fallback list', async () => {
     render(<ProtoApp />)
 
-    await userEvent.click(await screen.findByRole('button', { name: /^Менеджеры$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^Менеджер \/ команда$/i }))
 
     expect(screen.getByText('Егоров Андрей')).toBeInTheDocument()
-    expect(screen.getByText('Каньков Вячеслав')).toBeInTheDocument()
-    expect(screen.getByText('Какулия Илья')).toBeInTheDocument()
+    expect(screen.getByText('Илья Какулия')).toBeInTheDocument()
+    expect(screen.queryByText('Каньков Вячеслав')).not.toBeInTheDocument()
     expect(screen.queryByText('Анна Петрова')).not.toBeInTheDocument()
+  })
+
+  it('applies a manager team filter as its member manager ids', async () => {
+    const admin: AuthUser = {
+      id: 1,
+      login: 'admin@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      isSuperAdmin: true,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: ['comments:create', 'comments:update', 'comments:archive'],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+    vi.mocked(apiClient.getManagerWhitelistSettings).mockResolvedValueOnce({
+      options: [
+        { id: '13020', name: 'Илья Какулия' },
+        { id: '78', name: 'Егоров Андрей' },
+        { id: '11234', name: 'Анна Петрова' },
+      ],
+      settings: [
+        {
+          moduleKey: 'attraction',
+          managerId: '13020',
+          managerName: 'Илья Какулия',
+          enabled: true,
+          sortOrder: 0,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+          teamId: 'attraction',
+          teamName: 'Привлечение',
+        },
+        {
+          moduleKey: 'attraction',
+          managerId: '78',
+          managerName: 'Егоров Андрей',
+          enabled: true,
+          sortOrder: 10,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+          teamId: 'attraction',
+          teamName: 'Привлечение',
+        },
+        {
+          moduleKey: 'attraction',
+          managerId: '11234',
+          managerName: 'Анна Петрова',
+          enabled: true,
+          sortOrder: 20,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+          teamId: 'attraction-stroke',
+          teamName: 'Привлечение штрих',
+        },
+      ],
+      teams: [
+        {
+          id: 'attraction',
+          name: 'Привлечение',
+          managerIds: ['13020', '78'],
+          sortOrder: 0,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+        {
+          id: 'attraction-stroke',
+          name: 'Привлечение штрих',
+          managerIds: ['11234'],
+          sortOrder: 20,
+          updatedAt: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+    })
+
+    render(<ProtoApp currentUser={admin} />)
+
+    await waitFor(() => expect(apiClient.getDashboard).toHaveBeenCalled())
+    vi.mocked(apiClient.getDashboard).mockClear()
+    await userEvent.click(await screen.findByRole('button', { name: /^Менеджер \/ команда$/i }))
+    await userEvent.click(screen.getByText('Привлечение штрих'))
+    await userEvent.click(screen.getByRole('button', { name: /^применить фильтры$/i }))
+
+    await waitFor(() =>
+      expect(apiClient.getDashboard).toHaveBeenCalledWith(
+        expect.objectContaining({ managerIds: ['11234'] }),
+      ),
+    )
   })
 
   it('defaults the main range and added compare ranges to sequential previous calendar weeks', () => {
@@ -5354,7 +5775,7 @@ describe('ProtoApp', () => {
       within(cohortSection as HTMLElement).getByText('Срез: все менеджеры / все источники'),
     ).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: /^Менеджеры$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^Менеджер \/ команда$/i }))
     await userEvent.click(screen.getByText('Егоров Андрей'))
 
     expect(

@@ -148,6 +148,95 @@ function withReportingRepositoryDefaults(
 }
 
 describe("createReportingService", () => {
+  it("passes manager team assignments through when saving whitelist settings", async () => {
+    type ReplaceManagerWhitelistInput = Parameters<
+      ReportingRepository["replaceManagerWhitelistSettings"]
+    >[0];
+
+    let savedInput: ReplaceManagerWhitelistInput | null = null;
+    const buildRows = () => {
+      if (!savedInput) {
+        return [];
+      }
+
+      const teamByManagerId = new Map<
+        string,
+        { teamId: string | null; teamName: string | null }
+      >();
+      for (const team of savedInput.teams ?? []) {
+        const teamName = team.name.trim();
+        const teamId = team.id?.trim() || teamName;
+        for (const managerId of team.managerIds) {
+          teamByManagerId.set(managerId, { teamId, teamName });
+        }
+      }
+
+      return savedInput.managerIds.map((managerId, index) => ({
+        moduleKey: savedInput?.moduleKey ?? "attraction",
+        managerId,
+        managerName:
+          ATTRACTION_MANAGER_CATALOG.find((manager) => manager.id === managerId)?.name ??
+          managerId,
+        teamId: teamByManagerId.get(managerId)?.teamId ?? null,
+        teamName: teamByManagerId.get(managerId)?.teamName ?? null,
+        enabled: true,
+        sortOrder: index * 10,
+        updatedAt: savedInput?.updatedAt ?? "2026-06-18T12:00:00.000Z"
+      }));
+    };
+    const repository = {
+      getManagerWhitelistSettings: async () => buildRows(),
+      replaceManagerWhitelistSettings: async (input: ReplaceManagerWhitelistInput) => {
+        savedInput = input;
+        return buildRows();
+      }
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: withReportingRepositoryDefaults(repository),
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-06-18T12:00:00.000Z")
+    });
+
+    const saved = await service.replaceManagerWhitelistSettings({
+      managerIds: ["13020", "78"],
+      teams: [
+        {
+          id: "attraction",
+          name: "Привлечение",
+          managerIds: ["13020", "78"]
+        }
+      ]
+    });
+
+    expect(savedInput).toMatchObject({
+      moduleKey: "attraction",
+      managerIds: ["13020", "78"],
+      teams: [
+        {
+          id: "attraction",
+          name: "Привлечение",
+          managerIds: ["13020", "78"]
+        }
+      ],
+      updatedAt: "2026-06-18T12:00:00.000Z"
+    });
+    expect(saved.teams).toEqual([
+      {
+        id: "attraction",
+        name: "Привлечение",
+        managerIds: ["13020", "78"],
+        sortOrder: 0,
+        updatedAt: "2026-06-18T12:00:00.000Z"
+      }
+    ]);
+  });
+
   it("prorates monthly sales plan rows by calendar days for effective report ranges", async () => {
     const repository = {
       getSalesPlanRows: async (periodStart: string, periodEnd: string) => {

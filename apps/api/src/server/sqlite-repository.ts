@@ -126,6 +126,11 @@ export interface UnitEconomicsCostFactsQuery {
 export interface ReplaceManagerWhitelistSettingsInput {
   moduleKey: string;
   managerIds: string[];
+  teams?: Array<{
+    id?: string | null;
+    name: string;
+    managerIds: string[];
+  }>;
   updatedAt: string;
 }
 
@@ -968,6 +973,8 @@ export function createSqliteRepository(
       module_key TEXT NOT NULL,
       manager_id TEXT NOT NULL,
       manager_name TEXT NOT NULL,
+      team_id TEXT,
+      team_name TEXT,
       enabled INTEGER NOT NULL,
       sort_order INTEGER NOT NULL,
       updated_at TEXT NOT NULL,
@@ -1220,6 +1227,8 @@ export function createSqliteRepository(
   ensureColumn(database, "deal_snapshots", "conversion_event_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_detail", "TEXT");
+  ensureColumn(database, "module_manager_whitelist_settings", "team_id", "TEXT");
+  ensureColumn(database, "module_manager_whitelist_settings", "team_name", "TEXT");
   ensureColumn(database, "conversion_event_visit_snapshots", "event_id", "TEXT");
   ensureColumn(database, "unit_economics_cost_rules", "event_name_pattern", "TEXT");
   ensureColumn(
@@ -2225,6 +2234,8 @@ export function createSqliteRepository(
       module_key,
       manager_id,
       manager_name,
+      team_id,
+      team_name,
       enabled,
       sort_order,
       updated_at
@@ -2232,12 +2243,16 @@ export function createSqliteRepository(
       @moduleKey,
       @managerId,
       @managerName,
+      @teamId,
+      @teamName,
       @enabled,
       @sortOrder,
       @updatedAt
     )
     ON CONFLICT(module_key, manager_id) DO UPDATE SET
       manager_name = excluded.manager_name,
+      team_id = excluded.team_id,
+      team_name = excluded.team_name,
       enabled = excluded.enabled,
       sort_order = excluded.sort_order,
       updated_at = excluded.updated_at
@@ -3764,6 +3779,8 @@ export function createSqliteRepository(
             module_key AS moduleKey,
             manager_id AS managerId,
             manager_name AS managerName,
+            team_id AS teamId,
+            team_name AS teamName,
             enabled,
             sort_order AS sortOrder,
             updated_at AS updatedAt
@@ -3802,11 +3819,33 @@ export function createSqliteRepository(
       const managerIds = Array.from(
         new Set(inputSettings.managerIds.map(String).map((id) => id.trim()).filter(Boolean))
       );
+      const teamByManagerId = new Map<
+        string,
+        { teamId: string | null; teamName: string | null }
+      >();
+      for (const team of inputSettings.teams ?? []) {
+        const teamName = team.name.trim();
+        if (!teamName) {
+          continue;
+        }
+        const teamId = (team.id?.trim() || teamName).trim();
+        for (const managerId of team.managerIds) {
+          const normalizedManagerId = String(managerId).trim();
+          if (normalizedManagerId && managerIds.includes(normalizedManagerId)) {
+            teamByManagerId.set(normalizedManagerId, {
+              teamId,
+              teamName
+            });
+          }
+        }
+      }
       const rows: ManagerWhitelistSetting[] = managerIds.map((managerId, index) => ({
         moduleKey: inputSettings.moduleKey,
         managerId,
         managerName:
           seededDirectory.get(managerId) ?? existingDirectory.get(managerId) ?? managerId,
+        teamId: teamByManagerId.get(managerId)?.teamId ?? null,
+        teamName: teamByManagerId.get(managerId)?.teamName ?? null,
         enabled: true,
         sortOrder: index * 10,
         updatedAt: inputSettings.updatedAt

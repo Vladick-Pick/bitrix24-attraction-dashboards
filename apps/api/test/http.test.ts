@@ -24,6 +24,7 @@ import type {
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 
+import { NO_ATTRACTION_MANAGER_MATCH_ID } from "../src/domain/attraction-managers";
 import { createApp } from "../src/server/app";
 import type { ModuleCapabilityAdapter } from "../src/server/module-capabilities";
 
@@ -1943,7 +1944,17 @@ describe("createApp", () => {
           enabled: true,
           sortOrder: index * 10,
           updatedAt: "2026-06-01T10:05:00.000Z"
-        }))
+        })),
+        teams:
+          "teams" in input && Array.isArray(input.teams)
+            ? input.teams.map((team: any, index) => ({
+                id: team.id ?? `team-${index + 1}`,
+                name: team.name,
+                managerIds: team.managerIds,
+                sortOrder: index * 10,
+                updatedAt: "2026-06-01T10:05:00.000Z"
+              }))
+            : []
       })
     } as any);
 
@@ -1968,7 +1979,16 @@ describe("createApp", () => {
     await expect(
       request(app)
         .put("/api/settings/manager-whitelist")
-        .send({ managerIds: ["13020", "78"] })
+        .send({
+          managerIds: ["13020", "78"],
+          teams: [
+            {
+              id: "attraction",
+              name: "Привлечение",
+              managerIds: ["13020", "78"]
+            }
+          ]
+        })
         .expect(200)
     ).resolves.toMatchObject({
       body: {
@@ -1983,9 +2003,549 @@ describe("createApp", () => {
             sortOrder: 10,
             updatedAt: "2026-06-01T10:05:00.000Z"
           }
+        ],
+        teams: [
+          {
+            id: "attraction",
+            name: "Привлечение",
+            managerIds: ["13020", "78"],
+            sortOrder: 0,
+            updatedAt: "2026-06-01T10:05:00.000Z"
+          }
         ]
       }
     });
+  });
+
+  it("scopes employee attraction report filters to their manager team", async () => {
+    let receivedDashboardInput: unknown = null;
+    const module = {
+      ...createAuthenticatedModule({
+        id: "attraction",
+        name: "Привлечение"
+      }),
+      defaultManagerId: "78"
+    };
+    const auth = createStaticAuthService(
+      createTestSession({
+        modules: [module]
+      })
+    );
+    const app = createTestApp(
+      {
+        getManagerWhitelistSettings: async () => ({
+          options: [
+            { id: "78", name: "Егоров Андрей" },
+            { id: "13020", name: "Какулия Илья" },
+            { id: "11234", name: "Ромашова Ольга" }
+          ],
+          settings: [
+            {
+              moduleKey: "attraction",
+              managerId: "78",
+              managerName: "Егоров Андрей",
+              enabled: true,
+              sortOrder: 0,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction",
+              teamName: "Привлечение"
+            },
+            {
+              moduleKey: "attraction",
+              managerId: "13020",
+              managerName: "Какулия Илья",
+              enabled: true,
+              sortOrder: 10,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction",
+              teamName: "Привлечение"
+            },
+            {
+              moduleKey: "attraction",
+              managerId: "11234",
+              managerName: "Ромашова Ольга",
+              enabled: true,
+              sortOrder: 20,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction-stroke",
+              teamName: "Привлечение штрих"
+            }
+          ],
+          teams: [
+            {
+              id: "attraction",
+              name: "Привлечение",
+              managerIds: ["78", "13020"],
+              sortOrder: 0,
+              updatedAt: "2026-06-17T00:00:00.000Z"
+            },
+            {
+              id: "attraction-stroke",
+              name: "Привлечение штрих",
+              managerIds: ["11234"],
+              sortOrder: 20,
+              updatedAt: "2026-06-17T00:00:00.000Z"
+            }
+          ]
+        }),
+        getDashboard: async (input) => {
+          receivedDashboardInput = input;
+          return {
+            salesSummary: {
+              salesCount: 0,
+              salesAmount: 0,
+              averageSaleAmount: 0,
+              attractionRevenueAmount: 0,
+              averageAttractionRevenueAmount: 0,
+              membershipAmount: 0,
+              averageMembershipAmount: 0,
+              pricingWarnings: [],
+              newDealsCount: 0,
+              conversionRate: 0
+            },
+            managerGroups: []
+          };
+        }
+      },
+      { auth }
+    );
+
+    await request(app)
+      .get("/api/dashboard")
+      .set("Cookie", "b24dash_session=valid-session")
+      .query({ managerIds: "13020,11234" })
+      .expect(200);
+
+    expect(receivedDashboardInput).toMatchObject({
+      filters: {
+        managerIds: ["13020"]
+      }
+    });
+  });
+
+  it("fails employee attraction report scoping closed when whitelist settings are unavailable", async () => {
+    let receivedDashboardInput: unknown = null;
+    const module = {
+      ...createAuthenticatedModule({
+        id: "attraction",
+        name: "Привлечение"
+      }),
+      defaultManagerId: "78"
+    };
+    const auth = createStaticAuthService(
+      createTestSession({
+        modules: [module]
+      })
+    );
+    const app = createTestApp(
+      {
+        getDashboard: async (input) => {
+          receivedDashboardInput = input;
+          return {
+            salesSummary: {
+              salesCount: 0,
+              salesAmount: 0,
+              averageSaleAmount: 0,
+              attractionRevenueAmount: 0,
+              averageAttractionRevenueAmount: 0,
+              membershipAmount: 0,
+              averageMembershipAmount: 0,
+              pricingWarnings: [],
+              newDealsCount: 0,
+              conversionRate: 0
+            },
+            managerGroups: []
+          };
+        }
+      },
+      { auth }
+    );
+
+    await request(app)
+      .get("/api/dashboard")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(200);
+
+    expect(receivedDashboardInput).toMatchObject({
+      filters: {
+        managerIds: [NO_ATTRACTION_MANAGER_MATCH_ID]
+      }
+    });
+  });
+
+  it("scopes employee call analysis queue filters to their manager team", async () => {
+    let receivedQueueInput: unknown = null;
+    const module = {
+      ...createAuthenticatedModule({
+        id: "attraction",
+        name: "Привлечение"
+      }),
+      defaultManagerId: "78"
+    };
+    const auth = createStaticAuthService(
+      createTestSession({
+        modules: [module]
+      })
+    );
+    const app = createTestApp(
+      {
+        getManagerWhitelistSettings: async () => ({
+          options: [
+            { id: "78", name: "Егоров Андрей" },
+            { id: "13020", name: "Какулия Илья" },
+            { id: "11234", name: "Ромашова Ольга" }
+          ],
+          settings: [
+            {
+              moduleKey: "attraction",
+              managerId: "78",
+              managerName: "Егоров Андрей",
+              enabled: true,
+              sortOrder: 0,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction",
+              teamName: "Привлечение"
+            },
+            {
+              moduleKey: "attraction",
+              managerId: "13020",
+              managerName: "Какулия Илья",
+              enabled: true,
+              sortOrder: 10,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction",
+              teamName: "Привлечение"
+            },
+            {
+              moduleKey: "attraction",
+              managerId: "11234",
+              managerName: "Ромашова Ольга",
+              enabled: true,
+              sortOrder: 20,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction-stroke",
+              teamName: "Привлечение штрих"
+            }
+          ],
+          teams: [
+            {
+              id: "attraction",
+              name: "Привлечение",
+              managerIds: ["78", "13020"],
+              sortOrder: 0,
+              updatedAt: "2026-06-17T00:00:00.000Z"
+            },
+            {
+              id: "attraction-stroke",
+              name: "Привлечение штрих",
+              managerIds: ["11234"],
+              sortOrder: 20,
+              updatedAt: "2026-06-17T00:00:00.000Z"
+            }
+          ]
+        }),
+        getCallAnalysisQueue: async (input) => {
+          receivedQueueInput = input;
+          return createEmptyCallAnalysisQueue();
+        }
+      },
+      { auth }
+    );
+
+    await request(app)
+      .get("/api/modules/attraction/calls/analysis-queue")
+      .set("Cookie", "b24dash_session=valid-session")
+      .query({ managerIds: "13020,11234" })
+      .expect(200);
+
+    expect(receivedQueueInput).toMatchObject({
+      filters: {
+        managerIds: ["13020"]
+      }
+    });
+  });
+
+  it("scopes employee attraction meta and manager whitelist responses to their manager team", async () => {
+    let receivedMetaInput: unknown = null;
+    const module = {
+      ...createAuthenticatedModule({
+        id: "attraction",
+        name: "Привлечение"
+      }),
+      defaultManagerId: "78"
+    };
+    const auth = createStaticAuthService(
+      createTestSession({
+        modules: [module]
+      })
+    );
+    const managerWhitelistSettings = {
+      options: [
+        { id: "78", name: "Егоров Андрей" },
+        { id: "13020", name: "Какулия Илья" },
+        { id: "11234", name: "Ромашова Ольга" }
+      ],
+      settings: [
+        {
+          moduleKey: "attraction",
+          managerId: "78",
+          managerName: "Егоров Андрей",
+          enabled: true,
+          sortOrder: 0,
+          updatedAt: "2026-06-17T00:00:00.000Z",
+          teamId: "attraction",
+          teamName: "Привлечение"
+        },
+        {
+          moduleKey: "attraction",
+          managerId: "13020",
+          managerName: "Какулия Илья",
+          enabled: true,
+          sortOrder: 10,
+          updatedAt: "2026-06-17T00:00:00.000Z",
+          teamId: "attraction",
+          teamName: "Привлечение"
+        },
+        {
+          moduleKey: "attraction",
+          managerId: "11234",
+          managerName: "Ромашова Ольга",
+          enabled: true,
+          sortOrder: 20,
+          updatedAt: "2026-06-17T00:00:00.000Z",
+          teamId: "attraction-stroke",
+          teamName: "Привлечение штрих"
+        }
+      ],
+      teams: [
+        {
+          id: "attraction",
+          name: "Привлечение",
+          managerIds: ["78", "13020"],
+          sortOrder: 0,
+          updatedAt: "2026-06-17T00:00:00.000Z"
+        },
+        {
+          id: "attraction-stroke",
+          name: "Привлечение штрих",
+          managerIds: ["11234"],
+          sortOrder: 20,
+          updatedAt: "2026-06-17T00:00:00.000Z"
+        }
+      ]
+    };
+    const app = createTestApp(
+      {
+        getManagerWhitelistSettings: async () => managerWhitelistSettings,
+        getMeta: async (input) => {
+          receivedMetaInput = input;
+          const managerIds = new Set(input?.filters?.managerIds ?? []);
+          return {
+            stageCatalog: [],
+            managerCatalog: managerWhitelistSettings.options.filter((manager) =>
+              managerIds.has(manager.id)
+            ),
+            sourceCatalog: [],
+            wonStageIds: [],
+            defaultPeriodDays: 30,
+            lastSync: null,
+            snapshotStats: emptySnapshotStats,
+            syncHealth: {
+              status: "ready" as const,
+              blocking: false,
+              checkedAt: "2026-04-09T00:00:00.000Z",
+              lastSuccessfulSync: null,
+              issues: [],
+              warnings: []
+            }
+          };
+        }
+      },
+      { auth }
+    );
+
+    await request(app)
+      .get("/api/meta")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.managerCatalog.map((manager: { id: string }) => manager.id)).toEqual([
+          "78",
+          "13020"
+        ]);
+      });
+
+    expect(receivedMetaInput).toMatchObject({
+      filters: {
+        managerIds: ["78", "13020"]
+      }
+    });
+
+    await request(app)
+      .get("/api/settings/manager-whitelist")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.settings.map((setting: { managerId: string }) => setting.managerId)).toEqual([
+          "78",
+          "13020"
+        ]);
+        expect(body.options.map((manager: { id: string }) => manager.id)).toEqual([
+          "78",
+          "13020"
+        ]);
+        expect(body.teams).toEqual([
+          expect.objectContaining({
+            id: "attraction",
+            name: "Привлечение",
+            managerIds: ["78", "13020"]
+          })
+        ]);
+      });
+  });
+
+  it("denies employee direct call analysis access outside their manager team", async () => {
+    const analyzedCallIds: string[] = [];
+    const module = {
+      ...createAuthenticatedModule({
+        id: "attraction",
+        name: "Привлечение"
+      }),
+      defaultManagerId: "78"
+    };
+    const auth = createStaticAuthService(
+      createTestSession({
+        modules: [module]
+      })
+    );
+    const app = createTestApp(
+      {
+        getManagerWhitelistSettings: async () => ({
+          options: [
+            { id: "78", name: "Егоров Андрей" },
+            { id: "11234", name: "Ромашова Ольга" }
+          ],
+          settings: [
+            {
+              moduleKey: "attraction",
+              managerId: "78",
+              managerName: "Егоров Андрей",
+              enabled: true,
+              sortOrder: 0,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction",
+              teamName: "Привлечение"
+            },
+            {
+              moduleKey: "attraction",
+              managerId: "11234",
+              managerName: "Ромашова Ольга",
+              enabled: true,
+              sortOrder: 10,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction-stroke",
+              teamName: "Привлечение штрих"
+            }
+          ],
+          teams: []
+        }),
+        isCallInAttractionManagerScope: async (callId, managerIds) =>
+          callId === "OWN-CALL" && managerIds.includes("78")
+      },
+      {
+        auth,
+        callAnalysis: {
+          analyzeCall: async ({ callId }) => {
+            analyzedCallIds.push(callId);
+            return { callId };
+          },
+          getCallAnalysisResult: async (callId) => ({ callId, summary: "ok" })
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/FOREIGN-CALL/analyze")
+      .set("Cookie", "b24dash_session=valid-session")
+      .set("X-CSRF-Token", "csrf-token")
+      .expect(403);
+    await request(app)
+      .get("/api/calls/FOREIGN-CALL/analysis")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(403);
+    await request(app)
+      .post("/api/calls/OWN-CALL/analyze")
+      .set("Cookie", "b24dash_session=valid-session")
+      .set("X-CSRF-Token", "csrf-token")
+      .expect(200);
+
+    expect(analyzedCallIds).toEqual(["OWN-CALL"]);
+  });
+
+  it("denies employee direct call analysis access when the manager scope checker is unavailable", async () => {
+    const analyzedCallIds: string[] = [];
+    const module = {
+      ...createAuthenticatedModule({
+        id: "attraction",
+        name: "Привлечение"
+      }),
+      defaultManagerId: "78"
+    };
+    const auth = createStaticAuthService(
+      createTestSession({
+        modules: [module]
+      })
+    );
+    const app = createTestApp(
+      {
+        getManagerWhitelistSettings: async () => ({
+          options: [{ id: "78", name: "Егоров Андрей" }],
+          settings: [
+            {
+              moduleKey: "attraction",
+              managerId: "78",
+              managerName: "Егоров Андрей",
+              enabled: true,
+              sortOrder: 0,
+              updatedAt: "2026-06-17T00:00:00.000Z",
+              teamId: "attraction",
+              teamName: "Привлечение"
+            }
+          ],
+          teams: [
+            {
+              id: "attraction",
+              name: "Привлечение",
+              managerIds: ["78"],
+              sortOrder: 0,
+              updatedAt: "2026-06-17T00:00:00.000Z"
+            }
+          ]
+        })
+      },
+      {
+        auth,
+        callAnalysis: {
+          analyzeCall: async ({ callId }) => {
+            analyzedCallIds.push(callId);
+            return { callId };
+          },
+          getCallAnalysisResult: async (callId) => ({ callId, summary: "ok" })
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/OWN-CALL/analyze")
+      .set("Cookie", "b24dash_session=valid-session")
+      .set("X-CSRF-Token", "csrf-token")
+      .expect(403);
+    await request(app)
+      .get("/api/calls/OWN-CALL/analysis")
+      .set("Cookie", "b24dash_session=valid-session")
+      .expect(403);
+
+    expect(analyzedCallIds).toEqual([]);
   });
 
   it("returns dashboard data, settings and sync status from the local API", async () => {

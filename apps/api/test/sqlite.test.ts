@@ -15,6 +15,52 @@ afterEach(() => {
 });
 
 describe("createSqliteRepository", () => {
+  it("persists manager team assignments in whitelist settings", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.replaceManagerWhitelistSettings({
+      moduleKey: "attraction",
+      managerIds: ["78", "13020", "11234"],
+      teams: [
+        {
+          id: "attraction",
+          name: "Привлечение",
+          managerIds: ["78", "13020"]
+        },
+        {
+          id: "attraction-stroke",
+          name: "Привлечение штрих",
+          managerIds: ["11234"]
+        }
+      ],
+      updatedAt: "2026-06-17T10:00:00.000Z"
+    });
+
+    await expect(repository.getManagerWhitelistSettings("attraction")).resolves.toEqual([
+      expect.objectContaining({
+        managerId: "78",
+        teamId: "attraction",
+        teamName: "Привлечение"
+      }),
+      expect.objectContaining({
+        managerId: "13020",
+        teamId: "attraction",
+        teamName: "Привлечение"
+      }),
+      expect.objectContaining({
+        managerId: "11234",
+        teamId: "attraction-stroke",
+        teamName: "Привлечение штрих"
+      })
+    ]);
+  });
+
   it("persists call analysis runs and the latest transcript result without storing audio", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { ATTRACTION_MANAGER_IDS } from "../src/domain/attraction-managers";
 import { createSqliteRepository } from "../src/server/sqlite-repository";
 
 const tempDirs: string[] = [];
@@ -1243,17 +1244,9 @@ describe("createSqliteRepository", () => {
     });
 
     const seeded = await (repository as any).getManagerWhitelistSettings("attraction");
-    expect(seeded.map((row: { managerId: string }) => row.managerId)).toEqual([
-      "78",
-      "11234",
-      "7824",
-      "6994",
-      "7814",
-      "72",
-      "2236",
-      "2764",
-      "13020"
-    ]);
+    expect(seeded.map((row: { managerId: string }) => row.managerId)).toEqual(
+      ATTRACTION_MANAGER_IDS
+    );
 
     await (repository as any).replaceManagerWhitelistSettings({
       moduleKey: "attraction",

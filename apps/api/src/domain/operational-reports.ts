@@ -3115,6 +3115,9 @@ export function buildCallsWorkloadReport(
     input.stageHistory.filter((row) => dealMap.has(row.ownerId))
   );
   const managerDirectory = buildManagerDirectoryMap(input.managerDirectory ?? []);
+  const managerMetadata = new Map(
+    (input.managerDirectory ?? []).map((manager) => [manager.id, manager])
+  );
   const activityMap = new Map(
     input.activities
       .filter(
@@ -3258,6 +3261,7 @@ export function buildCallsWorkloadReport(
 
   const summaryRows = new Map<string, CallAccumulator>();
   const linkedRows = new Map<string, CallAccumulator>();
+  const excludedByPolicyRows = new Map<string, CallAccumulator>();
   const resolveLinkedDeal = (
     call: CallSnapshot,
     activity: ActivitySnapshot | null
@@ -3288,6 +3292,10 @@ export function buildCallsWorkloadReport(
 
     return null;
   };
+  const resolveCallAttributionPolicy = (managerId: string) =>
+    managerMetadata.get(managerId)?.callAttributionPolicy ?? "standard";
+  const toOptionalExcludedSummary = (accumulator: CallAccumulator) =>
+    accumulator.totalCalls > 0 ? toCallPopulationSummary(accumulator) : undefined;
 
   for (const call of input.calls) {
     if (!isWithinRange(call.callStartDate, fromMs, toMs)) {
@@ -3326,6 +3334,25 @@ export function buildCallsWorkloadReport(
       activity?.responsibleId ??
       deal.assignedById ??
       "UNASSIGNED";
+    const callAttributionPolicy = resolveCallAttributionPolicy(managerId);
+    if (
+      callAttributionPolicy === "direct_only" &&
+      call.linkReason === "contact_single_deal_fallback"
+    ) {
+      const excluded =
+        excludedByPolicyRows.get(managerId) ?? createAccumulator(managerId);
+      addCallToAccumulator(
+        excluded,
+        call,
+        direction,
+        connected,
+        failed,
+        overThirtySeconds
+      );
+      excludedByPolicyRows.set(managerId, excluded);
+      continue;
+    }
+
     const stageId = resolveStageAtTime(deal, stageHistoryMap, call.callStartDate);
     const current = linkedRows.get(managerId) ?? createAccumulator(managerId);
 
@@ -3350,16 +3377,24 @@ export function buildCallsWorkloadReport(
     new Set([
       ...(input.managerDirectory ?? []).map((manager) => manager.id),
       ...summaryRows.keys(),
-      ...linkedRows.keys()
+      ...linkedRows.keys(),
+      ...excludedByPolicyRows.keys()
     ])
   );
   const managerRowsResult = managerIds
     .map((managerId) => {
       const summary = summaryRows.get(managerId) ?? createAccumulator(managerId);
       const linked = linkedRows.get(managerId) ?? createAccumulator(managerId);
+      const excluded =
+        excludedByPolicyRows.get(managerId) ?? createAccumulator(managerId);
+      const callAttributionPolicy = resolveCallAttributionPolicy(managerId);
       const stageBreakdown = buildCallsStageBreakdown(linked.stageItems, stageLookup);
       const allCalls = toCallPopulationSummary(summary);
-      const linkedDealCalls = toLinkedDealCallSummary(linked, stageBreakdown);
+      const excludedByPolicyCalls = toOptionalExcludedSummary(excluded);
+      const linkedDealCalls = {
+        ...toLinkedDealCallSummary(linked, stageBreakdown),
+        ...(excludedByPolicyCalls ? { excludedByPolicyCalls } : {})
+      };
 
       return {
         managerId,
@@ -3379,6 +3414,7 @@ export function buildCallsWorkloadReport(
           summary.totalDurationSeconds,
           summary.totalCalls
         ),
+        ...(callAttributionPolicy === "direct_only" ? { callAttributionPolicy } : {}),
         allCalls,
         linkedDealCalls,
         stageBreakdown
@@ -3400,7 +3436,14 @@ export function buildCallsWorkloadReport(
     linkedRows.values(),
     "__LINKED_DEAL_CALLS__"
   );
+  const excludedByPolicyAccumulator = combineAccumulators(
+    excludedByPolicyRows.values(),
+    "__EXCLUDED_BY_POLICY_CALLS__"
+  );
   const linkedDealCallsSummary = toLinkedDealCallSummary(linkedDealCallsAccumulator);
+  const excludedByPolicyCallsSummary = toOptionalExcludedSummary(
+    excludedByPolicyAccumulator
+  );
 
   return {
     range: input.range,
@@ -3451,7 +3494,10 @@ export function buildCallsWorkloadReport(
       callsOverThirtySeconds: linkedDealCallsSummary.callsOverThirtySeconds,
       connectedCallsOverThirtySeconds:
         linkedDealCallsSummary.connectedCallsOverThirtySeconds,
-      averageDurationSeconds: linkedDealCallsSummary.averageDurationSeconds
+      averageDurationSeconds: linkedDealCallsSummary.averageDurationSeconds,
+      ...(excludedByPolicyCallsSummary
+        ? { excludedByPolicyCalls: excludedByPolicyCallsSummary }
+        : {})
     },
     warnings: [],
     managerRows: managerRowsResult

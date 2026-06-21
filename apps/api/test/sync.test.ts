@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import { ATTRACTION_MANAGER_IDS } from "../src/domain/attraction-managers";
 import { performLeadgenSync } from "../src/domain/leadgen-sync";
 import { buildAcquisitionOutcomesReport } from "../src/domain/operational-reports";
 import { performManualSync } from "../src/domain/sync";
 
 describe("performManualSync", () => {
-  const attractionScopeKey =
-    "category:10:assigned:11234,13020,2236,2764,6994,72,78,7814,7824";
+  const defaultAttractionManagerIds = ATTRACTION_MANAGER_IDS;
+  const attractionScopeKey = `category:10:assigned:${[
+    ...defaultAttractionManagerIds
+  ].sort().join(",")}`;
 
   it("runs a leadgen-only sync for category 28 without touching attraction category 10", async () => {
     const requestedDealCategories: string[][] = [];
@@ -1078,17 +1081,7 @@ describe("performManualSync", () => {
         assignedByIds?: string[]
       ) => {
         requestedDealStageCategories = categoryIds;
-        expect(assignedByIds).toEqual([
-          "78",
-          "11234",
-          "7824",
-          "6994",
-          "7814",
-          "72",
-          "2236",
-          "2764",
-          "13020"
-        ]);
+        expect(assignedByIds).toEqual(defaultAttractionManagerIds);
         return "2026-04-07T00:00:00.000Z";
       },
       getOperationalHistoryBootstrappedAt: async () =>
@@ -1101,17 +1094,7 @@ describe("performManualSync", () => {
         assignedByIds?: string[]
       ) => {
         expect(categoryIds).toEqual(["10"]);
-        expect(assignedByIds).toEqual([
-          "78",
-          "11234",
-          "7824",
-          "6994",
-          "7814",
-          "72",
-          "2236",
-          "2764",
-          "13020"
-        ]);
+        expect(assignedByIds).toEqual(defaultAttractionManagerIds);
         return ["D1", "D2"];
       },
       getActivitiesByIds: async (activityIds: string[]) => {
@@ -1255,32 +1238,12 @@ describe("performManualSync", () => {
       }) => {
         calls.push({ modifiedAfter: cursor.modifiedAfter });
         if (cursor.categoryIds[0] === "28") {
-          expect(cursor.assignedByIds).toEqual([
-            "78",
-            "11234",
-            "7824",
-            "6994",
-            "7814",
-            "72",
-            "2236",
-            "2764",
-            "13020"
-          ]);
+          expect(cursor.assignedByIds).toEqual(defaultAttractionManagerIds);
           return [];
         }
 
         expect(cursor.categoryIds).toEqual(["10"]);
-        expect(cursor.assignedByIds).toEqual([
-          "78",
-          "11234",
-          "7824",
-          "6994",
-          "7814",
-          "72",
-          "2236",
-          "2764",
-          "13020"
-        ]);
+        expect(cursor.assignedByIds).toEqual(defaultAttractionManagerIds);
         expect(cursor.customFieldNames).toEqual([
           "UF_CRM_1730380390",
           "UF_CRM_1643901145",
@@ -1694,17 +1657,7 @@ describe("performManualSync", () => {
     expect(listDealRequests).toEqual([
       expect.objectContaining({
         categoryIds: ["10"],
-        assignedByIds: [
-          "78",
-          "11234",
-          "7824",
-          "6994",
-          "7814",
-          "72",
-          "2236",
-          "2764",
-          "13020"
-        ],
+        assignedByIds: defaultAttractionManagerIds,
         customFieldNames: [
           "UF_CRM_1730380390",
           "UF_CRM_1647422744",
@@ -4735,17 +4688,7 @@ describe("performManualSync", () => {
       {
         callStartDateFrom: "2025-04-25T00:00:00.000Z",
         callStartDateTo: "2026-04-25T00:00:00.000Z",
-        portalUserIds: [
-          "78",
-          "11234",
-          "7824",
-          "6994",
-          "7814",
-          "72",
-          "2236",
-          "2764",
-          "13020"
-        ]
+        portalUserIds: defaultAttractionManagerIds
       }
     ]);
     expect(stageHistoryRequests).toEqual([]);
@@ -5314,20 +5257,10 @@ describe("performManualSync", () => {
       now: () => "2026-04-25T00:00:00.000Z"
     });
 
-	    expect(requestedCallInputs).toEqual([
-	      expect.objectContaining({
-	        callStartDateFrom: "2025-04-25T00:00:00.000Z",
-        portalUserIds: expect.arrayContaining([
-          "78",
-          "11234",
-          "7824",
-          "6994",
-          "7814",
-          "72",
-          "2236",
-          "2764",
-          "13020"
-        ])
+    expect(requestedCallInputs).toEqual([
+      expect.objectContaining({
+        callStartDateFrom: "2025-04-25T00:00:00.000Z",
+        portalUserIds: expect.arrayContaining(defaultAttractionManagerIds)
       })
     ]);
     expect(storedCalls[0]).toEqual([
@@ -5988,7 +5921,10 @@ describe("performManualSync", () => {
           ...(cursor.assignedByIds ? { assignedByIds: cursor.assignedByIds } : {})
         });
 
-        if (cursor.assignedByIds?.length === 1 && cursor.assignedByIds[0] === "13020") {
+        if (
+          cursor.modifiedAfter === "2025-04-27T05:00:00.000Z" &&
+          cursor.assignedByIds?.includes("13020")
+        ) {
           return [
             {
               ID: "D_NEW_MANAGER",
@@ -6056,21 +5992,11 @@ describe("performManualSync", () => {
     expect(dealRequests).toEqual([
       {
         modifiedAfter: "2026-04-26T21:31:21.964Z",
-        assignedByIds: [
-          "78",
-          "11234",
-          "7824",
-          "6994",
-          "7814",
-          "72",
-          "2236",
-          "2764",
-          "13020"
-        ]
+        assignedByIds: defaultAttractionManagerIds
       },
       {
         modifiedAfter: "2025-04-27T05:00:00.000Z",
-        assignedByIds: ["13020"]
+        assignedByIds: ["13020", "7538", "118"]
       }
     ]);
     expect(activityRequests).toEqual([

@@ -350,6 +350,285 @@ describe('live-reporting', () => {
     })
   })
 
+  it('uses linked attraction calls for direct-only managers in dashboard call summary columns', () => {
+    const activities: ActivitiesWorkloadReport = {
+      range: {
+        from: '2026-06-15T00:00:00.000Z',
+        to: '2026-06-21T23:59:59.999Z',
+      },
+      totalDealCount: 0,
+      totalCreatedCount: 0,
+      totalRescheduledCount: 0,
+      totalClosedCount: 0,
+      totalMeetingCount: 0,
+      warnings: [],
+      conversionEventRows: [],
+      managerRows: [
+        {
+          managerId: '118',
+          managerName: 'Аделия Космасова',
+          dealCount: 0,
+          createdCount: 0,
+          rescheduledCount: 0,
+          closedCount: 0,
+          meetingCount: 0,
+          averageCreatedPerDeal: 0,
+          averageRescheduledPerDeal: 0,
+          averageClosedPerDeal: 0,
+          averageMeetingsPerDeal: 0,
+          meetingTypeBreakdown: [],
+          businessClubBreakdown: [],
+          slaMetrics: [],
+          stageBreakdown: [],
+        },
+      ],
+      comparisons: [],
+    }
+
+    const calls: CallsWorkloadReport = {
+      range: {
+        from: '2026-06-15T00:00:00.000Z',
+        to: '2026-06-21T23:59:59.999Z',
+      },
+      totalDealCount: 0,
+      totalCalls: 3,
+      totalIncomingCalls: 1,
+      totalMissedIncomingCalls: 0,
+      totalOutgoingCalls: 2,
+      totalOtherOutgoingCalls: 0,
+      totalConnectedCalls: 2,
+      totalFailedCalls: 1,
+      totalCallsOverThirtySeconds: 1,
+      totalConnectedCallsOverThirtySeconds: 1,
+      linkedDealCalls: {
+        totalDealCount: 0,
+        totalCalls: 0,
+        incomingCalls: 0,
+        missedIncomingCalls: 0,
+        outgoingCalls: 0,
+        otherOutgoingCalls: 0,
+        connectedCalls: 0,
+        failedCalls: 0,
+        callsOverThirtySeconds: 0,
+        connectedCallsOverThirtySeconds: 0,
+        averageDurationSeconds: 0,
+      },
+      warnings: [],
+      managerRows: [
+        {
+          managerId: '118',
+          managerName: 'Аделия Космасова',
+          callAttributionPolicy: 'direct_only',
+          dealCount: 0,
+          totalCalls: 3,
+          incomingCalls: 1,
+          missedIncomingCalls: 0,
+          outgoingCalls: 2,
+          otherOutgoingCalls: 0,
+          connectedCalls: 2,
+          failedCalls: 1,
+          callsOverThirtySeconds: 1,
+          connectedCallsOverThirtySeconds: 1,
+          averageCallsPerDeal: 0,
+          averageDurationSeconds: 39.33,
+          allCalls: {
+            totalCalls: 3,
+            incomingCalls: 1,
+            missedIncomingCalls: 0,
+            outgoingCalls: 2,
+            otherOutgoingCalls: 0,
+            connectedCalls: 2,
+            failedCalls: 1,
+            callsOverThirtySeconds: 1,
+            connectedCallsOverThirtySeconds: 1,
+            averageDurationSeconds: 39.33,
+          },
+          linkedDealCalls: {
+            dealCount: 0,
+            totalCalls: 0,
+            incomingCalls: 0,
+            missedIncomingCalls: 0,
+            outgoingCalls: 0,
+            otherOutgoingCalls: 0,
+            connectedCalls: 0,
+            failedCalls: 0,
+            callsOverThirtySeconds: 0,
+            connectedCallsOverThirtySeconds: 0,
+            averageDurationSeconds: 0,
+            averageCallsPerDeal: 0,
+            stageBreakdown: [],
+          },
+          stageBreakdown: [],
+        },
+      ],
+      comparisons: [],
+    }
+
+    const scene = mapActivitiesCallsSceneData({ activities, calls })
+
+    expect(scene.summaryRows).toEqual([
+      expect.objectContaining({
+        manager: 'Аделия Космасова',
+        outgoing: '0',
+        successfulCalls: '0',
+        otherOutgoing: '0',
+        noAnswer: '0',
+        missedIncoming: '0',
+        incoming: '0',
+      }),
+    ])
+    expect(scene.matrixRows).toEqual([
+      expect.objectContaining({
+        manager: 'Аделия Космасова',
+        totalCalls: '0',
+        avgCalls: '0.0',
+      }),
+    ])
+  })
+
+  it('shows when direct-only attribution excludes contact fallback calls from the calls-per-deal KPI', () => {
+    const activities: ActivitiesWorkloadReport = {
+      range: {
+        from: '2026-04-06T00:00:00.000Z',
+        to: '2026-04-12T23:59:59.999Z',
+      },
+      totalDealCount: 5,
+      totalCreatedCount: 10,
+      totalRescheduledCount: 0,
+      totalClosedCount: 8,
+      totalMeetingCount: 0,
+      warnings: [],
+      conversionEventRows: [],
+      managerRows: [],
+      comparisons: [],
+    }
+
+    const calls: CallsWorkloadReport = {
+      range: {
+        from: '2026-04-06T00:00:00.000Z',
+        to: '2026-04-12T23:59:59.999Z',
+      },
+      totalDealCount: 5,
+      totalCalls: 13,
+      totalIncomingCalls: 0,
+      totalOutgoingCalls: 13,
+      totalOtherOutgoingCalls: 3,
+      totalConnectedCalls: 10,
+      totalFailedCalls: 3,
+      totalCallsOverThirtySeconds: 7,
+      totalConnectedCallsOverThirtySeconds: 7,
+      linkedDealCalls: {
+        totalDealCount: 5,
+        totalCalls: 10,
+        incomingCalls: 0,
+        outgoingCalls: 10,
+        otherOutgoingCalls: 2,
+        connectedCalls: 8,
+        failedCalls: 2,
+        callsOverThirtySeconds: 6,
+        connectedCallsOverThirtySeconds: 6,
+        averageDurationSeconds: 90,
+        excludedByPolicyCalls: {
+          totalCalls: 3,
+          incomingCalls: 0,
+          outgoingCalls: 3,
+          otherOutgoingCalls: 1,
+          connectedCalls: 2,
+          failedCalls: 1,
+          callsOverThirtySeconds: 1,
+          connectedCallsOverThirtySeconds: 1,
+          averageDurationSeconds: 45,
+        },
+      },
+      warnings: [],
+      managerRows: [],
+      comparisons: [],
+    }
+
+    const scene = mapActivitiesCallsSceneData({ activities, calls })
+    const callsPerDeal = scene.kpis.find((metric) => metric.label === 'Звонков на сделку')
+
+    expect(callsPerDeal).toEqual(
+      expect.objectContaining({
+        value: '2.0',
+        note: 'звонки по сделкам / сделки в выборке; исключено по direct-only: 3',
+      }),
+    )
+  })
+
+  it('shows direct-only exclusions even when there is no linked calls-per-deal base', () => {
+    const activities: ActivitiesWorkloadReport = {
+      range: {
+        from: '2026-06-15T00:00:00.000Z',
+        to: '2026-06-21T23:59:59.999Z',
+      },
+      totalDealCount: 0,
+      totalCreatedCount: 0,
+      totalRescheduledCount: 0,
+      totalClosedCount: 0,
+      totalMeetingCount: 0,
+      warnings: [],
+      conversionEventRows: [],
+      managerRows: [],
+      comparisons: [],
+    }
+
+    const calls: CallsWorkloadReport = {
+      range: {
+        from: '2026-06-15T00:00:00.000Z',
+        to: '2026-06-21T23:59:59.999Z',
+      },
+      totalDealCount: 0,
+      totalCalls: 3,
+      totalIncomingCalls: 1,
+      totalMissedIncomingCalls: 0,
+      totalOutgoingCalls: 2,
+      totalOtherOutgoingCalls: 0,
+      totalConnectedCalls: 2,
+      totalFailedCalls: 1,
+      totalCallsOverThirtySeconds: 1,
+      totalConnectedCallsOverThirtySeconds: 1,
+      linkedDealCalls: {
+        totalDealCount: 0,
+        totalCalls: 0,
+        incomingCalls: 0,
+        missedIncomingCalls: 0,
+        outgoingCalls: 0,
+        otherOutgoingCalls: 0,
+        connectedCalls: 0,
+        failedCalls: 0,
+        callsOverThirtySeconds: 0,
+        connectedCallsOverThirtySeconds: 0,
+        averageDurationSeconds: 0,
+        excludedByPolicyCalls: {
+          totalCalls: 3,
+          incomingCalls: 1,
+          missedIncomingCalls: 0,
+          outgoingCalls: 2,
+          otherOutgoingCalls: 0,
+          connectedCalls: 2,
+          failedCalls: 1,
+          callsOverThirtySeconds: 1,
+          connectedCallsOverThirtySeconds: 1,
+          averageDurationSeconds: 39.33,
+        },
+      },
+      warnings: [],
+      managerRows: [],
+      comparisons: [],
+    }
+
+    const scene = mapActivitiesCallsSceneData({ activities, calls })
+    const callsPerDeal = scene.kpis.find((metric) => metric.label === 'Звонков на сделку')
+
+    expect(callsPerDeal).toEqual(
+      expect.objectContaining({
+        value: '—',
+        note: 'нет прямых связей; исключено по direct-only: 3',
+      }),
+    )
+  })
+
   it('does not invent zero compare values when the comparison base is missing', () => {
     const activities: ActivitiesWorkloadReport = {
       range: {

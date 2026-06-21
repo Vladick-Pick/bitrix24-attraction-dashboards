@@ -22,6 +22,27 @@ describe("attraction manager whitelist", () => {
     ).toEqual(["13020"]);
   });
 
+  it("includes community managers who partly work in attraction", () => {
+    expect(ATTRACTION_MANAGER_CATALOG).toEqual(
+      expect.arrayContaining([
+        {
+          id: "7538",
+          name: "Мария Саличева",
+          callAttributionPolicy: "direct_only"
+        },
+        {
+          id: "118",
+          name: "Аделия Космасова",
+          callAttributionPolicy: "direct_only"
+        }
+      ])
+    );
+
+    expect(normalizeAttractionManagerFilters(undefined).managerIds).toEqual(
+      expect.arrayContaining(["7538", "118"])
+    );
+  });
+
   it("scopes employee report filters to the employee manager team", () => {
     const settings = [
       {

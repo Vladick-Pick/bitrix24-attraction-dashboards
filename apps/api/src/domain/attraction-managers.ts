@@ -14,7 +14,17 @@ export const ATTRACTION_MANAGER_CATALOG = [
   { id: "72", name: "Крохалева Мария" },
   { id: "2236", name: "Потапова Мария" },
   { id: "2764", name: "Каньков Вячеслав" },
-  { id: "13020", name: "Какулия Илья" }
+  { id: "13020", name: "Какулия Илья" },
+  {
+    id: "7538",
+    name: "Мария Саличева",
+    callAttributionPolicy: "direct_only"
+  },
+  {
+    id: "118",
+    name: "Аделия Космасова",
+    callAttributionPolicy: "direct_only"
+  }
 ] satisfies ManagerDirectoryEntry[];
 
 export const ATTRACTION_MANAGER_IDS = ATTRACTION_MANAGER_CATALOG.map(

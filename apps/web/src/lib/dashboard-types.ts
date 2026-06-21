@@ -666,14 +666,18 @@ export interface CallPopulationSummary {
   averageDurationSeconds: number
 }
 
+export type CallAttributionPolicy = 'standard' | 'direct_only'
+
 export interface LinkedDealCallPopulationSummary extends CallPopulationSummary {
   dealCount: number
   averageCallsPerDeal: number
   stageBreakdown: StageCallMetric[]
+  excludedByPolicyCalls?: CallPopulationSummary
 }
 
 export interface LinkedDealCallReportSummary extends CallPopulationSummary {
   totalDealCount: number
+  excludedByPolicyCalls?: CallPopulationSummary
 }
 
 export interface ManagerCallsWorkloadRow {
@@ -691,6 +695,7 @@ export interface ManagerCallsWorkloadRow {
   connectedCallsOverThirtySeconds: number
   averageCallsPerDeal: number
   averageDurationSeconds: number
+  callAttributionPolicy?: CallAttributionPolicy
   allCalls?: CallPopulationSummary
   linkedDealCalls?: LinkedDealCallPopulationSummary
   stageBreakdown: StageCallMetric[]
@@ -1475,6 +1480,7 @@ export type RevenueVelocityQuery = DashboardQuery & {
 export interface ManagerDirectoryEntry {
   id: string
   name: string
+  callAttributionPolicy?: CallAttributionPolicy
 }
 
 export interface ManagerWhitelistSetting {

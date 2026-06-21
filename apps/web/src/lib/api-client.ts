@@ -4,6 +4,7 @@ import type {
   ActivitiesWorkloadReport,
   ActivitiesWorkloadReportSnapshot,
   AttractionOntologyResponse,
+  CallAttributionPolicy,
   CallAnalysisAiEvaluation,
   CallAnalysisClassification,
   CallAnalysisClassificationType,
@@ -182,6 +183,11 @@ function asBoolean(value: unknown, fallback = false) {
 
 function asArray<T>(value: unknown, mapper: (input: unknown) => T): T[] {
   return Array.isArray(value) ? value.map(mapper) : []
+}
+
+function normalizeCallAttributionPolicy(value: unknown): CallAttributionPolicy | undefined {
+  const policy = asString(value)
+  return policy === 'standard' || policy === 'direct_only' ? policy : undefined
 }
 
 function normalizeDealCallSummary(value: unknown) {
@@ -1162,10 +1168,14 @@ function normalizeManagerWhitelistSettings(value: unknown): ManagerWhitelistSett
   return {
     options: asArray(data.options, (entry) => {
       const option = isRecord(entry) ? entry : {}
+      const callAttributionPolicy = normalizeCallAttributionPolicy(
+        option.callAttributionPolicy,
+      )
 
       return {
         id: asString(option.id),
         name: asString(option.name, asString(option.id)),
+        ...(callAttributionPolicy ? { callAttributionPolicy } : {}),
       }
     }).filter((option) => option.id),
     settings: asArray(data.settings, (entry) => {
@@ -1289,9 +1299,13 @@ function normalizeMeta(value: unknown): MetaResponse {
     wonStageIds: asArray(data.wonStageIds, (entry) => asString(entry)).filter(Boolean),
     managerCatalog: asArray(data.managerCatalog, (entry) => {
       const item = isRecord(entry) ? entry : {}
+      const callAttributionPolicy = normalizeCallAttributionPolicy(
+        item.callAttributionPolicy,
+      )
       return {
         id: asString(item.id),
         name: asString(item.name, asString(item.id)),
+        ...(callAttributionPolicy ? { callAttributionPolicy } : {}),
       }
     }),
     sourceCatalog: asArray(data.sourceCatalog, (entry) => {
@@ -1855,6 +1869,8 @@ function normalizeCallsWorkloadSnapshot(value: unknown): CallsWorkloadReportSnap
       averageDurationSeconds: asNumber(item.averageDurationSeconds),
     }
   }
+  const normalizeOptionalCallPopulation = (value: unknown) =>
+    isRecord(value) ? normalizeCallPopulation(value) : undefined
   const normalizeStageCallMetric = (value: unknown) => {
     const row = isRecord(value) ? value : {}
 
@@ -1876,6 +1892,9 @@ function normalizeCallsWorkloadSnapshot(value: unknown): CallsWorkloadReportSnap
     }
   }
   const linkedDealCalls = isRecord(data.linkedDealCalls) ? data.linkedDealCalls : {}
+  const reportExcludedByPolicyCalls = normalizeOptionalCallPopulation(
+    linkedDealCalls.excludedByPolicyCalls,
+  )
 
   return {
     range: normalizeRange(data.range),
@@ -1895,11 +1914,20 @@ function normalizeCallsWorkloadSnapshot(value: unknown): CallsWorkloadReportSnap
     linkedDealCalls: {
       ...normalizeCallPopulation(linkedDealCalls),
       totalDealCount: asNumber(linkedDealCalls.totalDealCount),
+      ...(reportExcludedByPolicyCalls
+        ? { excludedByPolicyCalls: reportExcludedByPolicyCalls }
+        : {}),
     },
     warnings: asArray(data.warnings, (entry) => asString(entry)).filter(Boolean),
     managerRows: asArray(data.managerRows, (entry) => {
       const item = isRecord(entry) ? entry : {}
       const linked = isRecord(item.linkedDealCalls) ? item.linkedDealCalls : {}
+      const rowCallAttributionPolicy = normalizeCallAttributionPolicy(
+        item.callAttributionPolicy,
+      )
+      const rowExcludedByPolicyCalls = normalizeOptionalCallPopulation(
+        linked.excludedByPolicyCalls,
+      )
       return {
         managerId: asString(item.managerId),
         managerName: asString(item.managerName, asString(item.managerId)),
@@ -1917,12 +1945,18 @@ function normalizeCallsWorkloadSnapshot(value: unknown): CallsWorkloadReportSnap
         ),
         averageCallsPerDeal: asNumber(item.averageCallsPerDeal),
         averageDurationSeconds: asNumber(item.averageDurationSeconds),
+        ...(rowCallAttributionPolicy
+          ? { callAttributionPolicy: rowCallAttributionPolicy }
+          : {}),
         allCalls: normalizeCallPopulation(item.allCalls),
         linkedDealCalls: {
           ...normalizeCallPopulation(linked),
           dealCount: asNumber(linked.dealCount),
           averageCallsPerDeal: asNumber(linked.averageCallsPerDeal),
           stageBreakdown: asArray(linked.stageBreakdown, normalizeStageCallMetric),
+          ...(rowExcludedByPolicyCalls
+            ? { excludedByPolicyCalls: rowExcludedByPolicyCalls }
+            : {}),
         },
         stageBreakdown: asArray(item.stageBreakdown, normalizeStageCallMetric),
       }

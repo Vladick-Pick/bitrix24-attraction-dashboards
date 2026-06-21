@@ -316,6 +316,8 @@ export interface CallSnapshot {
   crmEntityType: string | null;
   crmEntityId: string | null;
   callFailedCode: string | null;
+  linkReason?: string | null;
+  linkConfidence?: AnalyticsLinkConfidence | null;
 }
 
 export type CallAnalysisRunStatus = "queued" | "analyzing" | "ready" | "error";
@@ -635,7 +637,10 @@ export interface ConversionEventTypeSettingsInput {
 export interface ManagerDirectoryEntry {
   id: string;
   name: string;
+  callAttributionPolicy?: CallAttributionPolicy;
 }
+
+export type CallAttributionPolicy = "standard" | "direct_only";
 
 export interface ManagerWhitelistSetting {
   moduleKey: string;
@@ -1196,10 +1201,12 @@ export interface LinkedDealCallPopulationSummary extends CallPopulationSummary {
   dealCount: number;
   averageCallsPerDeal: number;
   stageBreakdown: StageCallMetric[];
+  excludedByPolicyCalls?: CallPopulationSummary;
 }
 
 export interface LinkedDealCallReportSummary extends CallPopulationSummary {
   totalDealCount: number;
+  excludedByPolicyCalls?: CallPopulationSummary;
 }
 
 export interface ManagerCallsWorkloadRow {
@@ -1217,6 +1224,7 @@ export interface ManagerCallsWorkloadRow {
   connectedCallsOverThirtySeconds: number;
   averageCallsPerDeal: number;
   averageDurationSeconds: number;
+  callAttributionPolicy?: CallAttributionPolicy;
   allCalls: CallPopulationSummary;
   linkedDealCalls: LinkedDealCallPopulationSummary;
   stageBreakdown: StageCallMetric[];

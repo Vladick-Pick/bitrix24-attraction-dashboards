@@ -18,6 +18,7 @@ architectural issue found in the deep review.
 | [003](./003-extract-platform-and-module-route-registrars.md) | Extract platform and module route registrars | P1 | L | 001, 002 | DONE |
 | [004](./004-define-module-capability-manifest-and-agent-data-boundary.md) | Define module capability manifest and agent data boundary | P1 | M | 001, 002, 003 | DONE |
 | [005](./005-define-fork-owned-module-extension-seam.md) | Define fork-owned module extension seam | P1 | M | 001, 002, 003, 004 | DONE |
+| [006](./006-define-manager-call-attribution-policy.md) | Define manager call attribution policy for shared attraction roles | P1 | M | manager catalog includes 7538, 118 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale - finding fixed independently or approach
@@ -38,6 +39,9 @@ abandoned).
   modules can bring their own manifest adapter, live route availability, source
   data, and integration rules. It keeps the project source-code-fork friendly
   without introducing a package/plugin runtime yet.
+- 006 is independent of the platform split plans, but depends on the active
+  attraction manager catalog containing `7538` and `118`. It should land after
+  the manager-addition branch or absorb that change explicitly.
 
 ## Verification Baseline
 

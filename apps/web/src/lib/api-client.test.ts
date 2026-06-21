@@ -1065,6 +1065,11 @@ describe('apiClient', () => {
               id: '13020',
               name: 'Илья Какулия',
             },
+            {
+              id: '7538',
+              name: 'Мария Саличева',
+              callAttributionPolicy: 'direct_only',
+            },
           ],
           settings: [
             {
@@ -1085,6 +1090,11 @@ describe('apiClient', () => {
             {
               id: '13020',
               name: 'Илья Какулия',
+            },
+            {
+              id: '7538',
+              name: 'Мария Саличева',
+              callAttributionPolicy: 'direct_only',
             },
           ],
           settings: [
@@ -1124,6 +1134,15 @@ describe('apiClient', () => {
     expect(settings.options[0]).toMatchObject({
       id: '13020',
       name: 'Илья Какулия',
+    })
+    expect(settings.options[1]).toMatchObject({
+      id: '7538',
+      name: 'Мария Саличева',
+      callAttributionPolicy: 'direct_only',
+    })
+    expect(saved.options[1]).toMatchObject({
+      id: '7538',
+      callAttributionPolicy: 'direct_only',
     })
     expect(saved.settings[0]).toMatchObject({
       moduleKey: 'attraction',
@@ -1246,7 +1265,13 @@ describe('apiClient', () => {
       ok: true,
       json: async () => ({
         stageCatalog: [],
-        managerCatalog: [],
+        managerCatalog: [
+          {
+            id: '7538',
+            name: 'Мария Саличева',
+            callAttributionPolicy: 'direct_only',
+          },
+        ],
         sourceCatalog: [],
         wonStageIds: [],
         defaultPeriodDays: 30,
@@ -1295,6 +1320,13 @@ describe('apiClient', () => {
         calls: 7,
         stageHistory: 18,
       },
+      managerCatalog: [
+        {
+          id: '7538',
+          name: 'Мария Саличева',
+          callAttributionPolicy: 'direct_only',
+        },
+      ],
     })
   })
 
@@ -2164,6 +2196,85 @@ describe('apiClient', () => {
       '/api/modules/leadgen/reports/activities-workload',
       '/api/modules/leadgen/reports/calls-workload',
     ])
+  })
+
+  it('normalizes call attribution policy diagnostics in calls workload reports', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        range: {
+          from: '2026-06-15T00:00:00.000Z',
+          to: '2026-06-21T23:59:59.999Z',
+        },
+        totalDealCount: 1,
+        totalCalls: 2,
+        totalIncomingCalls: 0,
+        totalMissedIncomingCalls: 0,
+        totalOutgoingCalls: 2,
+        totalOtherOutgoingCalls: 0,
+        totalConnectedCalls: 2,
+        totalFailedCalls: 0,
+        totalCallsOverThirtySeconds: 2,
+        totalConnectedCallsOverThirtySeconds: 2,
+        linkedDealCalls: {
+          totalDealCount: 1,
+          totalCalls: 1,
+          outgoingCalls: 1,
+          connectedCalls: 1,
+          excludedByPolicyCalls: {
+            totalCalls: 1,
+            outgoingCalls: 1,
+            connectedCalls: 1,
+          },
+        },
+        warnings: [],
+        managerRows: [
+          {
+            managerId: '7538',
+            managerName: 'Мария Саличева',
+            callAttributionPolicy: 'direct_only',
+            dealCount: 1,
+            totalCalls: 2,
+            outgoingCalls: 2,
+            otherOutgoingCalls: 0,
+            connectedCalls: 2,
+            failedCalls: 0,
+            callsOverThirtySeconds: 2,
+            connectedCallsOverThirtySeconds: 2,
+            averageCallsPerDeal: 1,
+            averageDurationSeconds: 135,
+            linkedDealCalls: {
+              dealCount: 1,
+              totalCalls: 1,
+              outgoingCalls: 1,
+              connectedCalls: 1,
+              averageCallsPerDeal: 1,
+              excludedByPolicyCalls: {
+                totalCalls: 1,
+                outgoingCalls: 1,
+                connectedCalls: 1,
+              },
+              stageBreakdown: [],
+            },
+            stageBreakdown: [],
+          },
+        ],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const calls = await apiClient.getCallsWorkloadReport({
+      preset: 'custom',
+      from: '2026-06-15T00:00:00.000Z',
+      to: '2026-06-21T23:59:59.999Z',
+    })
+
+    expect(calls.linkedDealCalls?.excludedByPolicyCalls?.totalCalls).toBe(1)
+    expect(calls.managerRows[0]?.callAttributionPolicy).toBe('direct_only')
+    expect(
+      calls.managerRows[0]?.linkedDealCalls?.excludedByPolicyCalls?.outgoingCalls,
+    ).toBe(1)
   })
 
   it('runs and loads manual call analysis through the API client', async () => {

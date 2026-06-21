@@ -415,19 +415,28 @@ function resolveTocBottleneckRow(
   })
 }
 
+function resolveDisplayCallSummary(
+  callRow: CallsWorkloadReportSnapshot['managerRows'][number] | null,
+) {
+  return callRow?.callAttributionPolicy === 'direct_only'
+    ? (callRow.linkedDealCalls ?? null)
+    : callRow
+}
+
 function formatActivitySummaryValues(
   activityRow: ActivitiesWorkloadReportSnapshot['managerRows'][number] | null,
   callRow: CallsWorkloadReportSnapshot['managerRows'][number] | null,
 ) {
+  const callSummary = resolveDisplayCallSummary(callRow)
   const rawValues = [
     activityRow?.createdCount ?? 0,
     activityRow?.closedCount ?? 0,
-    callRow?.outgoingCalls ?? 0,
-    callRow?.connectedCallsOverThirtySeconds ?? 0,
-    callRow?.otherOutgoingCalls ?? 0,
-    callRow?.failedCalls ?? 0,
-    callRow?.missedIncomingCalls ?? 0,
-    callRow?.incomingCalls ?? 0,
+    callSummary?.outgoingCalls ?? 0,
+    callSummary?.connectedCallsOverThirtySeconds ?? 0,
+    callSummary?.otherOutgoingCalls ?? 0,
+    callSummary?.failedCalls ?? 0,
+    callSummary?.missedIncomingCalls ?? 0,
+    callSummary?.incomingCalls ?? 0,
   ]
 
   return {
@@ -707,10 +716,11 @@ export function mapActivitiesCallsSceneData(input: {
       compareActivities?.managerRows.find((row) => row.managerName === managerName) ?? null
     const compareCallRow =
       compareCalls?.managerRows.find((row) => row.managerName === managerName) ?? null
+    const displayCallSummary = resolveDisplayCallSummary(callRow)
 
     return {
       manager: managerName,
-      totalCalls: formatCount(callRow?.totalCalls ?? 0),
+      totalCalls: formatCount(displayCallSummary?.totalCalls ?? 0),
       avgCalls: formatDecimal(callRow?.averageCallsPerDeal ?? 0),
       totalClosedTasks: formatCount(activityRow?.closedCount ?? 0),
       avgClosedTasks: formatDecimal(activityRow?.averageClosedPerDeal ?? 0),
@@ -761,12 +771,19 @@ export function mapActivitiesCallsSceneData(input: {
     }
   })
 
-  const hasCallsPerDealBase = calls.totalDealCount > 0
+  const callsPerDealCallCount = calls.linkedDealCalls?.totalCalls ?? calls.totalCalls
+  const callsPerDealDealCount =
+    calls.linkedDealCalls?.totalDealCount ?? calls.totalDealCount
+  const compareCallsPerDealCallCount =
+    compareCalls?.linkedDealCalls?.totalCalls ?? compareCalls?.totalCalls ?? 0
+  const compareCallsPerDealDealCount =
+    compareCalls?.linkedDealCalls?.totalDealCount ?? compareCalls?.totalDealCount ?? 0
+  const hasCallsPerDealBase = callsPerDealDealCount > 0
   const totalCallsPerDeal =
-    hasCallsPerDealBase ? calls.totalCalls / calls.totalDealCount : 0
+    hasCallsPerDealBase ? callsPerDealCallCount / callsPerDealDealCount : 0
   const compareCallsPerDeal =
-    compareCalls && compareCalls.totalDealCount > 0
-      ? compareCalls.totalCalls / compareCalls.totalDealCount
+    compareCalls && compareCallsPerDealDealCount > 0
+      ? compareCallsPerDealCallCount / compareCallsPerDealDealCount
       : null
   const totalTasksPerDeal =
     activities.totalDealCount > 0
@@ -792,6 +809,22 @@ export function mapActivitiesCallsSceneData(input: {
     : calls.totalCalls > 0
       ? 'нет привязки'
       : 'нет базы'
+  const excludedByPolicyCalls = calls.linkedDealCalls?.excludedByPolicyCalls?.totalCalls ?? 0
+  const callsPerDealNote = (() => {
+    if (hasCallsPerDealBase) {
+      return excludedByPolicyCalls > 0
+        ? `звонки по сделкам / сделки в выборке; исключено по direct-only: ${formatCount(excludedByPolicyCalls)}`
+        : 'звонки по сделкам / сделки в выборке'
+    }
+
+    if (excludedByPolicyCalls > 0) {
+      return `нет прямых связей; исключено по direct-only: ${formatCount(excludedByPolicyCalls)}`
+    }
+
+    return calls.totalCalls > 0
+      ? 'есть звонки, но они не привязаны к сделкам'
+      : 'нет связанных сделок для расчета'
+  })()
   const tasksPerDealDelta =
     compareTasksPerDeal === null
       ? '—'
@@ -833,11 +866,7 @@ export function mapActivitiesCallsSceneData(input: {
       buildKpi({
         label: 'Звонков на сделку',
         value: hasCallsPerDealBase ? formatDecimal(totalCallsPerDeal) : '—',
-        note: hasCallsPerDealBase
-          ? 'все звонки / сделки в выборке'
-          : calls.totalCalls > 0
-            ? 'есть звонки, но они не привязаны к сделкам'
-            : 'нет связанных сделок для расчета',
+        note: callsPerDealNote,
         compare:
           hasCallsPerDealBase && compareCallsPerDeal !== null
             ? formatCompareValue('пред. период', formatDecimal(compareCallsPerDeal))

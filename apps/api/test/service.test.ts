@@ -148,6 +148,39 @@ function withReportingRepositoryDefaults(
 }
 
 describe("createReportingService", () => {
+  it("preserves catalog call attribution policy in manager whitelist options", async () => {
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: withReportingRepositoryDefaults({
+        getManagerDirectory: async () => [
+          { id: "7538", name: "Мария Саличева" },
+          { id: "118", name: "Аделия Космасова" }
+        ]
+      }),
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-06-21T12:00:00.000Z")
+    });
+
+    const whitelist = await service.getManagerWhitelistSettings();
+
+    expect(whitelist.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "7538",
+          callAttributionPolicy: "direct_only"
+        }),
+        expect.objectContaining({
+          id: "118",
+          callAttributionPolicy: "direct_only"
+        })
+      ])
+    );
+  });
+
   it("passes manager team assignments through when saving whitelist settings", async () => {
     type ReplaceManagerWhitelistInput = Parameters<
       ReportingRepository["replaceManagerWhitelistSettings"]
@@ -834,6 +867,107 @@ describe("createReportingService", () => {
     expect(report.managerRows.map((row) => row.managerId)).not.toContain("999");
   });
 
+  it("preserves catalog call attribution policy when stored manager directory rows only have names", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "DIRECT_ONLY_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "7538",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-06-15T09:00:00.000Z",
+          dateModify: "2026-06-15T09:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 10
+        }
+      ],
+      getAllStageHistory: async () => [],
+      getAllActivities: async () => [],
+      getAllActivityBindings: async () => [],
+      getAllCalls: async () => [],
+      getAllDealTouchpointFacts: async () => [
+        {
+          factId: "call:DIRECT_ONLY_FALLBACK",
+          kind: "call" as const,
+          sourceSystem: "bitrix24",
+          sourceEntityType: "call",
+          sourceEntityId: "DIRECT_ONLY_FALLBACK",
+          occurredAt: "2026-06-17T10:00:00.000Z",
+          dealId: "DIRECT_ONLY_DEAL",
+          contactId: "CONTACT1",
+          leadId: null,
+          managerId: "7538",
+          sourceId: "WEB",
+          stageIdAtEvent: "C10:PREPARATION",
+          stageNameAtEvent: "Звонок-знакомство",
+          linkConfidence: "medium" as const,
+          linkReason: "contact_single_deal_fallback",
+          payloadJson: JSON.stringify({
+            direction: "outgoing",
+            durationSeconds: 120,
+            failedCode: "200",
+            connected: true
+          })
+        }
+      ],
+      getManagerDirectory: async () => [
+        { id: "7538", name: "Мария Саличева" }
+      ],
+      upsertManagerDirectory: async () => 1
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: withReportingRepositoryDefaults(repository),
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-06-21T12:00:00.000Z")
+    });
+
+    const report = await service.getCallsWorkloadReport({
+      range: {
+        from: "2026-06-15T00:00:00.000Z",
+        to: "2026-06-21T23:59:59.999Z"
+      }
+    });
+    const salicheva = report.managerRows.find((row) => row.managerId === "7538");
+
+    expect(report.allCalls.totalCalls).toBe(1);
+    expect(report.linkedDealCalls.totalCalls).toBe(0);
+    expect(report.linkedDealCalls.excludedByPolicyCalls?.totalCalls).toBe(1);
+    expect(salicheva?.callAttributionPolicy).toBe("direct_only");
+    expect(salicheva?.linkedDealCalls).toMatchObject({
+      dealCount: 0,
+      totalCalls: 0,
+      excludedByPolicyCalls: expect.objectContaining({
+        totalCalls: 1,
+        outgoingCalls: 1
+      })
+    });
+  });
+
   it("warns when manager action outcome historical activity coverage is missing", async () => {
     const repository = {
       getAllDeals: async () => [
@@ -1238,17 +1372,9 @@ describe("createReportingService", () => {
       })
     ]);
 
-    expect(meta.managerCatalog.map((manager) => manager.id)).toEqual([
-      "78",
-      "11234",
-      "7824",
-      "6994",
-      "7814",
-      "72",
-      "2236",
-      "2764",
-      "13020"
-    ]);
+    expect(meta.managerCatalog.map((manager) => manager.id)).toEqual(
+      ATTRACTION_MANAGER_CATALOG.map((manager) => manager.id)
+    );
     expect(meta.managerCatalog.map((manager) => manager.name)).not.toContain(
       "Лишний Менеджер"
     );
@@ -1481,17 +1607,9 @@ describe("createReportingService", () => {
 
     expect(dashboard.salesSummary.salesCount).toBe(1);
     expect(dashboard.salesSummary.newDealsCount).toBe(1);
-    expect(meta.managerCatalog.map((manager) => manager.id)).toEqual([
-      "78",
-      "11234",
-      "7824",
-      "6994",
-      "7814",
-      "72",
-      "2236",
-      "2764",
-      "13020"
-    ]);
+    expect(meta.managerCatalog.map((manager) => manager.id)).toEqual(
+      ATTRACTION_MANAGER_CATALOG.map((manager) => manager.id)
+    );
     expect(meta.sourceCatalog).toEqual([
       { key: "REFERRAL", label: "Referral" },
       { key: "WEB", label: "Website" }

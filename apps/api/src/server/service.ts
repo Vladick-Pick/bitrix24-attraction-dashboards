@@ -1145,15 +1145,26 @@ export function createReportingService(
       );
       const existing = await input.repository.getManagerDirectory();
       const optionsById = new Map<string, ManagerDirectoryEntry>();
+      const upsertOption = (manager: ManagerDirectoryEntry) => {
+        const current = optionsById.get(manager.id);
+        const callAttributionPolicy =
+          manager.callAttributionPolicy ?? current?.callAttributionPolicy;
+
+        optionsById.set(manager.id, {
+          ...current,
+          ...manager,
+          ...(callAttributionPolicy ? { callAttributionPolicy } : {})
+        });
+      };
 
       for (const manager of ATTRACTION_MANAGER_CATALOG) {
-        optionsById.set(manager.id, manager);
+        upsertOption(manager);
       }
       for (const manager of existing) {
-        optionsById.set(manager.id, manager);
+        upsertOption(manager);
       }
       for (const setting of settings) {
-        optionsById.set(setting.managerId, {
+        upsertOption({
           id: setting.managerId,
           name: setting.managerName
         });

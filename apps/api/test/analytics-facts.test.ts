@@ -17,6 +17,7 @@ import {
   buildIdentityLinks,
   resolveStageFactAtTime
 } from "../src/domain/analytics-facts.js";
+import { touchpointFactsToCalls } from "../src/domain/fact-report-adapters.js";
 
 describe("analytics facts", () => {
   const attractionDeal = {
@@ -339,6 +340,20 @@ describe("analytics facts", () => {
         linkReason: "unlinked_call"
       })
     ]);
+    expect(touchpointFactsToCalls(facts)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "LINKED_CALL",
+          linkReason: "activity_binding_deal",
+          linkConfidence: "high"
+        }),
+        expect.objectContaining({
+          id: "UNLINKED_CALL",
+          linkReason: "unlinked_call",
+          linkConfidence: "low"
+        })
+      ])
+    );
     expect(facts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

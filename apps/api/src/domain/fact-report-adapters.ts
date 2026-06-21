@@ -84,7 +84,9 @@ export function touchpointFactsToCalls(
         callDurationSeconds: payloadNumber(payload, "durationSeconds"),
         crmEntityType: fact.dealId ? "DEAL" : null,
         crmEntityId: fact.dealId,
-        callFailedCode: failedCode ?? (connected ? "200" : null)
+        callFailedCode: failedCode ?? (connected ? "200" : null),
+        linkReason: fact.linkReason,
+        linkConfidence: fact.linkConfidence
       } satisfies CallSnapshot;
     })
     .sort((left, right) => {

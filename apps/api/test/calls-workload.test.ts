@@ -128,6 +128,140 @@ describe("buildCallsWorkloadReport", () => {
     ]);
   });
 
+  it("keeps fallback calls for standard managers but excludes them from direct-only manager attribution", () => {
+    const result = buildCallsWorkloadReport({
+      range: {
+        from: "2026-06-15T00:00:00.000Z",
+        to: "2026-06-21T23:59:59.999Z"
+      },
+      deals: [
+        {
+          id: "STANDARD_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "2236",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-06-15T09:00:00.000Z",
+          dateModify: "2026-06-15T09:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        },
+        {
+          id: "DIRECT_ONLY_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "7538",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-06-15T09:00:00.000Z",
+          dateModify: "2026-06-15T09:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        }
+      ],
+      stageHistory: [],
+      activities: [],
+      calls: [
+        {
+          id: "STANDARD_FALLBACK",
+          crmActivityId: null,
+          portalUserId: "2236",
+          callType: "1",
+          callStartDate: "2026-06-16T10:00:00.000Z",
+          callDurationSeconds: 90,
+          crmEntityType: "DEAL",
+          crmEntityId: "STANDARD_DEAL",
+          callFailedCode: "200",
+          linkReason: "contact_single_deal_fallback",
+          linkConfidence: "medium"
+        },
+        {
+          id: "DIRECT_ONLY_FALLBACK",
+          crmActivityId: null,
+          portalUserId: "7538",
+          callType: "1",
+          callStartDate: "2026-06-17T10:00:00.000Z",
+          callDurationSeconds: 120,
+          crmEntityType: "DEAL",
+          crmEntityId: "DIRECT_ONLY_DEAL",
+          callFailedCode: "200",
+          linkReason: "contact_single_deal_fallback",
+          linkConfidence: "medium"
+        },
+        {
+          id: "DIRECT_ONLY_DIRECT",
+          crmActivityId: null,
+          portalUserId: "7538",
+          callType: "1",
+          callStartDate: "2026-06-18T10:00:00.000Z",
+          callDurationSeconds: 150,
+          crmEntityType: "DEAL",
+          crmEntityId: "DIRECT_ONLY_DEAL",
+          callFailedCode: "200",
+          linkReason: "activity_owner_deal",
+          linkConfidence: "high"
+        }
+      ],
+      managerDirectory: [
+        { id: "2236", name: "Потапова Мария" },
+        {
+          id: "7538",
+          name: "Мария Саличева",
+          callAttributionPolicy: "direct_only"
+        }
+      ]
+    });
+
+    const standard = result.managerRows.find((row) => row.managerId === "2236");
+    const directOnly = result.managerRows.find((row) => row.managerId === "7538");
+
+    expect(result.allCalls.totalCalls).toBe(3);
+    expect(result.linkedDealCalls.totalCalls).toBe(2);
+    expect(result.linkedDealCalls.totalDealCount).toBe(2);
+    expect(result.linkedDealCalls.excludedByPolicyCalls?.totalCalls).toBe(1);
+    expect(standard?.linkedDealCalls).toMatchObject({
+      dealCount: 1,
+      totalCalls: 1
+    });
+    expect(standard?.linkedDealCalls.excludedByPolicyCalls?.totalCalls ?? 0).toBe(0);
+    expect(directOnly?.callAttributionPolicy).toBe("direct_only");
+    expect(directOnly?.totalCalls).toBe(2);
+    expect(directOnly?.linkedDealCalls).toMatchObject({
+      dealCount: 1,
+      totalCalls: 1,
+      excludedByPolicyCalls: expect.objectContaining({
+        totalCalls: 1,
+        outgoingCalls: 1,
+        connectedCalls: 1
+      })
+    });
+  });
+
   it("separates missed incoming calls from successful incoming calls", () => {
     const result = buildCallsWorkloadReport({
       range: {

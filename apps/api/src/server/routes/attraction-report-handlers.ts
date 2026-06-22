@@ -17,6 +17,7 @@ export interface RangeRequest {
     managerIds?: string[];
     sourceKeys?: string[];
   };
+  includeBreakdown?: boolean;
 }
 
 export type RevenueVelocityRequest = RangeRequest & {

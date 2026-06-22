@@ -282,6 +282,7 @@ function createCorsTestApp(config?: {
         closureMonths: [],
         relativeBucketKeys: ["month_1", "month_2", "month_3", "month_4_plus"],
         rows: [],
+        breakdownRows: [],
         comparisons: []
       }),
       getTocFlowReport: async () => ({

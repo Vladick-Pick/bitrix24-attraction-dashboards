@@ -219,6 +219,7 @@ export interface ReportingService {
     range?: ReportRange;
     compareRanges?: ReportRange[];
     filters?: ReportFilters;
+    includeBreakdown?: boolean;
   }): Promise<CohortConversionReport>;
   getTocFlowReport(input: {
     periodDays?: number;
@@ -2901,7 +2902,8 @@ export function createReportingService(
     },
 
     async getCohortConversionReport({
-      filters
+      filters,
+      includeBreakdown
     }) {
       const scopedFilters = await normalizeAttractionReportFilters(filters);
       const [deals, wonStageIds, stageHistory] = await Promise.all([
@@ -2924,6 +2926,8 @@ export function createReportingService(
           range: targetRange,
           wonStageIds,
           deals: scopedDeals,
+          ...(includeBreakdown !== undefined ? { includeBreakdown } : {}),
+          stageCatalog,
           stageHistory: scopedStageHistory
         });
 

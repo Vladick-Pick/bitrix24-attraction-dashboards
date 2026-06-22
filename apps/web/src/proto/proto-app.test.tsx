@@ -3724,7 +3724,7 @@ describe('ProtoApp', () => {
     })
   })
 
-  it('loads cohort breakdowns for every source catalog entry', async () => {
+  it('loads cohort source breakdowns from the main cohort report without per-source requests', async () => {
     vi.mocked(apiClient.getMeta).mockResolvedValueOnce({
       stageCatalog: [],
       managerCatalog: [],
@@ -3756,19 +3756,90 @@ describe('ProtoApp', () => {
         warnings: [],
       },
     })
+    vi.mocked(apiClient.getCohortConversionReport).mockResolvedValueOnce({
+      range: { from: '2026-04-01T00:00:00.000Z', to: '2026-04-30T23:59:59.999Z' },
+      totalCreatedDeals: 8,
+      totalClosedDeals: 3,
+      totalWonDeals: 2,
+      closureMonths: [],
+      relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+      rows: [],
+      breakdownRows: [
+        {
+          id: 'cohort:2026-04',
+          level: 'cohort',
+          parentId: null,
+          cohortMonth: '2026-04',
+          cohortLabel: '2026-04',
+          sourceKey: null,
+          sourceLabel: null,
+          qualityKey: null,
+          qualityLabel: null,
+          customerKey: null,
+          customerLabel: null,
+          createdDeals: 8,
+          closedDeals: 3,
+          wonDeals: 2,
+          closedRate: 37.5,
+          wonConversionRate: 25,
+          averageDaysToClose: 20,
+          averageDaysToWin: 18,
+          relativeClosureBuckets: [
+            { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 1, wonDeals: 1, closedRate: 12.5, wonConversionRate: 12.5 },
+            { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 1, wonDeals: 1, closedRate: 12.5, wonConversionRate: 12.5 },
+            { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+            { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 1, wonDeals: 0, closedRate: 12.5, wonConversionRate: 0 },
+          ],
+        },
+        {
+          id: 'source:2026-04/referral',
+          level: 'source',
+          parentId: 'cohort:2026-04',
+          cohortMonth: '2026-04',
+          cohortLabel: '2026-04',
+          sourceKey: 'referral',
+          sourceLabel: 'Рекомендации',
+          qualityKey: null,
+          qualityLabel: null,
+          customerKey: null,
+          customerLabel: null,
+          createdDeals: 8,
+          closedDeals: 3,
+          wonDeals: 2,
+          closedRate: 37.5,
+          wonConversionRate: 25,
+          averageDaysToClose: 20,
+          averageDaysToWin: 18,
+          relativeClosureBuckets: [
+            { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 1, wonDeals: 1, closedRate: 12.5, wonConversionRate: 12.5 },
+            { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 1, wonDeals: 1, closedRate: 12.5, wonConversionRate: 12.5 },
+            { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+            { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 1, wonDeals: 0, closedRate: 12.5, wonConversionRate: 0 },
+          ],
+        },
+      ],
+      comparisons: [],
+    })
 
     render(<ProtoApp />)
 
     await userEvent.click(await screen.findByRole('button', { name: /^когортный отчет$/i }))
 
     await waitFor(() => {
-      const sourceCalls = vi.mocked(apiClient.getCohortConversionReport).mock.calls
-        .map(([query]) => query.sourceKeys?.[0])
-        .filter(Boolean)
-      expect(sourceCalls).toEqual(
-        expect.arrayContaining(['referral', 'leadgen-us', 'internal']),
-      )
+      expect(apiClient.getCohortConversionReport).toHaveBeenCalledTimes(6)
     })
+    const cohortQueries = vi.mocked(apiClient.getCohortConversionReport).mock.calls.map(
+      ([query]) => query,
+    )
+    expect(cohortQueries.some((query) => query.sourceKeys && query.sourceKeys.length > 0)).toBe(
+      false,
+    )
+    expect(cohortQueries[0]).not.toHaveProperty('includeBreakdown')
+    expect(
+      cohortQueries.slice(1).every((query) =>
+        query.includeBreakdown === false && query.managerIds?.length === 1
+      ),
+    ).toBe(true)
   })
 
   it('renders live sales by manager with deal details inside the prototype sales scene', async () => {

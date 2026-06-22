@@ -286,6 +286,17 @@ export interface CohortDistributionRow {
   width?: number
 }
 
+export interface CohortBreakdownRow {
+  id: string
+  parentId: string | null
+  level: 'cohort' | 'source' | 'quality' | 'customer'
+  label: string
+  createdDeals: string
+  cells: HeatCell[]
+  conversion: string
+  cycle: string
+}
+
 export interface CohortSceneData {
   range?: {
     from: string
@@ -296,6 +307,7 @@ export interface CohortSceneData {
   distributionBuckets: CohortDistributionBucket[]
   managerDistribution: CohortDistributionRow[]
   sourceDistribution: CohortDistributionRow[]
+  sourceBreakdownRows: CohortBreakdownRow[]
 }
 
 export interface FlowStageMetric {

@@ -14,6 +14,7 @@ import type {
   ActivitiesCallsSceneData,
   ActivityMatrixRow,
   ActivitySummaryRow,
+  CohortBreakdownRow,
   CohortDistributionRow,
   CohortSceneData,
   CohortMatrixRow,
@@ -255,7 +256,7 @@ function monthLabel(value: string) {
 }
 
 function getRelativeClosureBucket(
-  row: CohortConversionReportSnapshot['rows'][number],
+  row: Pick<CohortConversionReportSnapshot['rows'][number], 'relativeClosureBuckets'>,
   bucketKey: (typeof cohortBucketOrder)[number],
 ) {
   return (
@@ -364,6 +365,118 @@ function mapDistributionRow(
     tail: formatPercentDisplay(tail),
     width: widthFromPercent(Math.max(month1, month2, month3, tail)),
   }
+}
+
+function mapSourceDistributionFromBreakdownRows(
+  rows: CohortConversionReportSnapshot['breakdownRows'],
+): CohortDistributionRow[] {
+  const sourceRows = rows.filter((row) => row.level === 'source' && row.createdDeals > 0)
+  const aggregates = new Map<
+    string,
+    {
+      label: string
+      createdDeals: number
+      buckets: Map<(typeof cohortBucketOrder)[number], number>
+    }
+  >()
+
+  for (const row of sourceRows) {
+    const key = row.sourceKey ?? row.id
+    const current = aggregates.get(key) ?? {
+      label: row.sourceLabel ?? 'Без источника',
+      createdDeals: 0,
+      buckets: new Map(cohortBucketOrder.map((bucketKey) => [bucketKey, 0])),
+    }
+
+    current.createdDeals += row.createdDeals
+    for (const bucketKey of cohortBucketOrder) {
+      current.buckets.set(
+        bucketKey,
+        (current.buckets.get(bucketKey) ?? 0) +
+          getRelativeClosureBucket(row, bucketKey).wonDeals,
+      )
+    }
+    aggregates.set(key, current)
+  }
+
+  return Array.from(aggregates.values())
+    .sort((left, right) => {
+      if (right.createdDeals !== left.createdDeals) {
+        return right.createdDeals - left.createdDeals
+      }
+
+      return left.label.localeCompare(right.label, 'ru')
+    })
+    .map((row) => {
+      const month1 = row.createdDeals > 0
+        ? ((row.buckets.get('month_1') ?? 0) / row.createdDeals) * 100
+        : 0
+      const month2 = row.createdDeals > 0
+        ? ((row.buckets.get('month_2') ?? 0) / row.createdDeals) * 100
+        : 0
+      const month3 = row.createdDeals > 0
+        ? ((row.buckets.get('month_3') ?? 0) / row.createdDeals) * 100
+        : 0
+      const tail = row.createdDeals > 0
+        ? ((row.buckets.get('month_4_plus') ?? 0) / row.createdDeals) * 100
+        : 0
+
+      return {
+        manager: row.label,
+        month1: formatPercentDisplay(month1),
+        month2: formatPercentDisplay(month2),
+        month3: formatPercentDisplay(month3),
+        tail: formatPercentDisplay(tail),
+        width: widthFromPercent(Math.max(month1, month2, month3, tail)),
+      }
+    })
+}
+
+function mapCohortBreakdownRows(
+  rows: CohortConversionReportSnapshot['breakdownRows'],
+): CohortBreakdownRow[] {
+  const rowsBase = rows.map((row) => {
+    const matrixBuckets = cohortBucketOrder.map((bucketKey) =>
+      getRelativeClosureBucket(row, bucketKey),
+    )
+    const rawValues = matrixBuckets.map((bucket) => bucket.wonDeals)
+
+    return {
+      id: row.id,
+      parentId: row.parentId,
+      level: row.level,
+      label: row.level === 'cohort'
+        ? monthLabel(row.cohortMonth ?? row.cohortLabel ?? row.id)
+        : row.customerLabel ?? row.qualityLabel ?? row.sourceLabel ?? 'Без значения',
+      createdDeals: formatCount(row.createdDeals),
+      rawValues,
+      cells: matrixBuckets.map((bucket) => ({
+        value: formatCount(bucket.wonDeals),
+        subvalue: formatPercentDisplay(bucket.wonConversionRate),
+        level: 1,
+      })),
+      conversion: formatPercentDisplay(row.wonConversionRate),
+      cycle:
+        row.wonDeals > 0 && row.averageDaysToWin > 0
+          ? `${Math.round(row.averageDaysToWin)} дн.`
+          : '—',
+    }
+  })
+  const maxMatrixValue = Math.max(0, ...rowsBase.flatMap((row) => row.rawValues))
+
+  return rowsBase.map((row) => ({
+    id: row.id,
+    parentId: row.parentId,
+    level: row.level,
+    label: row.label,
+    createdDeals: row.createdDeals,
+    conversion: row.conversion,
+    cycle: row.cycle,
+    cells: row.cells.map((cell, index) => ({
+      ...cell,
+      level: createHeatLevel(row.rawValues[index] ?? 0, maxMatrixValue),
+    })),
+  }))
 }
 
 function sortBreakdowns<T extends { label: string; report: { totalCreatedDeals: number } }>(
@@ -903,6 +1016,9 @@ export function mapCohortSceneData(input: {
   sourceBreakdowns: SourceCohortBreakdown[]
 }): CohortSceneData {
   const { report, managerBreakdowns, sourceBreakdowns } = input
+  const sourceBreakdownDistributionRows = mapSourceDistributionFromBreakdownRows(
+    report.breakdownRows ?? [],
+  )
 
   const matrixRowsBase: Array<
     CohortMatrixRow & {
@@ -999,8 +1115,11 @@ export function mapCohortSceneData(input: {
     managerDistribution: sortBreakdowns(managerBreakdowns)
       .slice(0, 5)
       .map((entry) => mapDistributionRow(entry.label, entry.report)),
-    sourceDistribution: sortBreakdowns(sourceBreakdowns)
-      .map((entry) => mapDistributionRow(entry.label, entry.report)),
+    sourceDistribution: sourceBreakdownDistributionRows.length > 0
+      ? sourceBreakdownDistributionRows
+      : sortBreakdowns(sourceBreakdowns)
+        .map((entry) => mapDistributionRow(entry.label, entry.report)),
+    sourceBreakdownRows: mapCohortBreakdownRows(report.breakdownRows ?? []),
   }
 }
 

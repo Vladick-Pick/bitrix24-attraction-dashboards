@@ -969,6 +969,43 @@ describe('apiClient', () => {
     })
   })
 
+  it('passes cohort breakdown mode through query params', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        range: {
+          from: '2026-04-01T00:00:00.000Z',
+          to: '2026-04-30T23:59:59.999Z',
+        },
+        totalCreatedDeals: 0,
+        totalClosedDeals: 0,
+        totalWonDeals: 0,
+        closureMonths: [],
+        relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+        rows: [],
+        breakdownRows: [],
+        comparisons: [],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiClient.getCohortConversionReport({
+      preset: 'custom',
+      from: '2026-04-01T00:00:00.000Z',
+      to: '2026-04-30T23:59:59.999Z',
+      managerIds: ['78'],
+      includeBreakdown: false,
+    })
+
+    const [requestUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const parsedUrl = new URL(requestUrl, window.location.origin)
+
+    expect(parsedUrl.pathname).toBe('/api/reports/cohort-conversion')
+    expect(parsedUrl.searchParams.get('managerIds')).toBe('78')
+    expect(parsedUrl.searchParams.get('includeBreakdown')).toBe('false')
+  })
+
   it('loads and saves conversion event type settings', async () => {
     const fetchMock = vi
       .fn()

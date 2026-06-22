@@ -751,6 +751,86 @@ describe('live-reporting', () => {
       totalWonDeals: 10,
       closureMonths: ['2026-02', '2026-03', '2026-04', '2026-05'],
       relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+      breakdownRows: [
+        {
+          id: 'cohort:2026-01',
+          level: 'cohort',
+          parentId: null,
+          cohortMonth: '2026-01',
+          cohortLabel: '2026-01',
+          sourceKey: null,
+          sourceLabel: null,
+          qualityKey: null,
+          qualityLabel: null,
+          customerKey: null,
+          customerLabel: null,
+          createdDeals: 11,
+          closedDeals: 8,
+          wonDeals: 6,
+          closedRate: 72.73,
+          wonConversionRate: 54.55,
+          averageDaysToClose: 53,
+          averageDaysToWin: 49,
+          relativeClosureBuckets: [
+            { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 2, wonDeals: 2, closedRate: 18.18, wonConversionRate: 18.18 },
+            { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 2, wonDeals: 2, closedRate: 18.18, wonConversionRate: 18.18 },
+            { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 2, wonDeals: 1, closedRate: 18.18, wonConversionRate: 9.09 },
+            { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 2, wonDeals: 2, closedRate: 18.18, wonConversionRate: 18.18 },
+          ],
+        },
+        {
+          id: 'source:2026-01/WEB',
+          level: 'source',
+          parentId: 'cohort:2026-01',
+          cohortMonth: '2026-01',
+          cohortLabel: '2026-01',
+          sourceKey: 'WEB',
+          sourceLabel: 'Платный поиск',
+          qualityKey: null,
+          qualityLabel: null,
+          customerKey: null,
+          customerLabel: null,
+          createdDeals: 10,
+          closedDeals: 8,
+          wonDeals: 6,
+          closedRate: 80,
+          wonConversionRate: 60,
+          averageDaysToClose: 53,
+          averageDaysToWin: 49,
+          relativeClosureBuckets: [
+            { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 2, wonDeals: 2, closedRate: 20, wonConversionRate: 20 },
+            { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 2, wonDeals: 2, closedRate: 20, wonConversionRate: 20 },
+            { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 2, wonDeals: 1, closedRate: 20, wonConversionRate: 10 },
+            { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 2, wonDeals: 2, closedRate: 20, wonConversionRate: 20 },
+          ],
+        },
+        {
+          id: 'source:2026-01/NO_WINS',
+          level: 'source',
+          parentId: 'cohort:2026-01',
+          cohortMonth: '2026-01',
+          cohortLabel: '2026-01',
+          sourceKey: 'NO_WINS',
+          sourceLabel: 'Без продаж',
+          qualityKey: null,
+          qualityLabel: null,
+          customerKey: null,
+          customerLabel: null,
+          createdDeals: 1,
+          closedDeals: 0,
+          wonDeals: 0,
+          closedRate: 0,
+          wonConversionRate: 0,
+          averageDaysToClose: 0,
+          averageDaysToWin: 0,
+          relativeClosureBuckets: [
+            { bucketKey: 'month_1', label: 'В 1 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+            { bucketKey: 'month_2', label: 'Во 2 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+            { bucketKey: 'month_3', label: 'В 3 месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+            { bucketKey: 'month_4_plus', label: 'В 4+ месяц', closedDeals: 0, wonDeals: 0, closedRate: 0, wonConversionRate: 0 },
+          ],
+        },
+      ],
       rows: [
         {
           createdMonth: '2026-01',
@@ -792,6 +872,7 @@ describe('live-reporting', () => {
             totalWonDeals: 8,
             closureMonths: ['2026-01', '2026-02', '2026-03'],
             relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+            breakdownRows: [],
             rows: [
               {
                 createdMonth: '2025-12',
@@ -830,18 +911,7 @@ describe('live-reporting', () => {
           },
         },
       ],
-      sourceBreakdowns: [
-        {
-          key: 'WEB',
-          label: 'Платный поиск',
-          report: {
-            totalCreatedDeals: 10,
-            totalClosedDeals: 8,
-            totalWonDeals: 6,
-            rows: report.rows,
-          },
-        },
-      ],
+      sourceBreakdowns: [],
     })
 
     expect(scene.range).toEqual(report.range)
@@ -886,13 +956,50 @@ describe('live-reporting', () => {
         tail: '20%',
       }),
     ])
-    expect(scene.sourceDistribution).toEqual([
+    expect(scene.sourceDistribution).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          manager: 'Платный поиск',
+          month1: '20%',
+          month2: '20%',
+          month3: '10%',
+          tail: '20%',
+        }),
+      ]),
+    )
+    expect(scene.sourceBreakdownRows).toEqual([
       expect.objectContaining({
-        manager: 'Платный поиск',
-        month1: '20%',
-        month2: '20%',
-        month3: '10%',
-        tail: '20%',
+        id: 'cohort:2026-01',
+        parentId: null,
+        level: 'cohort',
+        label: 'Январь 2026',
+        createdDeals: '11',
+        conversion: '54%',
+        cycle: '49 дн.',
+      }),
+      expect.objectContaining({
+        id: 'source:2026-01/WEB',
+        parentId: 'cohort:2026-01',
+        level: 'source',
+        label: 'Платный поиск',
+        createdDeals: '10',
+        cells: [
+          { value: '2', subvalue: '20%', level: 5 },
+          { value: '2', subvalue: '20%', level: 5 },
+          { value: '1', subvalue: '10%', level: 3 },
+          { value: '2', subvalue: '20%', level: 5 },
+        ],
+        conversion: '60%',
+        cycle: '49 дн.',
+      }),
+      expect.objectContaining({
+        id: 'source:2026-01/NO_WINS',
+        parentId: 'cohort:2026-01',
+        level: 'source',
+        label: 'Без продаж',
+        createdDeals: '1',
+        conversion: '0%',
+        cycle: '—',
       }),
     ])
   })
@@ -909,6 +1016,7 @@ describe('live-reporting', () => {
         totalWonDeals: 11,
         closureMonths: [],
         relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+        breakdownRows: [],
         rows: [
           {
             createdMonth: '2026-03',
@@ -1074,6 +1182,7 @@ describe('live-reporting', () => {
         totalWonDeals: 10,
         closureMonths: [],
         relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+        breakdownRows: [],
         rows: [
           makeRow('2026-01', 10),
           makeRow('2026-02', 20),
@@ -1108,6 +1217,7 @@ describe('live-reporting', () => {
         totalWonDeals: 1,
         closureMonths: ['2026-04'],
         relativeBucketKeys: ['month_1', 'month_2', 'month_3', 'month_4_plus'],
+        breakdownRows: [],
         rows: [
           {
             createdMonth: '2026-04',

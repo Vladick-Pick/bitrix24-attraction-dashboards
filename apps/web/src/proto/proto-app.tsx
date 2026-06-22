@@ -2548,10 +2548,6 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       currentRuntimeData.managerOptions.length > 0
         ? currentRuntimeData.managerOptions
         : managerOptions
-    const currentSourceOptions =
-      currentRuntimeData.sourceOptions.length > 0
-        ? currentRuntimeData.sourceOptions
-        : sourceOptions
 
     async function loadActiveAttractionScene() {
       setRuntimeData((current) =>
@@ -2602,20 +2598,17 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             appliedFilters.managers.length > 0
               ? appliedFilters.managers
               : currentManagerOptions.map((option) => option.id).slice(0, 5)
-          const sourceBreakdownKeys =
-            appliedFilters.sources.length > 0
-              ? appliedFilters.sources
-              : currentSourceOptions.map((option) => option.id)
-          const [cohort, managerActionOutcomes, managerBreakdowns, sourceBreakdowns] =
+          const [cohort, managerActionOutcomes, managerBreakdownResults] =
             await Promise.all([
               apiClient.getCohortConversionReport(query),
               apiClient.getManagerActionOutcomeReport(query),
-              Promise.all(
+              Promise.allSettled(
                 managerBreakdownIds.map(async (managerId) => {
                   const report = await apiClient.getCohortConversionReport({
                     ...query,
                     managerIds: [managerId],
                     compareRanges: [],
+                    includeBreakdown: false,
                   })
 
                   return {
@@ -2627,24 +2620,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                   }
                 }),
               ),
-              Promise.all(
-                sourceBreakdownKeys.map(async (sourceKey) => {
-                  const report = await apiClient.getCohortConversionReport({
-                    ...query,
-                    sourceKeys: [sourceKey],
-                    compareRanges: [],
-                  })
-
-                  return {
-                    key: sourceKey,
-                    label:
-                      currentSourceOptions.find((entry) => entry.id === sourceKey)?.label ??
-                      sourceKey,
-                    report,
-                  }
-                }),
-              ),
             ])
+          const managerBreakdowns = managerBreakdownResults.flatMap((result) =>
+            result.status === 'fulfilled' ? [result.value] : [],
+          )
 
           if (!isMountedRef.current || runtimeRequestRef.current !== requestId) {
             return
@@ -2658,7 +2637,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
                 cohorts: mapCohortSceneData({
                   report: cohort,
                   managerBreakdowns,
-                  sourceBreakdowns,
+                  sourceBreakdowns: [],
                 }),
               },
               activeAttractionSceneLoadKey,

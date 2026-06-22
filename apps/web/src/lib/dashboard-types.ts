@@ -83,6 +83,10 @@ export type DashboardQuery = (
     compareRanges?: ReportRange[]
   }
 
+export type CohortConversionQuery = DashboardQuery & {
+  includeBreakdown?: boolean
+}
+
 export interface SalesTimelinePoint {
   date: string
   salesCount: number
@@ -1051,6 +1055,30 @@ export interface CohortConversionRow {
   relativeClosureBuckets: CohortRelativeClosureBucket[]
 }
 
+export type CohortConversionBreakdownLevel = 'cohort' | 'source' | 'quality' | 'customer'
+
+export interface CohortConversionBreakdownRow {
+  id: string
+  level: CohortConversionBreakdownLevel
+  parentId: string | null
+  cohortMonth: string | null
+  cohortLabel: string | null
+  sourceKey: string | null
+  sourceLabel: string | null
+  qualityKey: string | null
+  qualityLabel: string | null
+  customerKey: string | null
+  customerLabel: string | null
+  createdDeals: number
+  closedDeals: number
+  wonDeals: number
+  closedRate: number
+  wonConversionRate: number
+  averageDaysToClose: number
+  averageDaysToWin: number
+  relativeClosureBuckets: CohortRelativeClosureBucket[]
+}
+
 export interface CohortConversionReportSnapshot {
   range: ReportRange
   totalCreatedDeals: number
@@ -1059,6 +1087,7 @@ export interface CohortConversionReportSnapshot {
   closureMonths: string[]
   relativeBucketKeys: CohortRelativeBucketKey[]
   rows: CohortConversionRow[]
+  breakdownRows: CohortConversionBreakdownRow[]
 }
 
 export interface CohortConversionReport extends CohortConversionReportSnapshot {

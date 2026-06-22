@@ -25,6 +25,7 @@ import type {
   CallAnalysisTranscriptSegment,
   CallsWorkloadReport,
   CallsWorkloadReportSnapshot,
+  CohortConversionQuery,
   CohortConversionReport,
   CohortConversionReportSnapshot,
   ConversionEventTypeSettingsData,
@@ -2105,6 +2106,24 @@ function normalizeAcquisitionOutcomesReport(
   }
 }
 
+function normalizeCohortRelativeClosureBuckets(
+  value: unknown,
+): CohortConversionReportSnapshot['rows'][number]['relativeClosureBuckets'] {
+  return asArray(value, (bucket) => {
+    const row = isRecord(bucket) ? bucket : {}
+    return {
+      bucketKey: asString(
+        row.bucketKey,
+      ) as CohortConversionReportSnapshot['relativeBucketKeys'][number],
+      label: asString(row.label),
+      closedDeals: asNumber(row.closedDeals),
+      wonDeals: asNumber(row.wonDeals),
+      closedRate: asNumber(row.closedRate),
+      wonConversionRate: asNumber(row.wonConversionRate),
+    }
+  })
+}
+
 function normalizeCohortConversionSnapshot(
   value: unknown,
 ): CohortConversionReportSnapshot {
@@ -2140,19 +2159,37 @@ function normalizeCohortConversionSnapshot(
             wonConversionRate: asNumber(row.wonConversionRate),
           }
         }),
-        relativeClosureBuckets: asArray(item.relativeClosureBuckets, (bucket) => {
-          const row = isRecord(bucket) ? bucket : {}
-          return {
-            bucketKey: asString(
-              row.bucketKey,
-            ) as CohortConversionReportSnapshot['relativeBucketKeys'][number],
-            label: asString(row.label),
-            closedDeals: asNumber(row.closedDeals),
-            wonDeals: asNumber(row.wonDeals),
-            closedRate: asNumber(row.closedRate),
-            wonConversionRate: asNumber(row.wonConversionRate),
-          }
-        }),
+        relativeClosureBuckets: normalizeCohortRelativeClosureBuckets(
+          item.relativeClosureBuckets,
+        ),
+      }
+    }),
+    breakdownRows: asArray(data.breakdownRows, (entry) => {
+      const item = isRecord(entry) ? entry : {}
+      return {
+        id: asString(item.id),
+        level: asString(
+          item.level,
+        ) as CohortConversionReportSnapshot['breakdownRows'][number]['level'],
+        parentId: item.parentId == null ? null : asString(item.parentId),
+        cohortMonth: item.cohortMonth == null ? null : asString(item.cohortMonth),
+        cohortLabel: item.cohortLabel == null ? null : asString(item.cohortLabel),
+        sourceKey: item.sourceKey == null ? null : asString(item.sourceKey),
+        sourceLabel: item.sourceLabel == null ? null : asString(item.sourceLabel),
+        qualityKey: item.qualityKey == null ? null : asString(item.qualityKey),
+        qualityLabel: item.qualityLabel == null ? null : asString(item.qualityLabel),
+        customerKey: item.customerKey == null ? null : asString(item.customerKey),
+        customerLabel: item.customerLabel == null ? null : asString(item.customerLabel),
+        createdDeals: asNumber(item.createdDeals),
+        closedDeals: asNumber(item.closedDeals),
+        wonDeals: asNumber(item.wonDeals),
+        closedRate: asNumber(item.closedRate),
+        wonConversionRate: asNumber(item.wonConversionRate),
+        averageDaysToClose: asNumber(item.averageDaysToClose),
+        averageDaysToWin: asNumber(item.averageDaysToWin),
+        relativeClosureBuckets: normalizeCohortRelativeClosureBuckets(
+          item.relativeClosureBuckets,
+        ),
       }
     }),
   }
@@ -3025,6 +3062,14 @@ function buildQueryParams(query: DashboardQuery) {
       }
 }
 
+function buildCohortConversionQueryParams(query: CohortConversionQuery) {
+  return {
+    ...buildQueryParams(query),
+    includeBreakdown:
+      query.includeBreakdown === undefined ? undefined : String(query.includeBreakdown),
+  }
+}
+
 function buildRevenueVelocityQueryParams(query: RevenueVelocityQuery) {
   return {
     ...buildQueryParams(query),
@@ -3673,9 +3718,9 @@ export const apiClient = {
       normalizeCallsWorkloadReport,
     )
   },
-  async getCohortConversionReport(query: DashboardQuery) {
+  async getCohortConversionReport(query: CohortConversionQuery) {
     return requestJson(
-      buildUrl('/api/reports/cohort-conversion', buildQueryParams(query)),
+      buildUrl('/api/reports/cohort-conversion', buildCohortConversionQueryParams(query)),
       { method: 'GET' },
       normalizeCohortConversionReport,
     )

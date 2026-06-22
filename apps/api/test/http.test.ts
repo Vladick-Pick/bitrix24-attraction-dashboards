@@ -729,6 +729,7 @@ function createTestApp(
       closureMonths: [],
       relativeBucketKeys: ["month_1", "month_2", "month_3", "month_4_plus"],
       rows: [],
+      breakdownRows: [],
       comparisons: []
     }),
     getTocFlowReport: async () => ({
@@ -2550,6 +2551,7 @@ describe("createApp", () => {
 
   it("returns dashboard data, settings and sync status from the local API", async () => {
     let receivedActivitiesInput: unknown = null;
+    let receivedCohortInput: unknown = null;
     let receivedRevenueVelocityInput: unknown = null;
     let receivedLeadgenFunnelInput: unknown = null;
     let receivedLeadgenActivitiesInput: unknown = null;
@@ -2678,7 +2680,8 @@ describe("createApp", () => {
       totalWonDeals: 1,
       closureMonths: ["2026-04"],
       relativeBucketKeys: ["month_1", "month_2", "month_3", "month_4_plus"],
-      rows: []
+      rows: [],
+      breakdownRows: []
     };
     const tocReport: TocFlowReport = {
       range: {
@@ -2786,7 +2789,10 @@ describe("createApp", () => {
       },
       getCallsWorkloadReport: async () => callsReport,
       getCallAnalysisQueue: async () => createEmptyCallAnalysisQueue(),
-      getCohortConversionReport: async () => cohortReport,
+      getCohortConversionReport: async (input: unknown) => {
+        receivedCohortInput = input;
+        return cohortReport;
+      },
       getTocFlowReport: async () => tocReport,
       getAcquisitionOutcomesReport: async () => acquisitionOutcomesReport,
       getTargetGroupConversionReport: async () => targetGroupConversionReport,
@@ -3058,12 +3064,24 @@ describe("createApp", () => {
         from: "2026-04-01T00:00:00.000Z",
         to: "2026-04-30T23:59:59.999Z",
         managerIds: "7,9",
-        sourceKeys: "WEB,REFERRAL"
+        sourceKeys: "WEB,REFERRAL",
+        includeBreakdown: "false"
       })
       .expect(200)
       .expect(({ body }) => {
         expect(body.totalClosedDeals).toBe(2);
       });
+    expect(receivedCohortInput).toEqual({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      filters: {
+        managerIds: ["7", "9"],
+        sourceKeys: ["WEB", "REFERRAL"]
+      },
+      includeBreakdown: false
+    });
 
     await request(app)
       .get("/api/reports/toc-flow")
@@ -3732,6 +3750,7 @@ describe("createApp", () => {
         closureMonths: [],
         relativeBucketKeys: ["month_1", "month_2", "month_3", "month_4_plus"],
         rows: [],
+        breakdownRows: [],
         comparisons: []
       }),
       getTocFlowReport: async () => ({
@@ -4316,7 +4335,8 @@ describe("createApp", () => {
         totalWonDeals: 0,
         closureMonths: [],
         relativeBucketKeys: ["month_1", "month_2", "month_3", "month_4_plus"],
-        rows: []
+        rows: [],
+        breakdownRows: []
       }),
       getTocFlowReport: async () => ({
         range: {

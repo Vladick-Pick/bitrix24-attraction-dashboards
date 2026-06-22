@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react'
+import { ArrowDown01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 
 import type {
   ActivitiesWorkloadReport,
@@ -38,6 +40,7 @@ import type {
   ActivityMatrixRow,
   ActivityMatrixStageRow,
   ActivitySummaryRow,
+  CohortBreakdownRow,
   CohortDistributionBucket,
   CohortDistributionRow,
   CohortMatrixRow,
@@ -514,6 +517,7 @@ function getCohortSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
       distributionBuckets: [],
       managerDistribution: [],
       sourceDistribution: [],
+      sourceBreakdownRows: [],
     }
   }
 
@@ -525,8 +529,41 @@ function getCohortSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
       distributionBuckets: cycleBuckets,
       managerDistribution: cohortManagerDistribution,
       sourceDistribution: cohortSourceDistribution,
+      sourceBreakdownRows: [],
     }
   )
+}
+
+function getCohortBreakdownLevelLabel(level: CohortBreakdownRow['level']) {
+  if (level === 'cohort') {
+    return 'Когорта'
+  }
+
+  if (level === 'source') {
+    return 'Источник'
+  }
+
+  if (level === 'quality') {
+    return 'Качество'
+  }
+
+  return 'Клуб / заказчик'
+}
+
+function getCohortBreakdownIndent(level: CohortBreakdownRow['level']) {
+  if (level === 'source') {
+    return 20
+  }
+
+  if (level === 'quality') {
+    return 40
+  }
+
+  if (level === 'customer') {
+    return 60
+  }
+
+  return 0
 }
 
 function getTocSceneData(runtimeData?: SceneComponentProps['runtimeData']) {
@@ -5906,6 +5943,7 @@ export function RevenueVelocityScene({ filters, runtimeData }: SceneComponentPro
 
 export function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
   const [sliceMode, setSliceMode] = useState<'summary' | 'managers' | 'sources'>('summary')
+  const [expandedCohortBreakdownRows, setExpandedCohortBreakdownRows] = useState<Set<string>>(() => new Set())
   const isUnavailable = runtimeData?.operationalStatus !== 'ready' && !runtimeData?.cohorts
   const sceneData = getCohortSceneData(runtimeData)
   const managerPickerOptions = getManagerPickerOptions(runtimeData)
@@ -5925,6 +5963,42 @@ export function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
   const cohortRangeLabel = sceneData.range
     ? `${formatFilterDate(sceneData.range.from.slice(0, 10))} - ${formatFilterDate(sceneData.range.to.slice(0, 10))}`
     : `${formatFilterDate(filters.rangeStart)} - ${formatFilterDate(filters.rangeEnd)}`
+  const sourceBreakdownMode = sliceMode === 'sources' && sceneData.sourceBreakdownRows.length > 0
+  const sourceBreakdownChildren = new Map<string, CohortBreakdownRow[]>()
+  for (const row of sceneData.sourceBreakdownRows) {
+    if (!row.parentId) {
+      continue
+    }
+
+    const current = sourceBreakdownChildren.get(row.parentId) ?? []
+    current.push(row)
+    sourceBreakdownChildren.set(row.parentId, current)
+  }
+  const visibleSourceBreakdownRows: CohortBreakdownRow[] = []
+  const appendSourceBreakdownRow = (row: CohortBreakdownRow) => {
+    visibleSourceBreakdownRows.push(row)
+    if (!expandedCohortBreakdownRows.has(row.id)) {
+      return
+    }
+
+    for (const child of sourceBreakdownChildren.get(row.id) ?? []) {
+      appendSourceBreakdownRow(child)
+    }
+  }
+  for (const row of sceneData.sourceBreakdownRows.filter((entry) => !entry.parentId)) {
+    appendSourceBreakdownRow(row)
+  }
+  const toggleCohortBreakdownRow = (rowId: string) => {
+    setExpandedCohortBreakdownRows((current) => {
+      const next = new Set(current)
+      if (next.has(rowId)) {
+        next.delete(rowId)
+      } else {
+        next.add(rowId)
+      }
+      return next
+    })
+  }
 
   if (isUnavailable) {
     return (
@@ -5946,11 +6020,19 @@ export function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]">
         <section className="panel p-5">
           <PanelHeading
-            title="Когортная матрица"
-            description={`Месяц создания по строкам, закрытие по окнам времени по столбцам. Матрица всегда показывает последние 12 месяцев и пересчитывается только по менеджерам и источникам, сейчас выбран ${sliceLabel}.`}
+            title={sourceBreakdownMode ? 'Когорты по источникам' : 'Когортная матрица'}
+            description={
+              sourceBreakdownMode
+                ? 'Месяц когорты раскрывается до источника, качества и клуба/заказчика. Окна продаж считаются относительно месяца создания сделки.'
+                : `Месяц создания по строкам, закрытие по окнам времени по столбцам. Матрица всегда показывает последние 12 месяцев и пересчитывается только по менеджерам и источникам, сейчас выбран ${sliceLabel}.`
+            }
             right={
               <div className="flex flex-wrap gap-2">
-                <span className="badge-chip badge-neutral">{sceneData.matrixRows.length} когорты</span>
+                <span className="badge-chip badge-neutral">
+                  {sourceBreakdownMode
+                    ? `${sceneData.sourceBreakdownRows.filter((row) => row.level === 'cohort').length} когорты`
+                    : `${sceneData.matrixRows.length} когорты`}
+                </span>
                 <span className="badge-chip badge-neutral">{getFilterScopeLabel(filters)}</span>
               </div>
             }
@@ -5991,7 +6073,7 @@ export function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.1em] text-slate-500">
-                  <th className="px-3 py-3">Когорта</th>
+                  <th className="px-3 py-3">{sourceBreakdownMode ? 'Когорта / источник / качество / клуб' : 'Когорта'}</th>
                   <th className="px-3 py-3">Создано</th>
                   <th className="px-3 py-3">В 1 месяц</th>
                   <th className="px-3 py-3">Во 2 месяц</th>
@@ -6002,33 +6084,100 @@ export function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
                 </tr>
               </thead>
               <tbody>
-                {sceneData.matrixRows.map((row) => (
-                  <tr key={row.month} className="border-b border-slate-100 last:border-b-0">
-                    <td className="px-3 py-3 font-semibold text-slate-900">{row.month}</td>
-                    <td className="px-3 py-3 font-semibold text-slate-900">{row.createdDeals}</td>
-                    {row.cells.map((cell, index) => (
-                      <td key={`${row.month}-${index}`} className="px-3 py-3">
-                        <div className="rounded-lg px-3 py-2 text-center text-sm font-semibold text-slate-900" style={{
-                          backgroundColor:
-                            cell.level === 5 ? 'rgba(77,124,255,0.24)' :
-                            cell.level === 4 ? 'rgba(77,124,255,0.18)' :
-                            cell.level === 3 ? 'rgba(77,124,255,0.13)' :
-                            cell.level === 2 ? 'rgba(77,124,255,0.1)' :
-                            'rgba(77,124,255,0.06)',
-                        }}>
-                          <div>{cell.value}</div>
-                          {cell.subvalue ? (
-                            <div className="mt-1 text-[11px] font-semibold text-slate-500">
-                              {cell.subvalue}
+                {sourceBreakdownMode
+                  ? visibleSourceBreakdownRows.map((row) => {
+                      const children = sourceBreakdownChildren.get(row.id) ?? []
+                      const isExpanded = expandedCohortBreakdownRows.has(row.id)
+                      return (
+                        <tr
+                          key={row.id}
+                          className={
+                            row.level === 'cohort'
+                              ? 'border-b border-slate-100 bg-white last:border-b-0'
+                              : 'border-b border-slate-100 bg-slate-50/60 last:border-b-0'
+                          }
+                        >
+                          <td className="min-w-[260px] px-3 py-3 font-semibold text-slate-900">
+                            <div
+                              className="flex min-w-0 items-center gap-2"
+                              style={{ paddingLeft: getCohortBreakdownIndent(row.level) }}
+                            >
+                              {children.length > 0 ? (
+                                <button
+                                  type="button"
+                                  aria-label={isExpanded ? 'Свернуть строку' : 'Раскрыть строку'}
+                                  onClick={() => toggleCohortBreakdownRow(row.id)}
+                                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-sm font-bold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
+                                >
+                                  <HugeiconsIcon
+                                    icon={isExpanded ? ArrowDown01Icon : ArrowRight01Icon}
+                                    strokeWidth={2}
+                                    className="h-4 w-4"
+                                  />
+                                </button>
+                              ) : (
+                                <span className="h-7 w-7 shrink-0" />
+                              )}
+                              <div className="min-w-0">
+                                <div className="truncate">{row.label}</div>
+                                <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                                  {getCohortBreakdownLevelLabel(row.level)}
+                                </div>
+                              </div>
                             </div>
-                          ) : null}
-                        </div>
-                      </td>
+                          </td>
+                          <td className="px-3 py-3 font-semibold text-slate-900">{row.createdDeals}</td>
+                          {row.cells.map((cell, index) => (
+                            <td key={`${row.id}-${index}`} className="px-3 py-3">
+                              <div className="rounded-lg px-3 py-2 text-center text-sm font-semibold text-slate-900" style={{
+                                backgroundColor:
+                                  cell.level === 5 ? 'rgba(77,124,255,0.24)' :
+                                  cell.level === 4 ? 'rgba(77,124,255,0.18)' :
+                                  cell.level === 3 ? 'rgba(77,124,255,0.13)' :
+                                  cell.level === 2 ? 'rgba(77,124,255,0.1)' :
+                                  'rgba(77,124,255,0.06)',
+                              }}>
+                                <div>{cell.value}</div>
+                                {cell.subvalue ? (
+                                  <div className="mt-1 text-[11px] font-semibold text-slate-500">
+                                    {cell.subvalue}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </td>
+                          ))}
+                          <td className="px-3 py-3">{row.conversion}</td>
+                          <td className="px-3 py-3">{row.cycle}</td>
+                        </tr>
+                      )
+                    })
+                  : sceneData.matrixRows.map((row) => (
+                      <tr key={row.month} className="border-b border-slate-100 last:border-b-0">
+                        <td className="px-3 py-3 font-semibold text-slate-900">{row.month}</td>
+                        <td className="px-3 py-3 font-semibold text-slate-900">{row.createdDeals}</td>
+                        {row.cells.map((cell, index) => (
+                          <td key={`${row.month}-${index}`} className="px-3 py-3">
+                            <div className="rounded-lg px-3 py-2 text-center text-sm font-semibold text-slate-900" style={{
+                              backgroundColor:
+                                cell.level === 5 ? 'rgba(77,124,255,0.24)' :
+                                cell.level === 4 ? 'rgba(77,124,255,0.18)' :
+                                cell.level === 3 ? 'rgba(77,124,255,0.13)' :
+                                cell.level === 2 ? 'rgba(77,124,255,0.1)' :
+                                'rgba(77,124,255,0.06)',
+                            }}>
+                              <div>{cell.value}</div>
+                              {cell.subvalue ? (
+                                <div className="mt-1 text-[11px] font-semibold text-slate-500">
+                                  {cell.subvalue}
+                                </div>
+                              ) : null}
+                            </div>
+                          </td>
+                        ))}
+                        <td className="px-3 py-3">{row.conversion}</td>
+                        <td className="px-3 py-3">{row.cycle}</td>
+                      </tr>
                     ))}
-                    <td className="px-3 py-3">{row.conversion}</td>
-                    <td className="px-3 py-3">{row.cycle}</td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>

@@ -8,6 +8,8 @@ import type {
   ActivitySnapshot,
   CallsWorkloadReport,
   CallSnapshot,
+  CohortConversionBreakdownLevel,
+  CohortConversionBreakdownRow,
   CohortRelativeBucketKey,
   CohortConversionReport,
   DealCallSummary,
@@ -97,6 +99,8 @@ interface CohortConversionInput {
   range: ReportRange;
   wonStageIds: string[];
   deals: DealSnapshot[];
+  includeBreakdown?: boolean;
+  stageCatalog?: StageCatalogEntry[];
   stageHistory?: StageHistorySnapshot[];
 }
 
@@ -198,6 +202,8 @@ const UNSPECIFIED_BUSINESS_CLUB = "UNSPECIFIED";
 const UNSPECIFIED_BUSINESS_CLUB_LABEL = "Без бизнес-клуба заказчика";
 const UNSPECIFIED_TARGET_GROUP = "UNSPECIFIED";
 const UNSPECIFIED_TARGET_GROUP_LABEL = "Без таргет-группы";
+const UNSPECIFIED_COHORT_CUSTOMER = "UNSPECIFIED";
+const UNSPECIFIED_COHORT_CUSTOMER_LABEL = UNSPECIFIED_BUSINESS_CLUB_LABEL;
 const TASK_ACTIVITY_PROVIDER_IDS = new Set(["CRM_TODO", "CRM_TASKS_TASK"]);
 const MANAGER_ACTION_MISSING_STAGE_LABEL = "Этап недоступен";
 const MANAGER_ACTION_MISSING_STAGE_WARNING =
@@ -420,6 +426,21 @@ function resolveTargetGroupLabel(value: string) {
   return value === UNSPECIFIED_TARGET_GROUP
     ? UNSPECIFIED_TARGET_GROUP_LABEL
     : value;
+}
+
+function resolveCohortCustomerValue(deal: DealSnapshot) {
+  const businessClubKey = resolveBusinessClubValue(deal);
+  if (businessClubKey !== UNSPECIFIED_BUSINESS_CLUB) {
+    return {
+      key: `business_club:${businessClubKey}`,
+      label: resolveBusinessClubLabel(businessClubKey)
+    };
+  }
+
+  return {
+    key: UNSPECIFIED_COHORT_CUSTOMER,
+    label: UNSPECIFIED_COHORT_CUSTOMER_LABEL
+  };
 }
 
 function isMeetingActivity(activity: ActivitySnapshot) {
@@ -3512,6 +3533,192 @@ function toAverageDays(totalMilliseconds: number, count: number) {
   return Number((totalMilliseconds / count / 86_400_000).toFixed(2));
 }
 
+type CohortBreakdownAccumulator = Omit<
+  CohortConversionBreakdownRow,
+  | "createdDeals"
+  | "closedDeals"
+  | "wonDeals"
+  | "closedRate"
+  | "wonConversionRate"
+  | "averageDaysToClose"
+  | "averageDaysToWin"
+  | "relativeClosureBuckets"
+> & {
+  createdDeals: number;
+  closedDeals: number;
+  wonDeals: number;
+  totalCloseDurationMs: number;
+  totalWinDurationMs: number;
+  closeDurationCount: number;
+  winDurationCount: number;
+  relativeClosureBuckets: Map<
+    CohortRelativeBucketKey,
+    {
+      bucketKey: CohortRelativeBucketKey;
+      label: string;
+      closedDeals: number;
+      wonDeals: number;
+    }
+  >;
+};
+
+function createCohortRelativeBucketMap() {
+  return new Map(
+    COHORT_RELATIVE_BUCKETS.map((bucket) => [
+      bucket.key,
+      {
+        bucketKey: bucket.key,
+        label: bucket.label,
+        closedDeals: 0,
+        wonDeals: 0
+      }
+    ])
+  );
+}
+
+function createCohortBreakdownId(
+  level: CohortConversionBreakdownLevel,
+  parts: string[]
+) {
+  return `${level}:${parts.map((part) => encodeURIComponent(part)).join("/")}`;
+}
+
+function createCohortBreakdownAccumulator(
+  input: Omit<
+    CohortBreakdownAccumulator,
+    | "createdDeals"
+    | "closedDeals"
+    | "wonDeals"
+    | "totalCloseDurationMs"
+    | "totalWinDurationMs"
+    | "closeDurationCount"
+    | "winDurationCount"
+    | "relativeClosureBuckets"
+  >
+): CohortBreakdownAccumulator {
+  return {
+    ...input,
+    createdDeals: 0,
+    closedDeals: 0,
+    wonDeals: 0,
+    totalCloseDurationMs: 0,
+    totalWinDurationMs: 0,
+    closeDurationCount: 0,
+    winDurationCount: 0,
+    relativeClosureBuckets: createCohortRelativeBucketMap()
+  };
+}
+
+function addDealToCohortBreakdown(
+  row: CohortBreakdownAccumulator,
+  deal: DealSnapshot,
+  closedAt: string | null,
+  isWonDeal: boolean,
+  fromMs: number,
+  toMs: number
+) {
+  row.createdDeals += 1;
+
+  if (closedAt && isWithinRange(closedAt, fromMs, toMs)) {
+    row.closedDeals += 1;
+
+    const closeDurationMs = Date.parse(closedAt) - Date.parse(deal.dateCreate);
+    if (Number.isFinite(closeDurationMs) && closeDurationMs >= 0) {
+      row.totalCloseDurationMs += closeDurationMs;
+      row.closeDurationCount += 1;
+    }
+
+    const relativeBucketKey = resolveRelativeCohortBucket(deal.dateCreate, closedAt);
+    if (relativeBucketKey) {
+      const bucket = row.relativeClosureBuckets.get(relativeBucketKey);
+      if (bucket) {
+        bucket.closedDeals += 1;
+        if (isWonDeal) {
+          bucket.wonDeals += 1;
+        }
+        row.relativeClosureBuckets.set(relativeBucketKey, bucket);
+      }
+    }
+  }
+
+  if (isWonDeal && closedAt && isWithinRange(closedAt, fromMs, toMs)) {
+    row.wonDeals += 1;
+
+    const winDurationMs = Date.parse(closedAt) - Date.parse(deal.dateCreate);
+    if (Number.isFinite(winDurationMs) && winDurationMs >= 0) {
+      row.totalWinDurationMs += winDurationMs;
+      row.winDurationCount += 1;
+    }
+  }
+}
+
+function cohortBreakdownLabel(row: CohortBreakdownAccumulator) {
+  return (
+    row.customerLabel ??
+    row.qualityLabel ??
+    row.sourceLabel ??
+    row.cohortLabel ??
+    row.cohortMonth ??
+    row.id
+  );
+}
+
+function compareCohortBreakdownRows(
+  left: CohortBreakdownAccumulator,
+  right: CohortBreakdownAccumulator
+) {
+  if (right.createdDeals !== left.createdDeals) {
+    return right.createdDeals - left.createdDeals;
+  }
+
+  return cohortBreakdownLabel(left).localeCompare(cohortBreakdownLabel(right), "ru");
+}
+
+function toCohortBreakdownRow(
+  row: CohortBreakdownAccumulator
+): CohortConversionBreakdownRow {
+  return {
+    id: row.id,
+    level: row.level,
+    parentId: row.parentId,
+    cohortMonth: row.cohortMonth,
+    cohortLabel: row.cohortLabel,
+    sourceKey: row.sourceKey,
+    sourceLabel: row.sourceLabel,
+    qualityKey: row.qualityKey,
+    qualityLabel: row.qualityLabel,
+    customerKey: row.customerKey,
+    customerLabel: row.customerLabel,
+    createdDeals: row.createdDeals,
+    closedDeals: row.closedDeals,
+    wonDeals: row.wonDeals,
+    closedRate: toRate(row.closedDeals, row.createdDeals),
+    wonConversionRate: toRate(row.wonDeals, row.createdDeals),
+    averageDaysToClose: toAverageDays(
+      row.totalCloseDurationMs,
+      row.closeDurationCount
+    ),
+    averageDaysToWin: toAverageDays(row.totalWinDurationMs, row.winDurationCount),
+    relativeClosureBuckets: COHORT_RELATIVE_BUCKETS.map((bucket) => {
+      const current = row.relativeClosureBuckets.get(bucket.key) ?? {
+        bucketKey: bucket.key,
+        label: bucket.label,
+        closedDeals: 0,
+        wonDeals: 0
+      };
+
+      return {
+        bucketKey: current.bucketKey,
+        label: current.label,
+        closedDeals: current.closedDeals,
+        wonDeals: current.wonDeals,
+        closedRate: toRate(current.closedDeals, row.createdDeals),
+        wonConversionRate: toRate(current.wonDeals, row.createdDeals)
+      };
+    })
+  };
+}
+
 function resolveRelativeCohortBucket(
   createdAt: string,
   closedAt: string
@@ -3553,7 +3760,15 @@ export function buildCohortConversionReport(
   const toMs = Date.parse(input.range.to);
   const wonStageIds = new Set(input.wonStageIds);
   const stageHistoryByDeal = buildStageHistoryMap(input.stageHistory ?? []);
+  const includeBreakdown = input.includeBreakdown !== false;
+  const sourceLabels = includeBreakdown
+    ? buildSourceLabelMap(input.stageCatalog ?? [])
+    : new Map<string, string>();
   const deals = input.deals.filter((deal) => isWithinRange(deal.dateCreate, fromMs, toMs));
+  const cohortBreakdownRows = new Map<string, CohortBreakdownAccumulator>();
+  const sourceBreakdownRows = new Map<string, CohortBreakdownAccumulator>();
+  const qualityBreakdownRows = new Map<string, CohortBreakdownAccumulator>();
+  const customerBreakdownRows = new Map<string, CohortBreakdownAccumulator>();
   const rows = new Map<
     string,
     {
@@ -3621,6 +3836,125 @@ export function buildCohortConversionReport(
       stageHistoryByDeal,
       wonStageIds
     );
+    if (includeBreakdown) {
+      const source = resolveDealSource(deal, sourceLabels);
+      const qualityKey = resolveQualityValue(deal);
+      const qualityLabel = resolveQualityLabel(qualityKey);
+      const customer = resolveCohortCustomerValue(deal);
+      const cohortRowId = createCohortBreakdownId("cohort", [createdMonth]);
+      const sourceRowId = createCohortBreakdownId("source", [
+        createdMonth,
+        source.key
+      ]);
+      const qualityRowId = createCohortBreakdownId("quality", [
+        createdMonth,
+        source.key,
+        qualityKey
+      ]);
+      const customerRowId = createCohortBreakdownId("customer", [
+        createdMonth,
+        source.key,
+        qualityKey,
+        customer.key
+      ]);
+      const cohortBreakdownRow =
+        cohortBreakdownRows.get(cohortRowId) ??
+        createCohortBreakdownAccumulator({
+          id: cohortRowId,
+          level: "cohort",
+          parentId: null,
+          cohortMonth: createdMonth,
+          cohortLabel: createdMonth,
+          sourceKey: null,
+          sourceLabel: null,
+          qualityKey: null,
+          qualityLabel: null,
+          customerKey: null,
+          customerLabel: null
+        });
+      const sourceBreakdownRow =
+        sourceBreakdownRows.get(sourceRowId) ??
+        createCohortBreakdownAccumulator({
+          id: sourceRowId,
+          level: "source",
+          parentId: cohortRowId,
+          cohortMonth: createdMonth,
+          cohortLabel: createdMonth,
+          sourceKey: source.key,
+          sourceLabel: source.label,
+          qualityKey: null,
+          qualityLabel: null,
+          customerKey: null,
+          customerLabel: null
+        });
+      const qualityBreakdownRow =
+        qualityBreakdownRows.get(qualityRowId) ??
+        createCohortBreakdownAccumulator({
+          id: qualityRowId,
+          level: "quality",
+          parentId: sourceRowId,
+          cohortMonth: createdMonth,
+          cohortLabel: createdMonth,
+          sourceKey: source.key,
+          sourceLabel: source.label,
+          qualityKey,
+          qualityLabel,
+          customerKey: null,
+          customerLabel: null
+        });
+      const customerBreakdownRow =
+        customerBreakdownRows.get(customerRowId) ??
+        createCohortBreakdownAccumulator({
+          id: customerRowId,
+          level: "customer",
+          parentId: qualityRowId,
+          cohortMonth: createdMonth,
+          cohortLabel: createdMonth,
+          sourceKey: source.key,
+          sourceLabel: source.label,
+          qualityKey,
+          qualityLabel,
+          customerKey: customer.key,
+          customerLabel: customer.label
+        });
+
+      addDealToCohortBreakdown(
+        cohortBreakdownRow,
+        deal,
+        closedAt,
+        isWonDeal,
+        fromMs,
+        toMs
+      );
+      addDealToCohortBreakdown(
+        sourceBreakdownRow,
+        deal,
+        closedAt,
+        isWonDeal,
+        fromMs,
+        toMs
+      );
+      addDealToCohortBreakdown(
+        qualityBreakdownRow,
+        deal,
+        closedAt,
+        isWonDeal,
+        fromMs,
+        toMs
+      );
+      addDealToCohortBreakdown(
+        customerBreakdownRow,
+        deal,
+        closedAt,
+        isWonDeal,
+        fromMs,
+        toMs
+      );
+      cohortBreakdownRows.set(cohortRowId, cohortBreakdownRow);
+      sourceBreakdownRows.set(sourceRowId, sourceBreakdownRow);
+      qualityBreakdownRows.set(qualityRowId, qualityBreakdownRow);
+      customerBreakdownRows.set(customerRowId, customerBreakdownRow);
+    }
 
     if (closedAt && isWithinRange(closedAt, fromMs, toMs)) {
       current.closedDeals += 1;
@@ -3678,6 +4012,55 @@ export function buildCohortConversionReport(
       Array.from(rows.values()).flatMap((row) => Array.from(row.closureBuckets.keys()))
     )
   ).sort((left, right) => left.localeCompare(right));
+  const breakdownRows: CohortConversionBreakdownRow[] = [];
+  const sourceRowsByCohortId = new Map<string, CohortBreakdownAccumulator[]>();
+  const qualityRowsBySourceId = new Map<string, CohortBreakdownAccumulator[]>();
+  const customerRowsByQualityId = new Map<string, CohortBreakdownAccumulator[]>();
+
+  if (includeBreakdown) {
+    for (const row of sourceBreakdownRows.values()) {
+      const current = sourceRowsByCohortId.get(row.parentId ?? "") ?? [];
+      current.push(row);
+      sourceRowsByCohortId.set(row.parentId ?? "", current);
+    }
+
+    for (const row of qualityBreakdownRows.values()) {
+      const current = qualityRowsBySourceId.get(row.parentId ?? "") ?? [];
+      current.push(row);
+      qualityRowsBySourceId.set(row.parentId ?? "", current);
+    }
+
+    for (const row of customerBreakdownRows.values()) {
+      const current = customerRowsByQualityId.get(row.parentId ?? "") ?? [];
+      current.push(row);
+      customerRowsByQualityId.set(row.parentId ?? "", current);
+    }
+
+    for (const cohortRow of Array.from(cohortBreakdownRows.values()).sort(
+      (left, right) =>
+        (left.cohortMonth ?? "").localeCompare(right.cohortMonth ?? "")
+    )) {
+      breakdownRows.push(toCohortBreakdownRow(cohortRow));
+
+      for (const sourceRow of (
+        sourceRowsByCohortId.get(cohortRow.id) ?? []
+      ).sort(compareCohortBreakdownRows)) {
+        breakdownRows.push(toCohortBreakdownRow(sourceRow));
+
+        for (const qualityRow of (
+          qualityRowsBySourceId.get(sourceRow.id) ?? []
+        ).sort(compareCohortBreakdownRows)) {
+          breakdownRows.push(toCohortBreakdownRow(qualityRow));
+
+          for (const customerRow of (
+            customerRowsByQualityId.get(qualityRow.id) ?? []
+          ).sort(compareCohortBreakdownRows)) {
+            breakdownRows.push(toCohortBreakdownRow(customerRow));
+          }
+        }
+      }
+    }
+  }
 
   return {
     range: input.range,
@@ -3692,6 +4075,7 @@ export function buildCohortConversionReport(
     ),
     closureMonths,
     relativeBucketKeys: COHORT_RELATIVE_BUCKETS.map((bucket) => bucket.key),
+    breakdownRows,
     rows: Array.from(rows.values())
       .sort((left, right) => left.createdMonth.localeCompare(right.createdMonth))
       .map((row) => ({

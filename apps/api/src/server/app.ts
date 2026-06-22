@@ -140,6 +140,7 @@ interface RangeRequest {
     managerIds?: string[];
     sourceKeys?: string[];
   };
+  includeBreakdown?: boolean;
   eventParticipantMode?: UnitEconomicsEventParticipantMode;
 }
 
@@ -317,6 +318,29 @@ function parseCsvArray(value: unknown) {
   return undefined;
 }
 
+function parseOptionalBoolean(value: unknown) {
+  const firstValue = Array.isArray(value) ? value[0] : value;
+  if (firstValue === undefined) {
+    return undefined;
+  }
+
+  if (typeof firstValue === "boolean") {
+    return firstValue;
+  }
+
+  if (typeof firstValue === "string") {
+    const normalized = firstValue.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0") {
+      return false;
+    }
+  }
+
+  return firstValue;
+}
+
 function isLaterThan(from: string, to: string) {
   const fromMs = Date.parse(from);
   const toMs = Date.parse(to);
@@ -339,6 +363,10 @@ const reportQuerySchema = z
     ),
     managerIds: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
     sourceKeys: z.preprocess(parseCsvArray, z.array(z.string()).optional()),
+    includeBreakdown: z.preprocess(
+      parseOptionalBoolean,
+      z.boolean().optional()
+    ),
     eventParticipantMode: z.enum(["invited", "attended"]).optional()
   })
   .superRefine((value, context) => {
@@ -751,6 +779,9 @@ function parseRangeRequest(query: unknown): RangeRequest {
       },
       ...(compareRanges.length > 0 ? { compareRanges } : {}),
       ...(filters ? { filters } : {}),
+      ...(parsed.includeBreakdown !== undefined
+        ? { includeBreakdown: parsed.includeBreakdown }
+        : {}),
       ...(parsed.eventParticipantMode
         ? { eventParticipantMode: parsed.eventParticipantMode }
         : {})
@@ -762,6 +793,9 @@ function parseRangeRequest(query: unknown): RangeRequest {
       periodDays: parsed.periodDays,
       ...(compareRanges.length > 0 ? { compareRanges } : {}),
       ...(filters ? { filters } : {}),
+      ...(parsed.includeBreakdown !== undefined
+        ? { includeBreakdown: parsed.includeBreakdown }
+        : {}),
       ...(parsed.eventParticipantMode
         ? { eventParticipantMode: parsed.eventParticipantMode }
         : {})
@@ -771,6 +805,9 @@ function parseRangeRequest(query: unknown): RangeRequest {
   return {
     ...(compareRanges.length > 0 ? { compareRanges } : {}),
     ...(filters ? { filters } : {}),
+    ...(parsed.includeBreakdown !== undefined
+      ? { includeBreakdown: parsed.includeBreakdown }
+      : {}),
     ...(parsed.eventParticipantMode
       ? { eventParticipantMode: parsed.eventParticipantMode }
       : {})

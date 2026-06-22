@@ -4,6 +4,224 @@ import { DEFAULT_PRICING_RULES } from "../src/domain/deal-economics";
 import { buildManagerActionOutcomeReport } from "../src/domain/operational-reports";
 
 describe("buildManagerActionOutcomeReport", () => {
+  it("adds a lifecycle card with SLA, safe events and planned wip economics to deal details", () => {
+    const report = buildManagerActionOutcomeReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      slaAsOf: "2026-04-21T10:00:00.000Z",
+      wonStageIds: ["C10:WON"],
+      deals: [
+        {
+          id: "LIFE_WIP",
+          title: null,
+          contactId: null,
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WORK",
+          stageSemanticId: "P",
+          opportunity: 1_100_000,
+          assignedById: "78",
+          sourceId: "LEADGEN_US",
+          qualityValue: "Готов к встрече",
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: "ClubFirst Russia",
+          meetingTypeValue: "Очная",
+          meetingDateValue: "2026-04-18T12:00:00.000Z",
+          tariffValue: "Федеральный",
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-04-10T09:00:00.000Z",
+          dateModify: "2026-04-20T12:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:WORK",
+          name: "Контрактация",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:WON",
+          name: "Передано в клуб",
+          semanticId: "S",
+          sortOrder: 20
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "LEADGEN_US",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [
+        {
+          id: "SH-WIP-WORK",
+          ownerId: "LIFE_WIP",
+          categoryId: "10",
+          stageId: "C10:WORK",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-10T09:00:00.000Z"
+        }
+      ],
+      activities: [],
+      calls: [],
+      managerDirectory: [{ id: "78", name: "Ромашова Ольга" }],
+      pricingRules: DEFAULT_PRICING_RULES,
+      dealTouchpointFacts: [
+        {
+          factId: "call:CALL_WIP",
+          kind: "call",
+          sourceSystem: "bitrix24",
+          sourceEntityType: "call",
+          sourceEntityId: "CALL_WIP",
+          occurredAt: "2026-04-16T10:00:00.000Z",
+          dealId: "LIFE_WIP",
+          contactId: null,
+          leadId: null,
+          managerId: "78",
+          sourceId: "LEADGEN_US",
+          stageIdAtEvent: "C10:WORK",
+          stageNameAtEvent: "Контрактация",
+          linkConfidence: "high",
+          linkReason: "test",
+          payloadJson: JSON.stringify({
+            direction: "outgoing",
+            durationSeconds: 90,
+            connected: true,
+            failed: false,
+            overThirtySeconds: true
+          })
+        },
+        {
+          factId: "conversion-event-visit:VISIT_WIP",
+          kind: "conversion_event_visit",
+          sourceSystem: "bitrix24",
+          sourceEntityType: "dynamic",
+          sourceEntityId: "VISIT_WIP",
+          occurredAt: "2026-04-18T12:00:00.000Z",
+          dealId: "LIFE_WIP",
+          contactId: null,
+          leadId: null,
+          managerId: "78",
+          sourceId: "LEADGEN_US",
+          stageIdAtEvent: "C10:WORK",
+          stageNameAtEvent: "Контрактация",
+          linkConfidence: "high",
+          linkReason: "test",
+          payloadJson: JSON.stringify({
+            eventName: "Гостевая встреча ClubFirst",
+            status: "invited"
+          })
+        }
+      ],
+      eventVisitFacts: [
+        {
+          visitId: "VISIT_WIP",
+          eventId: "EVENT_GUEST",
+          dealId: "LIFE_WIP",
+          contactId: null,
+          leadId: null,
+          managerId: "78",
+          sourceId: "LEADGEN_US",
+          currentStageId: "INVITED",
+          currentStageName: "Приглашен",
+          invitedAt: "2026-04-17T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: null,
+          refusedAt: null,
+          finalStatus: "invited",
+          eventDate: "2026-04-18T12:00:00.000Z",
+          stageIdAtEvent: "C10:WORK",
+          linkConfidence: "high",
+          linkReason: "test",
+          payloadJson: JSON.stringify({ eventName: "Гостевая встреча ClubFirst" })
+        }
+      ],
+      events: [],
+      costRules: [
+        {
+          id: "leadgen-ready",
+          articleId: "lead_purchase",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_lead",
+          unitPrice: 40_000,
+          percent: null,
+          amount: null,
+          sourceKey: "LEADGEN_US",
+          qualityValue: "Готов к встрече",
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 10
+        },
+        {
+          id: "guest-event",
+          articleId: "demo_events",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_participant",
+          unitPrice: 7_000,
+          percent: null,
+          amount: null,
+          sourceKey: null,
+          qualityValue: null,
+          eventNamePattern: "Гостевая встреча",
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 20
+        }
+      ],
+      costFacts: [],
+      eventParticipantMode: "invited"
+    });
+
+    const detail = report.cohortStatusRows.find(
+      (row) => row.statusKey === "wip" && row.cohortMonth === null
+    )?.dealDetails[0];
+
+    expect(detail?.lifecycleCard).toMatchObject({
+      dealId: "LIFE_WIP",
+      status: "wip",
+      sla: detail?.sla,
+      economics: {
+        revenueMode: "planned",
+        attractionRevenueAmount: 300_000,
+        saleCostAmount: 47_000,
+        marginAmount: null
+      }
+    });
+    expect(detail?.lifecycleCard?.stageTimeline[0]?.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "call:CALL_WIP",
+          detail: "исходящий · 90с · >30с · успешный"
+        }),
+        expect.objectContaining({
+          id: "conversion-event-visit:VISIT_WIP",
+          badgeLabel: "Гостевая встреча ClubFirst · приглашен"
+        })
+      ])
+    );
+  });
+
   it("uses pipeline pricing for lost and wip cohort statuses without final-won contract warnings", () => {
     const stageCatalog = [
       {

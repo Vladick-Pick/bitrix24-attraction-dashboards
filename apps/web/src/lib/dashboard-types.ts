@@ -352,6 +352,99 @@ export interface DealStageTimelineEntry {
   meetingEvents?: DealMeetingEvent[]
 }
 
+export type DealLifecycleStatus = 'won' | 'lost' | 'wip'
+
+export type DealTimelineEventKind =
+  | 'call'
+  | 'task_created'
+  | 'task_completed'
+  | 'meeting'
+  | 'meeting_date_changed'
+  | 'conversion_event_visit'
+
+export interface DealTimelineEvent {
+  id: string
+  kind: DealTimelineEventKind
+  occurredAt: string
+  stageId: string | null
+  stageName: string | null
+  title: string
+  detail: string | null
+  badgeLabel: string | null
+  linkConfidence: 'high' | 'medium' | 'low'
+}
+
+export interface DealEventSummary {
+  callSummary: DealCallSummary
+  taskSummary: DealTaskSummary
+  meetingSummary: DealMeetingSummary
+  conversionEventVisits: number
+}
+
+export type DealSaleCostSourceSystem = 'rule' | 'fact'
+
+export interface DealSaleCostRow {
+  id: string
+  articleId: string
+  label: string
+  amount: number
+  basis: string
+  sourceSystem: DealSaleCostSourceSystem
+  confidence: UnitEconomicsCostConfidence
+}
+
+export type DealSaleRevenueMode = 'actual' | 'planned' | 'none'
+
+export interface DealSaleEconomics {
+  revenueMode: DealSaleRevenueMode
+  attractionRevenueAmount: number | null
+  membershipAmount: number
+  saleCostAmount: number
+  marginAmount: number | null
+  allocatedFixedCostAmount: number
+  fullyLoadedCostAmount: number
+  fullyLoadedMarginAmount: number | null
+  costRows: DealSaleCostRow[]
+  allocatedFixedCostRows: DealSaleCostRow[]
+}
+
+export interface DealLifecycleStageTimelineEntry extends DealStageTimelineEntry {
+  callSummary: DealCallSummary
+  taskSummary: DealTaskSummary
+  meetingEvents: DealMeetingEvent[]
+  events: DealTimelineEvent[]
+}
+
+export interface DealLifecycleCard {
+  dealId: string
+  managerId: string
+  managerName: string
+  status: DealLifecycleStatus
+  stageId: string
+  stageName: string
+  dateCreate: string
+  dateClosed: string | null
+  dateModify: string
+  cycleDays: number | null
+  sourceKey?: string
+  sourceLabel?: string
+  qualityValue?: string | null
+  businessClubValue?: string | null
+  targetGroupValue?: string | null
+  meetingTypeValue?: string | null
+  meetingDateValue?: string | null
+  tariffValue?: string | null
+  economics: DealSaleEconomics
+  eventSummary: DealEventSummary
+  stageTimeline: DealLifecycleStageTimelineEntry[]
+  cohortContext?: DealCohortContext
+  sla?: {
+    sla1: ManagerActionOutcomeDealSla
+    sla2: ManagerActionOutcomeDealSla
+    sla3: ManagerActionOutcomeDealSla
+  }
+}
+
 export interface SalesDealRow {
   dealId: string
   dealTitle: string
@@ -378,6 +471,7 @@ export interface SalesDealRow {
   taskSummary: DealTaskSummary
   meetingSummary?: DealMeetingSummary
   stageTimeline: DealStageTimelineEntry[]
+  lifecycleCard?: DealLifecycleCard
 }
 
 export interface SalesManagerGroup {
@@ -982,6 +1076,7 @@ export interface ManagerActionOutcomeDealDetail {
     sla3: ManagerActionOutcomeDealSla
   }
   stageTimeline: DealStageTimelineEntry[]
+  lifecycleCard?: DealLifecycleCard
 }
 
 export interface ManagerActionOutcomeStatusRow {

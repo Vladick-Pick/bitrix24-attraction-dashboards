@@ -366,6 +366,7 @@ describe("buildUnitEconomicsReport", () => {
           articleId: "contractation",
           calculationMethod: "amount_per_contract",
           unitPrice: 5_000,
+          effectiveFrom: "2025-07-01",
           enabled: true
         }),
         expect.objectContaining({
@@ -397,6 +398,63 @@ describe("buildUnitEconomicsReport", () => {
         })
       ])
     );
+  });
+
+  it("allocates shared assistant fixed costs across manager rows", () => {
+    const report = buildUnitEconomicsReport({
+      range,
+      deals: [
+        deal({ id: "MARIA_WON" }),
+        deal({
+          id: "ILYA_WON",
+          assignedById: "99",
+          sourceId: "WEB",
+          qualityValue: "Любое качество"
+        })
+      ],
+      stageCatalog,
+      stageHistory: [],
+      managerDirectory,
+      pricingRules: DEFAULT_PRICING_RULES,
+      costRules: [
+        {
+          id: "assistant-fixed",
+          articleId: "assistant",
+          pnlLevel: "above_ebitda",
+          costBehavior: "fixed",
+          calculationMethod: "amount_per_period",
+          unitPrice: null,
+          percent: null,
+          amount: 140_000,
+          sourceKey: null,
+          qualityValue: null,
+          eventNamePattern: null,
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 10
+        }
+      ],
+      costFacts: []
+    });
+
+    expect(report.summary.aboveEbitdaCosts).toBe(140_000);
+    expect(report.costRows.find((row) => row.articleId === "assistant")).toMatchObject({
+      amount: 140_000,
+      quantity: 1
+    });
+
+    for (const managerId of ["78", "99"]) {
+      const manager = report.managerRows.find((row) => row.managerId === managerId);
+      const assistantRow = manager?.directCostRows.find(
+        (row) => row.articleId === "assistant"
+      );
+
+      expect(assistantRow).toMatchObject({
+        amount: 70_000,
+        basis: "Общие расходы / 2 менеджера"
+      });
+    }
   });
 
   it("matches paid Leadgen US rules by source label when Bitrix source id is numeric", () => {

@@ -35,8 +35,16 @@ import type {
   DashboardQuery,
   DashboardData,
   DashboardDataSnapshot,
+  DealLifecycleCard,
+  DealLifecycleStageTimelineEntry,
   DealPricingSettings,
   DealPricingSettingsInput,
+  DealSaleCostRow,
+  DealSaleCostSourceSystem,
+  DealSaleEconomics,
+  DealSaleRevenueMode,
+  DealTimelineEvent,
+  DealTimelineEventKind,
   LeadgenFunnelReport,
   ManagerWhitelistSettingsData,
   ManagerWhitelistSettingsInput,
@@ -232,6 +240,33 @@ function normalizeDealMeetingEvents(value: unknown) {
   })
 }
 
+function normalizeManagerActionDealSlaStatus(
+  value: unknown,
+): ManagerActionOutcomeDealSlaStatus {
+  return value === 'onTime' || value === 'late' || value === 'noTouch'
+    ? value
+    : 'noTouch'
+}
+
+function normalizeManagerActionDealSla(value: unknown) {
+  const sla = isRecord(value) ? value : {}
+  const normalizeOne = (entry: unknown) => {
+    const item = isRecord(entry) ? entry : {}
+    return {
+      status: normalizeManagerActionDealSlaStatus(item.status),
+      hours:
+        typeof item.hours === 'number' && Number.isFinite(item.hours)
+          ? item.hours
+          : null,
+    }
+  }
+  return {
+    sla1: normalizeOne(sla.sla1),
+    sla2: normalizeOne(sla.sla2),
+    sla3: normalizeOne(sla.sla3),
+  }
+}
+
 function normalizeDealStageTimeline(value: unknown) {
   return asArray(value, (stage) => {
     const stageRow = isRecord(stage) ? stage : {}
@@ -246,6 +281,190 @@ function normalizeDealStageTimeline(value: unknown) {
       meetingEvents: normalizeDealMeetingEvents(stageRow.meetingEvents),
     }
   })
+}
+
+function normalizeDealTimelineEventKind(value: unknown): DealTimelineEventKind {
+  return value === 'call' ||
+    value === 'task_created' ||
+    value === 'task_completed' ||
+    value === 'meeting' ||
+    value === 'meeting_date_changed' ||
+    value === 'conversion_event_visit'
+    ? value
+    : 'meeting'
+}
+
+function normalizeDealTimelineEvent(value: unknown): DealTimelineEvent {
+  const event = isRecord(value) ? value : {}
+  const linkConfidence: DealTimelineEvent['linkConfidence'] =
+    event.linkConfidence === 'high' ||
+    event.linkConfidence === 'medium' ||
+    event.linkConfidence === 'low'
+      ? event.linkConfidence
+      : 'low'
+
+  return {
+    id: asString(event.id),
+    kind: normalizeDealTimelineEventKind(event.kind),
+    occurredAt: asString(event.occurredAt),
+    stageId: asNullableString(event.stageId),
+    stageName: asNullableString(event.stageName),
+    title: asString(event.title),
+    detail: asNullableString(event.detail),
+    badgeLabel: asNullableString(event.badgeLabel),
+    linkConfidence,
+  }
+}
+
+function normalizeDealSaleCostRow(value: unknown): DealSaleCostRow {
+  const row = isRecord(value) ? value : {}
+  const sourceSystem: DealSaleCostSourceSystem =
+    row.sourceSystem === 'fact' ? 'fact' : 'rule'
+  const confidence: DealSaleCostRow['confidence'] =
+    row.confidence === 'confirmed' ||
+    row.confidence === 'imported' ||
+    row.confidence === 'manual' ||
+    row.confidence === 'inferred' ||
+    row.confidence === 'needs_review' ||
+    row.confidence === 'conflicting'
+      ? row.confidence
+      : 'inferred'
+  const articleId = asString(row.articleId)
+  const label = asString(row.label, articleId)
+  const amount = asNumber(row.amount)
+  const basis = asString(row.basis)
+
+  return {
+    id: asString(
+      row.id,
+      `${sourceSystem}:${articleId}:${label}:${basis}:${confidence}:${amount}`,
+    ),
+    articleId,
+    label,
+    amount,
+    basis,
+    sourceSystem,
+    confidence,
+  }
+}
+
+function normalizeDealSaleEconomics(value: unknown): DealSaleEconomics {
+  const economics = isRecord(value) ? value : {}
+  const revenueMode: DealSaleRevenueMode =
+    economics.revenueMode === 'actual' ||
+    economics.revenueMode === 'planned' ||
+    economics.revenueMode === 'none'
+      ? economics.revenueMode
+      : 'none'
+  const saleCostAmount = asNumber(economics.saleCostAmount)
+  const allocatedFixedCostAmount = asNumber(economics.allocatedFixedCostAmount)
+  const fullyLoadedCostAmount = asNumber(
+    economics.fullyLoadedCostAmount,
+    saleCostAmount + allocatedFixedCostAmount,
+  )
+
+  return {
+    revenueMode,
+    attractionRevenueAmount: asNullableNumber(economics.attractionRevenueAmount),
+    membershipAmount: asNumber(economics.membershipAmount),
+    saleCostAmount,
+    marginAmount: asNullableNumber(economics.marginAmount),
+    allocatedFixedCostAmount,
+    fullyLoadedCostAmount,
+    fullyLoadedMarginAmount: asNullableNumber(economics.fullyLoadedMarginAmount),
+    costRows: asArray(economics.costRows, normalizeDealSaleCostRow),
+    allocatedFixedCostRows: asArray(
+      economics.allocatedFixedCostRows,
+      normalizeDealSaleCostRow,
+    ),
+  }
+}
+
+function normalizeDealEventSummary(value: unknown) {
+  const summary = isRecord(value) ? value : {}
+  return {
+    callSummary: normalizeDealCallSummary(summary.callSummary),
+    taskSummary: normalizeDealTaskSummary(summary.taskSummary),
+    meetingSummary: normalizeDealMeetingSummary(summary.meetingSummary),
+    conversionEventVisits: asNumber(summary.conversionEventVisits),
+  }
+}
+
+function normalizeDealLifecycleStageTimeline(
+  value: unknown,
+): DealLifecycleStageTimelineEntry[] {
+  return asArray(value, (stage) => {
+    const stageRow = isRecord(stage) ? stage : {}
+    const baseStage = normalizeDealStageTimeline([stageRow])[0] ?? {
+      stageId: '',
+      stageName: '',
+      enteredAt: '',
+      leftAt: '',
+      durationHours: 0,
+      callSummary: normalizeDealCallSummary(undefined),
+      taskSummary: normalizeDealTaskSummary(undefined),
+      meetingEvents: [],
+    }
+
+    return {
+      ...baseStage,
+      callSummary: normalizeDealCallSummary(stageRow.callSummary),
+      taskSummary: normalizeDealTaskSummary(stageRow.taskSummary),
+      meetingEvents: normalizeDealMeetingEvents(stageRow.meetingEvents),
+      events: asArray(stageRow.events, normalizeDealTimelineEvent),
+    }
+  })
+}
+
+function normalizeOptionalDealLifecycleCard(value: unknown): DealLifecycleCard | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const status =
+    value.status === 'won' || value.status === 'lost' || value.status === 'wip'
+      ? value.status
+      : 'wip'
+  const card: DealLifecycleCard = {
+    dealId: asString(value.dealId),
+    managerId: asString(value.managerId),
+    managerName: asString(value.managerName, asString(value.managerId)),
+    status,
+    stageId: asString(value.stageId),
+    stageName: asString(value.stageName, asString(value.stageId)),
+    dateCreate: asString(value.dateCreate),
+    dateClosed: asNullableString(value.dateClosed),
+    dateModify: asString(value.dateModify),
+    cycleDays: asNullableNumber(value.cycleDays),
+    sourceKey: asString(value.sourceKey),
+    sourceLabel: asString(value.sourceLabel, asString(value.sourceKey)),
+    qualityValue: asNullableString(value.qualityValue),
+    businessClubValue: asNullableString(value.businessClubValue),
+    targetGroupValue: asNullableString(value.targetGroupValue),
+    meetingTypeValue: asNullableString(value.meetingTypeValue),
+    meetingDateValue: asNullableString(value.meetingDateValue),
+    tariffValue: asNullableString(value.tariffValue),
+    economics: normalizeDealSaleEconomics(value.economics),
+    eventSummary: normalizeDealEventSummary(value.eventSummary),
+    stageTimeline: normalizeDealLifecycleStageTimeline(value.stageTimeline),
+  }
+
+  if (isRecord(value.cohortContext)) {
+    card.cohortContext = {
+      createdMonth: asString(value.cohortContext.createdMonth),
+      cohortCreatedDeals: asNumber(value.cohortContext.cohortCreatedDeals),
+      cohortWonDeals: asNumber(value.cohortContext.cohortWonDeals),
+      cohortWonConversionRate: asNumber(
+        value.cohortContext.cohortWonConversionRate,
+      ),
+    }
+  }
+
+  if (isRecord(value.sla)) {
+    card.sla = normalizeManagerActionDealSla(value.sla)
+  }
+
+  return card
 }
 
 function isMutatingMethod(method: string | undefined) {
@@ -978,6 +1197,7 @@ function normalizeDashboardSnapshot(value: unknown): DashboardDataSnapshot {
         deals: asArray(item.deals, (deal) => {
           const row = isRecord(deal) ? deal : {}
           const cohort = isRecord(row.cohortContext) ? row.cohortContext : {}
+          const lifecycleCard = normalizeOptionalDealLifecycleCard(row.lifecycleCard)
           return {
             dealId: asString(row.dealId),
             dealTitle: asString(row.dealTitle, asString(row.dealId)),
@@ -1019,6 +1239,7 @@ function normalizeDashboardSnapshot(value: unknown): DashboardDataSnapshot {
             taskSummary: normalizeDealTaskSummary(row.taskSummary),
             meetingSummary: normalizeDealMeetingSummary(row.meetingSummary),
             stageTimeline: normalizeDealStageTimeline(row.stageTimeline),
+            ...(lifecycleCard ? { lifecycleCard } : {}),
           }
         }),
       }
@@ -2412,6 +2633,7 @@ function normalizeManagerActionOutcomeSnapshot(
         averageFinancialAmount: asNumber(item.averageFinancialAmount),
         dealDetails: asArray(item.dealDetails, (deal) => {
           const row = isRecord(deal) ? deal : {}
+          const lifecycleCard = normalizeOptionalDealLifecycleCard(row.lifecycleCard)
           return {
             dealId: asString(row.dealId),
             stageId: asString(row.stageId),
@@ -2433,6 +2655,7 @@ function normalizeManagerActionOutcomeSnapshot(
             meetingSummary: normalizeDealMeetingSummary(row.meetingSummary),
             sla: normalizeDealSla(row.sla),
             stageTimeline: normalizeDealStageTimeline(row.stageTimeline),
+            ...(lifecycleCard ? { lifecycleCard } : {}),
           }
         }),
       }

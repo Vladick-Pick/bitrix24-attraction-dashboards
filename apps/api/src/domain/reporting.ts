@@ -17,6 +17,7 @@ import type {
 import {
   resolveDealEconomics
 } from "./deal-economics.js";
+import { buildDealLifecycleCard } from "./deal-lifecycle-card.js";
 import { buildSourceLabelMap, resolveDealSource } from "./report-dimensions.js";
 
 const UNKNOWN_MANAGER_ID = "unassigned";
@@ -492,6 +493,12 @@ export function buildDashboard(input: DashboardInput): DashboardData {
       })
     ])
   );
+  const allocationWonAtByDeal = new Map<string, string | null | undefined>();
+  for (const deal of input.deals) {
+    if (wonStageIds.has(deal.stageId)) {
+      allocationWonAtByDeal.set(deal.id, wonAtByDeal.get(deal.id) ?? getClosedAt(deal));
+    }
+  }
   const pricingRules = input.pricingRules;
 
   const wonDeals = input.deals
@@ -577,6 +584,9 @@ export function buildDashboard(input: DashboardInput): DashboardData {
     const source = resolveDealSource(deal, sourceLabels);
     const activities = activitiesByDeal.get(deal.id) ?? [];
     const calls = callsByDeal.get(deal.id) ?? [];
+    const callSummary = buildCallSummary(calls);
+    const taskSummary = buildTaskSummary(activities);
+    const meetingSummary = buildMeetingSummary(activities);
     const meetingEvents = buildMeetingEvents(activities);
     const stageTimeline = attachMeetingEventsToStageTimeline(
       attachInteractionSummariesToStageTimeline({
@@ -596,6 +606,42 @@ export function buildDashboard(input: DashboardInput): DashboardData {
     group.totalSalesAmount += amount;
     group.totalAttractionRevenueAmount += amount;
     group.totalMembershipAmount += economics.membershipAmount;
+    const cohortContext = {
+      createdMonth,
+      cohortCreatedDeals: cohort.cohortCreatedDeals,
+      cohortWonDeals: cohort.cohortWonDeals,
+      cohortWonConversionRate:
+        cohort.cohortCreatedDeals === 0
+          ? 0
+          : round((cohort.cohortWonDeals / cohort.cohortCreatedDeals) * 100)
+    };
+    const lifecycleCard = buildDealLifecycleCard({
+      range: input.range,
+      deal,
+      status: "won",
+      stageCatalog: input.stageCatalog,
+      stageHistory: stageHistoryRows,
+      touchpointFacts: input.dealTouchpointFacts ?? [],
+      eventVisitFacts: input.eventVisitFacts ?? [],
+      events: input.events ?? [],
+      pricingRules,
+      costRules: input.costRules ?? [],
+      costFacts: input.costFacts ?? [],
+      allocationDeals: input.deals,
+      allocationWonAtByDeal,
+      eventParticipantMode: input.eventParticipantMode,
+      managerDirectory: input.managerDirectory,
+      terminalAt: wonAt,
+      cohortContext,
+      fallbackEventSummary: {
+        callSummary,
+        taskSummary,
+        meetingSummary,
+        conversionEventVisits: 0
+      },
+      fallbackStageTimeline: stageTimeline
+    });
+
     group.deals.push({
       dealId: deal.id,
       dealTitle: deal.id,
@@ -617,19 +663,12 @@ export function buildDashboard(input: DashboardInput): DashboardData {
       meetingTypeValue: deal.meetingTypeValue ?? null,
       meetingDateValue: deal.meetingDateValue ?? null,
       tariffValue: deal.tariffValue ?? null,
-      cohortContext: {
-        createdMonth,
-        cohortCreatedDeals: cohort.cohortCreatedDeals,
-        cohortWonDeals: cohort.cohortWonDeals,
-        cohortWonConversionRate:
-          cohort.cohortCreatedDeals === 0
-            ? 0
-            : round((cohort.cohortWonDeals / cohort.cohortCreatedDeals) * 100)
-      },
-      callSummary: buildCallSummary(calls),
-      taskSummary: buildTaskSummary(activities),
-      meetingSummary: buildMeetingSummary(activities),
-      stageTimeline
+      cohortContext,
+      callSummary,
+      taskSummary,
+      meetingSummary,
+      stageTimeline,
+      lifecycleCard
     });
 
     groups.set(managerId, group);

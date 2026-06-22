@@ -884,6 +884,82 @@ function sameStringSet(left: string[], right: string[]) {
   return left.every((item) => rightSet.has(item))
 }
 
+type ManagerWhitelistTeamAssignment = {
+  id: string
+  name: string
+  managerIds: string[]
+}
+
+function normalizeManagerWhitelistTeamAssignments(
+  teams: ManagerWhitelistSettingsInput['teams'] | undefined,
+  allowedManagerIds: string[],
+): ManagerWhitelistTeamAssignment[] {
+  const allowedManagerIdSet = new Set(allowedManagerIds)
+
+  return (teams ?? [])
+    .map((team) => {
+      const name = team.name.trim()
+      const id = team.id?.trim() || name
+      const managerIds = team.managerIds
+        .filter((managerId) => allowedManagerIdSet.has(managerId))
+        .sort((left, right) => left.localeCompare(right))
+
+      return { id, name, managerIds }
+    })
+    .filter((team) => team.id && team.name && team.managerIds.length > 0)
+    .sort((left, right) => left.id.localeCompare(right.id) || left.name.localeCompare(right.name))
+}
+
+function normalizeSavedManagerWhitelistTeamAssignments(
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
+): ManagerWhitelistTeamAssignment[] {
+  return getConfiguredManagerTeams(managerWhitelistSettings)
+    .map((team) => ({
+      id: team.id,
+      name: team.name,
+      managerIds: [...team.managerIds].sort((left, right) => left.localeCompare(right)),
+    }))
+    .filter((team) => team.id && team.name && team.managerIds.length > 0)
+    .sort((left, right) => left.id.localeCompare(right.id) || left.name.localeCompare(right.name))
+}
+
+function sameManagerWhitelistTeamAssignments(
+  left: ManagerWhitelistTeamAssignment[],
+  right: ManagerWhitelistTeamAssignment[],
+) {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  return left.every((leftTeam, index) => {
+    const rightTeam = right[index]
+    return Boolean(
+      rightTeam &&
+      leftTeam.id === rightTeam.id &&
+      leftTeam.name === rightTeam.name &&
+      sameStringSet(leftTeam.managerIds, rightTeam.managerIds),
+    )
+  })
+}
+
+function hasManagerWhitelistSettingsChanged(
+  input: ManagerWhitelistSettingsInput,
+  managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
+) {
+  if (!managerWhitelistSettings) {
+    return input.managerIds.length > 0 || (input.teams?.length ?? 0) > 0
+  }
+
+  if (!sameStringSet(input.managerIds, getEnabledWhitelistManagerIds(managerWhitelistSettings))) {
+    return true
+  }
+
+  return !sameManagerWhitelistTeamAssignments(
+    normalizeManagerWhitelistTeamAssignments(input.teams, input.managerIds),
+    normalizeSavedManagerWhitelistTeamAssignments(managerWhitelistSettings),
+  )
+}
+
 function getEnabledWhitelistManagerIds(
   managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
 ) {
@@ -3035,6 +3111,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     managerWhitelistSettingsRevisionRef.current += 1
 
     try {
+      const managerWhitelistChanged = hasManagerWhitelistSettingsChanged(
+        input,
+        runtimeDataRef.current.managerWhitelistSettings,
+      )
       const saved = await apiClient.saveManagerWhitelistSettings(input)
       const managerOptionsFromSettings = buildWhitelistedManagerOptions(saved)
       const allowedManagerIds = new Set(managerOptionsFromSettings.map((option) => option.id))
@@ -3057,15 +3137,17 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
       setManagerWhitelistDraft(createEmptyManagerWhitelistDraftState())
       setFilters(keepAllowedManagers)
       setAppliedFilters(keepAllowedManagers)
-      const syncNotice = 'Вайтлист менеджеров изменен. Нужна синхронизация данных.'
-      const reassignmentNotice =
-        usersNeedingDefaultManagerReassignment.length > 0
-          ? `${syncNotice} Нужно переназначить менеджера.`
-          : syncNotice
-      setSyncWarning(syncNotice)
-      setManagerWhitelistSettingsNotice(
-        reassignmentNotice,
-      )
+      if (managerWhitelistChanged) {
+        const syncNotice = 'Вайтлист менеджеров изменен. Нужна синхронизация данных.'
+        const reassignmentNotice =
+          usersNeedingDefaultManagerReassignment.length > 0
+            ? `${syncNotice} Нужно переназначить менеджера.`
+            : syncNotice
+        setSyncWarning(syncNotice)
+        setManagerWhitelistSettingsNotice(
+          reassignmentNotice,
+        )
+      }
       await refreshModuleUsers()
     } catch (error) {
       setManagerWhitelistSettingsSaveError(

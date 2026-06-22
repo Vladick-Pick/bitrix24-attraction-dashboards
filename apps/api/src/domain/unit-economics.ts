@@ -130,6 +130,8 @@ const ZERO_SUMMARY: MutableSummary = {
   netProfit: 0
 };
 
+export const DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM = "2025-07-01";
+
 const ARTICLE_LABELS = {
   lead_purchase: "Закупка лидов",
   demo_events: "Демо-мероприятия",
@@ -161,7 +163,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "amount_per_lead",
     enabled: true,
     sortOrder: 10,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -173,7 +175,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "amount_per_participant",
     enabled: true,
     sortOrder: 20,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -185,7 +187,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "amount_per_participant",
     enabled: true,
     sortOrder: 30,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -197,7 +199,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "amount_per_participant",
     enabled: true,
     sortOrder: 40,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -209,7 +211,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "amount_per_contract",
     enabled: true,
     sortOrder: 50,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -221,7 +223,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_club_membership",
     enabled: true,
     sortOrder: 60,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -233,7 +235,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "manual_amount",
     enabled: true,
     sortOrder: 110,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -245,7 +247,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_sale",
     enabled: true,
     sortOrder: 120,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -257,7 +259,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_module_revenue",
     enabled: true,
     sortOrder: 130,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -269,7 +271,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "manual_amount",
     enabled: true,
     sortOrder: 140,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -281,7 +283,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_module_revenue",
     enabled: true,
     sortOrder: 150,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -293,7 +295,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "manual_amount",
     enabled: true,
     sortOrder: 160,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -305,7 +307,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "manual_amount",
     enabled: true,
     sortOrder: 170,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -317,7 +319,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "manual_amount",
     enabled: true,
     sortOrder: 180,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -329,7 +331,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_module_revenue",
     enabled: true,
     sortOrder: 190,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -341,7 +343,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_module_revenue",
     enabled: true,
     sortOrder: 200,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -353,7 +355,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_module_revenue",
     enabled: true,
     sortOrder: 210,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -365,7 +367,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_module_revenue",
     enabled: true,
     sortOrder: 310,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   },
@@ -377,7 +379,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_ARTICLES: UnitEconomicsCostArticle[] = 
     calculationMethod: "percent_of_module_revenue",
     enabled: true,
     sortOrder: 320,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     updatedAt: null
   }
@@ -397,7 +399,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: "Готов к встрече",
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 5
   },
@@ -414,7 +416,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 10
   },
@@ -431,7 +433,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: "Пришёл на встречу",
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 12
   },
@@ -448,7 +450,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: "Гостевая встреча",
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 15
   },
@@ -465,7 +467,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 16
   },
@@ -482,7 +484,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 25
   },
@@ -499,7 +501,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 110
   },
@@ -516,7 +518,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 120
   },
@@ -533,7 +535,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 140
   },
@@ -550,7 +552,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 170
   },
@@ -567,7 +569,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 180
   },
@@ -584,7 +586,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 190
   },
@@ -601,7 +603,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 210
   },
@@ -618,7 +620,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 310
   },
@@ -635,7 +637,7 @@ export const DEFAULT_UNIT_ECONOMICS_COST_RULES: UnitEconomicsCostRule[] = [
     qualityValue: null,
     eventNamePattern: null,
     enabled: true,
-    effectiveFrom: "2026-01-01",
+    effectiveFrom: DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
     effectiveTo: null,
     sortOrder: 320
   }
@@ -968,8 +970,9 @@ function addDirectOrTaxCostDetail(
   amount: number,
   quantity: number | null
 ) {
+  const shouldAllocateAcrossManagers = isSharedManagerCostRule(rule) && managerRows.size > 0;
   const allocatedAmount =
-    isSharedPercentRule(rule) && managerRows.size > 0
+    shouldAllocateAcrossManagers
       ? amount / managerRows.size
       : amount;
   const detail: UnitEconomicsManagerCostDetailRow = {
@@ -981,7 +984,9 @@ function addDirectOrTaxCostDetail(
     unitPrice: rule.unitPrice,
     percent: rule.percent,
     amount: allocatedAmount,
-    basis: basisLabelForRule(rule),
+    basis: shouldAllocateAcrossManagers
+      ? sharedManagerCostBasisLabel(rule, managerRows.size)
+      : basisLabelForRule(rule),
     warnings: []
   };
 
@@ -999,6 +1004,39 @@ function isSharedPercentRule(rule: UnitEconomicsCostRule) {
     rule.calculationMethod === "percent_of_module_revenue" ||
     rule.calculationMethod === "percent_of_sale"
   );
+}
+
+function isSharedManagerCostRule(rule: UnitEconomicsCostRule) {
+  return (
+    isSharedPercentRule(rule) ||
+    (rule.articleId === "assistant" && rule.calculationMethod === "amount_per_period")
+  );
+}
+
+function sharedManagerCostBasisLabel(rule: UnitEconomicsCostRule, managerCount: number) {
+  if (isSharedPercentRule(rule)) {
+    return `${basisLabelForRule(rule)} / ${formatManagerCount(managerCount)}`;
+  }
+
+  return `Общие расходы / ${formatManagerCount(managerCount)}`;
+}
+
+function formatManagerCount(managerCount: number) {
+  const lastTwoDigits = managerCount % 100;
+  const lastDigit = managerCount % 10;
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return `${managerCount} менеджеров`;
+  }
+
+  if (lastDigit === 1) {
+    return `${managerCount} менеджер`;
+  }
+
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return `${managerCount} менеджера`;
+  }
+
+  return `${managerCount} менеджеров`;
 }
 
 function productLabelForRule(rule: UnitEconomicsCostRule) {

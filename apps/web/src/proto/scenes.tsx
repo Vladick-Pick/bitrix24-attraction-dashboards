@@ -7,7 +7,11 @@ import type {
   AcquisitionOutcomesReport,
   ConversionEventsReport,
   DashboardData,
+  DealEventSummary,
+  DealLifecycleStageTimelineEntry,
+  DealSaleEconomics,
   DealStageTimelineEntry,
+  DealTimelineEvent,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeReport,
   RevenueVelocityDimension,
@@ -1776,8 +1780,15 @@ function getTimelineCalendarKey(value: string | null | undefined) {
   return `${year}-${month}-${day}`
 }
 
+type DealTimelineStageForUi = DealStageTimelineEntry | DealLifecycleStageTimelineEntry
+type DealDetailForUi = SalesDealRow | ManagerActionOutcomeDealDetail
+
+function isSalesDealRow(deal: DealDetailForUi): deal is SalesDealRow {
+  return 'pricingStatus' in deal
+}
+
 function isDateInsideStageInterval(
-  stage: DealStageTimelineEntry,
+  stage: DealTimelineStageForUi,
   dateValue: string | null | undefined,
   isLastStage: boolean,
 ) {
@@ -1793,7 +1804,7 @@ function isDateInsideStageInterval(
 }
 
 function resolveMeetingDateTimeline(
-  stageTimeline: DealStageTimelineEntry[],
+  stageTimeline: DealTimelineStageForUi[],
   meetingDateValue: string | null | undefined,
   dealCreatedAt?: string | null,
 ): MeetingDateTimelineResolution {
@@ -1824,7 +1835,7 @@ function resolveMeetingDateTimeline(
 }
 
 function getStageMeetingBadges(
-  stage: DealStageTimelineEntry,
+  stage: DealTimelineStageForUi,
   meetingDateValue: string | null | undefined,
   includeMeetingDateFallback: boolean,
 ) {
@@ -1864,15 +1875,47 @@ function hasStageTaskSummary(summary: DealStageTimelineEntry['taskSummary']) {
   return Boolean(summary && (summary.created > 0 || summary.closed > 0))
 }
 
+function getStageTimelineEvents(stage: DealTimelineStageForUi): DealTimelineEvent[] {
+  return 'events' in stage ? stage.events : []
+}
+
+function formatTimelineEventLabel(event: DealTimelineEvent) {
+  if (event.badgeLabel) {
+    return event.badgeLabel
+  }
+
+  return event.detail ? `${event.title} · ${event.detail}` : event.title
+}
+
+function getTimelineEventBadgeClass(kind: DealTimelineEvent['kind']) {
+  if (kind === 'call') {
+    return 'inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold leading-tight text-sky-800 ring-1 ring-sky-100'
+  }
+
+  if (kind === 'task_created' || kind === 'task_completed') {
+    return 'inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold leading-tight text-emerald-800 ring-1 ring-emerald-100'
+  }
+
+  if (kind === 'meeting' || kind === 'meeting_date_changed') {
+    return 'inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold leading-tight text-amber-800'
+  }
+
+  return 'inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full bg-violet-50 px-2 py-1 text-[11px] font-semibold leading-tight text-violet-800 ring-1 ring-violet-100'
+}
+
 function StageTimelineInteractionBadges({
   stage,
   meetingBadges,
 }: {
-  stage: DealStageTimelineEntry
+  stage: DealTimelineStageForUi
   meetingBadges: StageMeetingBadge[]
 }) {
   const callSummary = stage.callSummary
   const taskSummary = stage.taskSummary
+  const conversionEventBadges = getStageTimelineEvents(stage).filter(
+    (event) => event.kind === 'conversion_event_visit',
+  )
+  const hasLifecycleEventSlot = 'events' in stage
   const showCalls = hasStageCallSummary(callSummary)
   const showTasks = hasStageTaskSummary(taskSummary)
 
@@ -1898,157 +1941,413 @@ function StageTimelineInteractionBadges({
           Дела {formatInteger(taskSummary.created)} / {formatInteger(taskSummary.closed)}
         </span>
       ) : null}
-      <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-400">
-        Мероприятия недоступны
-      </span>
-      <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-400">
-        Сообщения недоступны
-      </span>
+      {conversionEventBadges.map((event) => (
+        <span key={event.id} className={getTimelineEventBadgeClass(event.kind)}>
+          {formatTimelineEventLabel(event)}
+        </span>
+      ))}
+      {!hasLifecycleEventSlot ? (
+        <>
+          <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-400">
+            Мероприятия недоступны
+          </span>
+          <span className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-tight text-slate-400">
+            Сообщения недоступны
+          </span>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function getDealDetailFields(deal: DealDetailForUi, businessClubLabel: string) {
+  const lifecycleCard = deal.lifecycleCard
+  const meetingDateValue = lifecycleCard?.meetingDateValue ?? deal.meetingDateValue
+
+  return [
+    { label: 'Итоговое качество', value: lifecycleCard?.qualityValue ?? deal.qualityValue ?? '—' },
+    { label: 'Источник', value: lifecycleCard?.sourceLabel ?? deal.sourceLabel ?? '—' },
+    { label: businessClubLabel, value: lifecycleCard?.businessClubValue ?? deal.businessClubValue ?? '—' },
+    { label: 'Таргет-группа', value: lifecycleCard?.targetGroupValue ?? deal.targetGroupValue ?? '—' },
+    { label: 'Тип встречи', value: lifecycleCard?.meetingTypeValue ?? deal.meetingTypeValue ?? '—' },
+    { label: 'Дата встречи', value: meetingDateValue ? formatShortDate(meetingDateValue) : '—' },
+    { label: 'Тариф', value: lifecycleCard?.tariffValue ?? deal.tariffValue ?? '—' },
+  ]
+}
+
+function getDealEventSummary(deal: DealDetailForUi): DealEventSummary {
+  return (
+    deal.lifecycleCard?.eventSummary ?? {
+      callSummary: deal.callSummary,
+      taskSummary: deal.taskSummary,
+      meetingSummary: deal.meetingSummary ?? { total: 0 },
+      conversionEventVisits: 0,
+    }
+  )
+}
+
+function formatNullableAmount(value: number | null | undefined) {
+  return value === null || value === undefined || !Number.isFinite(value) ? '—' : formatAmount(value)
+}
+
+function resolveDealProfitAmount(deal: SalesDealRow) {
+  const value = deal.lifecycleCard?.economics.fullyLoadedMarginAmount
+  return value === null || value === undefined || !Number.isFinite(value) ? null : value
+}
+
+function getProfitAmountClass(value: number | null) {
+  if (value === null) {
+    return 'text-slate-400'
+  }
+
+  if (value < 0) {
+    return 'text-rose-700'
+  }
+
+  if (value > 0) {
+    return 'text-emerald-700'
+  }
+
+  return 'text-slate-950'
+}
+
+function formatExpenseAmount(value: number) {
+  return value === 0 ? formatAmount(value) : `-${formatAmount(Math.abs(value))}`
+}
+
+function DealEconomicsPanel({
+  deal,
+  surfaceClass,
+}: {
+  deal: DealDetailForUi
+  surfaceClass: string
+}) {
+  const economics: DealSaleEconomics | undefined = deal.lifecycleCard?.economics
+
+  if (economics) {
+    const costRows = [
+      ...economics.costRows,
+      ...economics.allocatedFixedCostRows,
+    ]
+
+    return (
+      <div className={`rounded-xl border border-slate-200 ${surfaceClass} p-4`}>
+        <div className="subtle-label">Экономика</div>
+        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          <div>
+            <div className="subtle-label">Доход Привлечения</div>
+            <div className="mt-1 text-lg font-bold text-slate-950">
+              {formatNullableAmount(economics.attractionRevenueAmount)}
+            </div>
+          </div>
+          <div>
+            <div className="subtle-label">Стоимость членства</div>
+            <div className="mt-1 text-lg font-bold text-slate-950">
+              {formatAmount(economics.membershipAmount)}
+            </div>
+          </div>
+          <div>
+            <div className="subtle-label">Маржинальная себестоимость</div>
+            <div className="mt-1 text-lg font-bold text-rose-700">
+              {formatExpenseAmount(economics.saleCostAmount)}
+            </div>
+          </div>
+          <div>
+            <div className="subtle-label">Маржинальный результат</div>
+            <div className="mt-1 text-lg font-bold text-slate-950">
+              {formatNullableAmount(economics.marginAmount)}
+            </div>
+          </div>
+          <div>
+            <div className="subtle-label">Доля постоянных</div>
+            <div className="mt-1 text-lg font-bold text-rose-700">
+              {formatExpenseAmount(economics.allocatedFixedCostAmount)}
+            </div>
+          </div>
+          <div>
+            <div className="subtle-label">Полная себестоимость</div>
+            <div className="mt-1 text-lg font-bold text-rose-700">
+              {formatExpenseAmount(economics.fullyLoadedCostAmount)}
+            </div>
+          </div>
+          <div>
+            <div className="subtle-label">Полный результат</div>
+            <div className="mt-1 text-lg font-bold text-slate-950">
+              {formatNullableAmount(economics.fullyLoadedMarginAmount)}
+            </div>
+          </div>
+        </div>
+        {costRows.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {costRows.map((row) => (
+              <div
+                key={row.id}
+                className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-900">{row.label}</span>
+                  <span className="text-sm font-bold text-rose-700">
+                    {formatExpenseAmount(row.amount)}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{row.basis}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (!isSalesDealRow(deal)) {
+    return null
+  }
+
+  return (
+    <div className={`rounded-xl border border-slate-200 ${surfaceClass} p-4`}>
+      <div className="subtle-label">Экономика</div>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">
+        <div>
+          <div className="subtle-label">Доход Привлечения</div>
+          <div className="mt-1 text-lg font-bold text-slate-950">
+            {formatAmount(resolveDealAttractionRevenue(deal))}
+          </div>
+        </div>
+        <div>
+          <div className="subtle-label">Стоимость членства</div>
+          <div className="mt-1 text-lg font-bold text-slate-950">
+            {formatAmount(resolveDealMembershipAmount(deal))}
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 text-xs font-medium text-slate-500">
+        {formatPricingStatus(deal.pricingStatus)}
+      </div>
+      {(deal.pricingWarnings?.length ?? 0) > 0 ? (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {deal.pricingWarnings?.[0]}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function DealAttributesPanel({
+  title,
+  fields,
+  surfaceClass,
+}: {
+  title: string
+  fields: Array<{ label: string; value: string }>
+  surfaceClass: string
+}) {
+  return (
+    <div className={`rounded-xl border border-slate-200 ${surfaceClass} p-4`}>
+      <div className="subtle-label">{title}</div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {fields.map((field) => (
+          <div key={field.label} className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+            <div className="subtle-label">{field.label}</div>
+            <div className="mt-1 text-sm font-semibold text-slate-900">{field.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DealCohortPanel({
+  cohortContext,
+  surfaceClass,
+}: {
+  cohortContext: SalesDealRow['cohortContext']
+  surfaceClass: string
+}) {
+  return (
+    <div className={`rounded-xl border border-slate-200 ${surfaceClass} p-4`}>
+      <div className="subtle-label">Когорта {cohortContext.createdMonth || '—'}</div>
+      <div className="mt-2 text-sm text-slate-700">
+        <strong className="text-slate-950">
+          {formatInteger(cohortContext.cohortCreatedDeals)}
+        </strong>{' '}
+        создано в месяце сделки
+      </div>
+      <div className="mt-1 text-sm text-slate-500">
+        {formatInteger(cohortContext.cohortWonDeals)} выиграно ·{' '}
+        {formatPercent(cohortContext.cohortWonConversionRate)}% конверсия
+      </div>
+    </div>
+  )
+}
+
+function DealActivitySummaryPanel({
+  summary,
+  surfaceClass,
+}: {
+  summary: DealEventSummary
+  surfaceClass: string
+}) {
+  return (
+    <div className={`rounded-xl border border-slate-200 ${surfaceClass} p-4`}>
+      <div className="subtle-label">Дела, звонки и встречи</div>
+      <div className="mt-2 text-sm text-slate-700">
+        <strong className="text-slate-950">{formatInteger(summary.taskSummary.created)}</strong>{' '}
+        создано дел · {formatInteger(summary.taskSummary.closed)} закрыто
+      </div>
+      <div className="mt-1 text-sm text-slate-500">
+        {formatInteger(summary.callSummary.incoming)} вход. ·{' '}
+        {formatInteger(summary.callSummary.outgoing)} исход. ·{' '}
+        {formatInteger(summary.callSummary.connectedOverThirtySeconds)} успешных &gt;30 сек
+      </div>
+      <div className="mt-1 text-sm text-slate-500">
+        {formatMeetingCount(summary.meetingSummary.total)}
+        {summary.conversionEventVisits > 0
+          ? ` · ${formatInteger(summary.conversionEventVisits)} участий в мероприятиях`
+          : ''}
+      </div>
+    </div>
+  )
+}
+
+function DealSlaPanel({
+  sla,
+  surfaceClass,
+}: {
+  sla: ManagerActionOutcomeDealDetail['sla']
+  surfaceClass: string
+}) {
+  return (
+    <div className={`rounded-xl border border-slate-200 ${surfaceClass} p-4`}>
+      <div className="subtle-label">SLA по сделке</div>
+      <div className="mt-3 grid gap-2 text-sm text-slate-700">
+        <div>1: {formatDealSlaStatus(sla.sla1)}</div>
+        <div>2: {formatDealSlaStatus(sla.sla2)}</div>
+        <div>3: {formatDealSlaStatus(sla.sla3)}</div>
+      </div>
+    </div>
+  )
+}
+
+function DealStageTimelinePanel({
+  dealId,
+  stageTimeline,
+  meetingDateValue,
+  dateCreate,
+  surfaceClass,
+}: {
+  dealId: string
+  stageTimeline: DealTimelineStageForUi[]
+  meetingDateValue: string | null | undefined
+  dateCreate: string
+  surfaceClass: string
+}) {
+  const meetingDateResolution = resolveMeetingDateTimeline(
+    stageTimeline,
+    meetingDateValue,
+    dateCreate,
+  )
+
+  return (
+    <div className={`overflow-hidden rounded-xl border border-slate-200 ${surfaceClass}`}>
+      <div className="hidden grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 sm:grid">
+        <span>Этап</span>
+        <span>Вход</span>
+        <span className="text-right">Время</span>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {meetingDateResolution.kind === 'beforeTimeline' ? (
+          <div className="border-b border-amber-100 bg-amber-50/80 px-4 py-2 text-xs font-semibold text-amber-800">
+            Дата встречи раньше создания сделки
+          </div>
+        ) : null}
+        {stageTimeline.length > 0 ? (
+          stageTimeline.map((stage, stageIndex) => {
+            const meetingBadges = getStageMeetingBadges(
+              stage,
+              meetingDateValue,
+              meetingDateResolution.kind === 'badge' &&
+                stageIndex === meetingDateResolution.stageIndex,
+            )
+
+            return (
+              <div
+                key={`${dealId}-${stage.stageId}-${stage.enteredAt}`}
+                data-stage-timeline-row
+                className="grid grid-cols-1 gap-2 px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_7rem_6rem] sm:gap-3"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
+                  <StageTimelineInteractionBadges
+                    stage={stage}
+                    meetingBadges={meetingBadges}
+                  />
+                  <div className="truncate text-xs text-slate-500">
+                    до {formatShortDate(stage.leftAt)}
+                  </div>
+                </div>
+                <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
+                <span className="text-left font-semibold text-slate-900 sm:text-right">
+                  {formatSalesHours(stage.durationHours)}
+                </span>
+              </div>
+            )
+          })
+        ) : (
+          <div className="px-4 py-5 text-sm text-slate-500">
+            История этапов по сделке пока не подтянута.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DealLifecycleDetails({
+  deal,
+  variant,
+}: {
+  deal: DealDetailForUi
+  variant: 'sales' | 'managerAction'
+}) {
+  const lifecycleCard = deal.lifecycleCard
+  const surfaceClass = variant === 'managerAction' ? 'bg-white/80' : 'bg-white/75'
+  const stageTimeline = lifecycleCard?.stageTimeline ?? deal.stageTimeline
+  const meetingDateValue = lifecycleCard?.meetingDateValue ?? deal.meetingDateValue
+  const dateCreate = lifecycleCard?.dateCreate ?? deal.dateCreate
+  const eventSummary = getDealEventSummary(deal)
+  const cohortContext = lifecycleCard?.cohortContext ?? (isSalesDealRow(deal) ? deal.cohortContext : undefined)
+  const sla = lifecycleCard?.sla ?? (isSalesDealRow(deal) ? undefined : deal.sla)
+
+  return (
+    <div className={`${variant === 'managerAction' ? 'mt-3' : 'mt-4'} grid gap-4 border-t border-slate-200 pt-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]`}>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+        <DealEconomicsPanel deal={deal} surfaceClass={surfaceClass} />
+        <DealAttributesPanel
+          title={variant === 'managerAction' ? 'Атрибуты сделки' : 'Атрибуты продажи'}
+          fields={getDealDetailFields(
+            deal,
+            variant === 'managerAction' ? 'Бизнес-клуб заказчика' : 'Business club',
+          )}
+          surfaceClass={surfaceClass}
+        />
+        {cohortContext ? <DealCohortPanel cohortContext={cohortContext} surfaceClass={surfaceClass} /> : null}
+        <DealActivitySummaryPanel summary={eventSummary} surfaceClass={surfaceClass} />
+        {sla ? <DealSlaPanel sla={sla} surfaceClass={surfaceClass} /> : null}
+      </div>
+
+      <DealStageTimelinePanel
+        dealId={deal.dealId}
+        stageTimeline={stageTimeline}
+        meetingDateValue={meetingDateValue}
+        dateCreate={dateCreate}
+        surfaceClass={surfaceClass}
+      />
     </div>
   )
 }
 
 function SalesDealDetails({ deal }: { deal: SalesDealRow }) {
-  const meetingDateResolution = resolveMeetingDateTimeline(
-    deal.stageTimeline,
-    deal.meetingDateValue,
-    deal.dateCreate,
-  )
-  const detailFields = [
-    { label: 'Итоговое качество', value: deal.qualityValue ?? '—' },
-    { label: 'Источник', value: deal.sourceLabel ?? '—' },
-    { label: 'Business club', value: deal.businessClubValue ?? '—' },
-    { label: 'Таргет-группа', value: deal.targetGroupValue ?? '—' },
-    { label: 'Тип встречи', value: deal.meetingTypeValue ?? '—' },
-    { label: 'Дата встречи', value: deal.meetingDateValue ? formatShortDate(deal.meetingDateValue) : '—' },
-    { label: 'Тариф', value: deal.tariffValue ?? '—' },
-  ]
-
-  return (
-    <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
-        <div className="rounded-xl border border-slate-200 bg-white/75 p-4">
-          <div className="subtle-label">Экономика</div>
-          <div className="mt-2 grid gap-3 sm:grid-cols-2">
-            <div>
-              <div className="subtle-label">Доход Привлечения</div>
-              <div className="mt-1 text-lg font-bold text-slate-950">
-                {formatAmount(resolveDealAttractionRevenue(deal))}
-              </div>
-            </div>
-            <div>
-              <div className="subtle-label">Стоимость членства</div>
-              <div className="mt-1 text-lg font-bold text-slate-950">
-                {formatAmount(resolveDealMembershipAmount(deal))}
-              </div>
-            </div>
-          </div>
-          <div className="mt-2 text-xs font-medium text-slate-500">
-            {formatPricingStatus(deal.pricingStatus)}
-          </div>
-          {(deal.pricingWarnings?.length ?? 0) > 0 ? (
-            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              {deal.pricingWarnings?.[0]}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white/75 p-4">
-          <div className="subtle-label">Атрибуты продажи</div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {detailFields.map((field) => (
-              <div key={field.label} className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                <div className="subtle-label">{field.label}</div>
-                <div className="mt-1 text-sm font-semibold text-slate-900">{field.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white/75 p-4">
-          <div className="subtle-label">Когорта {deal.cohortContext.createdMonth || '—'}</div>
-          <div className="mt-2 text-sm text-slate-700">
-            <strong className="text-slate-950">
-              {formatInteger(deal.cohortContext.cohortCreatedDeals)}
-            </strong>{' '}
-            создано в месяце сделки
-          </div>
-          <div className="mt-1 text-sm text-slate-500">
-            {formatInteger(deal.cohortContext.cohortWonDeals)} выиграно ·{' '}
-            {formatPercent(deal.cohortContext.cohortWonConversionRate)}% конверсия
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white/75 p-4">
-          <div className="subtle-label">Дела, звонки и встречи</div>
-          <div className="mt-2 text-sm text-slate-700">
-            <strong className="text-slate-950">{formatInteger(deal.taskSummary.created)}</strong>{' '}
-            создано дел · {formatInteger(deal.taskSummary.closed)} закрыто
-          </div>
-          <div className="mt-1 text-sm text-slate-500">
-            {formatInteger(deal.callSummary.incoming)} вход. ·{' '}
-            {formatInteger(deal.callSummary.outgoing)} исход. ·{' '}
-            {formatInteger(deal.callSummary.connectedOverThirtySeconds)} успешных &gt;30 сек
-          </div>
-          <div className="mt-1 text-sm text-slate-500">
-            {formatMeetingCount(deal.meetingSummary?.total ?? 0)}
-          </div>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white/75">
-        <div className="hidden grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 sm:grid">
-          <span>Этап</span>
-          <span>Вход</span>
-          <span className="text-right">Время</span>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {meetingDateResolution.kind === 'beforeTimeline' ? (
-            <div className="border-b border-amber-100 bg-amber-50/80 px-4 py-2 text-xs font-semibold text-amber-800">
-              Дата встречи раньше создания сделки
-            </div>
-          ) : null}
-          {deal.stageTimeline.length > 0 ? (
-            deal.stageTimeline.map((stage, stageIndex) => {
-              const meetingBadges = getStageMeetingBadges(
-                stage,
-                deal.meetingDateValue,
-                meetingDateResolution.kind === 'badge' &&
-                  stageIndex === meetingDateResolution.stageIndex,
-              )
-
-              return (
-                <div
-                  key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
-                  data-stage-timeline-row
-                  className="grid grid-cols-1 gap-2 px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_7rem_6rem] sm:gap-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
-                    <StageTimelineInteractionBadges
-                      stage={stage}
-                      meetingBadges={meetingBadges}
-                    />
-                    <div className="truncate text-xs text-slate-500">
-                      до {formatShortDate(stage.leftAt)}
-                    </div>
-                  </div>
-                  <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
-                  <span className="text-left font-semibold text-slate-900 sm:text-right">
-                    {formatSalesHours(stage.durationHours)}
-                  </span>
-                </div>
-              )
-            })
-          ) : (
-            <div className="px-4 py-5 text-sm text-slate-500">
-              История этапов по сделке пока не подтянута.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
+  return <DealLifecycleDetails deal={deal} variant="sales" />
 }
 
 function SalesManagerBlock({
@@ -2088,10 +2387,11 @@ function SalesManagerBlock({
       <div className="divide-y divide-slate-100">
         {group.deals.map((deal) => {
           const isExpanded = expandedDeals.has(deal.dealId)
+          const profitAmount = resolveDealProfitAmount(deal)
 
           return (
             <article key={deal.dealId} className="px-4 py-4">
-              <div className="grid gap-4 xl:grid-cols-[minmax(12rem,1.1fr)_7rem_7rem_6rem_8rem_11rem_7rem_auto] xl:items-center">
+              <div className="grid gap-4 xl:grid-cols-[minmax(12rem,1.1fr)_7rem_7rem_7rem_6rem_8rem_11rem_7rem_auto] xl:items-center">
                 <div className="min-w-0">
                   <h5 className="truncate text-base font-bold text-slate-950">{deal.dealId}</h5>
                   <p className="text-sm text-slate-500">
@@ -2104,6 +2404,13 @@ function SalesManagerBlock({
                   <div className="subtle-label">Доход</div>
                   <div className="mt-1 font-bold text-slate-950">
                     {formatAmount(resolveDealAttractionRevenue(deal))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="subtle-label">Прибыль</div>
+                  <div className={`mt-1 font-bold ${getProfitAmountClass(profitAmount)}`}>
+                    {formatNullableAmount(profitAmount)}
                   </div>
                 </div>
 
@@ -3259,115 +3566,7 @@ function formatDealSlaStatus(value: ManagerActionOutcomeDealDetail['sla']['sla1'
 }
 
 function ManagerActionDealDetails({ deal }: { deal: ManagerActionOutcomeDealDetail }) {
-  const meetingDateResolution = resolveMeetingDateTimeline(
-    deal.stageTimeline,
-    deal.meetingDateValue,
-    deal.dateCreate,
-  )
-  const detailFields = [
-    { label: 'Итоговое качество', value: deal.qualityValue ?? '—' },
-    { label: 'Источник', value: deal.sourceLabel ?? '—' },
-    { label: 'Бизнес-клуб заказчика', value: deal.businessClubValue ?? '—' },
-    { label: 'Таргет-группа', value: deal.targetGroupValue ?? '—' },
-    { label: 'Тип встречи', value: deal.meetingTypeValue ?? '—' },
-    { label: 'Дата встречи', value: deal.meetingDateValue ? formatShortDate(deal.meetingDateValue) : '—' },
-    { label: 'Тариф', value: deal.tariffValue ?? '—' },
-  ]
-
-  return (
-    <div className="mt-3 grid gap-4 border-t border-slate-200 pt-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
-        <div className="rounded-xl border border-slate-200 bg-white/80 p-4">
-          <div className="subtle-label">Атрибуты сделки</div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {detailFields.map((field) => (
-              <div key={field.label} className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                <div className="subtle-label">{field.label}</div>
-                <div className="mt-1 text-sm font-semibold text-slate-900">{field.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white/80 p-4">
-          <div className="subtle-label">Дела, звонки и встречи</div>
-          <div className="mt-2 text-sm text-slate-700">
-            <strong className="text-slate-950">{formatInteger(deal.taskSummary.created)}</strong>{' '}
-            создано дел · {formatInteger(deal.taskSummary.closed)} закрыто
-          </div>
-          <div className="mt-1 text-sm text-slate-500">
-            {formatInteger(deal.callSummary.incoming)} вход. ·{' '}
-            {formatInteger(deal.callSummary.outgoing)} исход. ·{' '}
-            {formatInteger(deal.callSummary.connectedOverThirtySeconds)} успешных &gt;30 сек
-          </div>
-          <div className="mt-1 text-sm text-slate-500">
-            {formatMeetingCount(deal.meetingSummary.total)}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white/80 p-4">
-          <div className="subtle-label">SLA по сделке</div>
-          <div className="mt-3 grid gap-2 text-sm text-slate-700">
-            <div>1: {formatDealSlaStatus(deal.sla.sla1)}</div>
-            <div>2: {formatDealSlaStatus(deal.sla.sla2)}</div>
-            <div>3: {formatDealSlaStatus(deal.sla.sla3)}</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white/80">
-        <div className="hidden grid-cols-[minmax(0,1fr)_7rem_6rem] gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500 sm:grid">
-          <span>Этап</span>
-          <span>Вход</span>
-          <span className="text-right">Время</span>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {meetingDateResolution.kind === 'beforeTimeline' ? (
-            <div className="border-b border-amber-100 bg-amber-50/80 px-4 py-2 text-xs font-semibold text-amber-800">
-              Дата встречи раньше создания сделки
-            </div>
-          ) : null}
-          {deal.stageTimeline.length > 0 ? (
-            deal.stageTimeline.map((stage, stageIndex) => {
-              const meetingBadges = getStageMeetingBadges(
-                stage,
-                deal.meetingDateValue,
-                meetingDateResolution.kind === 'badge' &&
-                  stageIndex === meetingDateResolution.stageIndex,
-              )
-
-              return (
-                <div
-                  key={`${deal.dealId}-${stage.stageId}-${stage.enteredAt}`}
-                  data-stage-timeline-row
-                  className="grid grid-cols-1 gap-2 px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_7rem_6rem] sm:gap-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-semibold text-slate-900">{stage.stageName}</div>
-                    <StageTimelineInteractionBadges
-                      stage={stage}
-                      meetingBadges={meetingBadges}
-                    />
-                    <div className="truncate text-xs text-slate-500">
-                      до {formatShortDate(stage.leftAt)}
-                    </div>
-                  </div>
-                  <span className="text-slate-500">{formatShortDate(stage.enteredAt)}</span>
-                  <span className="text-left font-semibold text-slate-900 sm:text-right">
-                    {formatSalesHours(stage.durationHours)}
-                  </span>
-                </div>
-              )
-            })
-          ) : (
-            <div className="px-4 py-5 text-sm text-slate-500">
-              История этапов по сделке пока не подтянута.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
+  return <DealLifecycleDetails deal={deal} variant="managerAction" />
 }
 
 function createEmptyManagerActionStatusRow(

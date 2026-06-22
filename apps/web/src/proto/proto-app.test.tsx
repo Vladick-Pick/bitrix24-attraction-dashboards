@@ -2624,6 +2624,52 @@ describe('ProtoApp', () => {
     )
   })
 
+  it('does not request a new sync when manager whitelist settings are unchanged', async () => {
+    const leader: AuthUser = {
+      id: 1,
+      login: 'leader@example.com',
+      firstName: 'Мария',
+      lastName: 'Потапова',
+      role: 'admin' as const,
+      modules: [
+        {
+          id: 'attraction',
+          slug: 'attraction',
+          name: 'Привлечение',
+          role: 'leader' as const,
+          permissions: [
+            'comments:create',
+            'comments:update',
+            'comments:archive',
+            'module-users:manage',
+          ],
+          paperclipCompanyId: null,
+          paperclipProjectId: null,
+          paperclipGoalId: null,
+          paperclipTriageAgentId: null,
+        },
+      ],
+    }
+
+    render(<ProtoApp currentUser={leader} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^личный кабинет$/i }),
+    )
+    await screen.findByRole('checkbox', { name: /илья какулия/i })
+    await screen.findByRole('checkbox', { name: /егоров андрей/i })
+    await userEvent.click(screen.getByRole('button', { name: /сохранить менеджеров/i }))
+
+    await waitFor(() =>
+      expect(apiClient.saveManagerWhitelistSettings).toHaveBeenCalledWith({
+        managerIds: ['13020', '78'],
+        teams: [],
+      }),
+    )
+    expect(screen.queryByText(/в[аa]йтлист менеджеров изменен/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/нужна синхронизация данных/i)).not.toBeInTheDocument()
+  })
+
   it('keeps default manager choices empty after saving an empty manager whitelist', async () => {
     const leader: AuthUser = {
       id: 1,
@@ -4488,6 +4534,262 @@ describe('ProtoApp', () => {
     )
   })
 
+  it('renders lifecycle card economics and timeline events when the API provides the shared card', async () => {
+    vi.mocked(apiClient.getDashboard).mockResolvedValueOnce({
+      salesSummary: {
+        salesCount: 1,
+        salesAmount: 300_000,
+        averageSaleAmount: 300_000,
+        attractionRevenueAmount: 300_000,
+        averageAttractionRevenueAmount: 300_000,
+        membershipAmount: 1_100_000,
+        averageMembershipAmount: 1_100_000,
+        pricingWarnings: [],
+        newDealsCount: 12,
+        conversionRate: 8.33,
+        meetingsCount: 1,
+      },
+      managerGroups: [
+        {
+          managerId: '78',
+          managerName: 'Ромашова Ольга',
+          totalWonDeals: 1,
+          totalSalesAmount: 300_000,
+          totalAttractionRevenueAmount: 300_000,
+          averageAttractionRevenueAmount: 300_000,
+          totalMembershipAmount: 1_100_000,
+          averageMembershipAmount: 1_100_000,
+          deals: [
+            {
+              dealId: 'D-LIFE',
+              dealTitle: 'D-LIFE',
+              managerId: '78',
+              managerName: 'Ромашова Ольга',
+              amount: 300_000,
+              attractionRevenueAmount: 300_000,
+              membershipAmount: 1_100_000,
+              pricingStatus: 'priced',
+              pricingWarnings: [],
+              dateCreate: '2026-04-10T09:00:00.000Z',
+              dateClosed: '2026-04-20T12:00:00.000Z',
+              cycleDays: 10,
+              sourceKey: 'LEADGEN_US',
+              sourceLabel: 'Лидген УС',
+              qualityValue: 'Готов к встрече',
+              businessClubValue: 'ClubFirst One',
+              targetGroupValue: 'ClubFirst Russia',
+              meetingTypeValue: 'Очная',
+              meetingDateValue: '2026-04-18T12:00:00.000Z',
+              tariffValue: 'Федеральный',
+              cohortContext: {
+                createdMonth: '2026-04',
+                cohortCreatedDeals: 12,
+                cohortWonDeals: 1,
+                cohortWonConversionRate: 8.33,
+              },
+              callSummary: {
+                total: 1,
+                incoming: 0,
+                outgoing: 1,
+                successful: 1,
+                failed: 0,
+                overThirtySeconds: 1,
+                connectedOverThirtySeconds: 1,
+              },
+              taskSummary: { created: 1, closed: 1 },
+              meetingSummary: { total: 1 },
+              stageTimeline: [],
+              lifecycleCard: {
+                dealId: 'D-LIFE',
+                managerId: '78',
+                managerName: 'Ромашова Ольга',
+                status: 'won',
+                stageId: 'C10:WON',
+                stageName: 'Передано в клуб',
+                dateCreate: '2026-04-10T09:00:00.000Z',
+                dateClosed: '2026-04-20T12:00:00.000Z',
+                dateModify: '2026-04-20T12:00:00.000Z',
+                cycleDays: 10,
+                sourceKey: 'LEADGEN_US',
+                sourceLabel: 'Лидген УС',
+                qualityValue: 'Готов к встрече',
+                businessClubValue: 'ClubFirst One',
+                targetGroupValue: 'ClubFirst Russia',
+                meetingTypeValue: 'Очная',
+                meetingDateValue: '2026-04-18T12:00:00.000Z',
+                tariffValue: 'Федеральный',
+                cohortContext: {
+                  createdMonth: '2026-04',
+                  cohortCreatedDeals: 12,
+                  cohortWonDeals: 1,
+                  cohortWonConversionRate: 8.33,
+                },
+                economics: {
+                  revenueMode: 'actual',
+                  attractionRevenueAmount: 300_000,
+                  membershipAmount: 1_100_000,
+                  saleCostAmount: 52_000,
+                  marginAmount: 248_000,
+                  allocatedFixedCostAmount: 260_000,
+                  fullyLoadedCostAmount: 312_000,
+                  fullyLoadedMarginAmount: -12_000,
+                  costRows: [
+                    {
+                      id: 'lead:143536:leadgen-ready-to-meet',
+                      articleId: 'lead_purchase',
+                      label: 'Лид',
+                      amount: 40_000,
+                      basis: 'Созданная сделка источника/качества',
+                      sourceSystem: 'rule',
+                      confidence: 'inferred',
+                    },
+                    {
+                      id: 'contract:143536:contractation-per-won',
+                      articleId: 'contractation',
+                      label: 'Контрактация',
+                      amount: 5_000,
+                      basis: 'Выигранная сделка',
+                      sourceSystem: 'rule',
+                      confidence: 'inferred',
+                    },
+                  ],
+                  allocatedFixedCostRows: [
+                    {
+                      id: 'fixed-other:2026-04:78:other-fixed-expenses',
+                      articleId: 'other_fixed_expenses',
+                      label: 'Другие постоянные расходы',
+                      amount: 260_000,
+                      basis: 'Общемодульные расходы за 2026-04 / 1 выигранная сделка модуля',
+                      sourceSystem: 'rule',
+                      confidence: 'inferred',
+                    },
+                  ],
+                },
+                eventSummary: {
+                  callSummary: {
+                    total: 1,
+                    incoming: 0,
+                    outgoing: 1,
+                    successful: 1,
+                    failed: 0,
+                    overThirtySeconds: 1,
+                    connectedOverThirtySeconds: 1,
+                  },
+                  taskSummary: { created: 1, closed: 1 },
+                  meetingSummary: { total: 1 },
+                  conversionEventVisits: 1,
+                },
+                stageTimeline: [
+                  {
+                    stageId: 'C10:WON',
+                    stageName: 'Передано в клуб',
+                    enteredAt: '2026-04-10T09:00:00.000Z',
+                    leftAt: '2026-04-20T12:00:00.000Z',
+                    durationHours: 243,
+                    callSummary: {
+                      total: 1,
+                      incoming: 0,
+                      outgoing: 1,
+                      successful: 1,
+                      failed: 0,
+                      overThirtySeconds: 1,
+                      connectedOverThirtySeconds: 1,
+                    },
+                    taskSummary: { created: 1, closed: 1 },
+                    meetingEvents: [],
+                    events: [
+                      {
+                        id: 'call:CALL_1',
+                        kind: 'call',
+                        occurredAt: '2026-04-16T10:00:00.000Z',
+                        stageId: 'C10:WON',
+                        stageName: 'Передано в клуб',
+                        title: 'Звонок',
+                        detail: 'исходящий · 90с · >30с · успешный',
+                        badgeLabel: null,
+                        linkConfidence: 'high',
+                      },
+                      {
+                        id: 'task-created:TASK_1',
+                        kind: 'task_created',
+                        occurredAt: '2026-04-17T10:00:00.000Z',
+                        stageId: 'C10:WON',
+                        stageName: 'Передано в клуб',
+                        title: 'Дело создано',
+                        detail: null,
+                        badgeLabel: null,
+                        linkConfidence: 'high',
+                      },
+                      {
+                        id: 'task-completed:TASK_1',
+                        kind: 'task_completed',
+                        occurredAt: '2026-04-17T12:00:00.000Z',
+                        stageId: 'C10:WON',
+                        stageName: 'Передано в клуб',
+                        title: 'Дело закрыто',
+                        detail: null,
+                        badgeLabel: null,
+                        linkConfidence: 'high',
+                      },
+                      {
+                        id: 'conversion-event-visit:VISIT_1',
+                        kind: 'conversion_event_visit',
+                        occurredAt: '2026-04-18T12:00:00.000Z',
+                        stageId: 'C10:WON',
+                        stageName: 'Передано в клуб',
+                        title: 'Мероприятие: Гостевая встреча ClubFirst',
+                        detail: 'пришел',
+                        badgeLabel: 'Гостевая встреча ClubFirst · пришел',
+                        linkConfidence: 'high',
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      comparisons: [],
+    })
+
+    render(<ProtoApp />)
+
+    const salesSection = (await screen.findByRole('heading', { name: /продажи по менеджерам/i }))
+      .closest('section')
+    expect(salesSection).not.toBeNull()
+
+    expect(within(salesSection!).getByText('Прибыль')).toBeInTheDocument()
+    expect(within(salesSection!).getByText('-12 000')).toHaveClass('text-rose-700')
+
+    await userEvent.click(await within(salesSection!).findByRole('button', { name: /подробнее/i }))
+
+    expect(within(salesSection!).getByText('Маржинальная себестоимость')).toBeInTheDocument()
+    expect(within(salesSection!).getByText('Полная себестоимость')).toBeInTheDocument()
+    expect(within(salesSection!).getByText('Полный результат')).toBeInTheDocument()
+    const totalExpenseAmounts = within(salesSection!).getAllByText('-52 000')
+    expect(totalExpenseAmounts).toHaveLength(1)
+    for (const amount of totalExpenseAmounts) {
+      expect(amount).toHaveClass('text-rose-700')
+    }
+    expect(within(salesSection!).getByText('-312 000')).toHaveClass('text-rose-700')
+    for (const amount of within(salesSection!).getAllByText('-260 000')) {
+      expect(amount).toHaveClass('text-rose-700')
+    }
+    expect(within(salesSection!).getByText('-40 000')).toHaveClass('text-rose-700')
+    expect(within(salesSection!).getByText('-5 000')).toHaveClass('text-rose-700')
+    expect(within(salesSection!).getByText('Гостевая встреча ClubFirst · пришел')).toBeInTheDocument()
+    expect(within(salesSection!).getByText(/Звонки 1/i)).toBeInTheDocument()
+    expect(within(salesSection!).getByText(/Дела 1 \/ 1/i)).toBeInTheDocument()
+    expect(
+      within(salesSection!).queryByText(/Звонок · исходящий · 90с · >30с · успешный/i),
+    ).not.toBeInTheDocument()
+    expect(within(salesSection!).queryByText('Дело создано')).not.toBeInTheDocument()
+    expect(within(salesSection!).queryByText('Дело закрыто')).not.toBeInTheDocument()
+    expect(within(salesSection!).getByText('Лид')).toBeInTheDocument()
+    expect(within(salesSection!).queryByText(/Мероприятия недоступны/i)).not.toBeInTheDocument()
+  })
+
   it('shows monthly and quarterly plan completion in sales KPI cards', async () => {
     vi.mocked(apiClient.getDashboard)
       .mockResolvedValueOnce(createSalesDashboard(7))
@@ -5034,6 +5336,111 @@ describe('ProtoApp', () => {
                   meetingEvents: [],
                 },
               ],
+              lifecycleCard: {
+                dealId: 'D1',
+                managerId: '78',
+                managerName: 'Егоров Андрей',
+                status: 'won',
+                stageId: 'C10:WON',
+                stageName: 'Передано в клуб',
+                dateCreate: '2026-04-01T10:00:00.000Z',
+                dateClosed: '2026-04-04T10:00:00.000Z',
+                dateModify: '2026-04-04T10:00:00.000Z',
+                cycleDays: 3,
+                sourceKey: 'WEB',
+                sourceLabel: 'Сайт',
+                qualityValue: '2 Пришёл на мероприятие',
+                businessClubValue: 'ClubFirst One',
+                targetGroupValue: 'ClubFirst Russia',
+                meetingTypeValue: 'Мероприятие',
+                meetingDateValue: '2026-04-04T12:00:00.000Z',
+                tariffValue: 'Федеральный Москва',
+                economics: {
+                  revenueMode: 'actual',
+                  attractionRevenueAmount: 120000,
+                  membershipAmount: 120000,
+                  saleCostAmount: 15000,
+                  marginAmount: 105000,
+                  allocatedFixedCostAmount: 0,
+                  fullyLoadedCostAmount: 15000,
+                  fullyLoadedMarginAmount: 105000,
+                  costRows: [
+                    {
+                      id: 'event:VISIT_1:event-participant',
+                      articleId: 'event_participant',
+                      label: 'Мероприятие',
+                      amount: 15000,
+                      basis: 'Участие в гостевой встрече',
+                      sourceSystem: 'rule',
+                      confidence: 'inferred',
+                    },
+                  ],
+                  allocatedFixedCostRows: [],
+                },
+                eventSummary: {
+                  callSummary: {
+                    total: 2,
+                    incoming: 0,
+                    outgoing: 2,
+                    successful: 2,
+                    failed: 0,
+                    overThirtySeconds: 2,
+                    connectedOverThirtySeconds: 2,
+                  },
+                  taskSummary: { created: 1, closed: 1 },
+                  meetingSummary: { total: 1 },
+                  conversionEventVisits: 1,
+                },
+                sla: {
+                  sla1: { status: 'onTime', hours: 1 },
+                  sla2: { status: 'onTime', hours: 2 },
+                  sla3: { status: 'onTime', hours: 3 },
+                },
+                stageTimeline: [
+                  {
+                    stageId: 'C10:WON',
+                    stageName: 'Передано в клуб',
+                    enteredAt: '2026-04-04T10:00:00.000Z',
+                    leftAt: '2026-04-05T10:00:00.000Z',
+                    durationHours: 24,
+                    callSummary: {
+                      total: 2,
+                      incoming: 0,
+                      outgoing: 2,
+                      successful: 2,
+                      failed: 0,
+                      overThirtySeconds: 2,
+                      connectedOverThirtySeconds: 2,
+                    },
+                    taskSummary: { created: 1, closed: 1 },
+                    meetingEvents: [],
+                    events: [
+                      {
+                        id: 'call:MANAGER_ACTION_CALL_1',
+                        kind: 'call',
+                        occurredAt: '2026-04-04T11:00:00.000Z',
+                        stageId: 'C10:WON',
+                        stageName: 'Передано в клуб',
+                        title: 'Звонок',
+                        detail: 'исходящий · 120с · >30с · успешный',
+                        badgeLabel: null,
+                        linkConfidence: 'high',
+                      },
+                      {
+                        id: 'conversion-event-visit:MANAGER_ACTION_VISIT_1',
+                        kind: 'conversion_event_visit',
+                        occurredAt: '2026-04-04T12:00:00.000Z',
+                        stageId: 'C10:WON',
+                        stageName: 'Передано в клуб',
+                        title: 'Мероприятие: Гостевая встреча ClubFirst',
+                        detail: 'пришел',
+                        badgeLabel: 'Гостевая встреча ClubFirst · пришел',
+                        linkConfidence: 'high',
+                      },
+                    ],
+                  },
+                ],
+              },
             },
           ],
         },
@@ -5175,9 +5582,21 @@ describe('ProtoApp', () => {
 
     await userEvent.click(within(actionSection as HTMLElement).getByRole('button', { name: 'Подробнее' }))
     expect(within(actionSection as HTMLElement).getByText('Атрибуты сделки')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText('Маржинальная себестоимость')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText('Полная себестоимость')).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText('Полный результат')).toBeInTheDocument()
     expect(within(actionSection as HTMLElement).getByText('2 Пришёл на мероприятие')).toBeInTheDocument()
     expect(within(actionSection as HTMLElement).getByText('Передано в клуб')).toBeInTheDocument()
     expect(within(actionSection as HTMLElement).getByText(/Встреча 04 апр/i)).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText('Гостевая встреча ClubFirst · пришел')).toBeInTheDocument()
+    expect(
+      within(actionSection as HTMLElement).getByText(/Звонки 2 · 0 вход\. · 2 исход\. · 2 >30с/i),
+    ).toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).getByText(/Дела 1 \/ 1/i)).toBeInTheDocument()
+    expect(
+      within(actionSection as HTMLElement).queryByText(/Звонок · исходящий · 120с · >30с · успешный/i),
+    ).not.toBeInTheDocument()
+    expect(within(actionSection as HTMLElement).queryByText(/Мероприятия недоступны/i)).not.toBeInTheDocument()
   })
 
   it('keeps the manager filter prebuilt to the attraction team fallback list', async () => {

@@ -109,6 +109,237 @@ describe("buildDashboard", () => {
     );
   });
 
+  it("adds a lifecycle card with event timeline and sale costs to sales deal rows", () => {
+    const result = buildDashboard({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      leads: [],
+      deals: [
+        {
+          id: "LIFE_WON",
+          title: null,
+          contactId: null,
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 1_100_000,
+          assignedById: "78",
+          sourceId: "LEADGEN_US",
+          qualityValue: "Готов к встрече",
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: "ClubFirst Russia",
+          meetingTypeValue: "Очная",
+          meetingDateValue: "2026-04-18T12:00:00.000Z",
+          tariffValue: "Федеральный",
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-04-10T09:00:00.000Z",
+          dateModify: "2026-04-20T12:00:00.000Z",
+          dateClosed: "2026-04-20T12:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:BASE",
+          name: "База входящая",
+          semanticId: "P",
+          sortOrder: 10
+        },
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:WON",
+          name: "Передано в клуб",
+          semanticId: "S",
+          sortOrder: 20
+        },
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "LEADGEN_US",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [
+        {
+          id: "SH-LIFE-BASE",
+          ownerId: "LIFE_WON",
+          categoryId: "10",
+          stageId: "C10:BASE",
+          stageSemanticId: "P",
+          typeId: null,
+          createdTime: "2026-04-10T09:00:00.000Z"
+        },
+        {
+          id: "SH-LIFE-WON",
+          ownerId: "LIFE_WON",
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          typeId: null,
+          createdTime: "2026-04-20T12:00:00.000Z"
+        }
+      ],
+      activities: [],
+      calls: [],
+      managerDirectory: [{ id: "78", name: "Ромашова Ольга" }],
+      pricingRules: DEFAULT_PRICING_RULES,
+      dealTouchpointFacts: [
+        {
+          factId: "conversion-event-visit:VISIT_DASHBOARD",
+          kind: "conversion_event_visit",
+          sourceSystem: "bitrix24",
+          sourceEntityType: "dynamic",
+          sourceEntityId: "VISIT_DASHBOARD",
+          occurredAt: "2026-04-18T12:00:00.000Z",
+          dealId: "LIFE_WON",
+          contactId: null,
+          leadId: null,
+          managerId: "78",
+          sourceId: "LEADGEN_US",
+          stageIdAtEvent: "C10:BASE",
+          stageNameAtEvent: "База входящая",
+          linkConfidence: "high",
+          linkReason: "test",
+          payloadJson: JSON.stringify({
+            eventId: "EVENT_GUEST",
+            eventName: "Гостевая встреча ClubFirst",
+            status: "attended"
+          })
+        }
+      ],
+      eventVisitFacts: [
+        {
+          visitId: "VISIT_DASHBOARD",
+          eventId: "EVENT_GUEST",
+          dealId: "LIFE_WON",
+          contactId: null,
+          leadId: null,
+          managerId: "78",
+          sourceId: "LEADGEN_US",
+          currentStageId: "ATTENDED",
+          currentStageName: "Посетил",
+          invitedAt: "2026-04-17T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: "2026-04-18T12:00:00.000Z",
+          refusedAt: null,
+          finalStatus: "attended",
+          eventDate: "2026-04-18T12:00:00.000Z",
+          stageIdAtEvent: "C10:BASE",
+          linkConfidence: "high",
+          linkReason: "test",
+          payloadJson: JSON.stringify({ eventName: "Гостевая встреча ClubFirst" })
+        }
+      ],
+      events: [
+        {
+          eventId: "EVENT_GUEST",
+          entityTypeId: 1036,
+          categoryId: null,
+          title: "Гостевая встреча ClubFirst",
+          eventDate: "2026-04-18T12:00:00.000Z",
+          startAt: null,
+          endAt: null,
+          stageId: "SUCCESS",
+          stageName: "Проведено",
+          status: "completed",
+          eventTypeId: null,
+          eventTypeLabel: null,
+          formatId: null,
+          createdTime: "2026-04-01T00:00:00.000Z",
+          updatedTime: "2026-04-18T12:00:00.000Z"
+        }
+      ],
+      costRules: [
+        {
+          id: "leadgen-ready",
+          articleId: "lead_purchase",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_lead",
+          unitPrice: 40_000,
+          percent: null,
+          amount: null,
+          sourceKey: "LEADGEN_US",
+          qualityValue: "Готов к встрече",
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 10
+        },
+        {
+          id: "contractation",
+          articleId: "contractation",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_contract",
+          unitPrice: 5_000,
+          percent: null,
+          amount: null,
+          sourceKey: null,
+          qualityValue: null,
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 20
+        },
+        {
+          id: "guest-event",
+          articleId: "demo_events",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_participant",
+          unitPrice: 7_000,
+          percent: null,
+          amount: null,
+          sourceKey: null,
+          qualityValue: null,
+          eventNamePattern: "Гостевая встреча",
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 30
+        }
+      ],
+      costFacts: [],
+      eventParticipantMode: "attended"
+    });
+
+    const lifecycleCard = result.managerGroups[0]?.deals[0]?.lifecycleCard;
+
+    expect(lifecycleCard).toMatchObject({
+      dealId: "LIFE_WON",
+      status: "won",
+      managerName: "Ромашова Ольга",
+      economics: {
+        revenueMode: "actual",
+        attractionRevenueAmount: 300_000,
+        membershipAmount: 1_100_000,
+        saleCostAmount: 52_000,
+        marginAmount: 248_000
+      }
+    });
+    expect(lifecycleCard?.stageTimeline[0]?.events).toEqual([
+      expect.objectContaining({
+        id: "conversion-event-visit:VISIT_DASHBOARD",
+        badgeLabel: "Гостевая встреча ClubFirst · пришел"
+      })
+    ]);
+  });
+
   it("uses the won-stage entry time as the sale date instead of dateModify fallback", () => {
     const deal = {
       id: "124972",

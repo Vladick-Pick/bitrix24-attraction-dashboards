@@ -1494,6 +1494,197 @@ describe("createReportingService", () => {
     expect(dashboard.managerGroups.map((group) => group.managerId)).not.toContain("78");
   });
 
+  it("passes canonical facts and unit-economics rules into dashboard lifecycle cards", async () => {
+    const repository = {
+      getAllDeals: async () => [
+        {
+          id: "LIFE_SERVICE",
+          title: null,
+          contactId: null,
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WON",
+          stageSemanticId: "S",
+          opportunity: 1_100_000,
+          assignedById: "78",
+          sourceId: "LEADGEN_US",
+          qualityValue: "Готов к встрече",
+          businessClubValue: "ClubFirst One",
+          targetGroupValue: "ClubFirst Russia",
+          meetingTypeValue: "Очная",
+          meetingDateValue: "2026-04-18T12:00:00.000Z",
+          tariffValue: "Федеральный",
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-04-10T09:00:00.000Z",
+          dateModify: "2026-04-20T12:00:00.000Z",
+          dateClosed: "2026-04-20T12:00:00.000Z",
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      getStageCatalog: async () => [
+        {
+          entityType: "deal" as const,
+          categoryId: "10",
+          statusId: "C10:WON",
+          name: "Передано в клуб",
+          semanticId: "S",
+          sortOrder: 20
+        },
+        {
+          entityType: "source" as const,
+          categoryId: null,
+          statusId: "LEADGEN_US",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 10
+        }
+      ],
+      getWonStageIds: async () => ["C10:WON"],
+      getAllStageHistory: async () => [],
+      getAllDealStageFacts: async () => [],
+      getAllActivities: async () => [],
+      getAllActivityDeadlineChanges: async () => [],
+      getAllCalls: async () => [],
+      getAllDealTouchpointFacts: async () => [
+        {
+          factId: "conversion-event-visit:VISIT_SERVICE",
+          kind: "conversion_event_visit" as const,
+          sourceSystem: "bitrix24",
+          sourceEntityType: "dynamic",
+          sourceEntityId: "VISIT_SERVICE",
+          occurredAt: "2026-04-18T12:00:00.000Z",
+          dealId: "LIFE_SERVICE",
+          contactId: null,
+          leadId: null,
+          managerId: "78",
+          sourceId: "LEADGEN_US",
+          stageIdAtEvent: "C10:WON",
+          stageNameAtEvent: "Передано в клуб",
+          linkConfidence: "high" as const,
+          linkReason: "test",
+          payloadJson: JSON.stringify({
+            eventName: "Гостевая встреча ClubFirst",
+            status: "attended"
+          })
+        }
+      ],
+      getAllEventVisitFacts: async () => [
+        {
+          visitId: "VISIT_SERVICE",
+          eventId: "EVENT_SERVICE",
+          dealId: "LIFE_SERVICE",
+          contactId: null,
+          leadId: null,
+          managerId: "78",
+          sourceId: "LEADGEN_US",
+          currentStageId: "ATTENDED",
+          currentStageName: "Посетил",
+          invitedAt: "2026-04-17T10:00:00.000Z",
+          confirmedAt: null,
+          attendedAt: "2026-04-18T12:00:00.000Z",
+          refusedAt: null,
+          finalStatus: "attended" as const,
+          eventDate: "2026-04-18T12:00:00.000Z",
+          stageIdAtEvent: "C10:WON",
+          linkConfidence: "high" as const,
+          linkReason: "test",
+          payloadJson: JSON.stringify({ eventName: "Гостевая встреча ClubFirst" })
+        }
+      ],
+      getAllEventSnapshots: async () => [],
+      getUnitEconomicsCostRules: async () => [
+        {
+          id: "leadgen-ready",
+          articleId: "lead_purchase",
+          pnlLevel: "variable_contribution" as const,
+          costBehavior: "variable" as const,
+          calculationMethod: "amount_per_lead" as const,
+          unitPrice: 40_000,
+          percent: null,
+          amount: null,
+          sourceKey: "LEADGEN_US",
+          qualityValue: "Готов к встрече",
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 10
+        },
+        {
+          id: "contractation",
+          articleId: "contractation",
+          pnlLevel: "variable_contribution" as const,
+          costBehavior: "variable" as const,
+          calculationMethod: "amount_per_contract" as const,
+          unitPrice: 5_000,
+          percent: null,
+          amount: null,
+          sourceKey: null,
+          qualityValue: null,
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 20
+        },
+        {
+          id: "guest-event",
+          articleId: "demo_events",
+          pnlLevel: "variable_contribution" as const,
+          costBehavior: "variable" as const,
+          calculationMethod: "amount_per_participant" as const,
+          unitPrice: 7_000,
+          percent: null,
+          amount: null,
+          sourceKey: null,
+          qualityValue: null,
+          eventNamePattern: "Гостевая встреча",
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 30
+        }
+      ],
+      getUnitEconomicsCostFacts: async () => [],
+      getUnitEconomicsEventParticipantMode: async () => "attended" as const,
+      getManagerDirectory: async () => [{ id: "78", name: "Ромашова Ольга" }],
+      upsertManagerDirectory: async () => 1,
+      getLastSyncSummary: async () => null,
+      setWonStageIds: async () => undefined
+    };
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: withReportingRepositoryDefaults(repository),
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-04-21T12:00:00.000Z")
+    });
+
+    const dashboard = await service.getDashboard({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      }
+    });
+
+    const lifecycleCard = dashboard.managerGroups[0]?.deals[0]?.lifecycleCard;
+
+    expect(lifecycleCard?.economics.saleCostAmount).toBe(52_000);
+    expect(lifecycleCard?.stageTimeline[0]?.events).toEqual([
+      expect.objectContaining({
+        id: "conversion-event-visit:VISIT_SERVICE",
+        badgeLabel: "Гостевая встреча ClubFirst · пришел"
+      })
+    ]);
+  });
+
   it("applies shared manager and source filters and exposes filter catalogs", async () => {
     const repository = {
       getAllDeals: async () => [

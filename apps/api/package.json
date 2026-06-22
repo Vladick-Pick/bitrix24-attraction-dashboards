@@ -9,6 +9,8 @@
     "test": "vitest run",
     "auth:users": "tsx src/tools/auth-users.ts",
     "auth:users:prod": "node --conditions=production dist/tools/auth-users.js",
+    "stand:seed": "tsx src/tools/stand-data.ts",
+    "stand:seed:prod": "node --conditions=production dist/tools/stand-data.js",
     "audit:attraction-scope": "tsx src/tools/audit-attraction-scope.ts",
     "lint": "eslint src test",
     "typecheck": "tsc -p tsconfig.json --noEmit"

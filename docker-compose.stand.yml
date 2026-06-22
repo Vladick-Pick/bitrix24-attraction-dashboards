@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.env.stand}
+    ports:
+      - "127.0.0.1:${STAND_API_PORT:-8788}:8787"
+    volumes:
+      - ${STAND_DATA_DIR:-/opt/bitrix24-reporting-stand/data}:/app/data
+    security_opt:
+      - no-new-privileges:true

@@ -21,12 +21,14 @@ import type {
   DealStageTimelineEntry,
   DealTaskSummary,
   DealTouchpointFactSnapshot,
+  EventSnapshot,
   EventVisitFactSnapshot,
   LostDealDetailRow,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeDealSla,
   ManagerActionOutcomeReport,
   ManagerActionOutcomeRow,
+  ManagerActionOutcomeStatus,
   ManagerActionOutcomeStatusRow,
   ManagerDirectoryEntry,
   ReportRange,
@@ -37,13 +39,17 @@ import type {
   StageProgressionMetric,
   StageWorkloadMetric,
   StageCallMetric,
-  TargetGroupConversionReport
+  TargetGroupConversionReport,
+  UnitEconomicsCostFact,
+  UnitEconomicsCostRule,
+  UnitEconomicsEventParticipantMode
 } from "@bitrix24-reporting/contracts";
 
 import {
   resolveDealEconomics,
   type DealEconomicsContext
 } from "./deal-economics.js";
+import { buildDealLifecycleCard } from "./deal-lifecycle-card.js";
 import {
   buildManagerDirectoryMap,
   buildSourceLabelMap,
@@ -124,6 +130,12 @@ interface ManagerActionOutcomeInput {
   calls: CallSnapshot[];
   managerDirectory?: ManagerDirectoryEntry[];
   pricingRules?: DealPricingRule[];
+  dealTouchpointFacts?: DealTouchpointFactSnapshot[];
+  eventVisitFacts?: EventVisitFactSnapshot[];
+  events?: EventSnapshot[];
+  costRules?: UnitEconomicsCostRule[];
+  costFacts?: UnitEconomicsCostFact[];
+  eventParticipantMode?: UnitEconomicsEventParticipantMode;
 }
 
 function isWithinRange(value: string | null, fromMs: number, toMs: number) {
@@ -2451,6 +2463,19 @@ function buildManagerActionDealDetail(input: {
   fallbackMeetingEvents: DealMeetingEvent[];
   sla: SlaAccumulatorSet;
   terminalAt: string;
+  statusKey: ManagerActionOutcomeStatus;
+  range: ReportRange;
+  stageCatalog: StageCatalogEntry[];
+  touchpointFacts: DealTouchpointFactSnapshot[];
+  eventVisitFacts: EventVisitFactSnapshot[];
+  events: EventSnapshot[];
+  pricingRules?: DealPricingRule[] | undefined;
+  costRules: UnitEconomicsCostRule[];
+  costFacts: UnitEconomicsCostFact[];
+  allocationDeals: DealSnapshot[];
+  allocationWonAtByDeal: ReadonlyMap<string, string | null | undefined>;
+  eventParticipantMode?: UnitEconomicsEventParticipantMode | undefined;
+  managerDirectory: ManagerDirectoryEntry[];
 }): ManagerActionOutcomeDealDetail {
   const source = resolveDealSource(input.deal, input.sourceLabels);
   const meetingEvents: DealMeetingEvent[] = [
@@ -2465,6 +2490,57 @@ function buildManagerActionDealDetail(input: {
   ].sort((left, right) => {
     const byTime = Date.parse(left.timelineAt) - Date.parse(right.timelineAt);
     return byTime !== 0 ? byTime : left.activityId.localeCompare(right.activityId);
+  });
+
+  const sla = {
+    sla1: toManagerActionDealSla(input.sla.sla1),
+    sla2: toManagerActionDealSla(input.sla.sla2),
+    sla3: toManagerActionDealSla(input.sla.sla3)
+  };
+  const taskSummary = {
+    created: input.taskCreatedCount,
+    closed: input.taskClosedCount
+  } satisfies DealTaskSummary;
+  const callSummary = {
+    ...buildManagerActionCallSummary(input.dealCalls),
+    connectedOverThirtySeconds: input.successfulDealCalls.length
+  };
+  const meetingSummary = {
+    total: meetingEvents.length
+  } satisfies DealMeetingSummary;
+  const stageTimeline = buildManagerActionStageTimeline({
+    deal: input.deal,
+    stageHistoryRows: input.stageHistoryRows,
+    stageLookup: input.stageLookup,
+    terminalAt: input.terminalAt,
+    meetingEvents,
+    warnings: input.warnings
+  });
+  const lifecycleCard = buildDealLifecycleCard({
+    range: input.range,
+    deal: input.deal,
+    status: input.statusKey,
+    stageCatalog: input.stageCatalog,
+    stageHistory: input.stageHistoryRows,
+    touchpointFacts: input.touchpointFacts,
+    eventVisitFacts: input.eventVisitFacts,
+    events: input.events,
+    pricingRules: input.pricingRules,
+    costRules: input.costRules,
+    costFacts: input.costFacts,
+    allocationDeals: input.allocationDeals,
+    allocationWonAtByDeal: input.allocationWonAtByDeal,
+    eventParticipantMode: input.eventParticipantMode,
+    managerDirectory: input.managerDirectory,
+    terminalAt: input.terminalAt,
+    sla,
+    fallbackEventSummary: {
+      callSummary,
+      taskSummary,
+      meetingSummary,
+      conversionEventVisits: 0
+    },
+    fallbackStageTimeline: stageTimeline
   });
 
   return {
@@ -2487,30 +2563,12 @@ function buildManagerActionDealDetail(input: {
     meetingTypeValue: input.deal.meetingTypeValue ?? null,
     meetingDateValue: input.deal.meetingDateValue ?? null,
     tariffValue: input.deal.tariffValue ?? null,
-    taskSummary: {
-      created: input.taskCreatedCount,
-      closed: input.taskClosedCount
-    } satisfies DealTaskSummary,
-    callSummary: {
-      ...buildManagerActionCallSummary(input.dealCalls),
-      connectedOverThirtySeconds: input.successfulDealCalls.length
-    },
-    meetingSummary: {
-      total: meetingEvents.length
-    } satisfies DealMeetingSummary,
-    sla: {
-      sla1: toManagerActionDealSla(input.sla.sla1),
-      sla2: toManagerActionDealSla(input.sla.sla2),
-      sla3: toManagerActionDealSla(input.sla.sla3)
-    },
-    stageTimeline: buildManagerActionStageTimeline({
-      deal: input.deal,
-      stageHistoryRows: input.stageHistoryRows,
-      stageLookup: input.stageLookup,
-      terminalAt: input.terminalAt,
-      meetingEvents,
-      warnings: input.warnings
-    })
+    taskSummary,
+    callSummary,
+    meetingSummary,
+    sla,
+    stageTimeline,
+    lifecycleCard
   };
 }
 
@@ -2553,6 +2611,15 @@ export function buildManagerActionOutcomeReport(
   const stageHistoryMap = buildStageHistoryMap(
     input.stageHistory.filter((row) => dealMap.has(row.ownerId))
   );
+  const allocationWonAtByDeal = new Map<string, string | null | undefined>();
+  for (const deal of deals) {
+    if (wonStageIds.has(deal.stageId) || deal.stageSemanticId === "S") {
+      allocationWonAtByDeal.set(
+        deal.id,
+        resolveWonAt(deal, stageHistoryMap, wonStageIds)
+      );
+    }
+  }
   const completedMeetingsByDeal = buildCompletedMeetingsByDeal(activities, dealMap);
   const callsByDeal = buildCallsByDeal(input.calls, activities, dealMap);
   const slaMetricsByManager = buildSlaMetricsByManager({
@@ -2823,7 +2890,20 @@ export function buildManagerActionOutcomeReport(
       dealMeetings,
       fallbackMeetingEvents,
       sla: dealSla,
-      terminalAt
+      terminalAt,
+      statusKey,
+      range: input.range,
+      stageCatalog: input.stageCatalog,
+      touchpointFacts: input.dealTouchpointFacts ?? [],
+      eventVisitFacts: input.eventVisitFacts ?? [],
+      events: input.events ?? [],
+      pricingRules,
+      costRules: input.costRules ?? [],
+      costFacts: input.costFacts ?? [],
+      allocationDeals: deals,
+      allocationWonAtByDeal,
+      eventParticipantMode: input.eventParticipantMode,
+      managerDirectory: input.managerDirectory ?? []
     });
 
     for (const monthScope of [null, cohortMonth]) {

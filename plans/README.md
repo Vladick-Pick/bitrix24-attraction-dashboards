@@ -19,6 +19,7 @@ architectural issue found in the deep review.
 | [004](./004-define-module-capability-manifest-and-agent-data-boundary.md) | Define module capability manifest and agent data boundary | P1 | M | 001, 002, 003 | DONE |
 | [005](./005-define-fork-owned-module-extension-seam.md) | Define fork-owned module extension seam | P1 | M | 001, 002, 003, 004 | DONE |
 | [006](./006-define-manager-call-attribution-policy.md) | Define manager call attribution policy for shared attraction roles | P1 | M | manager catalog includes 7538, 118 | DONE |
+| [007](./007-unify-deal-timeline-card.md) | Unify the deal timeline card with all events and sale cost economics | P1 | L | - | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale - finding fixed independently or approach
@@ -42,6 +43,12 @@ abandoned).
 - 006 is independent of the platform split plans, but depends on the active
   attraction manager catalog containing `7538` and `118`. It should land after
   the manager-addition branch or absorb that change explicitly.
+- 007 is independent of the platform split plans. It should be implemented on a
+  fresh `codex/unified-deal-timeline-card` branch and must keep the deal card
+  scoped to local API/SQLite data, safe attraction fields and the existing
+  dashboard design system. Execution completed on
+  `codex/unified-deal-timeline-card`; blocks A-E are done, including focused
+  suites, workspace checks, browser smoke and final CRG/code-review gate.
 
 ## Verification Baseline
 

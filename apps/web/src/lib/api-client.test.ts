@@ -74,6 +74,92 @@ describe('apiClient', () => {
                     durationHours: 24,
                   },
                 ],
+                lifecycleCard: {
+                  dealId: 'D-1',
+                  managerId: '78',
+                  managerName: 'Егоров Андрей',
+                  status: 'won',
+                  stageId: 'C10:WON',
+                  stageName: 'Передано в клуб',
+                  dateCreate: '2026-03-01T10:00:00.000Z',
+                  dateClosed: '2026-03-10T10:00:00.000Z',
+                  dateModify: '2026-03-10T10:00:00.000Z',
+                  cycleDays: 9,
+                  sourceKey: 'LEADGEN_US',
+                  sourceLabel: 'Лидген УС',
+                  economics: {
+                    revenueMode: 'actual',
+                    attractionRevenueAmount: 300000,
+                    membershipAmount: 700000,
+                    saleCostAmount: 47000,
+                    marginAmount: 253000,
+                    costRows: [
+                      {
+                        id: 'lead:D-1:leadgen-ready-to-meet',
+                        articleId: 'lead_purchase',
+                        label: 'Лид',
+                        amount: 40000,
+                        basis: 'Созданная сделка источника/качества',
+                        sourceSystem: 'rule',
+                        confidence: 'inferred',
+                      },
+                    ],
+                  },
+                  eventSummary: {
+                    callSummary: {
+                      total: 1,
+                      incoming: 0,
+                      outgoing: 1,
+                      successful: 1,
+                      failed: 0,
+                      overThirtySeconds: 1,
+                      connectedOverThirtySeconds: 1,
+                    },
+                    taskSummary: {
+                      created: 1,
+                      closed: 1,
+                    },
+                    meetingSummary: { total: 0 },
+                    conversionEventVisits: 1,
+                  },
+                  stageTimeline: [
+                    {
+                      stageId: 'C10:CALL',
+                      stageName: 'Звонок-знакомство',
+                      enteredAt: '2026-03-01T10:00:00.000Z',
+                      leftAt: '2026-03-02T10:00:00.000Z',
+                      durationHours: 24,
+                      callSummary: {
+                        total: 1,
+                        incoming: 0,
+                        outgoing: 1,
+                        successful: 1,
+                        failed: 0,
+                        overThirtySeconds: 1,
+                        connectedOverThirtySeconds: 1,
+                      },
+                      taskSummary: {
+                        created: 1,
+                        closed: 1,
+                      },
+                      meetingEvents: [],
+                      events: [
+                        {
+                          id: 'conversion-event-visit:VISIT_1',
+                          kind: 'conversion_event_visit',
+                          occurredAt: '2026-03-02T09:00:00.000Z',
+                          stageId: 'C10:CALL',
+                          stageName: 'Звонок-знакомство',
+                          title: 'Мероприятие: Гостевая встреча ClubFirst',
+                          detail: 'пришел',
+                          badgeLabel: 'Гостевая встреча ClubFirst · пришел',
+                          linkConfidence: 'high',
+                          payloadJson: '{"raw":"must not leak"}',
+                        },
+                      ],
+                    },
+                  ],
+                },
               },
             ],
           },
@@ -120,6 +206,36 @@ describe('apiClient', () => {
         closed: 0,
       },
     })
+    expect(dashboard.managerGroups[0]?.deals[0]?.lifecycleCard).toMatchObject({
+      dealId: 'D-1',
+      status: 'won',
+      economics: {
+        revenueMode: 'actual',
+        saleCostAmount: 47000,
+        marginAmount: 253000,
+          costRows: [
+            expect.objectContaining({
+              id: 'lead:D-1:leadgen-ready-to-meet',
+              articleId: 'lead_purchase',
+              amount: 40000,
+            }),
+        ],
+      },
+      stageTimeline: [
+        expect.objectContaining({
+          events: [
+            expect.objectContaining({
+              id: 'conversion-event-visit:VISIT_1',
+              badgeLabel: 'Гостевая встреча ClubFirst · пришел',
+            }),
+          ],
+        }),
+      ],
+    })
+    expect(
+      dashboard.managerGroups[0]?.deals[0]?.lifecycleCard?.stageTimeline[0]
+        ?.events[0],
+    ).not.toHaveProperty('payloadJson')
   })
 
   it('loads and saves sales plan rows by report range', async () => {

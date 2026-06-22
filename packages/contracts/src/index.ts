@@ -810,6 +810,62 @@ export interface DealMeetingEvent {
   completed: boolean;
 }
 
+export type DealLifecycleStatus = "won" | "lost" | "wip";
+
+export type DealTimelineEventKind =
+  | "call"
+  | "task_created"
+  | "task_completed"
+  | "meeting"
+  | "meeting_date_changed"
+  | "conversion_event_visit";
+
+export interface DealTimelineEvent {
+  id: string;
+  kind: DealTimelineEventKind;
+  occurredAt: string;
+  stageId: string | null;
+  stageName: string | null;
+  title: string;
+  detail: string | null;
+  badgeLabel: string | null;
+  linkConfidence: AnalyticsLinkConfidence;
+}
+
+export interface DealEventSummary {
+  callSummary: DealCallSummary;
+  taskSummary: DealTaskSummary;
+  meetingSummary: DealMeetingSummary;
+  conversionEventVisits: number;
+}
+
+export type DealSaleCostSourceSystem = "rule" | "fact";
+
+export interface DealSaleCostRow {
+  id: string;
+  articleId: string;
+  label: string;
+  amount: number;
+  basis: string;
+  sourceSystem: DealSaleCostSourceSystem;
+  confidence: UnitEconomicsCostConfidence;
+}
+
+export type DealSaleRevenueMode = "actual" | "planned" | "none";
+
+export interface DealSaleEconomics {
+  revenueMode: DealSaleRevenueMode;
+  attractionRevenueAmount: number | null;
+  membershipAmount: number;
+  saleCostAmount: number;
+  marginAmount: number | null;
+  allocatedFixedCostAmount: number;
+  fullyLoadedCostAmount: number;
+  fullyLoadedMarginAmount: number | null;
+  costRows: DealSaleCostRow[];
+  allocatedFixedCostRows: DealSaleCostRow[];
+}
+
 export interface DealStageTimelineEntry {
   stageId: string;
   stageName: string;
@@ -819,6 +875,40 @@ export interface DealStageTimelineEntry {
   callSummary: DealCallSummary;
   taskSummary: DealTaskSummary;
   meetingEvents?: DealMeetingEvent[];
+}
+
+export interface DealLifecycleStageTimelineEntry extends DealStageTimelineEntry {
+  events: DealTimelineEvent[];
+}
+
+export interface DealLifecycleCard {
+  dealId: string;
+  managerId: string;
+  managerName: string;
+  status: DealLifecycleStatus;
+  stageId: string;
+  stageName: string;
+  dateCreate: string;
+  dateClosed: string | null;
+  dateModify: string;
+  cycleDays: number | null;
+  sourceKey?: string;
+  sourceLabel?: string;
+  qualityValue?: string | null;
+  businessClubValue?: string | null;
+  targetGroupValue?: string | null;
+  meetingTypeValue?: string | null;
+  meetingDateValue?: string | null;
+  tariffValue?: string | null;
+  economics: DealSaleEconomics;
+  eventSummary: DealEventSummary;
+  stageTimeline: DealLifecycleStageTimelineEntry[];
+  cohortContext?: DealCohortContext;
+  sla?: {
+    sla1: ManagerActionOutcomeDealSla;
+    sla2: ManagerActionOutcomeDealSla;
+    sla3: ManagerActionOutcomeDealSla;
+  };
 }
 
 export interface SalesDealRow {
@@ -847,6 +937,7 @@ export interface SalesDealRow {
   taskSummary: DealTaskSummary;
   meetingSummary?: DealMeetingSummary;
   stageTimeline: DealStageTimelineEntry[];
+  lifecycleCard?: DealLifecycleCard;
 }
 
 export interface SalesManagerGroup {
@@ -990,6 +1081,12 @@ export interface DashboardInput {
   calls: CallSnapshot[];
   managerDirectory: ManagerDirectoryEntry[];
   pricingRules?: DealPricingRule[];
+  dealTouchpointFacts?: DealTouchpointFactSnapshot[];
+  eventVisitFacts?: EventVisitFactSnapshot[];
+  events?: EventSnapshot[];
+  costRules?: UnitEconomicsCostRule[];
+  costFacts?: UnitEconomicsCostFact[];
+  eventParticipantMode?: UnitEconomicsEventParticipantMode;
 }
 
 export interface StageProgressionMetric {
@@ -1437,6 +1534,7 @@ export interface ManagerActionOutcomeDealDetail {
     sla3: ManagerActionOutcomeDealSla;
   };
   stageTimeline: DealStageTimelineEntry[];
+  lifecycleCard?: DealLifecycleCard;
 }
 
 export interface ManagerActionOutcomeStatusRow {

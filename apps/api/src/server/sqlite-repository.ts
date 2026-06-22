@@ -39,6 +39,7 @@ import type {
 import { DEFAULT_PRICING_RULES } from "../domain/deal-economics.js";
 import {
   DEFAULT_UNIT_ECONOMICS_COST_ARTICLES,
+  DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM,
   DEFAULT_UNIT_ECONOMICS_COST_RULES
 } from "../domain/unit-economics.js";
 import { ATTRACTION_MANAGER_CATALOG } from "../domain/attraction-managers.js";
@@ -1522,6 +1523,37 @@ export function createSqliteRepository(
     }
   });
   ensureUnitEconomicsDefaultsTransaction();
+
+  const defaultUnitEconomicsArticleIds = DEFAULT_UNIT_ECONOMICS_COST_ARTICLES.map(
+    (article) => article.id
+  );
+  const defaultUnitEconomicsRuleIds = DEFAULT_UNIT_ECONOMICS_COST_RULES.map(
+    (rule) => rule.id
+  );
+  if (defaultUnitEconomicsArticleIds.length > 0) {
+    database
+      .prepare(
+        `
+        UPDATE unit_economics_cost_articles
+        SET effective_from = ?
+        WHERE effective_from = '2026-01-01'
+          AND id IN (${defaultUnitEconomicsArticleIds.map(() => "?").join(", ")})
+      `
+      )
+      .run(DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM, ...defaultUnitEconomicsArticleIds);
+  }
+  if (defaultUnitEconomicsRuleIds.length > 0) {
+    database
+      .prepare(
+        `
+        UPDATE unit_economics_cost_rules
+        SET effective_from = ?
+        WHERE effective_from = '2026-01-01'
+          AND id IN (${defaultUnitEconomicsRuleIds.map(() => "?").join(", ")})
+      `
+      )
+      .run(DEFAULT_UNIT_ECONOMICS_EFFECTIVE_FROM, ...defaultUnitEconomicsRuleIds);
+  }
 
   database
     .prepare(

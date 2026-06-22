@@ -2005,7 +2005,10 @@ export function createReportingService(
         stageHistory,
         activities,
         calls,
-        pricingRules
+        pricingRules,
+        events,
+        costRules,
+        eventParticipantMode
       ] =
         await Promise.all([
           input.repository.getAllDeals(),
@@ -2014,12 +2017,17 @@ export function createReportingService(
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
           input.repository.getAllCalls(),
-          getPricingRules()
+          getPricingRules(),
+          input.repository.getAllEventSnapshots(),
+          input.repository.getUnitEconomicsCostRules(),
+          getUnitEconomicsEventParticipantMode()
         ]);
       const canonical = await loadCanonicalReportInputs({
         stageHistory,
         activities,
         calls
+      }, {
+        includeEventVisitFacts: true
       });
       const reportStageHistory = canonical.stageHistory;
       const reportActivities = canonical.activities ?? activities;
@@ -2028,6 +2036,12 @@ export function createReportingService(
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
       const scopedStageHistory = reportStageHistory.filter((row) =>
         scopedDealIds.has(row.ownerId)
+      );
+      const scopedTouchpointFacts = canonical.dealTouchpointFacts.filter(
+        (fact) => fact.dealId !== null && scopedDealIds.has(fact.dealId)
+      );
+      const scopedEventVisitFacts = canonical.eventVisitFacts.filter(
+        (fact) => fact.dealId !== null && scopedDealIds.has(fact.dealId)
       );
       const scopedActivities = reportActivities.filter(
         (activity) =>
@@ -2063,7 +2077,13 @@ export function createReportingService(
           activities: scopedActivities,
           calls: scopedCalls,
           managerDirectory,
-          pricingRules
+          pricingRules,
+          dealTouchpointFacts: scopedTouchpointFacts,
+          eventVisitFacts: scopedEventVisitFacts,
+          events,
+          costRules,
+          costFacts: [],
+          eventParticipantMode
         });
       const resolvedRange = resolveRange(
         periodDays,
@@ -2378,25 +2398,45 @@ export function createReportingService(
 
     async getManagerActionOutcomeReport({ filters }) {
       const scopedFilters = await normalizeAttractionReportFilters(filters);
-      const [deals, stageCatalog, stageHistory, activities, calls, wonStageIds] =
-        await Promise.all([
+      const [
+        deals,
+        stageCatalog,
+        stageHistory,
+        activities,
+        calls,
+        wonStageIds,
+        events,
+        costRules,
+        eventParticipantMode
+      ] = await Promise.all([
           input.repository.getAllDeals(),
           getScopedStageCatalog(true),
           input.repository.getAllStageHistory(),
           input.repository.getAllActivities(),
           input.repository.getAllCalls(),
-          input.repository.getWonStageIds()
+          input.repository.getWonStageIds(),
+          input.repository.getAllEventSnapshots(),
+          input.repository.getUnitEconomicsCostRules(),
+          getUnitEconomicsEventParticipantMode()
         ]);
       const canonical = await loadCanonicalReportInputs({
         stageHistory,
         activities,
         calls
+      }, {
+        includeEventVisitFacts: true
       });
       const reportStageHistory = canonical.stageHistory;
       const reportActivities = canonical.activities ?? activities;
       const reportCalls = canonical.calls ?? calls;
       const scopedDeals = filterDealsByFilters(deals, stageCatalog, scopedFilters);
       const scopedDealIds = new Set(scopedDeals.map((deal) => deal.id));
+      const scopedTouchpointFacts = canonical.dealTouchpointFacts.filter(
+        (fact) => fact.dealId !== null && scopedDealIds.has(fact.dealId)
+      );
+      const scopedEventVisitFacts = canonical.eventVisitFacts.filter(
+        (fact) => fact.dealId !== null && scopedDealIds.has(fact.dealId)
+      );
       const managerIds = new Set(scopedFilters.managerIds ?? []);
       const dealScopedActivities = reportActivities.filter((activity) =>
         scopedDealIds.has(activity.ownerId)
@@ -2456,7 +2496,13 @@ export function createReportingService(
           activities: dealScopedActivities,
           calls: dealScopedCalls,
           managerDirectory,
-          pricingRules
+          pricingRules,
+          dealTouchpointFacts: scopedTouchpointFacts,
+          eventVisitFacts: scopedEventVisitFacts,
+          events,
+          costRules,
+          costFacts: [],
+          eventParticipantMode
         });
       const reportRange = resolveLatestTwelveMonthCohortRange(nowFactory());
       const warnings = await buildManagerActionOutcomeWarnings({

@@ -243,7 +243,8 @@ describe("createSqliteRepository", () => {
           id: "contractation",
           name: "Контрактация",
           pnlLevel: "variable_contribution",
-          calculationMethod: "amount_per_contract"
+          calculationMethod: "amount_per_contract",
+          effectiveFrom: "2025-07-01"
         }),
         expect.objectContaining({
           id: "demo_events",
@@ -266,6 +267,7 @@ describe("createSqliteRepository", () => {
           pnlLevel: "variable_contribution",
           unitPrice: 20_000,
           qualityValue: "Готов к встрече",
+          effectiveFrom: "2025-07-01",
           enabled: true
         }),
         expect.objectContaining({

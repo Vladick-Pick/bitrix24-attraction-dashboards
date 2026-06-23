@@ -141,14 +141,21 @@ const MANAGERS: ManagerDirectoryEntry[] = [
   { id: "78", name: "Анна Петрова" },
   { id: "13020", name: "Михаил Соколов" },
   { id: "11234", name: "Екатерина Волкова" },
-  { id: "8244", name: "Илья Морозов" }
+  { id: "8244", name: "Илья Морозов" },
+  { id: "9350", name: "Ольга Кузнецова" },
+  { id: "10442", name: "Дмитрий Орлов" },
+  { id: "11806", name: "Марина Лебедева" },
+  { id: "12140", name: "Сергей Ковалев" }
 ];
 
 const SOURCE_IDS = ["ADS", "EVENT", "PARTNER", "CALL"] as const;
 const QUALITIES = ["Целевой", "Теплый", "Повторный"] as const;
 const CLUBS = ["Клуб 500", "Клуб 1000", "Клуб 2500"] as const;
-const TARIFFS = ["Старт", "Бизнес", "Премиум"] as const;
-const TARGET_GROUPS = ["Собственники", "Руководители", "Партнеры"] as const;
+const TARGET_GROUPS = [
+  "ClubFirst Russia / One",
+  "ClubFirst GlobAll",
+  "ClubFirst Future"
+] as const;
 const MEETING_TYPES = ["Онлайн", "Офис", "Выездная"] as const;
 const REFUSAL_REASONS = [
   "Неактуально сейчас",
@@ -177,16 +184,13 @@ function monthStart(input: Date, monthsBack: number) {
   return new Date(Date.UTC(input.getUTCFullYear(), input.getUTCMonth() - monthsBack, 1, 9));
 }
 
-function monthEnd(month: Date) {
-  return new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 0, 23, 59, 59));
-}
-
 function select<T>(items: readonly T[], index: number) {
   return items[index % items.length] as T;
 }
 
 function resolveFinalState(index: number) {
-  if (index % 10 < 4) {
+  const bucket = index % 12;
+  if (bucket < 6) {
     return {
       stageId: WON_STAGE_ID,
       semanticId: "S" as const,
@@ -195,7 +199,7 @@ function resolveFinalState(index: number) {
     };
   }
 
-  if (index % 10 < 7) {
+  if (bucket < 9) {
     return {
       stageId: "C10:LOSE",
       semanticId: "F" as const,
@@ -210,6 +214,18 @@ function resolveFinalState(index: number) {
     closed: false,
     won: false
   };
+}
+
+function resolveTariff(targetGroup: string, index: number) {
+  if (targetGroup === "ClubFirst GlobAll") {
+    return "Цифровой / GlobAll";
+  }
+
+  if (targetGroup === "ClubFirst Future") {
+    return index % 2 === 0 ? "CFF / Федеральный" : "Федеральный";
+  }
+
+  return index % 2 === 0 ? "Федеральный" : "Региональный";
 }
 
 function buildRows(input: Required<Omit<SeedStandDataInput, "repository">>) {
@@ -252,7 +268,11 @@ function buildRows(input: Required<Omit<SeedStandDataInput, "repository">>) {
       const manager = select(MANAGERS, globalIndex);
       const sourceId = select(SOURCE_IDS, globalIndex);
       const finalState = resolveFinalState(globalIndex);
-      const createdAt = addDays(baseMonth, 2 + monthDealIndex * 2);
+      const createdDayOffset = 1 + Math.floor((monthDealIndex * 24) / input.dealsPerMonth);
+      const createdAt = addMinutes(
+        addDays(baseMonth, createdDayOffset),
+        (monthDealIndex % 6) * 95
+      );
       const closedAt = finalState.closed
         ? addDays(createdAt, 8 + (globalIndex % 12))
         : null;
@@ -260,13 +280,14 @@ function buildRows(input: Required<Omit<SeedStandDataInput, "repository">>) {
       const dealId = String(810000 + globalIndex + 1);
       const contactId = String(510000 + globalIndex + 1);
       const leadId = String(610000 + globalIndex + 1);
-      const tariff = select(TARIFFS, globalIndex);
       const club = select(CLUBS, globalIndex);
+      const targetGroup = select(TARGET_GROUPS, globalIndex);
+      const tariff = resolveTariff(targetGroup, globalIndex);
       const opportunity = finalState.won
-        ? 180_000 + (globalIndex % 7) * 45_000
+        ? 650_000 + (globalIndex % 9) * 85_000
         : finalState.closed
           ? 0
-          : 120_000 + (globalIndex % 5) * 35_000;
+          : 420_000 + (globalIndex % 6) * 60_000;
 
       deals.push({
         id: dealId,
@@ -281,7 +302,7 @@ function buildRows(input: Required<Omit<SeedStandDataInput, "repository">>) {
         sourceId,
         qualityValue: select(QUALITIES, globalIndex),
         businessClubValue: club,
-        targetGroupValue: select(TARGET_GROUPS, globalIndex),
+        targetGroupValue: targetGroup,
         meetingTypeValue: select(MEETING_TYPES, globalIndex),
         meetingDateValue: iso(addDays(createdAt, 5)),
         tariffValue: tariff,
@@ -383,11 +404,14 @@ function buildRows(input: Required<Omit<SeedStandDataInput, "repository">>) {
         ownerId: dealId
       });
 
-      const callsPerDeal = globalIndex % 3 === 0 ? 3 : 2;
+      const callsPerDeal = 10 + (globalIndex % 4);
       for (let callIndex = 0; callIndex < callsPerDeal; callIndex += 1) {
         const callActivityId = String(740000 + activityCounter + 1);
         activityCounter += 1;
-        const callAt = addMinutes(addDays(createdAt, 1 + callIndex * 2), 45);
+        const callAt = addMinutes(
+          addDays(createdAt, 1 + Math.floor(callIndex / 2)),
+          45 + (callIndex % 2) * 180
+        );
         activities.push({
           id: callActivityId,
           ownerTypeId: "2",
@@ -415,14 +439,19 @@ function buildRows(input: Required<Omit<SeedStandDataInput, "repository">>) {
           callDurationSeconds: 65 + ((globalIndex + callIndex) % 8) * 35,
           crmEntityType: "DEAL",
           crmEntityId: dealId,
-          callFailedCode: null
+          callFailedCode: callIndex % 11 === 10 ? "304" : null
         });
         callCounter += 1;
       }
 
-      if (globalIndex % 2 === 0) {
+      {
         const visitId = String(860000 + globalIndex + 1);
-        const status = globalIndex % 6 === 0 ? "attended" : globalIndex % 4 === 0 ? "confirmed" : "invited";
+        const status =
+          globalIndex % 3 === 0
+            ? "attended"
+            : globalIndex % 3 === 1
+              ? "confirmed"
+              : "invited";
         visits.push({
           id: visitId,
           eventId,
@@ -493,9 +522,15 @@ function buildRows(input: Required<Omit<SeedStandDataInput, "repository">>) {
 function monthPeriods(now: Date, months: number) {
   return Array.from({ length: months }, (_value, index) => {
     const month = monthStart(now, months - index - 1);
+    const year = month.getUTCFullYear();
+    const monthNumber = month.getUTCMonth() + 1;
+    const monthPart = String(monthNumber).padStart(2, "0");
+    const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    const lastDayPart = String(lastDay).padStart(2, "0");
+
     return {
-      periodStart: iso(month),
-      periodEnd: iso(monthEnd(month))
+      periodStart: `${year}-${monthPart}-01T00:00:00.000+03:00`,
+      periodEnd: `${year}-${monthPart}-${lastDayPart}T23:59:59.999+03:00`
     };
   });
 }
@@ -512,8 +547,8 @@ function buildSalesPlan(now: Date, months: number) {
           managerName: manager.name,
           targetGroupKey: targetGroup,
           targetGroupLabel: targetGroup,
-          plannedDeals: 4 + ((managerIndex + targetIndex) % 3),
-          plannedAmount: 650_000 + (managerIndex * 80_000) + targetIndex * 45_000
+          plannedDeals: 2 + ((managerIndex + targetIndex) % 2),
+          plannedAmount: 1_250_000 + managerIndex * 95_000 + targetIndex * 140_000
         }))
       )
     }))
@@ -521,17 +556,44 @@ function buildSalesPlan(now: Date, months: number) {
 }
 
 function buildPricingRules(updatedAt: string) {
-  return TARIFFS.flatMap((tariff, tariffIndex) =>
-    TARGET_GROUPS.map((targetGroup, targetIndex) => ({
-      id: `pricing-${tariffIndex + 1}-${targetIndex + 1}`,
-      customerLabel: targetGroup,
-      tariffLabel: tariff,
-      attractionRevenueAmount: 90_000 + tariffIndex * 45_000 + targetIndex * 30_000,
+  return [
+    {
+      id: "clubfirst-federal",
+      customerLabel: "ClubFirst Russia / One",
+      tariffLabel: "Федеральный",
+      attractionRevenueAmount: 620_000,
       enabled: true,
-      sortOrder: tariffIndex * 100 + targetIndex * 10,
+      sortOrder: 10,
       updatedAt
-    }))
-  );
+    },
+    {
+      id: "clubfirst-regional",
+      customerLabel: "ClubFirst Russia / One",
+      tariffLabel: "Региональный",
+      attractionRevenueAmount: 480_000,
+      enabled: true,
+      sortOrder: 20,
+      updatedAt
+    },
+    {
+      id: "clubfirst-globall",
+      customerLabel: "ClubFirst GlobAll",
+      tariffLabel: "Цифровой / GlobAll",
+      attractionRevenueAmount: 430_000,
+      enabled: true,
+      sortOrder: 30,
+      updatedAt
+    },
+    {
+      id: "clubfirst-future",
+      customerLabel: "ClubFirst Future",
+      tariffLabel: "CFF / Федеральный",
+      attractionRevenueAmount: 560_000,
+      enabled: true,
+      sortOrder: 40,
+      updatedAt
+    }
+  ];
 }
 
 function buildCostRules(): UnitEconomicsCostRule[] {
@@ -542,7 +604,7 @@ function buildCostRules(): UnitEconomicsCostRule[] {
       pnlLevel: "variable_contribution",
       costBehavior: "variable",
       calculationMethod: "amount_per_lead",
-      unitPrice: 3200,
+      unitPrice: 1200,
       percent: null,
       amount: null,
       sourceKey: "ADS",
@@ -559,7 +621,7 @@ function buildCostRules(): UnitEconomicsCostRule[] {
       pnlLevel: "variable_contribution",
       costBehavior: "variable",
       calculationMethod: "amount_per_contract",
-      unitPrice: 8500,
+      unitPrice: 6500,
       percent: null,
       amount: null,
       sourceKey: null,
@@ -577,7 +639,7 @@ function buildCostRules(): UnitEconomicsCostRule[] {
       costBehavior: "variable",
       calculationMethod: "percent_of_club_membership",
       unitPrice: null,
-      percent: 0.04,
+      percent: 0.015,
       amount: null,
       sourceKey: null,
       qualityValue: null,
@@ -593,7 +655,7 @@ function buildCostRules(): UnitEconomicsCostRule[] {
       pnlLevel: "variable_contribution",
       costBehavior: "variable",
       calculationMethod: "amount_per_participant",
-      unitPrice: 1800,
+      unitPrice: 650,
       percent: null,
       amount: null,
       sourceKey: null,
@@ -617,7 +679,7 @@ function buildCostFacts(now: Date, months: number): UnitEconomicsCostFact[] {
       calculationMethod: "manual_amount",
       periodStart: period.periodStart,
       periodEnd: period.periodEnd,
-      amount: 180_000,
+      amount: 65_000,
       currency: "RUB",
       quantity: null,
       sourceSystem: "finance_upload",
@@ -634,7 +696,7 @@ function buildCostFacts(now: Date, months: number): UnitEconomicsCostFact[] {
       calculationMethod: "imported_fact",
       periodStart: period.periodStart,
       periodEnd: period.periodEnd,
-      amount: 75_000,
+      amount: 35_000,
       currency: "RUB",
       quantity: 1,
       sourceSystem: "finance_upload",
@@ -647,7 +709,7 @@ function buildCostFacts(now: Date, months: number): UnitEconomicsCostFact[] {
 }
 
 async function seedCallAnalysis(repository: SqliteRepository, calls: CallSnapshot[], now: Date) {
-  const selectedCalls = calls.filter((_call, index) => index % 7 === 0).slice(0, 18);
+  const selectedCalls = calls;
   for (const [index, call] of selectedCalls.entries()) {
     const runId = `analysis-${randomUUID()}`;
     await repository.startCallAnalysisRun({
@@ -797,8 +859,8 @@ async function seedCoverage(repository: SqliteRepository, now: Date, dealsSynced
 
 export async function seedStandData(input: SeedStandDataInput) {
   const now = input.now ?? new Date();
-  const months = input.months ?? 6;
-  const dealsPerMonth = input.dealsPerMonth ?? 12;
+  const months = input.months ?? 8;
+  const dealsPerMonth = input.dealsPerMonth ?? 32;
   const built = buildRows({ now, months, dealsPerMonth });
 
   await input.repository.replaceStageCatalog(STAGES);

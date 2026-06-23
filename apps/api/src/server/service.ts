@@ -283,6 +283,7 @@ export interface ReportingService {
     callId: string,
     managerIds: string[]
   ): Promise<boolean>;
+  getCallAnalysisResult(callId: string): Promise<unknown | null>;
   getMeta(input?: { filters?: ReportFilters }): Promise<{
     stageCatalog: StageCatalogEntry[];
     managerCatalog: ManagerDirectoryEntry[];
@@ -2773,6 +2774,10 @@ export function createReportingService(
         totals: buildQueueTotals(items),
         items
       };
+    },
+
+    async getCallAnalysisResult(callId) {
+      return input.repository.getCallAnalysisResult(callId);
     },
 
     async isCallInAttractionManagerScope(callId, managerIds) {

@@ -33,6 +33,7 @@ export interface AttractionCallRouteService {
   getCallAnalysisQueue(
     input: CallAnalysisQueueRequest
   ): Promise<CallAnalysisQueueResponse>;
+  getCallAnalysisResult?(callId: string): Promise<unknown | null>;
 }
 
 export interface CallAnalysisRunner {
@@ -169,7 +170,10 @@ export function createAttractionCallRouteHandlers({
         return;
       }
 
-      if (!callAnalysis?.getCallAnalysisResult) {
+      const getCallAnalysisResult =
+        callAnalysis?.getCallAnalysisResult ?? service.getCallAnalysisResult;
+
+      if (!getCallAnalysisResult) {
         response.status(503).json(createErrorResponse("CALL_ANALYSIS_NOT_CONFIGURED"));
         return;
       }
@@ -184,7 +188,7 @@ export function createAttractionCallRouteHandlers({
         ) {
           return;
         }
-        const result = await callAnalysis.getCallAnalysisResult(callId);
+        const result = await getCallAnalysisResult(callId);
         if (!result) {
           response.status(404).json(createErrorResponse("CALL_ANALYSIS_NOT_FOUND"));
           return;

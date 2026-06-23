@@ -175,6 +175,7 @@ interface AppService {
   ): Promise<ManagerActionOutcomeReport>;
   getCallsWorkloadReport(input: RangeRequest): Promise<CallsWorkloadReport>;
   getCallAnalysisQueue(input: CallAnalysisQueueRequest): Promise<CallAnalysisQueueResponse>;
+  getCallAnalysisResult?(callId: string): Promise<unknown | null>;
   getConversionEventsReport(input: RangeRequest): Promise<ConversionEventsReport>;
   getCohortConversionReport(input: RangeRequest): Promise<CohortConversionReport>;
   getTocFlowReport(input: RangeRequest): Promise<TocFlowReport>;

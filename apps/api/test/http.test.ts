@@ -1483,6 +1483,60 @@ describe("createApp", () => {
     expect(getCallAnalysisResult).toHaveBeenCalledWith("CALL1");
   });
 
+  it("returns a saved analysis from the reporting service when the runner is not configured", async () => {
+    const getCallAnalysisResult = vi.fn().mockResolvedValue({
+      callId: "CALL1",
+      runId: "run-1",
+      status: "ready",
+      transcriptByRoles: [
+        {
+          role: "manager",
+          start: 0,
+          end: 2,
+          text: "Добрый день."
+        }
+      ],
+      fullTranscriptText: "Менеджер: Добрый день.",
+      aiEvaluation: {
+        score: 82
+      },
+      rawAiEvaluation: {
+        score: 82
+      },
+      attributes: {
+        dealId: "23841"
+      },
+      model: "quality-review-v2",
+      promptVersion: "calls-v2",
+      analyzedAt: "2026-06-09T12:00:30.000Z",
+      updatedAt: "2026-06-09T12:00:31.000Z"
+    });
+    const serviceOverrides = {
+      getCallAnalysisResult
+    } as Partial<Parameters<typeof createApp>[0]>;
+    const app = createTestApp(serviceOverrides);
+
+    await request(app)
+      .get("/api/modules/attraction/calls/CALL1/analysis")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          status: "ready",
+          result: {
+            callId: "CALL1",
+            aiEvaluation: {
+              score: 82
+            },
+            rawAiEvaluation: {
+              score: 82
+            }
+          }
+        });
+      });
+
+    expect(getCallAnalysisResult).toHaveBeenCalledWith("CALL1");
+  });
+
   it("returns the attraction sync journal without exposing a leadgen sync journal", async () => {
     const attractionRun = {
       id: 41,

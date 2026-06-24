@@ -1677,12 +1677,19 @@ describe("createReportingService", () => {
     const lifecycleCard = dashboard.managerGroups[0]?.deals[0]?.lifecycleCard;
 
     expect(lifecycleCard?.economics.saleCostAmount).toBe(52_000);
-    expect(lifecycleCard?.stageTimeline[0]?.events).toEqual([
+    expect(lifecycleCard?.stageTimeline[0]?.events).toEqual(
+      expect.arrayContaining([
       expect.objectContaining({
         id: "conversion-event-visit:VISIT_SERVICE",
         badgeLabel: "Гостевая встреча ClubFirst · пришел"
+      }),
+      expect.objectContaining({
+        id: "deal-field:LIFE_SERVICE:meeting-date",
+        title: "Встреча",
+        detail: "Очная · запланирована"
       })
-    ]);
+      ])
+    );
   });
 
   it("applies shared manager and source filters and exposes filter catalogs", async () => {
@@ -3540,13 +3547,18 @@ describe("createReportingService", () => {
     expect(dealRequests).toEqual([
       expect.objectContaining({
         categoryIds: ["10"],
-        customFieldNames: [
+        customFieldNames: expect.arrayContaining([
           "UF_CRM_1730380390",
+          "UF_CRM_1669784197394",
+          "UF_CRM_DEAL_MEET2_KIND",
+          "UF_CRM_MEET2_DT",
+          "UF_CRM_DEAL_MEET3_KIND",
+          "UF_CRM_MEET3_DT",
           "UF_CRM_1647422744",
           "UF_CRM_1647422890",
           "UF_CRM_1776949411825",
           "UF_CRM_1772109151192"
-        ]
+        ])
       })
     ]);
     expect(storedDeals).toEqual([

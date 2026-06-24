@@ -4,6 +4,105 @@ import { DEFAULT_PRICING_RULES } from "../src/domain/deal-economics";
 import { buildManagerActionOutcomeReport } from "../src/domain/operational-reports";
 
 describe("buildManagerActionOutcomeReport", () => {
+  it("dedupes a matching CRM meeting activity against explicit meeting slots", () => {
+    const report = buildManagerActionOutcomeReport({
+      range: {
+        from: "2026-04-01T00:00:00.000Z",
+        to: "2026-04-30T23:59:59.999Z"
+      },
+      wonStageIds: ["C10:WON"],
+      deals: [
+        {
+          id: "SLOT_DEAL",
+          title: null,
+          contactId: null,
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:WORK",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "78",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: "Очная",
+          meetingDateValue: "2026-04-10T12:00:00.000Z",
+          meetingSlots: [
+            {
+              index: 1,
+              dateValue: "2026-04-10T12:00:00.000Z",
+              typeValue: "Очная",
+              placeValue: "Офис К1",
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields"
+            },
+            {
+              index: 2,
+              dateValue: "2026-04-12T12:00:00.000Z",
+              typeValue: "Zoom",
+              placeValue: null,
+              calendarValue: null,
+              eventId: "calendar-event-2",
+              source: "deal_fields"
+            }
+          ],
+          tariffValue: null,
+          refusalReasonValue: null,
+          refusalReasonDetail: null,
+          dateCreate: "2026-04-01T09:00:00.000Z",
+          dateModify: "2026-04-20T12:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:WORK",
+          name: "В работе",
+          semanticId: "P",
+          sortOrder: 10
+        }
+      ],
+      stageHistory: [],
+      activities: [
+        {
+          id: "CRM_MEETING_SLOT_2",
+          ownerTypeId: "2",
+          ownerId: "SLOT_DEAL",
+          typeId: "1",
+          providerId: "CRM_MEETING",
+          responsibleId: "78",
+          createdTime: "2026-04-12T09:00:00.000Z",
+          deadline: "2026-04-12T12:00:00.000Z",
+          lastUpdated: "2026-04-12T13:00:00.000Z",
+          completed: true,
+          completedTime: "2026-04-12T13:00:00.000Z"
+        }
+      ],
+      calls: [],
+      managerDirectory: [{ id: "78", name: "Егоров Андрей" }]
+    });
+
+    const detail = report.cohortStatusRows[0]?.dealDetails[0];
+    const meetingActivityIds =
+      detail?.stageTimeline.flatMap((stage) =>
+        (stage.meetingEvents ?? []).map((meeting) => meeting.activityId)
+      ) ?? [];
+
+    expect(detail?.meetingSummary.total).toBe(2);
+    expect(meetingActivityIds).toContain("CRM_MEETING_SLOT_2");
+    expect(meetingActivityIds).toContain("deal-field:SLOT_DEAL:meeting-date");
+    expect(meetingActivityIds).not.toContain("deal-field:SLOT_DEAL:meeting-date:2");
+  });
+
   it("adds a lifecycle card with SLA, safe events and planned wip economics to deal details", () => {
     const report = buildManagerActionOutcomeReport({
       range: {

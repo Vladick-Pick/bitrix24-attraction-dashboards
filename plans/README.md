@@ -20,6 +20,9 @@ architectural issue found in the deep review.
 | [005](./005-define-fork-owned-module-extension-seam.md) | Define fork-owned module extension seam | P1 | M | 001, 002, 003, 004 | DONE |
 | [006](./006-define-manager-call-attribution-policy.md) | Define manager call attribution policy for shared attraction roles | P1 | M | manager catalog includes 7538, 118 | DONE |
 | [007](./007-unify-deal-timeline-card.md) | Unify the deal timeline card with all events and sale cost economics | P1 | L | - | DONE |
+| [008](./008-capture-deal-meeting-slots.md) | Capture deal meeting slots 1-3 in sync and storage | P1 | L | - | DONE |
+| [009](./009-count-meeting-slots-in-reports-and-economics.md) | Count meeting slots in reports, timelines, and economics | P1 | L | 008 | DONE |
+| [010](./010-display-meeting-slots-in-dashboard-ui.md) | Display meeting slots 1-3 in dashboard deal cards | P1 | M | 008, 009 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale - finding fixed independently or approach
@@ -49,6 +52,14 @@ abandoned).
   dashboard design system. Execution completed on
   `codex/unified-deal-timeline-card`; blocks A-E are done, including focused
   suites, workspace checks, browser smoke and final CRG/code-review gate.
+- 008 starts the multi-meeting-slot sequence. It must land before report or UI
+  work because the current sync/storage shape can represent only one deal
+  meeting field pair.
+- 009 depends on 008 because meeting counts, lifecycle events, workload rows and
+  economics must consume one canonical `meetingSlots` model and avoid double
+  counting CRM meeting activities.
+- 010 depends on 008 and 009 because the dashboard should render the final API
+  shape instead of inventing client-side meeting counts.
 
 ## Verification Baseline
 

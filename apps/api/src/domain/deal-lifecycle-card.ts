@@ -302,6 +302,57 @@ function formatDuration(seconds: number) {
   return `${Math.max(0, Math.round(seconds))}с`;
 }
 
+type DealMeetingSlotTimelineCandidate = {
+  index: 1 | 2 | 3;
+  dateValue: string | null;
+  typeValue: string | null;
+  placeValue: string | null;
+};
+
+function buildDealMeetingSlotTimelineCandidates(
+  deal: DealSnapshot
+): DealMeetingSlotTimelineCandidate[] {
+  const slots = deal.meetingSlots ?? [];
+
+  if (slots.length > 0) {
+    return [...slots]
+      .sort((left, right) => left.index - right.index)
+      .map((slot) => ({
+        index: slot.index,
+        dateValue: slot.dateValue,
+        typeValue: slot.typeValue,
+        placeValue: slot.placeValue
+      }));
+  }
+
+  return [
+    {
+      index: 1,
+      dateValue: deal.meetingDateValue ?? null,
+      typeValue: deal.meetingTypeValue ?? null,
+      placeValue: null
+    }
+  ];
+}
+
+function buildMeetingSlotTitle(slotIndex: 1 | 2 | 3) {
+  return slotIndex === 1 ? "Встреча" : `Встреча ${slotIndex}`;
+}
+
+function buildMeetingSlotDetail(input: {
+  typeValue: string | null;
+  placeValue: string | null;
+  completed: boolean;
+}) {
+  return [
+    input.typeValue?.trim() || null,
+    input.placeValue?.trim() || null,
+    input.completed ? "проведена" : "запланирована"
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+}
+
 function eventFromTouchpoint(
   fact: DealTouchpointFactSnapshot,
   eventById: Map<string, EventSnapshot>
@@ -409,6 +460,92 @@ function eventFromTouchpoint(
   }
 
   return null;
+}
+
+function buildFallbackMeetingTimelineEvents(input: {
+  deal: DealSnapshot;
+  terminalAt: string;
+}): DealTimelineEvent[] {
+  const createdAt = toTimestamp(input.deal.dateCreate);
+  const terminalAt = toTimestamp(input.terminalAt);
+
+  return buildDealMeetingSlotTimelineCandidates(input.deal)
+    .flatMap((slot) => {
+      const meetingAt = slot.dateValue?.trim();
+      const meetingAtMs = toTimestamp(meetingAt);
+
+      if (
+        !meetingAt ||
+        !Number.isFinite(meetingAtMs) ||
+        !Number.isFinite(createdAt) ||
+        !Number.isFinite(terminalAt) ||
+        meetingAtMs < createdAt ||
+        meetingAtMs > terminalAt
+      ) {
+        return [];
+      }
+
+      const detail = buildMeetingSlotDetail({
+        typeValue: slot.typeValue,
+        placeValue: slot.placeValue,
+        completed: false
+      });
+
+      return [
+        {
+          id:
+            slot.index === 1
+              ? `deal-field:${input.deal.id}:meeting-date`
+              : `deal-field:${input.deal.id}:meeting-date:${slot.index}`,
+          kind: "meeting",
+          occurredAt: meetingAt,
+          stageId: null,
+          stageName: null,
+          title: buildMeetingSlotTitle(slot.index),
+          detail: detail || null,
+          badgeLabel: null,
+          linkConfidence: "medium"
+        } satisfies DealTimelineEvent
+      ];
+    })
+    .sort((left, right) => {
+      const byTime = left.occurredAt.localeCompare(right.occurredAt);
+      return byTime !== 0 ? byTime : left.id.localeCompare(right.id);
+    });
+}
+
+function toCalendarDayKey(value: string) {
+  const isoDateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  if (isoDateMatch) {
+    return isoDateMatch[1] ?? value;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
+function mergeFallbackMeetingEvents(
+  canonicalEvents: DealTimelineEvent[],
+  fallbackEvents: DealTimelineEvent[]
+) {
+  const canonicalMeetingKeys = new Set(
+    canonicalEvents
+      .filter((event) => event.kind === "meeting")
+      .map((event) => `${event.title}:${toCalendarDayKey(event.occurredAt)}`)
+  );
+  const fallbackToAdd = fallbackEvents.filter(
+    (event) =>
+      !canonicalMeetingKeys.has(`${event.title}:${toCalendarDayKey(event.occurredAt)}`)
+  );
+
+  return [...canonicalEvents, ...fallbackToAdd].sort((left, right) => {
+    const byTime = left.occurredAt.localeCompare(right.occurredAt);
+    return byTime !== 0 ? byTime : left.id.localeCompare(right.id);
+  });
 }
 
 function emptyCallSummary(): DealCallSummary {
@@ -1253,15 +1390,26 @@ export function buildDealLifecycleCard(input: BuildDealLifecycleCardInput): Deal
     events: input.events ?? []
   });
   const hasCanonicalTimelineEvents = timelineEvents.events.length > 0;
+  const fallbackMeetingTimelineEvents = buildFallbackMeetingTimelineEvents({
+    deal: input.deal,
+    terminalAt
+  });
+  const effectiveTimelineEvents = hasCanonicalTimelineEvents
+    ? mergeFallbackMeetingEvents(timelineEvents.events, fallbackMeetingTimelineEvents)
+    : fallbackMeetingTimelineEvents;
   const stageTimeline = hasCanonicalTimelineEvents
-    ? attachEventsToStages(rawStageTimeline, timelineEvents.events, timelineEvents.payloadByEventId)
+    ? attachEventsToStages(rawStageTimeline, effectiveTimelineEvents, timelineEvents.payloadByEventId)
     : input.fallbackStageTimeline && input.fallbackStageTimeline.length > 0
       ? toLifecycleStageTimeline(input.fallbackStageTimeline)
-      : attachEventsToStages(rawStageTimeline, timelineEvents.events, timelineEvents.payloadByEventId);
+      : attachEventsToStages(
+          rawStageTimeline,
+          effectiveTimelineEvents,
+          timelineEvents.payloadByEventId
+        );
   const eventSummary = hasCanonicalTimelineEvents
-    ? summarizeEvents(timelineEvents.events, timelineEvents.payloadByEventId)
+    ? summarizeEvents(effectiveTimelineEvents, timelineEvents.payloadByEventId)
     : input.fallbackEventSummary ??
-      summarizeEvents(timelineEvents.events, timelineEvents.payloadByEventId);
+      summarizeEvents(effectiveTimelineEvents, timelineEvents.payloadByEventId);
   const economics = resolveSaleEconomics({
     deal: input.deal,
     status: input.status,

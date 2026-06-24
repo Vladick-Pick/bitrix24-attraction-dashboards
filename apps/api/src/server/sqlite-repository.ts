@@ -9,6 +9,7 @@ import type {
   CallSnapshot,
   ConversionEventVisitSnapshot,
   ConversionEventTypeOption,
+  DealMeetingSlot,
   DealStageFactSnapshot,
   DealTouchpointFactSnapshot,
   DealPricingRule,
@@ -833,10 +834,24 @@ export function createSqliteRepository(
     CREATE TABLE IF NOT EXISTS deal_meeting_date_changes (
       id TEXT PRIMARY KEY,
       deal_id TEXT NOT NULL,
+      slot_index INTEGER NOT NULL DEFAULT 1,
       assigned_by_id TEXT,
       previous_meeting_date TEXT,
       next_meeting_date TEXT,
       changed_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS deal_meeting_slots (
+      deal_id TEXT NOT NULL,
+      slot_index INTEGER NOT NULL,
+      date_value TEXT,
+      type_value TEXT,
+      place_value TEXT,
+      calendar_value TEXT,
+      event_id TEXT,
+      source TEXT NOT NULL DEFAULT 'deal_fields',
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (deal_id, slot_index)
     );
 
     CREATE TABLE IF NOT EXISTS conversion_event_visit_snapshots (
@@ -1172,6 +1187,8 @@ export function createSqliteRepository(
       ON deal_meeting_date_changes (deal_id);
     CREATE INDEX IF NOT EXISTS idx_deal_meeting_date_changes_changed_at
       ON deal_meeting_date_changes (changed_at);
+    CREATE INDEX IF NOT EXISTS idx_deal_meeting_slots_deal_id
+      ON deal_meeting_slots (deal_id);
     CREATE INDEX IF NOT EXISTS idx_conversion_event_visits_event_date
       ON conversion_event_visit_snapshots (event_date);
     CREATE INDEX IF NOT EXISTS idx_conversion_event_visits_deal_id
@@ -1224,6 +1241,12 @@ export function createSqliteRepository(
   ensureColumn(database, "deal_snapshots", "target_group_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "meeting_type_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "meeting_date_value", "TEXT");
+  ensureColumn(
+    database,
+    "deal_meeting_date_changes",
+    "slot_index",
+    "INTEGER NOT NULL DEFAULT 1"
+  );
   ensureColumn(database, "deal_snapshots", "tariff_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "conversion_event_value", "TEXT");
   ensureColumn(database, "deal_snapshots", "refusal_reason_value", "TEXT");
@@ -1746,6 +1769,42 @@ export function createSqliteRepository(
       utm_term = excluded.utm_term
   `);
 
+  const deleteDealMeetingSlotsStatement = database.prepare(`
+    DELETE FROM deal_meeting_slots WHERE deal_id = ?
+  `);
+
+  const upsertDealMeetingSlotStatement = database.prepare(`
+    INSERT INTO deal_meeting_slots (
+      deal_id,
+      slot_index,
+      date_value,
+      type_value,
+      place_value,
+      calendar_value,
+      event_id,
+      source,
+      updated_at
+    ) VALUES (
+      @dealId,
+      @slotIndex,
+      @dateValue,
+      @typeValue,
+      @placeValue,
+      @calendarValue,
+      @eventId,
+      @source,
+      @updatedAt
+    )
+    ON CONFLICT(deal_id, slot_index) DO UPDATE SET
+      date_value = excluded.date_value,
+      type_value = excluded.type_value,
+      place_value = excluded.place_value,
+      calendar_value = excluded.calendar_value,
+      event_id = excluded.event_id,
+      source = excluded.source,
+      updated_at = excluded.updated_at
+  `);
+
   const upsertStageHistoryStatement = database.prepare(`
     INSERT INTO stage_history_snapshots (
       id,
@@ -1860,6 +1919,7 @@ export function createSqliteRepository(
     INSERT INTO deal_meeting_date_changes (
       id,
       deal_id,
+      slot_index,
       assigned_by_id,
       previous_meeting_date,
       next_meeting_date,
@@ -1867,6 +1927,7 @@ export function createSqliteRepository(
     ) VALUES (
       @id,
       @dealId,
+      @slotIndex,
       @assignedById,
       @previousMeetingDate,
       @nextMeetingDate,
@@ -1874,6 +1935,7 @@ export function createSqliteRepository(
     )
     ON CONFLICT(id) DO UPDATE SET
       deal_id = excluded.deal_id,
+      slot_index = excluded.slot_index,
       assigned_by_id = excluded.assigned_by_id,
       previous_meeting_date = excluded.previous_meeting_date,
       next_meeting_date = excluded.next_meeting_date,
@@ -2666,6 +2728,68 @@ export function createSqliteRepository(
     createCallAnalysisRepositoryMethods(database);
   const commentRepositoryMethods = createCommentRepositoryMethods(database);
 
+  const hydrateDealMeetingSlots = (deals: DealSnapshot[]): DealSnapshot[] => {
+    if (deals.length === 0) {
+      return deals;
+    }
+
+    const dealIds = deals.map((deal) => deal.id);
+    const slotRows = chunkValues(dealIds).flatMap((chunk) => {
+      const placeholders = chunk.map(() => "?").join(", ");
+      return database
+        .prepare(
+          `SELECT
+            deal_id AS dealId,
+            slot_index AS slotIndex,
+            date_value AS dateValue,
+            type_value AS typeValue,
+            place_value AS placeValue,
+            calendar_value AS calendarValue,
+            event_id AS eventId,
+            source
+          FROM deal_meeting_slots
+          WHERE deal_id IN (${placeholders})
+          ORDER BY deal_id ASC, slot_index ASC`
+        )
+        .all(...chunk) as Array<{
+        dealId: string;
+        slotIndex: number;
+        dateValue: string | null;
+        typeValue: string | null;
+        placeValue: string | null;
+        calendarValue: string | null;
+        eventId: string | null;
+        source: string;
+      }>;
+    });
+    const slotsByDealId = new Map<string, DealMeetingSlot[]>();
+
+    for (const row of slotRows) {
+      if (![1, 2, 3].includes(row.slotIndex)) {
+        continue;
+      }
+
+      const slot: DealMeetingSlot = {
+        index: row.slotIndex as 1 | 2 | 3,
+        dateValue: row.dateValue,
+        typeValue: row.typeValue,
+        placeValue: row.placeValue,
+        calendarValue: row.calendarValue,
+        eventId: row.eventId,
+        source: "deal_fields"
+      };
+      slotsByDealId.set(row.dealId, [
+        ...(slotsByDealId.get(row.dealId) ?? []),
+        slot
+      ]);
+    }
+
+    return deals.map((deal) => {
+      const meetingSlots = slotsByDealId.get(deal.id);
+      return meetingSlots ? { ...deal, meetingSlots } : deal;
+    });
+  };
+
   return {
     runSnapshotTransaction<T>(task: () => T) {
       return snapshotTransaction(task) as T;
@@ -3005,7 +3129,7 @@ export function createSqliteRepository(
         return [];
       }
 
-      return chunkValues(Array.from(new Set(dealIds))).flatMap((chunk) => {
+      const deals = chunkValues(Array.from(new Set(dealIds))).flatMap((chunk) => {
         const placeholders = chunk.map(() => "?").join(", ");
         return database
           .prepare(
@@ -3043,6 +3167,7 @@ export function createSqliteRepository(
           )
           .all(...chunk) as DealSnapshot[];
       });
+      return hydrateDealMeetingSlots(deals);
     },
 
     async getActivitiesByIds(activityIds) {
@@ -3427,6 +3552,21 @@ export function createSqliteRepository(
             refusalReasonValue: row.refusalReasonValue ?? null,
             refusalReasonDetail: sanitizeRefusalReasonDetail(row.refusalReasonDetail)
           });
+          deleteDealMeetingSlotsStatement.run(row.id);
+
+          for (const slot of row.meetingSlots ?? []) {
+            upsertDealMeetingSlotStatement.run({
+              dealId: row.id,
+              slotIndex: slot.index,
+              dateValue: slot.dateValue ?? null,
+              typeValue: slot.typeValue ?? null,
+              placeValue: slot.placeValue ?? null,
+              calendarValue: slot.calendarValue ?? null,
+              eventId: slot.eventId ?? null,
+              source: slot.source,
+              updatedAt: row.dateModify
+            });
+          }
         }
       });
       transaction(rows);
@@ -3491,7 +3631,10 @@ export function createSqliteRepository(
       const transaction = database.transaction(
         (nextRows: DealMeetingDateChangeSnapshot[]) => {
           for (const row of nextRows) {
-            upsertDealMeetingDateChangeStatement.run(row);
+            upsertDealMeetingDateChangeStatement.run({
+              ...row,
+              slotIndex: row.slotIndex ?? 1
+            });
           }
         }
       );
@@ -4159,7 +4302,7 @@ export function createSqliteRepository(
     },
 
     async getAllDeals() {
-      return database
+      const deals = database
         .prepare(
           `SELECT
             id,
@@ -4193,6 +4336,7 @@ export function createSqliteRepository(
           ORDER BY id ASC`
         )
         .all() as DealSnapshot[];
+      return hydrateDealMeetingSlots(deals);
     },
 
     async getAllStageHistory() {
@@ -4275,6 +4419,7 @@ export function createSqliteRepository(
           `SELECT
             id,
             deal_id AS dealId,
+            slot_index AS slotIndex,
             assigned_by_id AS assignedById,
             previous_meeting_date AS previousMeetingDate,
             next_meeting_date AS nextMeetingDate,

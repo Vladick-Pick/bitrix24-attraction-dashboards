@@ -1199,6 +1199,130 @@ describe("createSqliteRepository", () => {
     ]);
   });
 
+  it("persists and replaces deal meeting slots independently from legacy slot one fields", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+    tempDirs.push(directory);
+
+    const repository = createSqliteRepository({
+      databaseUrl: `file:${join(directory, "reporting.db")}`,
+      defaultWonStageIds: ["C1:WON"]
+    });
+
+    await repository.upsertDeals([
+      {
+        id: "D_MEETING_SLOTS",
+        title: null,
+        contactId: null,
+        leadId: null,
+        categoryId: "10",
+        stageId: "C10:NEW",
+        stageSemanticId: "P",
+        opportunity: null,
+        assignedById: "78",
+        sourceId: "WEB",
+        qualityValue: null,
+        businessClubValue: null,
+        targetGroupValue: null,
+        meetingTypeValue: "Очная",
+        meetingDateValue: "2026-05-04T10:00:00.000Z",
+        meetingSlots: [
+          {
+            index: 2,
+            dateValue: "2026-05-06T10:00:00.000Z",
+            typeValue: "Zoom",
+            placeValue: "Офис К2",
+            calendarValue: "Календарь клуба",
+            eventId: "event-2",
+            source: "deal_fields"
+          },
+          {
+            index: 1,
+            dateValue: "2026-05-04T10:00:00.000Z",
+            typeValue: "Очная",
+            placeValue: "Офис К1",
+            calendarValue: "Основной календарь",
+            eventId: null,
+            source: "deal_fields"
+          }
+        ],
+        tariffValue: null,
+        conversionEventValue: null,
+        refusalReasonValue: null,
+        refusalReasonDetail: null,
+        dateCreate: "2026-05-01T00:00:00.000Z",
+        dateModify: "2026-05-07T00:00:00.000Z",
+        dateClosed: null,
+        utmSource: null,
+        utmMedium: null,
+        utmCampaign: null,
+        utmContent: null,
+        utmTerm: null
+      }
+    ]);
+
+    await expect(repository.getDealsByIds(["D_MEETING_SLOTS"])).resolves.toEqual([
+      expect.objectContaining({
+        id: "D_MEETING_SLOTS",
+        meetingTypeValue: "Очная",
+        meetingDateValue: "2026-05-04T10:00:00.000Z",
+        meetingSlots: [
+          expect.objectContaining({ index: 1, typeValue: "Очная" }),
+          expect.objectContaining({ index: 2, typeValue: "Zoom" })
+        ]
+      })
+    ]);
+
+    await repository.upsertDeals([
+      {
+        id: "D_MEETING_SLOTS",
+        title: null,
+        contactId: null,
+        leadId: null,
+        categoryId: "10",
+        stageId: "C10:NEW",
+        stageSemanticId: "P",
+        opportunity: null,
+        assignedById: "78",
+        sourceId: "WEB",
+        qualityValue: null,
+        businessClubValue: null,
+        targetGroupValue: null,
+        meetingTypeValue: "Очная",
+        meetingDateValue: "2026-05-04T10:00:00.000Z",
+        meetingSlots: [
+          {
+            index: 1,
+            dateValue: "2026-05-04T10:00:00.000Z",
+            typeValue: "Очная",
+            placeValue: "Офис К1",
+            calendarValue: "Основной календарь",
+            eventId: null,
+            source: "deal_fields"
+          }
+        ],
+        tariffValue: null,
+        conversionEventValue: null,
+        refusalReasonValue: null,
+        refusalReasonDetail: null,
+        dateCreate: "2026-05-01T00:00:00.000Z",
+        dateModify: "2026-05-08T00:00:00.000Z",
+        dateClosed: null,
+        utmSource: null,
+        utmMedium: null,
+        utmCampaign: null,
+        utmContent: null,
+        utmTerm: null
+      }
+    ]);
+
+    await expect(repository.getAllDeals()).resolves.toEqual([
+      expect.objectContaining({
+        id: "D_MEETING_SLOTS",
+        meetingSlots: [expect.objectContaining({ index: 1 })]
+      })
+    ]);
+  });
+
   it("seeds and replaces attraction pricing rules", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
     tempDirs.push(directory);

@@ -65,6 +65,20 @@ describe('apiClient', () => {
                       created: 2,
                       closed: 1,
                     },
+                    meetingEvents: [
+                      {
+                        activityId: 'M-2',
+                        createdAt: '2026-03-02T09:00:00.000Z',
+                        timelineAt: '2026-03-02T10:00:00.000Z',
+                        scheduledAt: '2026-03-02T10:00:00.000Z',
+                        completed: false,
+                        slotIndex: 2,
+                        typeValue: 'Zoom',
+                        placeValue: 'Офис К1',
+                        calendarValue: null,
+                        eventId: 'calendar-event-2',
+                      },
+                    ],
                   },
                   {
                     stageId: 'C10:LEGACY',
@@ -190,6 +204,15 @@ describe('apiClient', () => {
         created: 2,
         closed: 1,
       },
+      meetingEvents: [
+        expect.objectContaining({
+          activityId: 'M-2',
+          slotIndex: 2,
+          typeValue: 'Zoom',
+          placeValue: 'Офис К1',
+          eventId: 'calendar-event-2',
+        }),
+      ],
     })
     expect(dashboard.managerGroups[0]?.deals[0]?.stageTimeline[1]).toMatchObject({
       callSummary: {

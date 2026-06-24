@@ -351,7 +351,7 @@ const DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS = 1_800_000;
 export const ACTIVITY_HISTORY_COVERAGE_VERSION = "activity-bindings-v2";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_STREAM = "deal_custom_fields";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER = "all";
-export const DEAL_CUSTOM_FIELDS_COVERAGE_VERSION = "deal-custom-fields-v3";
+export const DEAL_CUSTOM_FIELDS_COVERAGE_VERSION = "deal-custom-fields-v5";
 export const DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM = "deal_meeting_date_field";
 export const DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION =
   "deal-meeting-date-field-v1";
@@ -378,6 +378,67 @@ const CONTACT_TARGET_GROUP_VALUE_MAP = {
   "140496": "ClubFirst Ladies"
 } satisfies Record<string, string>;
 
+interface DealMeetingSlotFieldMapping {
+  index: 1 | 2 | 3;
+  dateFieldName: string;
+  typeFieldName: string;
+  placeFieldName: string;
+  calendarFieldName: string;
+  eventFieldName: string | null;
+}
+
+function buildDealMeetingSlotFieldMappings(input: {
+  meetingTypeFieldName: string | undefined;
+  meetingDateFieldName: string | undefined;
+}): DealMeetingSlotFieldMapping[] {
+  return [
+    {
+      index: 1,
+      dateFieldName: input.meetingDateFieldName ?? "UF_CRM_1669784197394",
+      typeFieldName: input.meetingTypeFieldName ?? "UF_CRM_1669784114991",
+      placeFieldName: "UF_CRM_1669784273591",
+      calendarFieldName: "UF_CRM_1677669882",
+      eventFieldName: null
+    },
+    {
+      index: 2,
+      dateFieldName: "UF_CRM_MEET2_DT",
+      typeFieldName: "UF_CRM_DEAL_MEET2_KIND",
+      placeFieldName: "UF_CRM_DEAL_MEET2_PLACE",
+      calendarFieldName: "UF_CRM_DEAL_MEET2_CAL",
+      eventFieldName: "UF_CRM_DEAL_MEET2_EVENT"
+    },
+    {
+      index: 3,
+      dateFieldName: "UF_CRM_MEET3_DT",
+      typeFieldName: "UF_CRM_DEAL_MEET3_KIND",
+      placeFieldName: "UF_CRM_DEAL_MEET3_PLACE",
+      calendarFieldName: "UF_CRM_DEAL_MEET3_CAL",
+      eventFieldName: "UF_CRM_DEAL_MEET3_EVENT"
+    }
+  ];
+}
+
+function uniqueValues(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(values.filter((value): value is string => Boolean(value)))
+  );
+}
+
+function getDealMeetingSlotCustomFieldNames(
+  mappings: DealMeetingSlotFieldMapping[]
+) {
+  return uniqueValues(
+    mappings.flatMap((mapping) => [
+      mapping.typeFieldName,
+      mapping.dateFieldName,
+      mapping.placeFieldName,
+      mapping.calendarFieldName,
+      mapping.eventFieldName
+    ])
+  );
+}
+
 function normalizeMappedFieldValue(
   value: unknown,
   valueMap: Record<string, string>
@@ -395,6 +456,22 @@ function normalizeMappedFieldValue(
   }
 
   return null;
+}
+
+function normalizeOptionalMappedFieldValue(
+  value: unknown,
+  valueMap: Record<string, string>
+) {
+  const normalized = normalizeMappedFieldValue(value, valueMap);
+  return normalized && normalized.trim().length > 0 ? normalized : null;
+}
+
+function normalizeOptionalLookupFieldValue(
+  value: unknown,
+  valueMap: Record<string, string>
+) {
+  const normalized = normalizeOptionalMappedFieldValue(value, valueMap);
+  return isOpaqueBitrixEnumId(normalized) ? null : normalized;
 }
 
 function normalizeString(value: string | number | null | undefined) {
@@ -504,6 +581,7 @@ function mapDealRow(
   targetGroupFieldName: string | undefined,
   meetingTypeFieldName: string | undefined,
   meetingDateFieldName: string | undefined,
+  meetingSlotFieldMappings: DealMeetingSlotFieldMapping[],
   conversionEventFieldName: string | undefined,
   contactTargetGroupByContactId: Map<string, string>,
   qualityMap: Record<string, string>,
@@ -511,6 +589,7 @@ function mapDealRow(
   businessClubMap: Record<string, string>,
   targetGroupMap: Record<string, string>,
   meetingTypeMap: Record<string, string>,
+  meetingSlotFieldValueMaps: Map<string, Record<string, string>>,
   conversionEventMap: Record<string, string>,
   refusalReasonMap: Record<string, string>,
   attractionReturnReasonMap: Record<string, string>,
@@ -537,12 +616,51 @@ function mapDealRow(
     (row.CONTACT_ID
       ? contactTargetGroupByContactId.get(row.CONTACT_ID) ?? null
       : null);
-  const normalizedMeetingTypeValue = meetingTypeFieldName
-    ? normalizeMappedFieldValue(row[meetingTypeFieldName], meetingTypeMap)
-    : null;
-  const normalizedMeetingDateValue = meetingDateFieldName
-    ? normalizeMappedFieldValue(row[meetingDateFieldName], {})
-    : null;
+  const meetingSlots = meetingSlotFieldMappings.flatMap((mapping) => {
+    const dateValue = normalizeOptionalMappedFieldValue(row[mapping.dateFieldName], {});
+    const typeValue = normalizeOptionalLookupFieldValue(
+      row[mapping.typeFieldName],
+      meetingSlotFieldValueMaps.get(mapping.typeFieldName) ?? meetingTypeMap
+    );
+    const placeValue = normalizeOptionalLookupFieldValue(
+      row[mapping.placeFieldName],
+      meetingSlotFieldValueMaps.get(mapping.placeFieldName) ?? {}
+    );
+    const calendarValue = normalizeOptionalLookupFieldValue(
+      row[mapping.calendarFieldName],
+      meetingSlotFieldValueMaps.get(mapping.calendarFieldName) ?? {}
+    );
+    const eventId = mapping.eventFieldName
+      ? normalizeOptionalMappedFieldValue(row[mapping.eventFieldName], {})
+      : null;
+
+    if (!dateValue && !typeValue && !placeValue && !calendarValue && !eventId) {
+      return [];
+    }
+
+    return [
+      {
+        index: mapping.index,
+        dateValue,
+        typeValue,
+        placeValue,
+        calendarValue,
+        eventId,
+        source: "deal_fields" as const
+      }
+    ];
+  });
+  const firstMeetingSlot = meetingSlots.find((slot) => slot.index === 1);
+  const normalizedMeetingTypeValue =
+    firstMeetingSlot?.typeValue ??
+    (meetingTypeFieldName
+      ? normalizeOptionalMappedFieldValue(row[meetingTypeFieldName], meetingTypeMap)
+      : null);
+  const normalizedMeetingDateValue =
+    firstMeetingSlot?.dateValue ??
+    (meetingDateFieldName
+      ? normalizeOptionalMappedFieldValue(row[meetingDateFieldName], {})
+      : null);
   const normalizedConversionEventValue = conversionEventFieldName
     ? normalizeMappedFieldValue(row[conversionEventFieldName], conversionEventMap)
     : null;
@@ -587,6 +705,7 @@ function mapDealRow(
     targetGroupValue: normalizedTargetGroupValue,
     meetingTypeValue: normalizedMeetingTypeValue,
     meetingDateValue: normalizedMeetingDateValue,
+    meetingSlots,
     tariffValue: normalizedTariffValue,
     conversionEventValue: normalizedConversionEventValue,
     refusalReasonValue: resolvedLossFields.refusalReasonValue,
@@ -687,24 +806,51 @@ function buildDealMeetingDateChanges(input: {
 
   return input.deals.flatMap<DealMeetingDateChangeSnapshot>((deal) => {
     const previous = previousById.get(deal.id);
-    if (
-      !previous ||
-      (previous.meetingDateValue ?? null) === (deal.meetingDateValue ?? null)
-    ) {
+    if (!previous) {
       return [];
     }
 
-    return [
-      {
-        id: `${deal.id}:${deal.dateModify}:meeting-date`,
-        dealId: deal.id,
-        assignedById: deal.assignedById,
-        previousMeetingDate: previous.meetingDateValue ?? null,
-        nextMeetingDate: deal.meetingDateValue ?? null,
-        changedAt: deal.dateModify
+    const previousDatesBySlot = getDealMeetingDatesBySlot(previous);
+    const nextDatesBySlot = getDealMeetingDatesBySlot(deal);
+
+    return ([1, 2, 3] as const).flatMap((slotIndex) => {
+      const previousMeetingDate = previousDatesBySlot.get(slotIndex) ?? null;
+      const nextMeetingDate = nextDatesBySlot.get(slotIndex) ?? null;
+
+      if (previousMeetingDate === nextMeetingDate) {
+        return [];
       }
-    ];
+
+      return [
+        {
+          id:
+            slotIndex === 1
+              ? `${deal.id}:${deal.dateModify}:meeting-date`
+              : `${deal.id}:${deal.dateModify}:meeting-date:${slotIndex}`,
+          dealId: deal.id,
+          slotIndex,
+          assignedById: deal.assignedById,
+          previousMeetingDate,
+          nextMeetingDate,
+          changedAt: deal.dateModify
+        }
+      ];
+    });
   });
+}
+
+function getDealMeetingDatesBySlot(deal: DealSnapshot) {
+  const datesBySlot = new Map<1 | 2 | 3, string | null>();
+
+  for (const slot of deal.meetingSlots ?? []) {
+    datesBySlot.set(slot.index, slot.dateValue ?? null);
+  }
+
+  if (!datesBySlot.has(1)) {
+    datesBySlot.set(1, deal.meetingDateValue ?? null);
+  }
+
+  return datesBySlot;
 }
 
 function mapStageHistoryRow(row: StageHistoryRow): StageHistorySnapshot {
@@ -1691,13 +1837,16 @@ export async function performManualSync(
         }
       }
     });
+    const meetingSlotFieldMappings = buildDealMeetingSlotFieldMappings({
+      meetingTypeFieldName: input.meetingTypeFieldName,
+      meetingDateFieldName: input.meetingDateFieldName
+    });
     const dealCustomFieldNames = [
       input.qualityFieldName,
       ...(input.tariffFieldName ? [input.tariffFieldName] : []),
       ...(input.businessClubFieldName ? [input.businessClubFieldName] : []),
       ...(input.targetGroupFieldName ? [input.targetGroupFieldName] : []),
-      ...(input.meetingTypeFieldName ? [input.meetingTypeFieldName] : []),
-      ...(input.meetingDateFieldName ? [input.meetingDateFieldName] : []),
+      ...getDealMeetingSlotCustomFieldNames(meetingSlotFieldMappings),
       ...(conversionEventDealFieldName ? [conversionEventDealFieldName] : []),
       ATTRACTION_REFUSAL_REASON_FIELD_NAME,
       ATTRACTION_REFUSAL_REASON_DETAIL_FIELD_NAME,
@@ -1812,6 +1961,24 @@ export async function performManualSync(
         input.client.fetchDealFieldValueMap?.bind(input.client)
       )
     ]);
+    const meetingSlotFieldValueMaps = new Map<string, Record<string, string>>();
+    await Promise.all(
+      uniqueValues(
+        meetingSlotFieldMappings.flatMap((mapping) => [
+          mapping.typeFieldName,
+          mapping.placeFieldName,
+          mapping.calendarFieldName
+        ])
+      ).map(async (fieldName) => {
+        meetingSlotFieldValueMaps.set(
+          fieldName,
+          await fetchDealFieldValueMap(
+            fieldName,
+            input.client.fetchDealFieldValueMap?.bind(input.client)
+          )
+        );
+      })
+    );
 
     const contactIds = Array.from(
       new Set(
@@ -1857,6 +2024,7 @@ export async function performManualSync(
         input.targetGroupFieldName,
         input.meetingTypeFieldName,
         input.meetingDateFieldName,
+        meetingSlotFieldMappings,
         conversionEventDealFieldName,
         contactTargetGroupByContactId,
         qualityMap,
@@ -1864,6 +2032,7 @@ export async function performManualSync(
         businessClubMap,
         targetGroupMap,
         meetingTypeMap,
+        meetingSlotFieldValueMaps,
         conversionEventMap,
         refusalReasonMap,
         attractionReturnReasonMap,

@@ -3980,7 +3980,20 @@ describe('ProtoApp', () => {
                   enteredAt: '2026-03-14T10:00:00.000Z',
                   leftAt: '2026-03-15T10:00:00.000Z',
                   durationHours: 24,
-                  meetingEvents: [],
+                  meetingEvents: [
+                    {
+                      activityId: 'M-2',
+                      createdAt: '2026-03-14T11:00:00.000Z',
+                      timelineAt: '2026-03-14T11:00:00.000Z',
+                      scheduledAt: '2026-03-14T16:00:00.000Z',
+                      completed: false,
+                      slotIndex: 2,
+                      typeValue: 'Zoom',
+                      placeValue: null,
+                      calendarValue: null,
+                      eventId: 'calendar-event-2',
+                    },
+                  ],
                 },
               ],
             },
@@ -4025,8 +4038,16 @@ describe('ProtoApp', () => {
     expect(within(salesSection!).getByText('Федеральный Москва')).toBeInTheDocument()
     expect(within(salesSection!).getByText('2 встреч')).toBeInTheDocument()
     expect(within(salesSection!).getByText(/Встреча 13 мар/i)).toBeInTheDocument()
-    expect(within(salesSection!).getByText(/Встреча 14 мар/i)).toBeInTheDocument()
-    expect(within(salesSection!).getAllByText(/Встреча 14 мар/i)).toHaveLength(1)
+    expect(within(salesSection!).getByText(/Встреча 2 14 мар/i)).toBeInTheDocument()
+    expect(within(salesSection!).getAllByText(/Встреча 2 14 мар/i)).toHaveLength(1)
+    const firstMeetingBadge = within(salesSection!).getByText(/Встреча 13 мар/i).closest('span')
+    const secondMeetingBadge = within(salesSection!).getByText(/Встреча 2 14 мар/i).closest('span')
+    expect(firstMeetingBadge).toHaveAttribute('data-meeting-slot-index', '1')
+    expect(secondMeetingBadge).toHaveAttribute('data-meeting-slot-index', '2')
+    expect(firstMeetingBadge).toHaveClass('border-amber-100')
+    expect(secondMeetingBadge).toHaveClass('border-violet-100')
+    expect(firstMeetingBadge).toHaveClass('bg-white')
+    expect(secondMeetingBadge).toHaveClass('bg-white')
     expect(within(salesSection!).getByText('Звонок-знакомство')).toBeInTheDocument()
     expect(within(salesSection!).getByText('Встреча-знакомство')).toBeInTheDocument()
     expect(within(salesSection!).getAllByText('24 ч').length).toBeGreaterThan(0)
@@ -6416,7 +6437,7 @@ describe('ProtoApp', () => {
       totalCreatedCount: 4,
       totalRescheduledCount: 0,
       totalClosedCount: 3,
-      totalMeetingCount: 2,
+      totalMeetingCount: 3,
       warnings: [],
       conversionEventRows: [
         {
@@ -6441,13 +6462,15 @@ describe('ProtoApp', () => {
           createdCount: 4,
           rescheduledCount: 0,
           closedCount: 3,
-          meetingCount: 2,
+          meetingCount: 3,
           averageCreatedPerDeal: 2,
           averageRescheduledPerDeal: 0,
           averageClosedPerDeal: 1.5,
           averageMeetingsPerDeal: 1,
           meetingTypeBreakdown: [
-            { meetingTypeKey: 'Очная', meetingTypeLabel: 'Очная', count: 2 },
+            { meetingTypeKey: 'Очная', meetingTypeLabel: 'Очная', count: 1 },
+            { meetingTypeKey: 'Zoom', meetingTypeLabel: 'Zoom', count: 1 },
+            { meetingTypeKey: 'Офлайн', meetingTypeLabel: 'Офлайн', count: 1 },
           ],
           businessClubBreakdown: [
             { businessClubKey: 'ClubOne', businessClubLabel: 'ClubOne', dealCount: 2 },
@@ -6456,9 +6479,29 @@ describe('ProtoApp', () => {
             {
               businessClubKey: 'ClubOne',
               businessClubLabel: 'ClubOne',
+              meetingSlotIndex: 1,
+              meetingSlotLabel: 'Встреча',
               meetingTypeKey: 'Очная',
               meetingTypeLabel: 'Очная',
-              count: 2,
+              count: 1,
+            },
+            {
+              businessClubKey: 'ClubOne',
+              businessClubLabel: 'ClubOne',
+              meetingSlotIndex: 2,
+              meetingSlotLabel: 'Встреча 2',
+              meetingTypeKey: 'Zoom',
+              meetingTypeLabel: 'Zoom',
+              count: 1,
+            },
+            {
+              businessClubKey: 'ClubOne',
+              businessClubLabel: 'ClubOne',
+              meetingSlotIndex: 3,
+              meetingSlotLabel: 'Встреча 3',
+              meetingTypeKey: 'Офлайн',
+              meetingTypeLabel: 'Офлайн',
+              count: 1,
             },
           ],
           slaMetrics: [
@@ -6523,7 +6566,27 @@ describe('ProtoApp', () => {
     expect(within(meetingsSection as HTMLElement).getByRole('columnheader', { name: /клуб \/ тип встречи/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /^sla$/i })).toBeInTheDocument()
     expect(within(meetingsSection as HTMLElement).getByText('ClubOne')).toBeInTheDocument()
-    expect(within(meetingsSection as HTMLElement).getByText('Очная')).toBeInTheDocument()
+    expect(within(meetingsSection as HTMLElement).getByText('Встреча · Очная')).toBeInTheDocument()
+    expect(within(meetingsSection as HTMLElement).getByText('Встреча 2 · Zoom')).toBeInTheDocument()
+    expect(within(meetingsSection as HTMLElement).getByText('Встреча 3 · Офлайн')).toBeInTheDocument()
+    const slotOneBadge = within(meetingsSection as HTMLElement)
+      .getByText('Встреча · Очная')
+      .closest('[data-meeting-slot-index]')
+    const slotTwoBadge = within(meetingsSection as HTMLElement)
+      .getByText('Встреча 2 · Zoom')
+      .closest('[data-meeting-slot-index]')
+    const slotThreeBadge = within(meetingsSection as HTMLElement)
+      .getByText('Встреча 3 · Офлайн')
+      .closest('[data-meeting-slot-index]')
+    expect(slotOneBadge).toHaveAttribute('data-meeting-slot-index', '1')
+    expect(slotTwoBadge).toHaveAttribute('data-meeting-slot-index', '2')
+    expect(slotThreeBadge).toHaveAttribute('data-meeting-slot-index', '3')
+    expect(slotOneBadge).toHaveClass('border-amber-100')
+    expect(slotTwoBadge).toHaveClass('border-violet-100')
+    expect(slotThreeBadge).toHaveClass('border-rose-100')
+    expect(slotOneBadge).toHaveClass('bg-white')
+    expect(slotTwoBadge).toHaveClass('bg-white')
+    expect(slotThreeBadge).toHaveClass('bg-white')
     const conversionHeading = screen.getByRole('heading', { name: /конверсионные мероприятия/i })
     const conversionSection = conversionHeading.closest('section')
 

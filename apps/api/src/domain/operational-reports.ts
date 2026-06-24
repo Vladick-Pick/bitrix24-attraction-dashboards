@@ -412,8 +412,64 @@ function resolveBusinessClubLabel(value: string) {
     : value;
 }
 
-function resolveMeetingTypeValue(deal: DealSnapshot) {
-  const value = deal.meetingTypeValue?.trim();
+type DealMeetingSlotCandidate = {
+  index: 1 | 2 | 3;
+  dateValue: string | null;
+  typeValue: string | null;
+  placeValue: string | null;
+  calendarValue: string | null;
+  eventId: string | null;
+  hasExplicitSlot: boolean;
+};
+
+function buildDealMeetingSlotCandidates(deal: DealSnapshot): DealMeetingSlotCandidate[] {
+  const slots = deal.meetingSlots ?? [];
+
+  if (slots.length > 0) {
+    return [...slots]
+      .sort((left, right) => left.index - right.index)
+      .map((slot) => ({
+        index: slot.index,
+        dateValue: slot.dateValue,
+        typeValue: slot.typeValue,
+        placeValue: slot.placeValue,
+        calendarValue: slot.calendarValue,
+        eventId: slot.eventId,
+        hasExplicitSlot: true
+      }));
+  }
+
+  return [
+    {
+      index: 1,
+      dateValue: deal.meetingDateValue ?? null,
+      typeValue: deal.meetingTypeValue ?? null,
+      placeValue: null,
+      calendarValue: null,
+      eventId: null,
+      hasExplicitSlot: false
+    }
+  ];
+}
+
+function resolveMeetingSlotLabel(slotIndex: 1 | 2 | 3) {
+  return slotIndex === 1 ? "Встреча" : `Встреча ${slotIndex}`;
+}
+
+function resolveMeetingTypeValue(deal: DealSnapshot, slotIndex?: 1 | 2 | 3) {
+  const slot =
+    slotIndex === undefined
+      ? null
+      : buildDealMeetingSlotCandidates(deal).find((candidate) => candidate.index === slotIndex);
+  if (slotIndex && slotIndex > 1) {
+    const value = slot?.typeValue?.trim();
+    return value && value.length > 0 ? value : UNSPECIFIED_MEETING_TYPE;
+  }
+
+  const value =
+    slot && slot.hasExplicitSlot
+      ? slot.typeValue?.trim()
+      : (slot?.typeValue ?? deal.meetingTypeValue)?.trim();
   return value && value.length > 0 ? value : UNSPECIFIED_MEETING_TYPE;
 }
 
@@ -486,38 +542,71 @@ function buildDealMeetingDateWorkloadEvents(input: {
       deal: DealSnapshot;
       managerId: string;
       meetingAt: string;
+      slotIndex: 1 | 2 | 3;
+      meetingSlotIndex: 1 | 2 | 3 | null;
+      meetingSlotLabel: string | null;
+      meetingTypeKey: string;
     }
   >();
 
   const addCandidate = (
     deal: DealSnapshot | undefined,
     meetingAt: string | null | undefined,
-    managerId: string | null | undefined
+    managerId: string | null | undefined,
+    slotIndex: 1 | 2 | 3,
+    hasExplicitSlot: boolean
   ) => {
     if (!deal || !isWithinRange(meetingAt ?? null, input.fromMs, input.toMs)) {
       return;
     }
 
-    const current = eventsByDealId.get(deal.id);
+    const eventKey = `${deal.id}:${slotIndex}`;
+    const current = eventsByDealId.get(eventKey);
     if (current && Date.parse(current.meetingAt) >= Date.parse(meetingAt as string)) {
       return;
     }
 
-    eventsByDealId.set(deal.id, {
+    eventsByDealId.set(eventKey, {
       deal,
       managerId: managerId ?? deal.assignedById ?? "UNASSIGNED",
-      meetingAt: meetingAt as string
+      meetingAt: meetingAt as string,
+      slotIndex,
+      meetingSlotIndex: hasExplicitSlot ? slotIndex : null,
+      meetingSlotLabel: hasExplicitSlot ? resolveMeetingSlotLabel(slotIndex) : null,
+      meetingTypeKey: resolveMeetingTypeValue(deal, slotIndex)
     });
   };
 
   for (const deal of input.deals) {
-    addCandidate(deal, deal.meetingDateValue, deal.assignedById);
+    for (const slot of buildDealMeetingSlotCandidates(deal)) {
+      addCandidate(
+        deal,
+        slot.dateValue,
+        deal.assignedById,
+        slot.index,
+        slot.hasExplicitSlot
+      );
+    }
   }
 
   for (const change of input.meetingDateChanges ?? []) {
     const deal = dealById.get(change.dealId);
-    addCandidate(deal, change.previousMeetingDate, change.assignedById);
-    addCandidate(deal, change.nextMeetingDate, change.assignedById);
+    const slotIndex = change.slotIndex ?? 1;
+    const hasExplicitSlot = Boolean(deal?.meetingSlots?.length) || slotIndex > 1;
+    addCandidate(
+      deal,
+      change.previousMeetingDate,
+      change.assignedById,
+      slotIndex,
+      hasExplicitSlot
+    );
+    addCandidate(
+      deal,
+      change.nextMeetingDate,
+      change.assignedById,
+      slotIndex,
+      hasExplicitSlot
+    );
   }
 
   return Array.from(eventsByDealId.values());
@@ -1900,7 +1989,13 @@ export function buildActivitiesWorkloadReport(
     meetingTypeCounts: Map<string, number>;
     meetingBusinessClubCounts: Map<
       string,
-      { businessClubKey: string; meetingTypeKey: string; count: number }
+      {
+        businessClubKey: string;
+        meetingSlotIndex: 1 | 2 | 3 | null;
+        meetingSlotLabel: string | null;
+        meetingTypeKey: string;
+        count: number;
+      }
     >;
     businessClubDealIds: Map<string, Set<string>>;
     stageItems: Array<{
@@ -1937,7 +2032,13 @@ export function buildActivitiesWorkloadReport(
       meetingTypeCounts: new Map<string, number>(),
       meetingBusinessClubCounts: new Map<
         string,
-        { businessClubKey: string; meetingTypeKey: string; count: number }
+        {
+          businessClubKey: string;
+          meetingSlotIndex: 1 | 2 | 3 | null;
+          meetingSlotLabel: string | null;
+          meetingTypeKey: string;
+          count: number;
+        }
       >(),
       businessClubDealIds: new Map<string, Set<string>>(),
       stageItems: []
@@ -2019,20 +2120,23 @@ export function buildActivitiesWorkloadReport(
   }
 
   for (const event of meetingDateEvents) {
-    const { deal, managerId } = event;
+    const { deal, managerId, meetingSlotIndex, meetingSlotLabel, meetingTypeKey } =
+      event;
     const current = ensureManagerRow(managerId);
     registerDealForManager(managerId, deal);
     current.meetingCount += 1;
-    const meetingTypeKey = resolveMeetingTypeValue(deal);
     current.meetingTypeCounts.set(
       meetingTypeKey,
       (current.meetingTypeCounts.get(meetingTypeKey) ?? 0) + 1
     );
     const businessClubKey = resolveBusinessClubValue(deal);
-    const meetingBusinessClubKey = `${businessClubKey}||${meetingTypeKey}`;
+    const meetingSlotKey = meetingSlotLabel ?? "LEGACY";
+    const meetingBusinessClubKey = `${businessClubKey}||${meetingSlotKey}||${meetingTypeKey}`;
     const meetingBusinessClubBucket =
       current.meetingBusinessClubCounts.get(meetingBusinessClubKey) ?? {
         businessClubKey,
+        meetingSlotIndex,
+        meetingSlotLabel,
         meetingTypeKey,
         count: 0
       };
@@ -2078,16 +2182,27 @@ export function buildActivitiesWorkloadReport(
       ).map(({ count: _count, ...businessClub }) => businessClub),
       meetingBusinessClubBreakdown: sortCountRows(
         Array.from(row.meetingBusinessClubCounts.values()).map(
-          ({ businessClubKey, meetingTypeKey, count }) => ({
+          ({
+            businessClubKey,
+            meetingSlotIndex,
+            meetingSlotLabel,
+            meetingTypeKey,
+            count
+          }) => ({
             businessClubKey,
             businessClubLabel: resolveBusinessClubLabel(businessClubKey),
+            ...(meetingSlotIndex && meetingSlotLabel
+              ? { meetingSlotIndex, meetingSlotLabel }
+              : {}),
             meetingTypeKey,
             meetingTypeLabel: resolveMeetingTypeLabel(meetingTypeKey),
             count
           })
         ),
         (meetingBusinessClub) =>
-          `${meetingBusinessClub.businessClubLabel} ${meetingBusinessClub.meetingTypeLabel}`
+          `${meetingBusinessClub.businessClubLabel} ${
+            meetingBusinessClub.meetingSlotLabel ?? ""
+          } ${meetingBusinessClub.meetingTypeLabel}`
       ),
       slaMetrics: slaMetricsByManager.get(row.managerId) ?? [],
       stageBreakdown: buildActivitiesStageBreakdown(row.stageItems, stageLookup)
@@ -2309,29 +2424,77 @@ function isLifecycleTimestamp(value: string | null, deal: DealSnapshot, toMs: nu
   );
 }
 
+function toCalendarDayKey(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const isoDateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(trimmed);
+  if (isoDateMatch) {
+    return isoDateMatch[1] ?? null;
+  }
+
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function hasExistingMeetingOnDay(
+  existingMeetings: ActivitySnapshot[],
+  meetingDateValue: string
+) {
+  const targetDay = toCalendarDayKey(meetingDateValue);
+  if (!targetDay) {
+    return false;
+  }
+
+  return existingMeetings.some((meeting) =>
+    [meeting.deadline, getMeetingCommunicationTime(meeting), meeting.createdTime].some(
+      (value) => toCalendarDayKey(value) === targetDay
+    )
+  );
+}
+
 function buildMeetingDateFallbackEvents(
   deal: DealSnapshot,
   existingMeetings: ActivitySnapshot[],
   toMs: number
 ): DealMeetingEvent[] {
-  if (existingMeetings.length > 0) {
-    return [];
-  }
-
-  const meetingDateValue = deal.meetingDateValue?.trim();
-  if (!meetingDateValue || !isLifecycleTimestamp(meetingDateValue, deal, toMs)) {
-    return [];
-  }
-
-  return [
-    {
-      activityId: `deal-field:${deal.id}:meeting-date`,
-      createdAt: meetingDateValue,
-      timelineAt: meetingDateValue,
-      scheduledAt: meetingDateValue,
-      completed: true
+  return buildDealMeetingSlotCandidates(deal).flatMap((slot) => {
+    const meetingDateValue = slot.dateValue?.trim();
+    if (!meetingDateValue || !isLifecycleTimestamp(meetingDateValue, deal, toMs)) {
+      return [];
     }
-  ];
+
+    if (hasExistingMeetingOnDay(existingMeetings, meetingDateValue)) {
+      return [];
+    }
+
+    return [
+      {
+        activityId:
+          slot.index === 1
+            ? `deal-field:${deal.id}:meeting-date`
+            : `deal-field:${deal.id}:meeting-date:${slot.index}`,
+        createdAt: meetingDateValue,
+        timelineAt: meetingDateValue,
+        scheduledAt: meetingDateValue,
+        completed: true,
+        slotIndex: slot.index,
+        typeValue: slot.typeValue,
+        placeValue: slot.placeValue,
+        calendarValue: slot.calendarValue,
+        eventId: slot.eventId
+      }
+    ];
+  });
 }
 
 function toPerDeal(total: number, dealCount: number) {

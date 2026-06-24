@@ -339,6 +339,11 @@ export interface DealMeetingEvent {
   timelineAt: string
   scheduledAt: string
   completed: boolean
+  slotIndex?: 1 | 2 | 3 | null
+  typeValue?: string | null
+  placeValue?: string | null
+  calendarValue?: string | null
+  eventId?: string | null
 }
 
 export interface DealStageTimelineEntry {
@@ -668,6 +673,8 @@ export interface BusinessClubDealBucket {
 export interface MeetingBusinessClubBucket {
   businessClubKey: string
   businessClubLabel: string
+  meetingSlotIndex?: 1 | 2 | 3 | null
+  meetingSlotLabel?: string | null
   meetingTypeKey: string
   meetingTypeLabel: string
   count: number

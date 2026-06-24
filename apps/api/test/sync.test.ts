@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { ATTRACTION_MANAGER_IDS } from "../src/domain/attraction-managers";
 import { performLeadgenSync } from "../src/domain/leadgen-sync";
 import { buildAcquisitionOutcomesReport } from "../src/domain/operational-reports";
-import { performManualSync } from "../src/domain/sync";
+import {
+  DEAL_CUSTOM_FIELDS_COVERAGE_VERSION,
+  performManualSync
+} from "../src/domain/sync";
 
 describe("performManualSync", () => {
   const defaultAttractionManagerIds = ATTRACTION_MANAGER_IDS;
@@ -1244,7 +1247,7 @@ describe("performManualSync", () => {
 
         expect(cursor.categoryIds).toEqual(["10"]);
         expect(cursor.assignedByIds).toEqual(defaultAttractionManagerIds);
-        expect(cursor.customFieldNames).toEqual([
+        expect(cursor.customFieldNames).toEqual(expect.arrayContaining([
           "UF_CRM_1730380390",
           "UF_CRM_1643901145",
           "UF_CRM_1747682957",
@@ -1256,7 +1259,7 @@ describe("performManualSync", () => {
           "UF_CRM_1647422890",
           "UF_CRM_1776949411825",
           "UF_CRM_1772109151192"
-        ]);
+        ]));
         return [
           {
             ID: "D1",
@@ -1658,13 +1661,13 @@ describe("performManualSync", () => {
       expect.objectContaining({
         categoryIds: ["10"],
         assignedByIds: defaultAttractionManagerIds,
-        customFieldNames: [
+        customFieldNames: expect.arrayContaining([
           "UF_CRM_1730380390",
           "UF_CRM_1647422744",
           "UF_CRM_1647422890",
           "UF_CRM_1776949411825",
           "UF_CRM_1772109151192"
-        ]
+        ])
       })
     ]);
     expect(storedDeals).toEqual([
@@ -1677,6 +1680,177 @@ describe("performManualSync", () => {
       ]
     ]);
     expect(result.dealsSynced).toBe(1);
+  });
+
+  it("maps all deal meeting field slots into sorted meeting slots", async () => {
+    const listDealRequests: Array<{ customFieldNames?: string[] }> = [];
+    const storedDeals: unknown[][] = [];
+    const requestedFieldMaps: string[] = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-05-01T00:00:00.000Z",
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-05-01T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-05-01T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 1,
+      getDealIdsByCategoryIds: async () => ["D_MEETINGS"],
+      getActivitiesByIds: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async (rows: unknown[]) => {
+        storedDeals.push(rows);
+        return rows.length;
+      },
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 131,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async (fieldName: string) => {
+        requestedFieldMaps.push(fieldName);
+        return {
+          "90": "Очная",
+          "91": "Zoom",
+          "92": "Офлайн",
+          "301": "Офис К1",
+          "302": "Офис К2",
+          "401": "Основной календарь",
+          "402": "Календарь клуба"
+        };
+      },
+      listDeals: async (cursor: { customFieldNames?: string[] }) => {
+        listDealRequests.push({
+          ...(cursor.customFieldNames
+            ? { customFieldNames: cursor.customFieldNames }
+            : {})
+        });
+        return [
+          {
+            ID: "D_MEETINGS",
+            CONTACT_ID: "9001",
+            LEAD_ID: null,
+            DATE_CREATE: "2026-05-02T10:00:00.000Z",
+            DATE_MODIFY: "2026-05-03T10:00:00.000Z",
+            DATE_CLOSED: null,
+            CATEGORY_ID: "10",
+            STAGE_ID: "C10:NEW",
+            STAGE_SEMANTIC_ID: "P",
+            OPPORTUNITY: 1000,
+            ASSIGNED_BY_ID: "78",
+            SOURCE_ID: "WEB",
+            UF_CRM_1669784114991: "90",
+            UF_CRM_1669784197394: "2026-05-04T10:00:00.000Z",
+            UF_CRM_1669784273591: "301",
+            UF_CRM_1677669882: "401",
+            UF_CRM_MEET2_DT: "2026-05-06T10:00:00.000Z",
+            UF_CRM_DEAL_MEET2_KIND: "91",
+            UF_CRM_DEAL_MEET2_PLACE: "302",
+            UF_CRM_DEAL_MEET2_CAL: "402",
+            UF_CRM_DEAL_MEET2_EVENT: "event-2",
+            UF_CRM_MEET3_DT: "2026-05-08T10:00:00.000Z",
+            UF_CRM_DEAL_MEET3_KIND: "92",
+            UF_CRM_DEAL_MEET3_PLACE: "558404",
+            UF_CRM_DEAL_MEET3_CAL: "777",
+            UTM_SOURCE: null,
+            UTM_MEDIUM: null,
+            UTM_CAMPAIGN: null,
+            UTM_CONTENT: null,
+            UTM_TERM: null
+          }
+        ];
+      },
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client: client as never,
+      repository: repo as never,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      meetingTypeFieldName: "UF_CRM_1669784114991",
+      meetingDateFieldName: "UF_CRM_1669784197394",
+      now: () => "2026-05-14T00:00:00.000Z"
+    });
+
+    expect(listDealRequests[0]?.customFieldNames).toEqual(
+      expect.arrayContaining([
+        "UF_CRM_1669784114991",
+        "UF_CRM_1669784197394",
+        "UF_CRM_1669784273591",
+        "UF_CRM_1677669882",
+        "UF_CRM_MEET2_DT",
+        "UF_CRM_DEAL_MEET2_KIND",
+        "UF_CRM_DEAL_MEET2_PLACE",
+        "UF_CRM_DEAL_MEET2_CAL",
+        "UF_CRM_DEAL_MEET2_EVENT",
+        "UF_CRM_MEET3_DT",
+        "UF_CRM_DEAL_MEET3_KIND",
+        "UF_CRM_DEAL_MEET3_PLACE",
+        "UF_CRM_DEAL_MEET3_CAL",
+        "UF_CRM_DEAL_MEET3_EVENT"
+      ])
+    );
+    expect(requestedFieldMaps).toEqual(
+      expect.arrayContaining([
+        "UF_CRM_1669784114991",
+        "UF_CRM_1669784273591",
+        "UF_CRM_1677669882",
+        "UF_CRM_DEAL_MEET2_KIND",
+        "UF_CRM_DEAL_MEET2_PLACE",
+        "UF_CRM_DEAL_MEET2_CAL",
+        "UF_CRM_DEAL_MEET3_KIND"
+      ])
+    );
+    expect(storedDeals).toEqual([
+      [
+        expect.objectContaining({
+          id: "D_MEETINGS",
+          meetingTypeValue: "Очная",
+          meetingDateValue: "2026-05-04T10:00:00.000Z",
+          meetingSlots: [
+            {
+              index: 1 as const,
+              dateValue: "2026-05-04T10:00:00.000Z",
+              typeValue: "Очная",
+              placeValue: "Офис К1",
+              calendarValue: "Основной календарь",
+              eventId: null,
+              source: "deal_fields" as const
+            },
+            {
+              index: 2 as const,
+              dateValue: "2026-05-06T10:00:00.000Z",
+              typeValue: "Zoom",
+              placeValue: "Офис К2",
+              calendarValue: "Календарь клуба",
+              eventId: "event-2",
+              source: "deal_fields"
+            },
+            {
+              index: 3,
+              dateValue: "2026-05-08T10:00:00.000Z",
+              typeValue: "Офлайн",
+              placeValue: null,
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields" as const
+            }
+          ]
+        })
+      ]
+    ]);
   });
 
   it("fetches stage history for closed deals during an initial full sync", async () => {
@@ -3146,16 +3320,16 @@ describe("performManualSync", () => {
     });
 
     expect(dealRequests).toEqual([
-      {
+      expect.objectContaining({
         categoryIds: ["10"],
-        customFieldNames: [
+        customFieldNames: expect.arrayContaining([
           "UF_CRM_1730380390",
           "UF_CRM_1647422744",
           "UF_CRM_1647422890",
           "UF_CRM_1776949411825",
           "UF_CRM_1772109151192"
-        ]
-      }
+        ])
+      })
     ]);
     expect(storedDeals).toEqual([
       [
@@ -3383,18 +3557,18 @@ describe("performManualSync", () => {
     expect(dealRequests.map((request) => request.categoryIds)).toEqual([
       ["10"]
     ]);
-    expect(dealRequests[0]?.customFieldNames).toEqual([
+    expect(dealRequests[0]?.customFieldNames).toEqual(expect.arrayContaining([
       "UF_CRM_1730380390",
       "UF_CRM_1647422744",
       "UF_CRM_1647422890",
       "UF_CRM_1776949411825",
       "UF_CRM_1772109151192"
-    ]);
-    expect(fieldMapRequests).toEqual([
+    ]));
+    expect(fieldMapRequests).toEqual(expect.arrayContaining([
       "UF_CRM_1647422744",
       "UF_CRM_1776949411825",
       "UF_CRM_1772109151192"
-    ]);
+    ]));
     expect(storedDeals).toEqual([
       [
         expect.objectContaining({
@@ -4231,7 +4405,7 @@ describe("performManualSync", () => {
       }) => {
         dealSyncCursors.push(cursor.modifiedAfter);
         expect(cursor.categoryIds).toEqual(["11"]);
-        expect(cursor.customFieldNames).toEqual([
+        expect(cursor.customFieldNames).toEqual(expect.arrayContaining([
           "UF_CRM_1730380390",
           "UF_CRM_1747682957",
           "UF_CRM_1669784114991",
@@ -4239,7 +4413,7 @@ describe("performManualSync", () => {
           "UF_CRM_1647422890",
           "UF_CRM_1776949411825",
           "UF_CRM_1772109151192"
-        ]);
+        ]));
 
         return [
           {
@@ -4318,6 +4492,26 @@ describe("performManualSync", () => {
           sourceId: "WEB",
           qualityValue: null,
           meetingDateValue: "2026-03-11T13:00:00+03:00",
+          meetingSlots: [
+            {
+              index: 1 as const,
+              dateValue: "2026-03-11T13:00:00+03:00",
+              typeValue: null,
+              placeValue: null,
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields" as const
+            },
+            {
+              index: 2 as const,
+              dateValue: "2026-03-12T13:00:00+03:00",
+              typeValue: "Zoom",
+              placeValue: null,
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields" as const
+            }
+          ],
           dateCreate: "2026-03-01T00:00:00.000Z",
           dateModify: "2026-03-14T00:00:00.000Z",
           dateClosed: null,
@@ -4379,14 +4573,14 @@ describe("performManualSync", () => {
       }) => {
         dealSyncCursors.push(cursor.modifiedAfter);
         expect(cursor.categoryIds).toEqual(["11"]);
-        expect(cursor.customFieldNames).toEqual([
+        expect(cursor.customFieldNames).toEqual(expect.arrayContaining([
           "UF_CRM_1730380390",
           "UF_CRM_MEETING_DATE",
           "UF_CRM_1647422744",
           "UF_CRM_1647422890",
           "UF_CRM_1776949411825",
           "UF_CRM_1772109151192"
-        ]);
+        ]));
 
         return [
           {
@@ -4402,6 +4596,8 @@ describe("performManualSync", () => {
             ASSIGNED_BY_ID: "78",
             SOURCE_ID: "WEB",
             UF_CRM_MEETING_DATE: "2026-03-13T13:00:00+03:00",
+            UF_CRM_MEET2_DT: "2026-03-16T13:00:00+03:00",
+            UF_CRM_DEAL_MEET2_KIND: "Zoom",
             UTM_SOURCE: null,
             UTM_MEDIUM: null,
             UTM_CAMPAIGN: null,
@@ -4430,7 +4626,17 @@ describe("performManualSync", () => {
       [
         expect.objectContaining({
           id: "D_MEETING_DATE",
-          meetingDateValue: "2026-03-13T13:00:00+03:00"
+          meetingDateValue: "2026-03-13T13:00:00+03:00",
+          meetingSlots: [
+            expect.objectContaining({
+              index: 1,
+              dateValue: "2026-03-13T13:00:00+03:00"
+            }),
+            expect.objectContaining({
+              index: 2,
+              dateValue: "2026-03-16T13:00:00+03:00"
+            })
+          ]
         })
       ]
     ]);
@@ -4438,8 +4644,16 @@ describe("performManualSync", () => {
       [
         expect.objectContaining({
           dealId: "D_MEETING_DATE",
+          slotIndex: 1,
           previousMeetingDate: "2026-03-11T13:00:00+03:00",
           nextMeetingDate: "2026-03-13T13:00:00+03:00",
+          changedAt: "2026-03-15T00:00:00.000Z"
+        }),
+        expect.objectContaining({
+          dealId: "D_MEETING_DATE",
+          slotIndex: 2,
+          previousMeetingDate: "2026-03-12T13:00:00+03:00",
+          nextMeetingDate: "2026-03-16T13:00:00+03:00",
           changedAt: "2026-03-15T00:00:00.000Z"
         })
       ]
@@ -4545,6 +4759,140 @@ describe("performManualSync", () => {
           coveredFrom: "2025-04-25T00:00:00.000Z"
         })
       ])
+    );
+  });
+
+  it("reopens deal custom-field backfill when meeting-slot fields change coverage version", async () => {
+    expect(DEAL_CUSTOM_FIELDS_COVERAGE_VERSION).toBe("deal-custom-fields-v5");
+
+    const dealRequests: Array<{
+      modifiedAfter: string | null;
+      customFieldNames?: string[];
+    }> = [];
+    const coverageChecks: Array<{
+      stream: string;
+      providerId: string | null;
+      algorithmVersion: string;
+    }> = [];
+    const coverageWrites: Array<{
+      stream: string;
+      providerId: string | null;
+      coveredFrom: string;
+      algorithmVersion: string;
+    }> = [];
+    const repo = {
+      getLatestSuccessCursor: async () => "2026-04-24T00:00:00.000Z",
+      getSyncCursor: async () => "2026-04-24T00:00:00.000Z",
+      setSyncCursor: async () => undefined,
+      hasSyncCoverage: async (input: {
+        stream: string;
+        providerId: string | null;
+        algorithmVersion: string;
+      }) => {
+        coverageChecks.push(input);
+        return input.stream !== "deal_custom_fields";
+      },
+      upsertSyncCoverage: async (input: {
+        stream: string;
+        providerId: string | null;
+        coveredFrom: string;
+        algorithmVersion: string;
+      }) => {
+        coverageWrites.push(input);
+      },
+      getOperationalHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getCallHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getCallActivityHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getMeetingActivityHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getTaskActivityHistoryBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getDealCustomFieldsBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getDealMeetingDateFieldBootstrappedAt: async () =>
+        "2026-04-24T00:00:00.000Z",
+      getActivitySnapshotCount: async () => 10,
+      getDealIdsByCategoryIds: async () => [],
+      getActivitiesByIds: async () => [],
+      getCallActivityIdsMissingActivities: async () => [],
+      getCallActivityIdsMissingCallStats: async () => [],
+      replaceStageCatalog: async () => undefined,
+      upsertDeals: async () => 0,
+      upsertStageHistory: async () => 0,
+      upsertActivities: async () => 0,
+      upsertActivityDeadlineChanges: async () => 0,
+      upsertCalls: async () => 0,
+      upsertManagerDirectory: async () => 0,
+      createSyncRun: async () => 51,
+      markOperationalHistoryBootstrapped: async () => undefined,
+      markCallHistoryBootstrapped: async () => undefined,
+      markCallActivityHistoryBootstrapped: async () => undefined,
+      markMeetingActivityHistoryBootstrapped: async () => undefined,
+      markTaskActivityHistoryBootstrapped: async () => undefined,
+      markDealCustomFieldsBootstrapped: async () => undefined,
+      markDealMeetingDateFieldBootstrapped: async () => undefined,
+      finishSyncRun: async () => undefined,
+      failSyncRun: async () => undefined
+    };
+    const client = {
+      fetchDealStages: async () => [],
+      fetchSourceCatalog: async () => [],
+      fetchDealQualityMap: async () => ({}),
+      fetchDealFieldValueMap: async () => ({}),
+      listDeals: async (cursor: {
+        modifiedAfter: string | null;
+        customFieldNames?: string[];
+      }) => {
+        dealRequests.push(cursor);
+        return [];
+      },
+      listStageHistory: async () => [],
+      listActivities: async () => [],
+      listCalls: async () => [],
+      fetchUsers: async () => []
+    };
+
+    await performManualSync({
+      client,
+      repository: repo,
+      categoryIds: ["10"],
+      qualityFieldName: "UF_CRM_1730380390",
+      meetingTypeFieldName: "UF_CRM_MEET_KIND",
+      meetingDateFieldName: "UF_CRM_MEET_DT",
+      bootstrapLookbackDays: 365,
+      now: () => "2026-04-25T00:00:00.000Z"
+    });
+
+    expect(coverageChecks).toContainEqual(
+      expect.objectContaining({
+        stream: "deal_custom_fields",
+        providerId: "all",
+        algorithmVersion: "deal-custom-fields-v5"
+      })
+    );
+    expect(dealRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          modifiedAfter: "2025-04-25T00:00:00.000Z",
+          customFieldNames: expect.arrayContaining([
+            "UF_CRM_MEET2_DT",
+            "UF_CRM_DEAL_MEET2_KIND",
+            "UF_CRM_MEET3_DT",
+            "UF_CRM_DEAL_MEET3_KIND"
+          ])
+        })
+      ])
+    );
+    expect(coverageWrites).toContainEqual(
+      expect.objectContaining({
+        stream: "deal_custom_fields",
+        providerId: "all",
+        coveredFrom: "2025-04-25T00:00:00.000Z",
+        algorithmVersion: "deal-custom-fields-v5"
+      })
     );
   });
 

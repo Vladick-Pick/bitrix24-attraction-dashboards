@@ -253,6 +253,117 @@ function eventVisit(
 }
 
 describe("buildDealLifecycleCard", () => {
+  it("builds fallback meeting timeline events for deal meeting slots two and three", () => {
+    const card = buildDealLifecycleCard({
+      range,
+      deal: {
+        ...baseDeal,
+        meetingSlots: [
+          {
+            index: 1,
+            dateValue: "2026-04-18T12:00:00.000Z",
+            typeValue: "Очная",
+            placeValue: "Офис К1",
+            calendarValue: null,
+            eventId: null,
+            source: "deal_fields"
+          },
+          {
+            index: 2,
+            dateValue: "2026-04-19T12:00:00.000Z",
+            typeValue: "Zoom",
+            placeValue: null,
+            calendarValue: null,
+            eventId: "calendar-event-2",
+            source: "deal_fields"
+          },
+          {
+            index: 3,
+            dateValue: "2026-04-20T12:00:00.000Z",
+            typeValue: "Офлайн",
+            placeValue: "Офис К2",
+            calendarValue: null,
+            eventId: null,
+            source: "deal_fields"
+          }
+        ]
+      },
+      status: "wip",
+      stageCatalog,
+      stageHistory,
+      touchpointFacts: [],
+      eventVisitFacts: [],
+      events: [],
+      pricingRules: DEFAULT_PRICING_RULES,
+      costRules: [],
+      costFacts: []
+    });
+
+    const meetingEvents = card.stageTimeline.flatMap((stage) =>
+      stage.events.filter((event) => event.kind === "meeting")
+    );
+
+    expect(card.eventSummary.meetingSummary.total).toBe(3);
+    expect(meetingEvents.map((event) => event.title)).toEqual([
+      "Встреча",
+      "Встреча 2",
+      "Встреча 3"
+    ]);
+    expect(meetingEvents.map((event) => event.detail)).toEqual([
+      "Очная · Офис К1 · запланирована",
+      "Zoom · запланирована",
+      "Офлайн · Офис К2 · запланирована"
+    ]);
+  });
+
+  it("keeps deal-field meeting slots when canonical call touchpoints exist", () => {
+    const card = buildDealLifecycleCard({
+      range,
+      deal: {
+        ...baseDeal,
+        meetingSlots: [
+          {
+            index: 2,
+            dateValue: "2026-04-19T12:00:00.000Z",
+            typeValue: "Zoom",
+            placeValue: null,
+            calendarValue: null,
+            eventId: null,
+            source: "deal_fields"
+          }
+        ]
+      },
+      status: "wip",
+      stageCatalog,
+      stageHistory,
+      touchpointFacts: [
+        touchpoint({
+          factId: "call:CALL_WITH_MEETING_SLOT",
+          kind: "call",
+          occurredAt: "2026-04-18T10:00:00.000Z",
+          payloadJson: JSON.stringify({
+            direction: "outgoing",
+            durationSeconds: 91,
+            connected: true,
+            overThirtySeconds: true
+          })
+        })
+      ],
+      eventVisitFacts: [],
+      events: [],
+      pricingRules: DEFAULT_PRICING_RULES,
+      costRules: [],
+      costFacts: []
+    });
+
+    const eventTitles = card.stageTimeline.flatMap((stage) =>
+      stage.events.map((event) => event.title)
+    );
+
+    expect(eventTitles).toEqual(expect.arrayContaining(["Звонок", "Встреча 2"]));
+    expect(card.eventSummary.meetingSummary.total).toBe(1);
+  });
+
   it("builds a won card with safe events and deal-level sale costs", () => {
     const card = buildDealLifecycleCard({
       range,

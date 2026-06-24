@@ -13,6 +13,16 @@ export interface LeadSnapshot {
   utmTerm: string | null;
 }
 
+export interface DealMeetingSlot {
+  index: 1 | 2 | 3;
+  dateValue: string | null;
+  typeValue: string | null;
+  placeValue: string | null;
+  calendarValue: string | null;
+  eventId: string | null;
+  source: "deal_fields";
+}
+
 export interface DealSnapshot {
   id: string;
   title?: string | null;
@@ -29,6 +39,7 @@ export interface DealSnapshot {
   targetGroupValue?: string | null;
   meetingTypeValue?: string | null;
   meetingDateValue?: string | null;
+  meetingSlots?: DealMeetingSlot[];
   tariffValue?: string | null;
   conversionEventValue?: string | null;
   refusalReasonValue?: string | null;
@@ -277,6 +288,7 @@ export interface ActivityDeadlineChangeSnapshot {
 export interface DealMeetingDateChangeSnapshot {
   id: string;
   dealId: string;
+  slotIndex?: 1 | 2 | 3;
   assignedById: string | null;
   previousMeetingDate: string | null;
   nextMeetingDate: string | null;
@@ -808,6 +820,11 @@ export interface DealMeetingEvent {
   timelineAt: string;
   scheduledAt: string;
   completed: boolean;
+  slotIndex?: 1 | 2 | 3 | null;
+  typeValue?: string | null;
+  placeValue?: string | null;
+  calendarValue?: string | null;
+  eventId?: string | null;
 }
 
 export type DealLifecycleStatus = "won" | "lost" | "wip";
@@ -1151,6 +1168,8 @@ export interface BusinessClubDealBucket {
 export interface MeetingBusinessClubBucket {
   businessClubKey: string;
   businessClubLabel: string;
+  meetingSlotIndex?: 1 | 2 | 3 | null;
+  meetingSlotLabel?: string | null;
   meetingTypeKey: string;
   meetingTypeLabel: string;
   count: number;

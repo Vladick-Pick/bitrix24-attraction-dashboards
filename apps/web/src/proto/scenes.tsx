@@ -1741,6 +1741,9 @@ function formatCompareDelta(current: number, previous: number, kind: 'count' | '
 type StageMeetingBadge = {
   key: string
   dateValue: string
+  slotIndex: 1 | 2 | 3 | null
+  typeValue: string | null
+  placeValue: string | null
 }
 
 type MeetingDateTimelineResolution =
@@ -1842,6 +1845,9 @@ function getStageMeetingBadges(
   const badges: StageMeetingBadge[] = (stage.meetingEvents ?? []).map((meeting) => ({
     key: meeting.activityId,
     dateValue: meeting.timelineAt,
+    slotIndex: meeting.slotIndex ?? null,
+    typeValue: meeting.typeValue ?? null,
+    placeValue: meeting.placeValue ?? null,
   }))
   const renderedDates = new Set(badges.map((badge) => formatShortDate(badge.dateValue)))
 
@@ -1852,11 +1858,43 @@ function getStageMeetingBadges(
       badges.push({
         key: `meeting-date-${stage.stageId}-${meetingDateValue}`,
         dateValue: meetingDateValue,
+        slotIndex: null,
+        typeValue: null,
+        placeValue: null,
       })
     }
   }
 
   return badges
+}
+
+function formatStageMeetingBadgeLabel(meeting: StageMeetingBadge) {
+  const title =
+    meeting.slotIndex && meeting.slotIndex > 1 ? `Встреча ${meeting.slotIndex}` : 'Встреча'
+  const detailParts = [meeting.typeValue, meeting.placeValue].filter(
+    (part): part is string => Boolean(part?.trim()),
+  )
+  const baseLabel = `${title} ${formatShortDate(meeting.dateValue)}`
+
+  return detailParts.length > 0 ? `${baseLabel} · ${detailParts.join(' · ')}` : baseLabel
+}
+
+function normalizeMeetingSlotToneIndex(slotIndex: 1 | 2 | 3 | null | undefined): 1 | 2 | 3 {
+  return slotIndex ?? 1
+}
+
+function getStageMeetingBadgeClass(slotIndex: 1 | 2 | 3 | null | undefined) {
+  const baseClass =
+    'inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full border bg-white px-2 py-1 text-[11px] font-semibold leading-tight shadow-[0_1px_0_rgba(15,23,42,0.03)]'
+
+  switch (normalizeMeetingSlotToneIndex(slotIndex)) {
+    case 2:
+      return `${baseClass} border-violet-100 text-violet-700`
+    case 3:
+      return `${baseClass} border-rose-100 text-rose-700`
+    default:
+      return `${baseClass} border-amber-100 text-amber-700`
+  }
 }
 
 function hasStageCallSummary(summary: DealStageTimelineEntry['callSummary']) {
@@ -1924,9 +1962,10 @@ function StageTimelineInteractionBadges({
       {meetingBadges.map((meeting) => (
         <span
           key={meeting.key}
-          className="inline-flex min-w-0 max-w-full items-center whitespace-normal break-words rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold leading-tight text-amber-800"
+          data-meeting-slot-index={normalizeMeetingSlotToneIndex(meeting.slotIndex)}
+          className={getStageMeetingBadgeClass(meeting.slotIndex)}
         >
-          Встреча {formatShortDate(meeting.dateValue)}
+          {formatStageMeetingBadgeLabel(meeting)}
         </span>
       ))}
       {showCalls && callSummary ? (
@@ -4689,11 +4728,16 @@ function ActivitiesMeetingsSection({
                             </span>
                             {group.meetingTypes.map((meetingType) => (
                               <span
-                                key={`${row.managerId}-${group.businessClubKey}-${meetingType.meetingTypeKey}`}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+                                key={`${row.managerId}-${group.businessClubKey}-${meetingType.meetingSlotLabel ?? 'legacy'}-${meetingType.meetingTypeKey}`}
+                                {...(meetingType.meetingSlotIndex
+                                  ? { 'data-meeting-slot-index': meetingType.meetingSlotIndex }
+                                  : {})}
+                                className={getMeetingBusinessClubTypeBadgeClass(
+                                  meetingType.meetingSlotIndex,
+                                )}
                               >
-                                <span>{meetingType.meetingTypeLabel}</span>
-                                <span className="text-slate-400">{formatInteger(meetingType.count)}</span>
+                                <span>{formatMeetingBusinessClubTypeLabel(meetingType)}</span>
+                                <span className="opacity-70">{formatInteger(meetingType.count)}</span>
                               </span>
                             ))}
                           </div>
@@ -4719,7 +4763,13 @@ function buildMeetingBusinessClubGroups(row: ActivitiesWorkloadReport['managerRo
     {
       businessClubKey: string
       businessClubLabel: string
-      meetingTypes: Array<{ meetingTypeKey: string; meetingTypeLabel: string; count: number }>
+      meetingTypes: Array<{
+        meetingSlotIndex: 1 | 2 | 3 | null
+        meetingSlotLabel: string | null
+        meetingTypeKey: string
+        meetingTypeLabel: string
+        count: number
+      }>
     }
   >()
   const combinedBreakdown = row.meetingBusinessClubBreakdown ?? []
@@ -4728,7 +4778,11 @@ function buildMeetingBusinessClubGroups(row: ActivitiesWorkloadReport['managerRo
     grouped.set('LEGACY', {
       businessClubKey: 'LEGACY',
       businessClubLabel: 'Без разреза по клубу',
-      meetingTypes: row.meetingTypeBreakdown,
+      meetingTypes: row.meetingTypeBreakdown.map((meetingType) => ({
+        meetingSlotIndex: null,
+        meetingSlotLabel: null,
+        ...meetingType,
+      })),
     })
   } else {
     for (const item of combinedBreakdown) {
@@ -4739,6 +4793,8 @@ function buildMeetingBusinessClubGroups(row: ActivitiesWorkloadReport['managerRo
       }
 
       group.meetingTypes.push({
+        meetingSlotIndex: item.meetingSlotIndex ?? null,
+        meetingSlotLabel: item.meetingSlotLabel ?? null,
         meetingTypeKey: item.meetingTypeKey,
         meetingTypeLabel: item.meetingTypeLabel,
         count: item.count,
@@ -4748,6 +4804,30 @@ function buildMeetingBusinessClubGroups(row: ActivitiesWorkloadReport['managerRo
   }
 
   return Array.from(grouped.values())
+}
+
+function formatMeetingBusinessClubTypeLabel(
+  item: ReturnType<typeof buildMeetingBusinessClubGroups>[number]['meetingTypes'][number],
+) {
+  return item.meetingSlotLabel
+    ? `${item.meetingSlotLabel} · ${item.meetingTypeLabel}`
+    : item.meetingTypeLabel
+}
+
+function getMeetingBusinessClubTypeBadgeClass(slotIndex: 1 | 2 | 3 | null | undefined) {
+  const baseClass =
+    'inline-flex items-center gap-1.5 rounded-md border bg-white px-2 py-1 text-xs font-medium shadow-[0_1px_0_rgba(15,23,42,0.03)]'
+
+  switch (slotIndex) {
+    case 1:
+      return `${baseClass} border-amber-100 text-amber-700`
+    case 2:
+      return `${baseClass} border-violet-100 text-violet-700`
+    case 3:
+      return `${baseClass} border-rose-100 text-rose-700`
+    default:
+      return `${baseClass} border-slate-200 text-slate-700`
+  }
 }
 
 function formatActivityConversionEventStages(

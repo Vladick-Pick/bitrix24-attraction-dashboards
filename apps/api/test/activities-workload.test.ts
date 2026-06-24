@@ -3,6 +3,241 @@ import { describe, expect, it } from "vitest";
 import { buildActivitiesWorkloadReport } from "../src/domain/operational-reports";
 
 describe("buildActivitiesWorkloadReport", () => {
+  it("counts each dated deal meeting slot by its own meeting type", () => {
+    const result = buildActivitiesWorkloadReport({
+      range: {
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      deals: [
+        {
+          id: "SLOT_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:MEETING",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: "ClubOne",
+          targetGroupValue: null,
+          meetingTypeValue: "Очная",
+          meetingDateValue: "2026-05-04T10:00:00.000Z",
+          meetingSlots: [
+            {
+              index: 1,
+              dateValue: "2026-05-04T10:00:00.000Z",
+              typeValue: "Очная",
+              placeValue: "Офис К1",
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields"
+            },
+            {
+              index: 2,
+              dateValue: "2026-05-06T10:00:00.000Z",
+              typeValue: "Zoom",
+              placeValue: null,
+              calendarValue: null,
+              eventId: "calendar-event-2",
+              source: "deal_fields"
+            },
+            {
+              index: 3,
+              dateValue: "2026-05-08T10:00:00.000Z",
+              typeValue: "Офлайн",
+              placeValue: "Офис К2",
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields"
+            }
+          ],
+          dateCreate: "2026-05-01T09:00:00.000Z",
+          dateModify: "2026-05-08T11:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:MEETING",
+          name: "Встреча-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        }
+      ],
+      stageHistory: [],
+      activities: [],
+      deadlineChanges: [],
+      meetingDateChanges: [],
+      managerDirectory: [{ id: "7", name: "Анна Куратор" }]
+    });
+
+    const managerRow = result.managerRows.find((row) => row.managerId === "7");
+
+    expect(result.totalMeetingCount).toBe(3);
+    expect(managerRow).toMatchObject({
+      meetingCount: 3,
+      averageMeetingsPerDeal: 3
+    });
+    expect(managerRow?.meetingTypeBreakdown).toEqual(
+      expect.arrayContaining([
+        {
+          meetingTypeKey: "Zoom",
+          meetingTypeLabel: "Zoom",
+          count: 1
+        },
+        {
+          meetingTypeKey: "Офлайн",
+          meetingTypeLabel: "Офлайн",
+          count: 1
+        },
+        {
+          meetingTypeKey: "Очная",
+          meetingTypeLabel: "Очная",
+          count: 1
+        }
+      ])
+    );
+    expect(managerRow?.meetingBusinessClubBreakdown).toEqual(
+      expect.arrayContaining([
+        {
+          businessClubKey: "ClubOne",
+          businessClubLabel: "ClubOne",
+          meetingSlotIndex: 2,
+          meetingSlotLabel: "Встреча 2",
+          meetingTypeKey: "Zoom",
+          meetingTypeLabel: "Zoom",
+          count: 1
+        },
+        {
+          businessClubKey: "ClubOne",
+          businessClubLabel: "ClubOne",
+          meetingSlotIndex: 3,
+          meetingSlotLabel: "Встреча 3",
+          meetingTypeKey: "Офлайн",
+          meetingTypeLabel: "Офлайн",
+          count: 1
+        },
+        {
+          businessClubKey: "ClubOne",
+          businessClubLabel: "ClubOne",
+          meetingSlotIndex: 1,
+          meetingSlotLabel: "Встреча",
+          meetingTypeKey: "Очная",
+          meetingTypeLabel: "Очная",
+          count: 1
+        }
+      ])
+    );
+  });
+
+  it("does not inherit the first meeting type for later slots with empty type", () => {
+    const result = buildActivitiesWorkloadReport({
+      range: {
+        from: "2026-05-01T00:00:00.000Z",
+        to: "2026-05-31T23:59:59.999Z"
+      },
+      deals: [
+        {
+          id: "SLOT_DEAL_WITH_EMPTY_TYPE",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:MEETING",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: "ClubOne",
+          targetGroupValue: null,
+          meetingTypeValue: "Мероприятие",
+          meetingDateValue: "2026-05-04T10:00:00.000Z",
+          meetingSlots: [
+            {
+              index: 1,
+              dateValue: "2026-05-04T10:00:00.000Z",
+              typeValue: "Мероприятие",
+              placeValue: "Офис К1",
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields"
+            },
+            {
+              index: 2,
+              dateValue: "2026-05-06T10:00:00.000Z",
+              typeValue: null,
+              placeValue: null,
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields"
+            }
+          ],
+          dateCreate: "2026-05-01T09:00:00.000Z",
+          dateModify: "2026-05-08T11:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:MEETING",
+          name: "Встреча-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        }
+      ],
+      stageHistory: [],
+      activities: [],
+      deadlineChanges: [],
+      meetingDateChanges: [],
+      managerDirectory: [{ id: "7", name: "Анна Куратор" }]
+    });
+
+    const managerRow = result.managerRows.find((row) => row.managerId === "7");
+
+    expect(managerRow?.meetingTypeBreakdown).toEqual(
+      expect.arrayContaining([
+        {
+          meetingTypeKey: "Мероприятие",
+          meetingTypeLabel: "Мероприятие",
+          count: 1
+        },
+        {
+          meetingTypeKey: "UNSPECIFIED",
+          meetingTypeLabel: "Без типа встречи",
+          count: 1
+        }
+      ])
+    );
+    expect(managerRow?.meetingBusinessClubBreakdown).toEqual(
+      expect.arrayContaining([
+        {
+          businessClubKey: "ClubOne",
+          businessClubLabel: "ClubOne",
+          meetingSlotIndex: 2,
+          meetingSlotLabel: "Встреча 2",
+          meetingTypeKey: "UNSPECIFIED",
+          meetingTypeLabel: "Без типа встречи",
+          count: 1
+        }
+      ])
+    );
+  });
+
   it("aggregates created and closed activities by manager and stage while keeping deadline reschedules disabled", () => {
     const result = buildActivitiesWorkloadReport({
       range: {

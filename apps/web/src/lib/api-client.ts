@@ -227,15 +227,25 @@ function normalizeDealMeetingSummary(value: unknown) {
   }
 }
 
+function normalizeMeetingSlotIndex(value: unknown): 1 | 2 | 3 | null {
+  return value === 1 || value === 2 || value === 3 ? value : null
+}
+
 function normalizeDealMeetingEvents(value: unknown) {
   return asArray(value, (event) => {
     const eventRow = isRecord(event) ? event : {}
+    const slotIndex = normalizeMeetingSlotIndex(eventRow.slotIndex)
     return {
       activityId: asString(eventRow.activityId),
       createdAt: asString(eventRow.createdAt),
       timelineAt: asString(eventRow.timelineAt, asString(eventRow.createdAt)),
       scheduledAt: asString(eventRow.scheduledAt),
       completed: Boolean(eventRow.completed),
+      slotIndex,
+      typeValue: asNullableString(eventRow.typeValue),
+      placeValue: asNullableString(eventRow.placeValue),
+      calendarValue: asNullableString(eventRow.calendarValue),
+      eventId: asNullableString(eventRow.eventId),
     }
   })
 }
@@ -2013,12 +2023,15 @@ function normalizeActivitiesWorkloadSnapshot(
           item.meetingBusinessClubBreakdown,
           (meetingBusinessClub) => {
             const row = isRecord(meetingBusinessClub) ? meetingBusinessClub : {}
+            const meetingSlotIndex = normalizeMeetingSlotIndex(row.meetingSlotIndex)
             return {
               businessClubKey: asString(row.businessClubKey),
               businessClubLabel: asString(
                 row.businessClubLabel,
                 asString(row.businessClubKey),
               ),
+              meetingSlotIndex,
+              meetingSlotLabel: asNullableString(row.meetingSlotLabel),
               meetingTypeKey: asString(row.meetingTypeKey),
               meetingTypeLabel: asString(
                 row.meetingTypeLabel,

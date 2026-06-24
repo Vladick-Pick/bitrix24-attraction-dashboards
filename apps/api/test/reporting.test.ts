@@ -332,12 +332,19 @@ describe("buildDashboard", () => {
         marginAmount: 248_000
       }
     });
-    expect(lifecycleCard?.stageTimeline[0]?.events).toEqual([
+    expect(lifecycleCard?.stageTimeline[0]?.events).toEqual(
+      expect.arrayContaining([
       expect.objectContaining({
         id: "conversion-event-visit:VISIT_DASHBOARD",
         badgeLabel: "Гостевая встреча ClubFirst · пришел"
+      }),
+      expect.objectContaining({
+        id: "deal-field:LIFE_WON:meeting-date",
+        title: "Встреча",
+        detail: "Очная · запланирована"
       })
-    ]);
+      ])
+    );
   });
 
   it("uses the won-stage entry time as the sale date instead of dateModify fallback", () => {

@@ -23,6 +23,7 @@ import type {
   DealTouchpointFactSnapshot,
   EventSnapshot,
   EventVisitFactSnapshot,
+  HourlyWeekdayWorkloadHeatmap,
   LostDealDetailRow,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeDealSla,
@@ -42,7 +43,10 @@ import type {
   TargetGroupConversionReport,
   UnitEconomicsCostFact,
   UnitEconomicsCostRule,
-  UnitEconomicsEventParticipantMode
+  UnitEconomicsEventParticipantMode,
+  WorkloadHeatmapBasisInfo,
+  WorkloadHeatmapSegmentKey,
+  WorkloadHeatmapWeekday
 } from "@bitrix24-reporting/contracts";
 
 import {
@@ -145,6 +149,234 @@ function isWithinRange(value: string | null, fromMs: number, toMs: number) {
 
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) && timestamp >= fromMs && timestamp <= toMs;
+}
+
+const WORKLOAD_HEATMAP_HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+const WORKLOAD_HEATMAP_WEEKDAYS: Array<{
+  weekday: WorkloadHeatmapWeekday;
+  label: string;
+}> = [
+  { weekday: 1, label: "Пн" },
+  { weekday: 2, label: "Вт" },
+  { weekday: 3, label: "Ср" },
+  { weekday: 4, label: "Чт" },
+  { weekday: 5, label: "Пт" },
+  { weekday: 6, label: "Сб" },
+  { weekday: 7, label: "Вс" }
+];
+const OUTGOING_CALLS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "outgoing_calls",
+  label: "Исходящие звонки"
+};
+const TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "tasks",
+  label: "Задачи"
+};
+const CREATED_TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "created_tasks",
+  label: "Созданные задачи"
+};
+const CLOSED_TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "closed_tasks",
+  label: "Закрытые задачи"
+};
+const MEETINGS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "meetings",
+  label: "Встречи"
+};
+type WorkloadHeatmapSegmentInfo = {
+  key: WorkloadHeatmapSegmentKey;
+  label: string;
+};
+type WorkloadHeatmapEvent = {
+  timestamp: string | null | undefined;
+  segment?: WorkloadHeatmapSegmentInfo;
+};
+const SUCCESSFUL_OUTGOING_CALLS_HEATMAP_SEGMENT: WorkloadHeatmapSegmentInfo = {
+  key: "successful_outgoing_calls",
+  label: "Успешные >30 сек"
+};
+const OTHER_OUTGOING_CALLS_HEATMAP_SEGMENT: WorkloadHeatmapSegmentInfo = {
+  key: "other_outgoing_calls",
+  label: "Прочие исходящие"
+};
+const NO_ANSWER_OUTGOING_CALLS_HEATMAP_SEGMENT: WorkloadHeatmapSegmentInfo = {
+  key: "no_answer_outgoing_calls",
+  label: "Недозвоны"
+};
+const TASK_HEATMAP_SEGMENTS = [
+  CREATED_TASKS_HEATMAP_BASIS,
+  CLOSED_TASKS_HEATMAP_BASIS
+] satisfies WorkloadHeatmapSegmentInfo[];
+const OUTGOING_CALL_HEATMAP_SEGMENTS = [
+  SUCCESSFUL_OUTGOING_CALLS_HEATMAP_SEGMENT,
+  OTHER_OUTGOING_CALLS_HEATMAP_SEGMENT,
+  NO_ANSWER_OUTGOING_CALLS_HEATMAP_SEGMENT
+] satisfies WorkloadHeatmapSegmentInfo[];
+const MEETING_SLOT_1_HEATMAP_SEGMENT: WorkloadHeatmapSegmentInfo = {
+  key: "meeting_slot_1",
+  label: "Встреча 1"
+};
+const MEETING_SLOT_2_HEATMAP_SEGMENT: WorkloadHeatmapSegmentInfo = {
+  key: "meeting_slot_2",
+  label: "Встреча 2"
+};
+const MEETING_SLOT_3_HEATMAP_SEGMENT: WorkloadHeatmapSegmentInfo = {
+  key: "meeting_slot_3",
+  label: "Встреча 3"
+};
+const MEETING_SLOT_HEATMAP_SEGMENTS = [
+  MEETING_SLOT_1_HEATMAP_SEGMENT,
+  MEETING_SLOT_2_HEATMAP_SEGMENT,
+  MEETING_SLOT_3_HEATMAP_SEGMENT
+] satisfies WorkloadHeatmapSegmentInfo[];
+
+function resolveMeetingSlotHeatmapSegment(
+  slotIndex: 1 | 2 | 3
+): WorkloadHeatmapSegmentInfo {
+  switch (slotIndex) {
+    case 1:
+      return MEETING_SLOT_1_HEATMAP_SEGMENT;
+    case 2:
+      return MEETING_SLOT_2_HEATMAP_SEGMENT;
+    case 3:
+      return MEETING_SLOT_3_HEATMAP_SEGMENT;
+  }
+}
+
+function parseWorkloadHeatmapSlot(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})/.exec(trimmed);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    const hour = Number(isoMatch[4]);
+    const jsDay = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+    const weekday = (jsDay === 0 ? 7 : jsDay) as WorkloadHeatmapWeekday;
+
+    return Number.isFinite(hour) ? { weekday, hour } : null;
+  }
+
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const jsDay = date.getDay();
+  return {
+    weekday: (jsDay === 0 ? 7 : jsDay) as WorkloadHeatmapWeekday,
+    hour: date.getHours()
+  };
+}
+
+function buildHourlyWeekdayWorkloadHeatmap(
+  basis: WorkloadHeatmapBasisInfo,
+  timestamps: Array<string | null | undefined>
+): HourlyWeekdayWorkloadHeatmap {
+  return buildSegmentedHourlyWeekdayWorkloadHeatmap(
+    basis,
+    timestamps.map((timestamp) => ({ timestamp }))
+  );
+}
+
+function buildSegmentedHourlyWeekdayWorkloadHeatmap(
+  basis: WorkloadHeatmapBasisInfo,
+  events: WorkloadHeatmapEvent[],
+  segmentOrder: WorkloadHeatmapSegmentInfo[] = []
+): HourlyWeekdayWorkloadHeatmap {
+  const counts = new Map<string, number>();
+  const segmentCounts = new Map<string, Map<string, number>>();
+  let total = 0;
+  let gridTotal = 0;
+
+  for (const event of events) {
+    const slot = parseWorkloadHeatmapSlot(event.timestamp);
+    if (!slot) {
+      continue;
+    }
+
+    total += 1;
+    if (!WORKLOAD_HEATMAP_HOURS.includes(slot.hour)) {
+      continue;
+    }
+
+    const key = `${slot.weekday}:${slot.hour}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    if (event.segment) {
+      const currentSegments = segmentCounts.get(key) ?? new Map<string, number>();
+      currentSegments.set(
+        event.segment.key,
+        (currentSegments.get(event.segment.key) ?? 0) + 1
+      );
+      segmentCounts.set(key, currentSegments);
+    }
+    gridTotal += 1;
+  }
+
+  const maxCount = Math.max(0, ...counts.values());
+  const maxSegmentCount = Math.max(
+    0,
+    ...Array.from(segmentCounts.values()).flatMap((segments) => [...segments.values()])
+  );
+  const cells = WORKLOAD_HEATMAP_WEEKDAYS.flatMap(({ weekday, label }) =>
+    WORKLOAD_HEATMAP_HOURS.map((hour) => {
+      const key = `${weekday}:${hour}`;
+      const count = counts.get(key) ?? 0;
+      const cellSegments = segmentCounts.get(key);
+      const cell = {
+        weekday,
+        weekdayLabel: label,
+        hour,
+        count,
+        intensity: count === 0 || maxCount === 0 ? 0 : Math.ceil((count / maxCount) * 5)
+      };
+
+      if (!cellSegments || count === 0 || segmentOrder.length === 0) {
+        return cell;
+      }
+
+      return {
+        ...cell,
+        segments: segmentOrder.map((segment) => {
+          const segmentCount = cellSegments.get(segment.key) ?? 0;
+          return {
+            ...segment,
+            count: segmentCount,
+            intensity:
+              segmentCount === 0 || maxSegmentCount === 0
+                ? 0
+                : Math.ceil((segmentCount / maxSegmentCount) * 5)
+          };
+        })
+      };
+    })
+  );
+  const peak = cells.reduce<HourlyWeekdayWorkloadHeatmap["peak"]>(
+    (current, cell) => {
+      if (!current || cell.count > current.count) {
+        return cell;
+      }
+
+      return current;
+    },
+    null
+  );
+
+  return {
+    basis: { ...basis },
+    hours: [...WORKLOAD_HEATMAP_HOURS],
+    weekdays: WORKLOAD_HEATMAP_WEEKDAYS.map((weekday) => ({ ...weekday })),
+    cells,
+    total,
+    gridTotal,
+    outsideGridTotal: total - gridTotal,
+    peak: peak && peak.count > 0 ? peak : null
+  };
 }
 
 function resolveAttractionRevenueAmount(input: {
@@ -1998,6 +2230,9 @@ export function buildActivitiesWorkloadReport(
       }
     >;
     businessClubDealIds: Map<string, Set<string>>;
+    createdTaskTimes: string[];
+    closedTaskTimes: string[];
+    meetingHeatmapEvents: WorkloadHeatmapEvent[];
     stageItems: Array<{
       dealId: string;
       stageId: string;
@@ -2017,6 +2252,9 @@ export function buildActivitiesWorkloadReport(
         meetingTypeCounts: new Map<string, number>(),
         meetingBusinessClubCounts: new Map(),
         businessClubDealIds: new Map<string, Set<string>>(),
+        createdTaskTimes: [],
+        closedTaskTimes: [],
+        meetingHeatmapEvents: [],
         stageItems: []
       });
   }
@@ -2041,6 +2279,9 @@ export function buildActivitiesWorkloadReport(
         }
       >(),
       businessClubDealIds: new Map<string, Set<string>>(),
+      createdTaskTimes: [],
+      closedTaskTimes: [],
+      meetingHeatmapEvents: [],
       stageItems: []
     };
 
@@ -2063,7 +2304,8 @@ export function buildActivitiesWorkloadReport(
     managerId: string,
     dealId: string,
     stageId: string,
-    metric: "created" | "rescheduled" | "closed"
+    metric: "created" | "rescheduled" | "closed",
+    occurredAt?: string | null
   ) => {
     const current = ensureManagerRow(managerId);
     const deal = dealMap.get(dealId);
@@ -2076,10 +2318,16 @@ export function buildActivitiesWorkloadReport(
 
     if (metric === "created") {
       current.createdCount += 1;
+      if (occurredAt) {
+        current.createdTaskTimes.push(occurredAt);
+      }
     } else if (metric === "rescheduled") {
       current.rescheduledCount += 1;
     } else {
       current.closedCount += 1;
+      if (occurredAt) {
+        current.closedTaskTimes.push(occurredAt);
+      }
     }
   };
 
@@ -2101,20 +2349,23 @@ export function buildActivitiesWorkloadReport(
         managerId,
         deal.id,
         resolveStageAtTime(deal, stageHistoryMap, activity.createdTime),
-        "created"
+        "created",
+        activity.createdTime
       );
     }
 
     if (activity.completed && isWithinRange(activity.completedTime, fromMs, toMs)) {
+      const completedAt = activity.completedTime ?? activity.lastUpdated;
       recordEvent(
         managerId,
         deal.id,
         resolveStageAtTime(
           deal,
           stageHistoryMap,
-          activity.completedTime ?? activity.lastUpdated
+          completedAt
         ),
-        "closed"
+        "closed",
+        completedAt
       );
     }
   }
@@ -2125,6 +2376,10 @@ export function buildActivitiesWorkloadReport(
     const current = ensureManagerRow(managerId);
     registerDealForManager(managerId, deal);
     current.meetingCount += 1;
+    current.meetingHeatmapEvents.push({
+      timestamp: event.meetingAt,
+      segment: resolveMeetingSlotHeatmapSegment(event.slotIndex)
+    });
     current.meetingTypeCounts.set(
       meetingTypeKey,
       (current.meetingTypeCounts.get(meetingTypeKey) ?? 0) + 1
@@ -2203,6 +2458,33 @@ export function buildActivitiesWorkloadReport(
           `${meetingBusinessClub.businessClubLabel} ${
             meetingBusinessClub.meetingSlotLabel ?? ""
           } ${meetingBusinessClub.meetingTypeLabel}`
+      ),
+      tasksHourlyHeatmap: buildSegmentedHourlyWeekdayWorkloadHeatmap(
+        TASKS_HEATMAP_BASIS,
+        [
+          ...row.createdTaskTimes.map((timestamp) => ({
+            timestamp,
+            segment: CREATED_TASKS_HEATMAP_BASIS
+          })),
+          ...row.closedTaskTimes.map((timestamp) => ({
+            timestamp,
+            segment: CLOSED_TASKS_HEATMAP_BASIS
+          }))
+        ],
+        TASK_HEATMAP_SEGMENTS
+      ),
+      createdTasksHourlyHeatmap: buildHourlyWeekdayWorkloadHeatmap(
+        CREATED_TASKS_HEATMAP_BASIS,
+        row.createdTaskTimes
+      ),
+      closedTasksHourlyHeatmap: buildHourlyWeekdayWorkloadHeatmap(
+        CLOSED_TASKS_HEATMAP_BASIS,
+        row.closedTaskTimes
+      ),
+      meetingsHourlyHeatmap: buildSegmentedHourlyWeekdayWorkloadHeatmap(
+        MEETINGS_HEATMAP_BASIS,
+        row.meetingHeatmapEvents,
+        MEETING_SLOT_HEATMAP_SEGMENTS
       ),
       slaMetrics: slaMetricsByManager.get(row.managerId) ?? [],
       stageBreakdown: buildActivitiesStageBreakdown(row.stageItems, stageLookup)
@@ -3364,6 +3646,22 @@ function isCallOverThirtySeconds(call: CallSnapshot) {
   return call.callDurationSeconds > 30;
 }
 
+function resolveOutgoingCallHeatmapSegment(input: {
+  connected: boolean;
+  failed: boolean;
+  overThirtySeconds: boolean;
+}): WorkloadHeatmapSegmentInfo {
+  if (input.failed) {
+    return NO_ANSWER_OUTGOING_CALLS_HEATMAP_SEGMENT;
+  }
+
+  if (input.connected && input.overThirtySeconds) {
+    return SUCCESSFUL_OUTGOING_CALLS_HEATMAP_SEGMENT;
+  }
+
+  return OTHER_OUTGOING_CALLS_HEATMAP_SEGMENT;
+}
+
 export function buildCallsWorkloadReport(
   input: CallsWorkloadInput
 ): CallsWorkloadReport {
@@ -3411,6 +3709,7 @@ export function buildCallsWorkloadReport(
     callsOverThirtySeconds: number;
     connectedCallsOverThirtySeconds: number;
     totalDurationSeconds: number;
+    outgoingCallEvents: WorkloadHeatmapEvent[];
     stageItems: Array<{
       dealId: string;
       stageId: string;
@@ -3436,6 +3735,7 @@ export function buildCallsWorkloadReport(
     callsOverThirtySeconds: 0,
     connectedCallsOverThirtySeconds: 0,
     totalDurationSeconds: 0,
+    outgoingCallEvents: [],
     stageItems: []
   });
 
@@ -3455,6 +3755,14 @@ export function buildCallsWorkloadReport(
       accumulator.missedIncomingCalls += 1;
     } else if (direction === "outgoing") {
       accumulator.outgoingCalls += 1;
+      accumulator.outgoingCallEvents.push({
+        timestamp: call.callStartDate,
+        segment: resolveOutgoingCallHeatmapSegment({
+          connected,
+          failed,
+          overThirtySeconds
+        })
+      });
       if (!failed && !(connected && overThirtySeconds)) {
         accumulator.otherOutgoingCalls += 1;
       }
@@ -3517,6 +3825,7 @@ export function buildCallsWorkloadReport(
       combined.connectedCallsOverThirtySeconds +=
         accumulator.connectedCallsOverThirtySeconds;
       combined.totalDurationSeconds += accumulator.totalDurationSeconds;
+      combined.outgoingCallEvents.push(...accumulator.outgoingCallEvents);
       combined.stageItems.push(...accumulator.stageItems);
     }
 
@@ -3655,6 +3964,8 @@ export function buildCallsWorkloadReport(
       const stageBreakdown = buildCallsStageBreakdown(linked.stageItems, stageLookup);
       const allCalls = toCallPopulationSummary(summary);
       const excludedByPolicyCalls = toOptionalExcludedSummary(excluded);
+      const displayedCallAccumulator =
+        callAttributionPolicy === "direct_only" ? linked : summary;
       const linkedDealCalls = {
         ...toLinkedDealCallSummary(linked, stageBreakdown),
         ...(excludedByPolicyCalls ? { excludedByPolicyCalls } : {})
@@ -3681,6 +3992,11 @@ export function buildCallsWorkloadReport(
         ...(callAttributionPolicy === "direct_only" ? { callAttributionPolicy } : {}),
         allCalls,
         linkedDealCalls,
+        callsHourlyHeatmap: buildSegmentedHourlyWeekdayWorkloadHeatmap(
+          OUTGOING_CALLS_HEATMAP_BASIS,
+          displayedCallAccumulator.outgoingCallEvents,
+          OUTGOING_CALL_HEATMAP_SEGMENTS
+        ),
         stageBreakdown
       };
     })

@@ -1984,6 +1984,10 @@ describe("createReportingService", () => {
                 }
               ],
               meetingBusinessClubBreakdown: [],
+              tasksHourlyHeatmap: expect.any(Object),
+              createdTasksHourlyHeatmap: expect.any(Object),
+              closedTasksHourlyHeatmap: expect.any(Object),
+              meetingsHourlyHeatmap: expect.any(Object),
               slaMetrics: [],
               stageBreakdown: [
                 {

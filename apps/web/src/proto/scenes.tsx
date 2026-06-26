@@ -12,6 +12,7 @@ import type {
   DealSaleEconomics,
   DealStageTimelineEntry,
   DealTimelineEvent,
+  HourlyWeekdayWorkloadHeatmap,
   ManagerActionOutcomeDealDetail,
   ManagerActionOutcomeReport,
   RevenueVelocityDimension,
@@ -415,6 +416,256 @@ function sortActivitySummaryRows(rows: ActivitySummaryRow[], sort: ActivitySumma
 
     return sort.direction === 'asc' ? result : -result
   })
+}
+
+type WorkloadHeatmapTone = 'calls' | 'tasks' | 'meetings'
+
+const workloadHeatmapToneStyles: Record<
+  WorkloadHeatmapTone,
+  {
+    label: string
+    border: string
+    header: string
+    levels: string[]
+  }
+> = {
+  calls: {
+    label: 'text-blue-700',
+    border: 'border-blue-100',
+    header: 'bg-blue-50 text-blue-800',
+    levels: ['#f8fafc', '#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#2563eb'],
+  },
+  tasks: {
+    label: 'text-teal-700',
+    border: 'border-teal-100',
+    header: 'bg-teal-50 text-teal-800',
+    levels: ['#f8fafc', '#ccfbf1', '#99f6e4', '#5eead4', '#2dd4bf', '#0f766e'],
+  },
+  meetings: {
+    label: 'text-sky-700',
+    border: 'border-sky-100',
+    header: 'bg-sky-50 text-sky-800',
+    levels: ['#f8fafc', '#e0f2fe', '#bae6fd', '#7dd3fc', '#38bdf8', '#0284c7'],
+  },
+}
+
+function formatHeatmapHour(hour: number) {
+  return `${String(hour).padStart(2, '0')}:00`
+}
+
+function findHeatmapCell(
+  heatmap: HourlyWeekdayWorkloadHeatmap,
+  weekday: HourlyWeekdayWorkloadHeatmap['weekdays'][number]['weekday'],
+  hour: number,
+): HourlyWeekdayWorkloadHeatmap['cells'][number] {
+  return heatmap.cells.find((cell) => cell.weekday === weekday && cell.hour === hour) ?? {
+    weekday,
+    weekdayLabel: heatmap.weekdays.find((column) => column.weekday === weekday)?.label ?? '',
+    hour,
+    count: 0,
+    intensity: 0,
+  }
+}
+
+const workloadHeatmapSegmentColors: Record<string, string> = {
+  created_tasks: '#14b8a6',
+  closed_tasks: '#4f46e5',
+  successful_outgoing_calls: '#16a34a',
+  other_outgoing_calls: '#f59e0b',
+  no_answer_outgoing_calls: '#e11d48',
+  meeting_slot_1: '#0284c7',
+  meeting_slot_2: '#14b8a6',
+  meeting_slot_3: '#6366f1',
+}
+
+function formatHeatmapCellLabel(
+  weekdayLabel: string,
+  hour: number,
+  cell: HourlyWeekdayWorkloadHeatmap['cells'][number],
+) {
+  const segments = cell.segments?.filter((segment) => segment.count > 0) ?? []
+  if (segments.length === 0) {
+    return `${weekdayLabel} ${formatHeatmapHour(hour)}: ${formatInteger(cell.count)}`
+  }
+
+  return `${weekdayLabel} ${formatHeatmapHour(hour)}: ${segments
+    .map((segment) => `${segment.label.toLowerCase()} ${formatInteger(segment.count)}`)
+    .join(', ')}`
+}
+
+function collectHeatmapSegments(heatmap: HourlyWeekdayWorkloadHeatmap) {
+  const segments = new Map<string, { label: string; color: string }>()
+
+  for (const cell of heatmap.cells) {
+    for (const segment of cell.segments ?? []) {
+      if (!segments.has(segment.key)) {
+        segments.set(segment.key, {
+          label: segment.label,
+          color: workloadHeatmapSegmentColors[segment.key] ?? '#64748b',
+        })
+      }
+    }
+  }
+
+  return [...segments.entries()].map(([key, value]) => ({ key, ...value }))
+}
+
+function renderSegmentedHeatmapCell(
+  cell: HourlyWeekdayWorkloadHeatmap['cells'][number],
+  basisKey: string,
+  weekday: HourlyWeekdayWorkloadHeatmap['weekdays'][number]['weekday'],
+  hour: number,
+) {
+  const visibleSegments = (cell.segments ?? []).filter((segment) => segment.count > 0)
+
+  if (visibleSegments.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="absolute inset-0 flex overflow-hidden rounded-md">
+      {visibleSegments.map((segment) => (
+        <div
+          key={segment.key}
+          className="relative min-w-[5px]"
+          style={{
+            flexGrow: segment.count,
+            backgroundColor: workloadHeatmapSegmentColors[segment.key] ?? '#64748b',
+            opacity: 0.58 + Math.max(0, Math.min(5, segment.intensity)) * 0.08,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 tabular-nums text-[0.5rem] font-extrabold leading-none text-white/95 drop-shadow-sm"
+            data-testid={`heatmap-segment-count-${basisKey}-${weekday}-${hour}-${segment.key}`}
+          >
+            {formatInteger(segment.count)}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function HourlyWeekdayHeatmap({
+  title,
+  heatmap,
+  tone,
+}: {
+  title: string
+  heatmap: HourlyWeekdayWorkloadHeatmap | undefined
+  tone: WorkloadHeatmapTone
+}) {
+  if (!heatmap) {
+    return null
+  }
+
+  const toneStyle = workloadHeatmapToneStyles[tone]
+  const peakLabel = heatmap.peak
+    ? `${heatmap.peak.weekdayLabel} ${formatHeatmapHour(heatmap.peak.hour)} · ${formatInteger(heatmap.peak.count)}`
+    : 'нет событий'
+  const hasOutsideGridEvents = heatmap.outsideGridTotal > 0
+  const legendSegments = collectHeatmapSegments(heatmap)
+
+  return (
+    <div className={`rounded-xl border bg-white ${toneStyle.border}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 px-3 py-2">
+        <div>
+          <div className={`text-sm font-bold ${toneStyle.label}`}>{title}</div>
+          <div className="mt-0.5 text-xs text-slate-500">Пик: {peakLabel}</div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {legendSegments.map((segment) => (
+            <span
+              key={segment.key}
+              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600"
+            >
+              <span
+                className="size-2 rounded-full"
+                style={{ backgroundColor: segment.color }}
+                aria-hidden="true"
+              />
+              {segment.label}
+            </span>
+          ))}
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
+            всего {formatInteger(heatmap.total)}
+          </span>
+          {hasOutsideGridEvents ? (
+            <>
+              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">
+                в сетке {formatInteger(heatmap.gridTotal)}
+              </span>
+              <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
+                вне 09-21 {formatInteger(heatmap.outsideGridTotal)}
+              </span>
+            </>
+          ) : null}
+        </div>
+      </div>
+      <div className="overflow-x-auto p-3">
+        <table className="min-w-[520px] w-full table-fixed text-xs" aria-label={title}>
+          <thead>
+            <tr>
+              <th className="w-14 px-1 py-1 text-left font-semibold text-slate-400">Час</th>
+              {heatmap.weekdays.map((weekday) => (
+                <th
+                  key={weekday.weekday}
+                  className={`px-1 py-1 text-center font-bold ${toneStyle.header}`}
+                >
+                  {weekday.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {heatmap.hours.map((hour) => (
+              <tr key={hour} className="border-t border-slate-100">
+                <th className="px-1 py-1 text-left font-semibold text-slate-500">
+                  {formatHeatmapHour(hour)}
+                </th>
+                {heatmap.weekdays.map((weekday) => {
+                  const cell = findHeatmapCell(heatmap, weekday.weekday, hour)
+                  const intensity = Math.max(0, Math.min(5, Math.round(cell.intensity)))
+                  const color = toneStyle.levels[intensity] ?? toneStyle.levels[0]
+                  const isDark = intensity >= 5
+                  const hasSegments = (cell.segments ?? []).some((segment) => segment.count > 0)
+                  const cellLabel = formatHeatmapCellLabel(weekday.label, hour, cell)
+
+                  return (
+                    <td key={`${weekday.weekday}-${hour}`} className="px-1 py-1">
+                      <div
+                        className={[
+                          'relative flex h-10 min-w-10 flex-col items-center justify-center overflow-hidden rounded-md border text-[0.7rem] font-bold',
+                          intensity > 0 ? 'border-transparent shadow-sm' : 'border-slate-100 text-slate-300',
+                          isDark || hasSegments ? 'text-white' : 'text-slate-700',
+                        ].join(' ')}
+                        style={{ backgroundColor: hasSegments ? '#f8fafc' : color }}
+                        aria-label={cellLabel}
+                        title={cellLabel}
+                      >
+                        {renderSegmentedHeatmapCell(cell, heatmap.basis.key, weekday.weekday, hour)}
+                        <span
+                          className={
+                            hasSegments
+                              ? 'absolute inset-0 z-20 flex items-center justify-center text-[0.72rem] leading-none text-white drop-shadow-sm'
+                              : 'relative z-10 leading-none drop-shadow-sm'
+                          }
+                          data-testid={`heatmap-cell-total-${heatmap.basis.key}-${weekday.weekday}-${hour}`}
+                        >
+                          {cell.count > 0 ? formatInteger(cell.count) : ''}
+                        </span>
+                      </div>
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
 }
 
 function SortIndicator({
@@ -4668,10 +4919,13 @@ function ActivitiesMeetingsSection({
   report: ActivitiesWorkloadReport | undefined
   filters: ProtoFilterState
 }) {
+  const [expandedMeetingHeatmapManagers, setExpandedMeetingHeatmapManagers] = useState<Set<string>>(() => new Set())
+
   if (!report) {
     return null
   }
 
+  const hasComparison = Boolean(report.comparisons?.[0]?.snapshot)
   const compareByManager = new Map(
     (report.comparisons?.[0]?.snapshot.managerRows ?? []).map((row) => [row.managerId, row]),
   )
@@ -4679,8 +4933,21 @@ function ActivitiesMeetingsSection({
     (row) => row.meetingCount > 0 || row.meetingTypeBreakdown.length > 0,
   )
 
+  function toggleMeetingHeatmap(managerId: string) {
+    setExpandedMeetingHeatmapManagers((current) => {
+      const next = new Set(current)
+      if (next.has(managerId)) {
+        next.delete(managerId)
+      } else {
+        next.add(managerId)
+      }
+
+      return next
+    })
+  }
+
   return (
-    <section className="panel p-5">
+    <section className="panel min-w-0 p-5">
       <PanelHeading
         title="Встречи"
         description="Сколько встреч ведёт каждый менеджер, какие типы встреч доминируют и как меняется нагрузка относительно первого compare-периода."
@@ -4706,45 +4973,72 @@ function ActivitiesMeetingsSection({
               {rows.map((row) => {
                 const compareRow = compareByManager.get(row.managerId)
                 const meetingGroups = buildMeetingBusinessClubGroups(row)
+                const isExpanded = expandedMeetingHeatmapManagers.has(row.managerId)
                 return (
-                  <tr key={row.managerId} className="border-b border-slate-100 last:border-b-0">
-                    <td className="px-3 py-3 font-semibold text-slate-900">{row.managerName}</td>
-                    <td className="px-3 py-3">
-                      <div className="font-semibold text-slate-900">{formatInteger(row.meetingCount)}</div>
-                      <div className="text-xs text-slate-500">
-                        С1: {formatInteger(compareRow?.meetingCount ?? 0)} ·{' '}
-                        {formatCompareDelta(row.meetingCount, compareRow?.meetingCount ?? 0)}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="space-y-2">
-                        {meetingGroups.map((group) => (
-                          <div
-                            key={`${row.managerId}-${group.businessClubKey}`}
-                            className="flex flex-wrap items-center gap-1.5"
-                          >
-                            <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
-                              {group.businessClubLabel}
-                            </span>
-                            {group.meetingTypes.map((meetingType) => (
-                              <span
-                                key={`${row.managerId}-${group.businessClubKey}-${meetingType.meetingSlotLabel ?? 'legacy'}-${meetingType.meetingTypeKey}`}
-                                {...(meetingType.meetingSlotIndex
-                                  ? { 'data-meeting-slot-index': meetingType.meetingSlotIndex }
-                                  : {})}
-                                className={getMeetingBusinessClubTypeBadgeClass(
-                                  meetingType.meetingSlotIndex,
-                                )}
-                              >
-                                <span>{formatMeetingBusinessClubTypeLabel(meetingType)}</span>
-                                <span className="opacity-70">{formatInteger(meetingType.count)}</span>
-                              </span>
-                            ))}
+                  <Fragment key={row.managerId}>
+                    <tr className="border-b border-slate-100 last:border-b-0">
+                      <td className="px-3 py-3 align-top">
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          aria-label={`${isExpanded ? 'Свернуть' : 'Раскрыть'} карту встреч ${row.managerName}`}
+                          className="group inline-flex items-center gap-2 rounded-full px-1 py-1 text-left font-semibold text-slate-900 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                          onClick={() => toggleMeetingHeatmap(row.managerId)}
+                        >
+                          <DisclosureIndicator expanded={isExpanded} />
+                          <span>{row.managerName}</span>
+                        </button>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="font-semibold text-slate-900">{formatInteger(row.meetingCount)}</div>
+                        {hasComparison ? (
+                          <div className="text-xs text-slate-500">
+                            С1: {formatInteger(compareRow?.meetingCount ?? 0)} ·{' '}
+                            {formatCompareDelta(row.meetingCount, compareRow?.meetingCount ?? 0)}
                           </div>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="space-y-2">
+                          {meetingGroups.map((group) => (
+                            <div
+                              key={`${row.managerId}-${group.businessClubKey}`}
+                              className="flex flex-wrap items-center gap-1.5"
+                            >
+                              <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                                {group.businessClubLabel}
+                              </span>
+                              {group.meetingTypes.map((meetingType) => (
+                                <span
+                                  key={`${row.managerId}-${group.businessClubKey}-${meetingType.meetingSlotLabel ?? 'legacy'}-${meetingType.meetingTypeKey}`}
+                                  {...(meetingType.meetingSlotIndex
+                                    ? { 'data-meeting-slot-index': meetingType.meetingSlotIndex }
+                                    : {})}
+                                  className={getMeetingBusinessClubTypeBadgeClass(
+                                    meetingType.meetingSlotIndex,
+                                  )}
+                                >
+                                  <span>{formatMeetingBusinessClubTypeLabel(meetingType)}</span>
+                                  <span className="opacity-70">{formatInteger(meetingType.count)}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded ? (
+                      <tr className="border-b border-slate-100 bg-slate-50/70">
+                        <td colSpan={3} className="px-3 py-4">
+                          <HourlyWeekdayHeatmap
+                            title="Встречи по часам"
+                            heatmap={row.meetingsHourlyHeatmap}
+                            tone="meetings"
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 )
               })}
             </tbody>
@@ -4862,7 +5156,7 @@ function ActivitiesConversionEventsSection({
 
   return (
     <section
-      className="panel p-5"
+      className="panel min-w-0 p-5"
       data-comment-block-id="attraction-conversion-events"
       data-comment-block-label="Привлечение: конверсионные мероприятия"
       id="attraction-conversion-events"
@@ -5114,6 +5408,7 @@ export function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
     index: 2,
     direction: 'desc',
   })
+  const [expandedSummaryHeatmapManagers, setExpandedSummaryHeatmapManagers] = useState<Set<string>>(() => new Set())
   const isUnavailable =
     runtimeData?.operationalStatus !== 'ready' && !runtimeData?.activitiesCalls
   const sceneData = getActivitiesSceneData(runtimeData)
@@ -5128,6 +5423,19 @@ export function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
       index,
       direction: current.index === index && current.direction === 'desc' ? 'asc' : 'desc',
     }))
+  }
+
+  function toggleSummaryHeatmap(manager: string) {
+    setExpandedSummaryHeatmapManagers((current) => {
+      const next = new Set(current)
+      if (next.has(manager)) {
+        next.delete(manager)
+      } else {
+        next.add(manager)
+      }
+
+      return next
+    })
   }
 
   if (isUnavailable) {
@@ -5296,34 +5604,69 @@ export function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
               </tr>
             </thead>
             <tbody>
-              {sortedSummaryRows.map((row) => (
-                <tr key={row.manager} className="border-b border-slate-100 last:border-b-0">
-                  <td className="px-3 py-3 font-semibold text-slate-900">{row.manager}</td>
-                  {getActivitySummaryCells(row).map((cell, index) => (
-                      <td key={`${row.manager}-${cell.key}`} className="px-3 py-3">
-                        <span className="inline-flex items-center gap-2">
-                          <span>{cell.value}</span>
-                          <DeltaPill value={row.deltas?.[index] ?? activitySummaryDeltas[row.manager]?.[index] ?? '0%'} />
-                        </span>
-                        {cell.helper ? (
-                          <span className="mt-1 block text-xs font-medium text-slate-400">{cell.helper}</span>
-                        ) : null}
-                        {row.comparePoints && row.comparePoints.length > 0 ? (
-                          <div className="mt-2 grid max-w-[190px] gap-1">
-                            {row.comparePoints.slice(0, 5).map((point) => (
-                              <span
-                                key={`${row.manager}-${cell.key}-${point.label}`}
-                                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[0.68rem] font-semibold text-slate-600"
-                              >
-                                {point.label} {point.values[index]} / {point.deltas[index]}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
+              {sortedSummaryRows.map((row) => {
+                const isExpanded = expandedSummaryHeatmapManagers.has(row.manager)
+
+                return (
+                  <Fragment key={row.manager}>
+                    <tr className="border-b border-slate-100 last:border-b-0">
+                      <td className="px-3 py-3 align-top">
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          aria-label={`${isExpanded ? 'Свернуть' : 'Раскрыть'} карту звонков и дел ${row.manager}`}
+                          className="group inline-flex items-center gap-2 rounded-full px-1 py-1 text-left font-semibold text-slate-900 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                          onClick={() => toggleSummaryHeatmap(row.manager)}
+                        >
+                          <DisclosureIndicator expanded={isExpanded} />
+                          <span>{row.manager}</span>
+                        </button>
                       </td>
-                    ))}
-                </tr>
-              ))}
+                      {getActivitySummaryCells(row).map((cell, index) => (
+                        <td key={`${row.manager}-${cell.key}`} className="px-3 py-3">
+                          <span className="inline-flex items-center gap-2">
+                            <span>{cell.value}</span>
+                            <DeltaPill value={row.deltas?.[index] ?? activitySummaryDeltas[row.manager]?.[index] ?? '0%'} />
+                          </span>
+                          {cell.helper ? (
+                            <span className="mt-1 block text-xs font-medium text-slate-400">{cell.helper}</span>
+                          ) : null}
+                          {row.comparePoints && row.comparePoints.length > 0 ? (
+                            <div className="mt-2 grid max-w-[190px] gap-1">
+                              {row.comparePoints.slice(0, 5).map((point) => (
+                                <span
+                                  key={`${row.manager}-${cell.key}-${point.label}`}
+                                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[0.68rem] font-semibold text-slate-600"
+                                >
+                                  {point.label} {point.values[index]} / {point.deltas[index]}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </td>
+                      ))}
+                    </tr>
+                    {isExpanded ? (
+                      <tr className="border-b border-slate-100 bg-slate-50/70">
+                        <td colSpan={activitySummaryColumns.length + 1} className="px-3 py-4">
+                          <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+                            <HourlyWeekdayHeatmap
+                              title="Исходящие звонки по часам"
+                              heatmap={row.callsHourlyHeatmap}
+                              tone="calls"
+                            />
+                            <HourlyWeekdayHeatmap
+                              title="Задачи по часам"
+                              heatmap={row.tasksHourlyHeatmap}
+                              tone="tasks"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>

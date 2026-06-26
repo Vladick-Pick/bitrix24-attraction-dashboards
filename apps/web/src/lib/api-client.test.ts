@@ -1042,6 +1042,190 @@ describe('apiClient', () => {
     ])
   })
 
+  it('preserves activities workload manager hourly heatmaps', async () => {
+    const createdTasksHourlyHeatmap = {
+      basis: { key: 'created_tasks', label: 'Созданные задачи' },
+      hours: [9, 10],
+      weekdays: [
+        { weekday: 1, label: 'Пн' },
+        { weekday: 2, label: 'Вт' },
+      ],
+      cells: [
+        {
+          weekday: 1,
+          weekdayLabel: 'Пн',
+          hour: 9,
+          count: 2,
+          intensity: 5,
+          segments: [
+            { key: 'created_tasks', label: 'Созданные задачи', count: 2, intensity: 5 },
+          ],
+        },
+        { weekday: 2, weekdayLabel: 'Вт', hour: 10, count: 0, intensity: 0 },
+      ],
+      total: 3,
+      gridTotal: 2,
+      outsideGridTotal: 1,
+      peak: { weekday: 1, weekdayLabel: 'Пн', hour: 9, count: 2, intensity: 5 },
+    }
+    const tasksHourlyHeatmap = {
+      basis: { key: 'tasks', label: 'Задачи' },
+      hours: [9, 10],
+      weekdays: [
+        { weekday: 1, label: 'Пн' },
+        { weekday: 2, label: 'Вт' },
+      ],
+      cells: [
+        {
+          weekday: 1,
+          weekdayLabel: 'Пн',
+          hour: 9,
+          count: 4,
+          intensity: 5,
+          segments: [
+            { key: 'created_tasks', label: 'Созданные задачи', count: 2, intensity: 5 },
+            { key: 'closed_tasks', label: 'Закрытые задачи', count: 2, intensity: 5 },
+          ],
+        },
+        { weekday: 2, weekdayLabel: 'Вт', hour: 10, count: 0, intensity: 0 },
+      ],
+      total: 5,
+      gridTotal: 4,
+      outsideGridTotal: 1,
+      peak: { weekday: 1, weekdayLabel: 'Пн', hour: 9, count: 4, intensity: 5 },
+    }
+    const closedTasksHourlyHeatmap = {
+      basis: { key: 'closed_tasks', label: 'Закрытые задачи' },
+      hours: [9, 10],
+      weekdays: [
+        { weekday: 1, label: 'Пн' },
+        { weekday: 2, label: 'Вт' },
+      ],
+      cells: [
+        { weekday: 1, weekdayLabel: 'Пн', hour: 9, count: 2, intensity: 5 },
+        { weekday: 2, weekdayLabel: 'Вт', hour: 10, count: 0, intensity: 0 },
+      ],
+      total: 2,
+      gridTotal: 2,
+      outsideGridTotal: 0,
+      peak: { weekday: 1, weekdayLabel: 'Пн', hour: 9, count: 2, intensity: 5 },
+    }
+    const meetingsHourlyHeatmap = {
+      basis: { key: 'meetings', label: 'Встречи' },
+      hours: [15],
+      weekdays: [{ weekday: 3, label: 'Ср' }],
+      cells: [
+        {
+          weekday: 3,
+          weekdayLabel: 'Ср',
+          hour: 15,
+          count: 3,
+          intensity: 5,
+          segments: [
+            { key: 'meeting_slot_1', label: 'Встреча 1', count: 1, intensity: 5 },
+            { key: 'meeting_slot_2', count: 1, intensity: 5 },
+            { key: 'meeting_slot_3', label: 'Встреча 3', count: 1, intensity: 5 },
+          ],
+        },
+      ],
+      total: 3,
+      gridTotal: 3,
+      outsideGridTotal: 0,
+      peak: {
+        weekday: 3,
+        weekdayLabel: 'Ср',
+        hour: 15,
+        count: 3,
+        intensity: 5,
+        segments: [
+          { key: 'meeting_slot_1', label: 'Встреча 1', count: 1, intensity: 5 },
+          { key: 'meeting_slot_2', count: 1, intensity: 5 },
+          { key: 'meeting_slot_3', label: 'Встреча 3', count: 1, intensity: 5 },
+        ],
+      },
+    }
+    const expectedMeetingsHourlyHeatmap = {
+      ...meetingsHourlyHeatmap,
+      cells: [
+        {
+          ...meetingsHourlyHeatmap.cells[0],
+          segments: [
+            { key: 'meeting_slot_1', label: 'Встреча 1', count: 1, intensity: 5 },
+            { key: 'meeting_slot_2', label: 'Встреча 2', count: 1, intensity: 5 },
+            { key: 'meeting_slot_3', label: 'Встреча 3', count: 1, intensity: 5 },
+          ],
+        },
+      ],
+      peak: {
+        ...meetingsHourlyHeatmap.peak,
+        segments: [
+          { key: 'meeting_slot_1', label: 'Встреча 1', count: 1, intensity: 5 },
+          { key: 'meeting_slot_2', label: 'Встреча 2', count: 1, intensity: 5 },
+          { key: 'meeting_slot_3', label: 'Встреча 3', count: 1, intensity: 5 },
+        ],
+      },
+    }
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        range: {
+          from: '2026-04-01T00:00:00.000Z',
+          to: '2026-04-30T23:59:59.999Z',
+        },
+        totalDealCount: 1,
+        totalCreatedCount: 2,
+        totalRescheduledCount: 0,
+        totalClosedCount: 1,
+        totalMeetingCount: 1,
+        warnings: [],
+        conversionEventRows: [],
+        managerRows: [
+          {
+            managerId: '7',
+            managerName: 'Анна Куратор',
+            dealCount: 1,
+            createdCount: 2,
+            rescheduledCount: 0,
+            closedCount: 1,
+            meetingCount: 1,
+            averageCreatedPerDeal: 2,
+            averageRescheduledPerDeal: 0,
+            averageClosedPerDeal: 1,
+            averageMeetingsPerDeal: 1,
+            meetingTypeBreakdown: [],
+            businessClubBreakdown: [],
+            meetingBusinessClubBreakdown: [],
+            tasksHourlyHeatmap,
+            createdTasksHourlyHeatmap,
+            closedTasksHourlyHeatmap,
+            meetingsHourlyHeatmap,
+            slaMetrics: [],
+            stageBreakdown: [],
+          },
+        ],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const report = await apiClient.getActivitiesWorkloadReport({
+      preset: 'custom',
+      from: '2026-04-01T00:00:00.000Z',
+      to: '2026-04-30T23:59:59.999Z',
+    })
+
+    expect(report.managerRows[0]?.tasksHourlyHeatmap).toEqual(tasksHourlyHeatmap)
+    expect(report.managerRows[0]?.createdTasksHourlyHeatmap).toEqual(
+      createdTasksHourlyHeatmap,
+    )
+    expect(report.managerRows[0]?.closedTasksHourlyHeatmap).toEqual(
+      closedTasksHourlyHeatmap,
+    )
+    expect(report.managerRows[0]?.meetingsHourlyHeatmap).toEqual(
+      expectedMeetingsHourlyHeatmap,
+    )
+  })
+
   it('loads and normalizes conversion events report', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -2451,6 +2635,128 @@ describe('apiClient', () => {
     expect(
       calls.managerRows[0]?.linkedDealCalls?.excludedByPolicyCalls?.outgoingCalls,
     ).toBe(1)
+  })
+
+  it('preserves calls workload manager hourly heatmaps', async () => {
+    const callsHourlyHeatmap = {
+      basis: { key: 'outgoing_calls', label: 'Исходящие звонки' },
+      hours: [9, 21],
+      weekdays: [
+        { weekday: 1, label: 'Пн' },
+        { weekday: 7, label: 'Вс' },
+      ],
+      cells: [
+        {
+          weekday: 1,
+          weekdayLabel: 'Пн',
+          hour: 9,
+          count: 2,
+          intensity: 5,
+          segments: [
+            {
+              key: 'successful_outgoing_calls',
+              label: 'Успешные >30 сек',
+              count: 1,
+              intensity: 5,
+            },
+            {
+              key: 'other_outgoing_calls',
+              label: 'Прочие исходящие',
+              count: 1,
+              intensity: 5,
+            },
+            {
+              key: 'no_answer_outgoing_calls',
+              label: 'Недозвоны',
+              count: 0,
+              intensity: 0,
+            },
+          ],
+        },
+        { weekday: 7, weekdayLabel: 'Вс', hour: 21, count: 1, intensity: 3 },
+      ],
+      total: 3,
+      gridTotal: 3,
+      outsideGridTotal: 0,
+      peak: { weekday: 1, weekdayLabel: 'Пн', hour: 9, count: 2, intensity: 5 },
+    }
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        range: {
+          from: '2026-06-15T00:00:00.000Z',
+          to: '2026-06-21T23:59:59.999Z',
+        },
+        totalDealCount: 1,
+        totalCalls: 3,
+        totalIncomingCalls: 0,
+        totalMissedIncomingCalls: 0,
+        totalOutgoingCalls: 3,
+        totalOtherOutgoingCalls: 0,
+        totalConnectedCalls: 3,
+        totalFailedCalls: 0,
+        totalCallsOverThirtySeconds: 2,
+        totalConnectedCallsOverThirtySeconds: 2,
+        warnings: [],
+        managerRows: [
+          {
+            managerId: '7538',
+            managerName: 'Мария Саличева',
+            dealCount: 1,
+            totalCalls: 3,
+            incomingCalls: 0,
+            missedIncomingCalls: 0,
+            outgoingCalls: 3,
+            otherOutgoingCalls: 0,
+            connectedCalls: 3,
+            failedCalls: 0,
+            callsOverThirtySeconds: 2,
+            connectedCallsOverThirtySeconds: 2,
+            averageCallsPerDeal: 3,
+            averageDurationSeconds: 90,
+            allCalls: {
+              totalCalls: 3,
+              incomingCalls: 0,
+              missedIncomingCalls: 0,
+              outgoingCalls: 3,
+              otherOutgoingCalls: 0,
+              connectedCalls: 3,
+              failedCalls: 0,
+              callsOverThirtySeconds: 2,
+              connectedCallsOverThirtySeconds: 2,
+              averageDurationSeconds: 90,
+            },
+            linkedDealCalls: {
+              dealCount: 1,
+              totalCalls: 3,
+              incomingCalls: 0,
+              missedIncomingCalls: 0,
+              outgoingCalls: 3,
+              otherOutgoingCalls: 0,
+              connectedCalls: 3,
+              failedCalls: 0,
+              callsOverThirtySeconds: 2,
+              connectedCallsOverThirtySeconds: 2,
+              averageCallsPerDeal: 3,
+              averageDurationSeconds: 90,
+              stageBreakdown: [],
+            },
+            callsHourlyHeatmap,
+            stageBreakdown: [],
+          },
+        ],
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const report = await apiClient.getCallsWorkloadReport({
+      preset: 'custom',
+      from: '2026-06-15T00:00:00.000Z',
+      to: '2026-06-21T23:59:59.999Z',
+    })
+
+    expect(report.managerRows[0]?.callsHourlyHeatmap).toEqual(callsHourlyHeatmap)
   })
 
   it('runs and loads manual call analysis through the API client', async () => {

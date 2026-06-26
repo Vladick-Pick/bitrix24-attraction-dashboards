@@ -26,6 +26,7 @@ architectural issue found in the deep review.
 | [011](./011-complete-agent-readable-report-catalog.md) | Complete agent-readable attraction report catalog | P1 | M | 004 | DONE |
 | [012](./012-build-read-only-attraction-agent-gateway.md) | Build read-only attraction agent gateway | P1 | M | 011 | DONE |
 | [013](./013-add-stdio-mcp-server-and-agent-evals.md) | Add stdio MCP server and agent evals | P1 | M | 011, 012 | DONE |
+| [014](./014-fix-workload-heatmap-metric-contract.md) | Make workload heatmaps use the same metric contract as their table rows | P1 | M | - | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale - finding fixed independently or approach
@@ -69,6 +70,10 @@ abandoned).
   and `agentReadable` policy rather than maintaining a hidden allowlist.
 - 013 depends on 011 and 012 because MCP should be a thin stdio protocol adapter
   over reviewed read-only gateway methods.
+- 014 is independent of the platform and MCP plans. It must land before the
+  calls/tasks/meetings heatmap branch is considered review-ready because the
+  current expanded cards mix table-row metrics with different heatmap
+  populations and off-grid counts.
 
 ## Verification Baseline
 

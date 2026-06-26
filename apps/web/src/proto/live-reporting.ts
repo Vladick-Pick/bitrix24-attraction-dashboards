@@ -816,6 +816,18 @@ export function mapActivitiesCallsSceneData(input: {
       noAnswer: currentSummary.values[5]!,
       missedIncoming: currentSummary.values[6]!,
       incoming: currentSummary.values[7]!,
+      ...(callRow?.callsHourlyHeatmap
+        ? { callsHourlyHeatmap: callRow.callsHourlyHeatmap }
+        : {}),
+      ...(activityRow?.tasksHourlyHeatmap
+        ? { tasksHourlyHeatmap: activityRow.tasksHourlyHeatmap }
+        : {}),
+      ...(activityRow?.createdTasksHourlyHeatmap
+        ? { createdTasksHourlyHeatmap: activityRow.createdTasksHourlyHeatmap }
+        : {}),
+      ...(activityRow?.closedTasksHourlyHeatmap
+        ? { closedTasksHourlyHeatmap: activityRow.closedTasksHourlyHeatmap }
+        : {}),
       deltas: firstCompareDeltas,
       comparePoints,
     }

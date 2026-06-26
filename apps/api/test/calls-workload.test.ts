@@ -3,6 +3,244 @@ import { describe, expect, it } from "vitest";
 import { buildCallsWorkloadReport } from "../src/domain/operational-reports";
 
 describe("buildCallsWorkloadReport", () => {
+  it("adds per-manager outgoing call heatmaps by weekday and hour from 9 to 21", () => {
+    const result = buildCallsWorkloadReport({
+      range: {
+        from: "2026-05-04T00:00:00.000Z",
+        to: "2026-05-10T23:59:59.999Z"
+      },
+      deals: [],
+      stageCatalog: [],
+      stageHistory: [],
+      activities: [],
+      calls: [
+        {
+          id: "MONDAY_MORNING",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "1",
+          callStartDate: "2026-05-04T09:15:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "200"
+        },
+        {
+          id: "MONDAY_MORNING_2",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "1",
+          callStartDate: "2026-05-04T09:45:00.000Z",
+          callDurationSeconds: 30,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "200"
+        },
+        {
+          id: "MONDAY_FAILED",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "1",
+          callStartDate: "2026-05-04T09:50:00.000Z",
+          callDurationSeconds: 0,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "304"
+        },
+        {
+          id: "SUNDAY_EVENING",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "2",
+          callStartDate: "2026-05-10T21:00:00.000Z",
+          callDurationSeconds: 15,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "200"
+        },
+        {
+          id: "OUTSIDE_HOUR",
+          crmActivityId: null,
+          portalUserId: "7",
+          callType: "1",
+          callStartDate: "2026-05-06T22:00:00.000Z",
+          callDurationSeconds: 15,
+          crmEntityType: null,
+          crmEntityId: null,
+          callFailedCode: "200"
+        }
+      ],
+      managerDirectory: [{ id: "7", name: "Анна Куратор" }]
+    });
+
+    const row = result.managerRows.find((item) => item.managerId === "7");
+    const heatmap = (row as any)?.callsHourlyHeatmap;
+    const mondayNine = heatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) => cell.weekday === 1 && cell.hour === 9
+    );
+    const sundayTwentyOne = heatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 7 && cell.hour === 21
+    );
+    const outsideHour = heatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 3 && cell.hour === 22
+    );
+
+    expect(heatmap?.hours).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(heatmap?.weekdays.map((weekday: { label: string }) => weekday.label)).toEqual([
+      "Пн",
+      "Вт",
+      "Ср",
+      "Чт",
+      "Пт",
+      "Сб",
+      "Вс"
+    ]);
+    expect(heatmap?.basis).toEqual({
+      key: "outgoing_calls",
+      label: "Исходящие звонки"
+    });
+    expect(mondayNine).toMatchObject({ count: 3, intensity: 5 });
+    expect(sundayTwentyOne).toMatchObject({ count: 0 });
+    expect(outsideHour).toBeUndefined();
+    expect(mondayNine?.segments).toEqual([
+      {
+        key: "successful_outgoing_calls",
+        label: "Успешные >30 сек",
+        count: 1,
+        intensity: 5
+      },
+      {
+        key: "other_outgoing_calls",
+        label: "Прочие исходящие",
+        count: 1,
+        intensity: 5
+      },
+      {
+        key: "no_answer_outgoing_calls",
+        label: "Недозвоны",
+        count: 1,
+        intensity: 5
+      }
+    ]);
+    expect(heatmap?.total).toBe(4);
+    expect(heatmap?.gridTotal).toBe(3);
+    expect(heatmap?.outsideGridTotal).toBe(1);
+    expect(heatmap?.peak).toMatchObject({ weekday: 1, hour: 9, count: 3 });
+  });
+
+  it("scopes direct-only manager call heatmaps to the displayed linked outgoing calls", () => {
+    const result = buildCallsWorkloadReport({
+      range: {
+        from: "2026-06-15T00:00:00.000Z",
+        to: "2026-06-21T23:59:59.999Z"
+      },
+      deals: [
+        {
+          id: "DIRECT_ONLY_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:PREPARATION",
+          stageSemanticId: "P",
+          opportunity: 0,
+          assignedById: "7538",
+          sourceId: "WEB",
+          qualityValue: null,
+          dateCreate: "2026-06-15T09:00:00.000Z",
+          dateModify: "2026-06-15T09:00:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:PREPARATION",
+          name: "Звонок-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        }
+      ],
+      stageHistory: [],
+      activities: [],
+      calls: [
+        {
+          id: "DIRECT_LINKED_OUTGOING",
+          crmActivityId: null,
+          portalUserId: "7538",
+          callType: "1",
+          callStartDate: "2026-06-16T10:00:00.000Z",
+          callDurationSeconds: 90,
+          crmEntityType: "DEAL",
+          crmEntityId: "DIRECT_ONLY_DEAL",
+          callFailedCode: "200",
+          linkReason: "activity_owner_deal",
+          linkConfidence: "high"
+        },
+        {
+          id: "DIRECT_LINKED_INCOMING",
+          crmActivityId: null,
+          portalUserId: "7538",
+          callType: "2",
+          callStartDate: "2026-06-16T11:00:00.000Z",
+          callDurationSeconds: 60,
+          crmEntityType: "DEAL",
+          crmEntityId: "DIRECT_ONLY_DEAL",
+          callFailedCode: "200",
+          linkReason: "activity_owner_deal",
+          linkConfidence: "high"
+        },
+        {
+          id: "DIRECT_ONLY_FALLBACK",
+          crmActivityId: null,
+          portalUserId: "7538",
+          callType: "1",
+          callStartDate: "2026-06-17T10:00:00.000Z",
+          callDurationSeconds: 120,
+          crmEntityType: "DEAL",
+          crmEntityId: "DIRECT_ONLY_DEAL",
+          callFailedCode: "200",
+          linkReason: "contact_single_deal_fallback",
+          linkConfidence: "medium"
+        }
+      ],
+      managerDirectory: [
+        {
+          id: "7538",
+          name: "Мария Саличева",
+          callAttributionPolicy: "direct_only"
+        }
+      ]
+    });
+
+    const row = result.managerRows.find((item) => item.managerId === "7538");
+    const heatmap = (row as any)?.callsHourlyHeatmap;
+    const directLinkedSlot = heatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) => cell.weekday === 2 && cell.hour === 10
+    );
+    const fallbackSlot = heatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) => cell.weekday === 3 && cell.hour === 10
+    );
+
+    expect(row?.callAttributionPolicy).toBe("direct_only");
+    expect(row?.totalCalls).toBe(3);
+    expect(row?.outgoingCalls).toBe(2);
+    expect(row?.linkedDealCalls.outgoingCalls).toBe(1);
+    expect(row?.linkedDealCalls.incomingCalls).toBe(1);
+    expect(row?.linkedDealCalls.excludedByPolicyCalls?.outgoingCalls).toBe(1);
+    expect(heatmap?.total).toBe(1);
+    expect(heatmap?.gridTotal).toBe(1);
+    expect(heatmap?.outsideGridTotal).toBe(0);
+    expect(directLinkedSlot).toMatchObject({ count: 1 });
+    expect(fallbackSlot).toMatchObject({ count: 0 });
+  });
+
   it("links calls through activity bindings when Bitrix primary owner is another funnel", () => {
     const input = {
       range: {
@@ -589,6 +827,7 @@ describe("buildCallsWorkloadReport", () => {
             averageDurationSeconds: 0,
             stageBreakdown: []
           },
+          callsHourlyHeatmap: expect.any(Object),
           stageBreakdown: []
         },
         {
@@ -650,6 +889,7 @@ describe("buildCallsWorkloadReport", () => {
               }
             ]
           },
+          callsHourlyHeatmap: expect.any(Object),
           stageBreakdown: [
             {
               stageId: "C10:UC_9E0XYG",
@@ -728,6 +968,7 @@ describe("buildCallsWorkloadReport", () => {
               }
             ]
           },
+          callsHourlyHeatmap: expect.any(Object),
           stageBreakdown: [
             {
               stageId: "C10:PREPARATION",
@@ -789,6 +1030,7 @@ describe("buildCallsWorkloadReport", () => {
             averageDurationSeconds: 0,
             stageBreakdown: []
           },
+          callsHourlyHeatmap: expect.any(Object),
           stageBreakdown: []
         }
       ]

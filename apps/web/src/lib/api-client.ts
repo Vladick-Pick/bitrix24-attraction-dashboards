@@ -45,6 +45,7 @@ import type {
   DealSaleRevenueMode,
   DealTimelineEvent,
   DealTimelineEventKind,
+  HourlyWeekdayWorkloadHeatmap,
   LeadgenFunnelReport,
   ManagerWhitelistSettingsData,
   ManagerWhitelistSettingsInput,
@@ -94,6 +95,10 @@ import type {
   UnitEconomicsReport,
   UnitEconomicsReportSnapshot,
   UnitEconomicsSettings,
+  WorkloadHeatmapBasis,
+  WorkloadHeatmapBasisInfo,
+  WorkloadHeatmapSegmentKey,
+  WorkloadHeatmapWeekday,
 } from '@/lib/dashboard-types'
 import type {
   AuthModule,
@@ -192,6 +197,176 @@ function asBoolean(value: unknown, fallback = false) {
 
 function asArray<T>(value: unknown, mapper: (input: unknown) => T): T[] {
   return Array.isArray(value) ? value.map(mapper) : []
+}
+
+const WORKLOAD_HEATMAP_HOURS = Array.from({ length: 13 }, (_, index) => index + 9)
+const WORKLOAD_HEATMAP_WEEKDAYS: Array<{
+  weekday: WorkloadHeatmapWeekday
+  label: string
+}> = [
+  { weekday: 1, label: 'Пн' },
+  { weekday: 2, label: 'Вт' },
+  { weekday: 3, label: 'Ср' },
+  { weekday: 4, label: 'Чт' },
+  { weekday: 5, label: 'Пт' },
+  { weekday: 6, label: 'Сб' },
+  { weekday: 7, label: 'Вс' },
+]
+const WORKLOAD_HEATMAP_BASIS_LABELS: Record<WorkloadHeatmapBasis, string> = {
+  outgoing_calls: 'Исходящие звонки',
+  tasks: 'Задачи',
+  created_tasks: 'Созданные задачи',
+  closed_tasks: 'Закрытые задачи',
+  meetings: 'Встречи',
+}
+const WORKLOAD_HEATMAP_SEGMENT_LABELS: Record<WorkloadHeatmapSegmentKey, string> = {
+  ...WORKLOAD_HEATMAP_BASIS_LABELS,
+  successful_outgoing_calls: 'Успешные >30 сек',
+  other_outgoing_calls: 'Прочие исходящие',
+  no_answer_outgoing_calls: 'Недозвоны',
+  meeting_slot_1: 'Встреча 1',
+  meeting_slot_2: 'Встреча 2',
+  meeting_slot_3: 'Встреча 3',
+}
+const OUTGOING_CALLS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: 'outgoing_calls',
+  label: WORKLOAD_HEATMAP_BASIS_LABELS.outgoing_calls,
+}
+const TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: 'tasks',
+  label: WORKLOAD_HEATMAP_BASIS_LABELS.tasks,
+}
+const CREATED_TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: 'created_tasks',
+  label: WORKLOAD_HEATMAP_BASIS_LABELS.created_tasks,
+}
+const CLOSED_TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: 'closed_tasks',
+  label: WORKLOAD_HEATMAP_BASIS_LABELS.closed_tasks,
+}
+const MEETINGS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: 'meetings',
+  label: WORKLOAD_HEATMAP_BASIS_LABELS.meetings,
+}
+
+function normalizeWorkloadHeatmapWeekday(value: unknown): WorkloadHeatmapWeekday {
+  const weekday = asNumber(value, 1)
+  return weekday >= 1 && weekday <= 7
+    ? (Math.trunc(weekday) as WorkloadHeatmapWeekday)
+    : 1
+}
+
+function normalizeWorkloadHeatmapSegment(value: unknown) {
+  const item = isRecord(value) ? value : {}
+  const key = asString(item.key) as WorkloadHeatmapSegmentKey
+  const fallbackLabel = WORKLOAD_HEATMAP_SEGMENT_LABELS[key] ?? key
+
+  return {
+    key,
+    label: asString(item.label, fallbackLabel),
+    count: asNumber(item.count),
+    intensity: asNumber(item.intensity),
+  }
+}
+
+function normalizeHourlyWeekdayWorkloadHeatmapCell(value: unknown) {
+  const item = isRecord(value) ? value : {}
+  const weekday = normalizeWorkloadHeatmapWeekday(item.weekday)
+  const segments = asArray(item.segments, normalizeWorkloadHeatmapSegment)
+
+  const cell = {
+    weekday,
+    weekdayLabel: asString(
+      item.weekdayLabel,
+      WORKLOAD_HEATMAP_WEEKDAYS.find((column) => column.weekday === weekday)?.label ??
+        '',
+    ),
+    hour: asNumber(item.hour),
+    count: asNumber(item.count),
+    intensity: asNumber(item.intensity),
+  }
+
+  return segments.length > 0 ? { ...cell, segments } : cell
+}
+
+function normalizeWorkloadHeatmapBasis(
+  value: unknown,
+  fallback: WorkloadHeatmapBasisInfo,
+): WorkloadHeatmapBasisInfo {
+  const item = isRecord(value) ? value : {}
+  const key = asString(item.key) as WorkloadHeatmapBasis
+
+  if (key in WORKLOAD_HEATMAP_BASIS_LABELS) {
+    return {
+      key,
+      label: asString(item.label, WORKLOAD_HEATMAP_BASIS_LABELS[key]),
+    }
+  }
+
+  return { ...fallback }
+}
+
+function createEmptyHourlyWeekdayWorkloadHeatmap(
+  basis: WorkloadHeatmapBasisInfo,
+): HourlyWeekdayWorkloadHeatmap {
+  return {
+    basis: { ...basis },
+    hours: [...WORKLOAD_HEATMAP_HOURS],
+    weekdays: WORKLOAD_HEATMAP_WEEKDAYS.map((column) => ({ ...column })),
+    cells: WORKLOAD_HEATMAP_HOURS.flatMap((hour) =>
+      WORKLOAD_HEATMAP_WEEKDAYS.map((column) => ({
+        weekday: column.weekday,
+        weekdayLabel: column.label,
+        hour,
+        count: 0,
+        intensity: 0,
+      })),
+    ),
+    total: 0,
+    gridTotal: 0,
+    outsideGridTotal: 0,
+    peak: null,
+  }
+}
+
+function normalizeHourlyWeekdayWorkloadHeatmap(
+  value: unknown,
+  basisFallback: WorkloadHeatmapBasisInfo,
+): HourlyWeekdayWorkloadHeatmap {
+  if (!isRecord(value)) {
+    return createEmptyHourlyWeekdayWorkloadHeatmap(basisFallback)
+  }
+
+  const peak = isRecord(value.peak)
+    ? normalizeHourlyWeekdayWorkloadHeatmapCell(value.peak)
+    : null
+  const cells = asArray(value.cells, normalizeHourlyWeekdayWorkloadHeatmapCell)
+  const computedGridTotal = cells.reduce((sum, cell) => sum + cell.count, 0)
+  const gridTotal = asNumber(value.gridTotal, computedGridTotal)
+  const total = asNumber(value.total, gridTotal)
+
+  return {
+    basis: normalizeWorkloadHeatmapBasis(value.basis, basisFallback),
+    hours: asArray(value.hours, (hour) => asNumber(hour)),
+    weekdays: asArray(value.weekdays, (weekdayColumn) => {
+      const column = isRecord(weekdayColumn) ? weekdayColumn : {}
+      const weekday = normalizeWorkloadHeatmapWeekday(column.weekday)
+
+      return {
+        weekday,
+        label: asString(
+          column.label,
+          WORKLOAD_HEATMAP_WEEKDAYS.find((item) => item.weekday === weekday)?.label ??
+            '',
+        ),
+      }
+    }),
+    cells,
+    total,
+    gridTotal,
+    outsideGridTotal: asNumber(value.outsideGridTotal, Math.max(0, total - gridTotal)),
+    peak,
+  }
 }
 
 function normalizeCallAttributionPolicy(value: unknown): CallAttributionPolicy | undefined {
@@ -2041,6 +2216,22 @@ function normalizeActivitiesWorkloadSnapshot(
             }
           },
         ),
+        tasksHourlyHeatmap: normalizeHourlyWeekdayWorkloadHeatmap(
+          item.tasksHourlyHeatmap,
+          TASKS_HEATMAP_BASIS,
+        ),
+        createdTasksHourlyHeatmap: normalizeHourlyWeekdayWorkloadHeatmap(
+          item.createdTasksHourlyHeatmap,
+          CREATED_TASKS_HEATMAP_BASIS,
+        ),
+        closedTasksHourlyHeatmap: normalizeHourlyWeekdayWorkloadHeatmap(
+          item.closedTasksHourlyHeatmap,
+          CLOSED_TASKS_HEATMAP_BASIS,
+        ),
+        meetingsHourlyHeatmap: normalizeHourlyWeekdayWorkloadHeatmap(
+          item.meetingsHourlyHeatmap,
+          MEETINGS_HEATMAP_BASIS,
+        ),
         slaMetrics: asArray(item.slaMetrics, (metric) => {
           const row = isRecord(metric) ? metric : {}
           return {
@@ -2193,6 +2384,10 @@ function normalizeCallsWorkloadSnapshot(value: unknown): CallsWorkloadReportSnap
             ? { excludedByPolicyCalls: rowExcludedByPolicyCalls }
             : {}),
         },
+        callsHourlyHeatmap: normalizeHourlyWeekdayWorkloadHeatmap(
+          item.callsHourlyHeatmap,
+          OUTGOING_CALLS_HEATMAP_BASIS,
+        ),
         stageBreakdown: asArray(item.stageBreakdown, normalizeStageCallMetric),
       }
     }),

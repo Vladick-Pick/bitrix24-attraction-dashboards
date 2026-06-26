@@ -93,7 +93,8 @@ interface StatusRow {
 
 interface DealFieldMetadata {
   title?: string;
-  settings?: Record<string, string | null>;
+  type?: string | null;
+  settings?: Record<string, string | number | null>;
   items?: Array<{
     ID?: string | number;
     VALUE?: string;
@@ -191,6 +192,11 @@ interface SmartProcessTypeRow {
 
 interface SmartProcessTypeListResult {
   types?: SmartProcessTypeRow[];
+}
+
+interface IblockElementRow {
+  ID: string | number;
+  NAME?: string | null;
 }
 
 interface SmartProcessFieldMetadata {
@@ -609,6 +615,10 @@ export class BitrixClient {
   private dealFieldsPromise: Promise<Record<string, DealFieldMetadata>> | null =
     null;
   private readonly dynamicItemTitleMaps = new Map<
+    number,
+    Promise<Record<string, string>>
+  >();
+  private readonly iblockElementTitleMaps = new Map<
     number,
     Promise<Record<string, string>>
   >();
@@ -1547,6 +1557,41 @@ export class BitrixClient {
     return request;
   }
 
+  private fetchIblockElementTitleMap(iblockId: number) {
+    const cached = this.iblockElementTitleMaps.get(iblockId);
+    if (cached) {
+      return cached;
+    }
+
+    const request = this.collectPagedList<IblockElementRow>(
+      "lists.element.get",
+      (start) => ({
+        IBLOCK_TYPE_ID: "lists",
+        IBLOCK_ID: iblockId,
+        SELECT: ["ID", "NAME"],
+        ELEMENT_ORDER: {
+          ID: "ASC" as const
+        },
+        start
+      })
+    )
+      .then(
+        (items) =>
+          Object.fromEntries(
+            items.flatMap((item) =>
+              item.NAME ? [[String(item.ID), item.NAME]] : []
+            )
+          ) as Record<string, string>
+      )
+      .catch((error: unknown) => {
+        this.iblockElementTitleMaps.delete(iblockId);
+        throw error;
+      });
+
+    this.iblockElementTitleMaps.set(iblockId, request);
+    return request;
+  }
+
   async fetchDealFieldValueMap(fieldName: string) {
     if (!fieldName) {
       return {};
@@ -1563,6 +1608,11 @@ export class BitrixClient {
           return id !== undefined && value ? [[String(id), value]] : [];
         })
       ) as Record<string, string>;
+    }
+
+    const iblockId = Number(field?.settings?.IBLOCK_ID);
+    if (field?.type === "iblock_element" && Number.isFinite(iblockId)) {
+      return this.fetchIblockElementTitleMap(iblockId);
     }
 
     const dynamicEntityKey = Object.entries(field?.settings ?? {}).find(

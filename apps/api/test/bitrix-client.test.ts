@@ -1532,6 +1532,62 @@ describe("BitrixClient pagination", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({});
   });
 
+  it("resolves iblock_element deal field maps through list elements", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createResponse({
+          result: {
+            UF_CRM_DEAL_MEET2_KIND: {
+              type: "iblock_element",
+              settings: {
+                IBLOCK_ID: 222
+              }
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createResponse({
+          result: [
+            { ID: "558388", NAME: "Очная" },
+            { ID: "558390", NAME: "Zoom" },
+            { ID: "558392", NAME: "Мероприятие" }
+          ]
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.fetchDealFieldValueMap("UF_CRM_DEAL_MEET2_KIND")
+    ).resolves.toEqual({
+      "558388": "Очная",
+      "558390": "Zoom",
+      "558392": "Мероприятие"
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      IBLOCK_TYPE_ID: "lists",
+      IBLOCK_ID: 222,
+      SELECT: ["ID", "NAME"],
+      ELEMENT_ORDER: {
+        ID: "ASC"
+      },
+      start: 0
+    });
+  });
+
   it("reads stage history rows from nested result.items payloads", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       createResponse({

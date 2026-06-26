@@ -484,6 +484,7 @@ describe("Bitrix transport security", () => {
       "crm.contact.list",
       "crm.contact.fields",
       "crm.item.list",
+      "lists.element.get",
       "crm.stagehistory.list",
       "crm.activity.list",
       "crm.activity.binding.list",

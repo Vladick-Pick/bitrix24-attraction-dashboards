@@ -4763,7 +4763,7 @@ describe("performManualSync", () => {
   });
 
   it("reopens deal custom-field backfill when meeting-slot fields change coverage version", async () => {
-    expect(DEAL_CUSTOM_FIELDS_COVERAGE_VERSION).toBe("deal-custom-fields-v5");
+    expect(DEAL_CUSTOM_FIELDS_COVERAGE_VERSION).toBe("deal-custom-fields-v6");
 
     const dealRequests: Array<{
       modifiedAfter: string | null;
@@ -4870,7 +4870,7 @@ describe("performManualSync", () => {
       expect.objectContaining({
         stream: "deal_custom_fields",
         providerId: "all",
-        algorithmVersion: "deal-custom-fields-v5"
+        algorithmVersion: "deal-custom-fields-v6"
       })
     );
     expect(dealRequests).toEqual(
@@ -4891,7 +4891,7 @@ describe("performManualSync", () => {
         stream: "deal_custom_fields",
         providerId: "all",
         coveredFrom: "2025-04-25T00:00:00.000Z",
-        algorithmVersion: "deal-custom-fields-v5"
+        algorithmVersion: "deal-custom-fields-v6"
       })
     );
   });

@@ -10,6 +10,7 @@ import type {
   DashboardData,
   DealPricingRuleInput,
   DealPricingSettings,
+  HourlyWeekdayWorkloadHeatmap,
   ManagerWhitelistSettingsData,
   ManagerActionOutcomeReport,
   RevenueVelocityReport,
@@ -216,6 +217,10 @@ export interface ActivitySummaryRow {
   incoming: string
   noAnswer: string
   closedTasks: string
+  callsHourlyHeatmap?: HourlyWeekdayWorkloadHeatmap
+  tasksHourlyHeatmap?: HourlyWeekdayWorkloadHeatmap
+  createdTasksHourlyHeatmap?: HourlyWeekdayWorkloadHeatmap
+  closedTasksHourlyHeatmap?: HourlyWeekdayWorkloadHeatmap
   deltas?: string[]
   comparePoints?: Array<{
     label: string

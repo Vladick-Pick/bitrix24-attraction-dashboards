@@ -2170,7 +2170,8 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     leadgenWorkloadFilterKey === leadgenWorkloadRequestKey ? leadgenWorkload : null
   const isReportLoading = isLeadgenModule
     ? leadgenReportStatus === 'loading'
-    : activeRuntimeData.operationalStatus === 'loading'
+    : runtimeData.operationalStatus === 'loading' ||
+      activeRuntimeData.operationalStatus === 'loading'
   const salesSceneStatus = getRuntimeSceneStatus(runtimeData, 'sales')
 
   function navigateToAccount() {

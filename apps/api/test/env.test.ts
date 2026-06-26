@@ -73,6 +73,24 @@ describe("readEnv", () => {
     expect(readEnv({}).bitrixEnabled).toBe(false);
   });
 
+  it("documents and validates the optional remote MCP access token", () => {
+    const envExample = readFileSync(
+      resolve(TEST_DIR, "../../../.env.example"),
+      "utf8"
+    );
+
+    expect(envExample).toContain("MCP_ACCESS_TOKEN=");
+    expect(readEnv({ MCP_ACCESS_TOKEN: "" }).MCP_ACCESS_TOKEN).toBeUndefined();
+    expect(() => readEnv({ MCP_ACCESS_TOKEN: "short-token" })).toThrow(
+      /MCP_ACCESS_TOKEN/i
+    );
+    expect(
+      readEnv({
+        MCP_ACCESS_TOKEN: "remote-mcp-token-with-at-least-32-characters"
+      }).MCP_ACCESS_TOKEN
+    ).toBe("remote-mcp-token-with-at-least-32-characters");
+  });
+
   it("exposes safe defaults and overrides for call analysis recording downloads", () => {
     expect(readEnv({})).toMatchObject({
       CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: 60_000,

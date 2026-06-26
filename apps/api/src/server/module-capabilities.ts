@@ -17,11 +17,17 @@ export interface ModuleCapabilityRegistryInput {
 }
 
 export interface AttractionCapabilityService {
+  getDashboard?: unknown;
   getSourceQualityConversionReport?: unknown;
   getActivitiesWorkloadReport?: unknown;
   getAcquisitionOutcomesReport?: unknown;
   getTargetGroupConversionReport?: unknown;
+  getManagerActionOutcomeReport?: unknown;
   getCallsWorkloadReport?: unknown;
+  getConversionEventsReport?: unknown;
+  getCohortConversionReport?: unknown;
+  getTocFlowReport?: unknown;
+  getRevenueVelocityReport?: unknown;
   getUnitEconomicsReport?: unknown;
 }
 
@@ -54,6 +60,10 @@ const attractionCapabilityReportAvailability: Array<
   ReportAvailabilityDescriptor<AttractionCapabilityService>
 > = [
   {
+    route: "/api/dashboard",
+    isAvailable: (service) => typeof service.getDashboard === "function"
+  },
+  {
     route: "/api/reports/source-quality-conversion",
     isAvailable: (service) =>
       typeof service.getSourceQualityConversionReport === "function"
@@ -74,8 +84,32 @@ const attractionCapabilityReportAvailability: Array<
       typeof service.getTargetGroupConversionReport === "function"
   },
   {
+    route: "/api/reports/manager-action-outcomes",
+    isAvailable: (service) =>
+      typeof service.getManagerActionOutcomeReport === "function"
+  },
+  {
     route: "/api/reports/calls-workload",
     isAvailable: (service) => typeof service.getCallsWorkloadReport === "function"
+  },
+  {
+    route: "/api/reports/conversion-events",
+    isAvailable: (service) =>
+      typeof service.getConversionEventsReport === "function"
+  },
+  {
+    route: "/api/reports/cohort-conversion",
+    isAvailable: (service) =>
+      typeof service.getCohortConversionReport === "function"
+  },
+  {
+    route: "/api/reports/toc-flow",
+    isAvailable: (service) => typeof service.getTocFlowReport === "function"
+  },
+  {
+    route: "/api/reports/revenue-velocity",
+    isAvailable: (service) =>
+      typeof service.getRevenueVelocityReport === "function"
   },
   {
     route: "/api/reports/unit-economics",
@@ -152,6 +186,17 @@ export function createAttractionCapabilityManifest(): ModuleCapabilityManifest {
     ontologyRef: "docs/modules/attraction/MODULE_ONTOLOGY.md",
     reports: [
       {
+        id: "dashboard",
+        title: "Дашборд Привлечения",
+        description:
+          "Attraction-owned dashboard summary over cached local reporting data.",
+        route: "/api/dashboard",
+        inputSchemaId: "attraction.report-range-with-filters.v1",
+        outputSchemaId: "attraction.dashboard.v1",
+        status: "available",
+        agentReadable: true
+      },
+      {
         id: "source-quality-conversion",
         title: "Конверсия по качеству источника",
         description:
@@ -193,12 +238,67 @@ export function createAttractionCapabilityManifest(): ModuleCapabilityManifest {
         agentReadable: true
       },
       {
+        id: "manager-action-outcomes",
+        title: "Исходы действий менеджеров",
+        description:
+          "Attraction-owned report connecting manager actions to cached acquisition outcomes.",
+        route: "/api/reports/manager-action-outcomes",
+        inputSchemaId: "attraction.report-range-with-filters.v1",
+        outputSchemaId: "attraction.manager-action-outcomes.v1",
+        status: "available",
+        agentReadable: true
+      },
+      {
         id: "calls-workload",
         title: "Нагрузка по звонкам",
         description: "Attraction-owned call workload report.",
         route: "/api/reports/calls-workload",
         inputSchemaId: "attraction.report-range-with-filters.v1",
         outputSchemaId: "attraction.calls-workload.v1",
+        status: "available",
+        agentReadable: true
+      },
+      {
+        id: "conversion-events",
+        title: "Конверсионные события",
+        description:
+          "Attraction-owned report for cached conversion event invitations and visits.",
+        route: "/api/reports/conversion-events",
+        inputSchemaId: "attraction.report-range-with-filters.v1",
+        outputSchemaId: "attraction.conversion-events.v1",
+        status: "available",
+        agentReadable: true
+      },
+      {
+        id: "cohort-conversion",
+        title: "Когортная конверсия",
+        description:
+          "Attraction-owned cohort conversion report over cached deal lifecycle data.",
+        route: "/api/reports/cohort-conversion",
+        inputSchemaId: "attraction.report-range-with-filters.v1",
+        outputSchemaId: "attraction.cohort-conversion.v1",
+        status: "available",
+        agentReadable: true
+      },
+      {
+        id: "toc-flow",
+        title: "TOC flow",
+        description:
+          "Attraction-owned throughput and flow report over cached stage movement data.",
+        route: "/api/reports/toc-flow",
+        inputSchemaId: "attraction.report-range-with-filters.v1",
+        outputSchemaId: "attraction.toc-flow.v1",
+        status: "available",
+        agentReadable: true
+      },
+      {
+        id: "revenue-velocity",
+        title: "Денежная скорость",
+        description:
+          "Attraction-owned aggregate revenue velocity report over cached pipeline and action data.",
+        route: "/api/reports/revenue-velocity",
+        inputSchemaId: "attraction.revenue-velocity-request.v1",
+        outputSchemaId: "attraction.revenue-velocity.v1",
         status: "available",
         agentReadable: true
       },

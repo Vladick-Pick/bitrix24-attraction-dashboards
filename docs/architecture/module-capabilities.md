@@ -84,6 +84,22 @@ route and schema identifiers, not executable functions. `agentReadable: true`
 means a reviewer must treat the capability as privacy-sensitive and verify that
 the route returns aggregate or safe read data only.
 
+## Attraction Agent-Readable Reports
+
+The attraction manifest must describe every live attraction analytics route so
+agent tooling can rely on one catalog instead of a hidden allowlist. A descriptor
+being present does not mean an agent may execute it. Agent execution requires:
+
+- `status: "available"`;
+- `agentReadable: true`;
+- the module data policy to keep `piiExcluded: true`, `rawPayloadAccess: false`,
+  `directBitrixAccess: false`, and `arbitrarySqliteAccess: false`.
+
+`unit-economics` is catalog-visible but remains `agentReadable: false` until a
+separate safe-output review explicitly approves agent execution. This preserves a
+denial path for sensitive financial analytics while still making the report
+discoverable in the module capability catalog.
+
 ## HTTP Surface
 
 The platform exposes manifest metadata through:

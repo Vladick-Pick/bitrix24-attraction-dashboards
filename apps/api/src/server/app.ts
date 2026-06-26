@@ -108,6 +108,8 @@ import {
   buildTelegramActivityReportMessages,
   getNextDailyActivityReportDelayMs
 } from "./telegram-activity-report.js";
+import type { AttractionMcpGateway } from "../agent/mcp-server.js";
+import { registerAttractionMcpHttpRoute } from "../agent/mcp-http.js";
 
 interface MetaResponse {
   stageCatalog: StageCatalogEntry[];
@@ -297,6 +299,10 @@ interface AppConfig {
   modules?: Record<string, ModuleService>;
   moduleCapabilityManifests?: ModuleCapabilityManifest[];
   moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
+  agentMcp?: {
+    accessToken?: string;
+    gateway?: AttractionMcpGateway;
+  };
 }
 
 function parseCsvArray(value: unknown) {
@@ -2120,6 +2126,13 @@ export function createApp(
     })
   );
   app.use(express.json({ limit: config.jsonBodyLimit ?? "256kb" }));
+
+  if (config.agentMcp?.accessToken && config.agentMcp.gateway) {
+    registerAttractionMcpHttpRoute(app, {
+      accessToken: config.agentMcp.accessToken,
+      gateway: config.agentMcp.gateway
+    });
+  }
 
   const stopAttractionAutoSync = startAttractionAutoSync();
   if (stopAttractionAutoSync) {

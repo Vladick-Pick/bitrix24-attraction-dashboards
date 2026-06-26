@@ -1,5 +1,7 @@
 import { BitrixClient } from "./bitrix/client.js";
 import { readEnv } from "./config/env.js";
+import { createAttractionAgentGateway } from "./agent/attraction-agent-gateway.js";
+import { createPlaybookReader } from "./agent/playbook-reader.js";
 import { createPasswordAuthService, createSqliteAuthStore } from "./server/auth.js";
 import { createApp } from "./server/app.js";
 import { createCallAnalysisService } from "./server/call-analysis-service.js";
@@ -14,6 +16,7 @@ import type {
 import { createSqliteRepository } from "./server/sqlite-repository.js";
 import { createReportingService } from "./server/service.js";
 import { TelegramBotClient } from "./server/telegram-client.js";
+import { createAttractionCapabilityManifest } from "./server/module-capabilities.js";
 
 const env = readEnv();
 const platformRepository = createSqliteRepository({
@@ -204,6 +207,18 @@ const telegramActivityReportSender =
         botToken: env.TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN
       })
     : undefined;
+const attractionAgentGateway = env.MCP_ACCESS_TOKEN
+  ? createAttractionAgentGateway({
+      manifest: createAttractionCapabilityManifest(),
+      service,
+      ontology: {
+        getOverview: () => service.getAttractionOntology(),
+        readSource: ({ sourceId }) =>
+          service.getAttractionOntologySourceDocument(sourceId)
+      },
+      playbook: createPlaybookReader()
+    })
+  : undefined;
 const app = createApp(service, {
   webOrigin: env.WEB_ORIGIN,
   ...(env.API_AUTH_TOKEN ? { apiAuthToken: env.API_AUTH_TOKEN } : {}),
@@ -217,6 +232,14 @@ const app = createApp(service, {
     attraction: service,
     leadgen: leadgenService
   },
+  ...(env.MCP_ACCESS_TOKEN && attractionAgentGateway
+    ? {
+        agentMcp: {
+          accessToken: env.MCP_ACCESS_TOKEN,
+          gateway: attractionAgentGateway
+        }
+      }
+    : {}),
   jsonBodyLimit: env.JSON_BODY_LIMIT,
   trustProxy:
     env.TRUST_PROXY === "true"

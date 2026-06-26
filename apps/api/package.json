@@ -9,6 +9,7 @@
     "test": "vitest run",
     "auth:users": "tsx src/tools/auth-users.ts",
     "auth:users:prod": "node --conditions=production dist/tools/auth-users.js",
+    "mcp:attraction": "tsx src/tools/agent-mcp.ts",
     "stand:seed": "tsx src/tools/stand-data.ts",
     "stand:seed:prod": "node --conditions=production dist/tools/stand-data.js",
     "audit:attraction-scope": "tsx src/tools/audit-attraction-scope.ts",
@@ -17,6 +18,7 @@
   },
   "dependencies": {
     "@bitrix24-reporting/contracts": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "better-sqlite3": "^12.4.1",
     "cors": "^2.8.5",
     "dotenv": "^17.4.1",

@@ -5694,7 +5694,10 @@ export function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
                             className="sticky left-0 min-w-0"
                             style={{ width: 'min(100%, calc(100vw - 5rem))' }}
                           >
-                            <div className="grid min-w-0 gap-3 2xl:grid-cols-2">
+                            <div
+                              className="grid min-w-0 gap-3 xl:grid-cols-2"
+                              data-testid="activity-summary-heatmap-grid"
+                            >
                               <HourlyWeekdayHeatmap
                                 title="Исходящие звонки по часам"
                                 heatmap={row.callsHourlyHeatmap}

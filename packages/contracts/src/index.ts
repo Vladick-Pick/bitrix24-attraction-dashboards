@@ -704,6 +704,61 @@ export interface ReportComparison<T> {
   snapshot: T;
 }
 
+export type WorkloadHeatmapWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export type WorkloadHeatmapBasis =
+  | "outgoing_calls"
+  | "tasks"
+  | "created_tasks"
+  | "closed_tasks"
+  | "meetings";
+
+export type WorkloadHeatmapSegmentKey =
+  | WorkloadHeatmapBasis
+  | "successful_outgoing_calls"
+  | "other_outgoing_calls"
+  | "no_answer_outgoing_calls"
+  | "meeting_slot_1"
+  | "meeting_slot_2"
+  | "meeting_slot_3";
+
+export interface WorkloadHeatmapBasisInfo {
+  key: WorkloadHeatmapBasis;
+  label: string;
+}
+
+export interface WorkloadHeatmapSegment {
+  key: WorkloadHeatmapSegmentKey;
+  label: string;
+  count: number;
+  intensity: number;
+}
+
+export interface WorkloadHeatmapWeekdayColumn {
+  weekday: WorkloadHeatmapWeekday;
+  label: string;
+}
+
+export interface HourlyWeekdayWorkloadHeatmapCell {
+  weekday: WorkloadHeatmapWeekday;
+  weekdayLabel: string;
+  hour: number;
+  count: number;
+  intensity: number;
+  segments?: WorkloadHeatmapSegment[];
+}
+
+export interface HourlyWeekdayWorkloadHeatmap {
+  basis: WorkloadHeatmapBasisInfo;
+  hours: number[];
+  weekdays: WorkloadHeatmapWeekdayColumn[];
+  cells: HourlyWeekdayWorkloadHeatmapCell[];
+  total: number;
+  gridTotal: number;
+  outsideGridTotal: number;
+  peak: HourlyWeekdayWorkloadHeatmapCell | null;
+}
+
 export interface ReportFilters {
   managerIds?: string[];
   sourceKeys?: string[];
@@ -1199,6 +1254,10 @@ export interface ManagerActivitiesWorkloadRow {
   meetingTypeBreakdown: MeetingTypeBucket[];
   businessClubBreakdown: BusinessClubDealBucket[];
   meetingBusinessClubBreakdown: MeetingBusinessClubBucket[];
+  tasksHourlyHeatmap: HourlyWeekdayWorkloadHeatmap;
+  createdTasksHourlyHeatmap: HourlyWeekdayWorkloadHeatmap;
+  closedTasksHourlyHeatmap: HourlyWeekdayWorkloadHeatmap;
+  meetingsHourlyHeatmap: HourlyWeekdayWorkloadHeatmap;
   slaMetrics: SlaMetric[];
   stageBreakdown: StageWorkloadMetric[];
 }
@@ -1343,6 +1402,7 @@ export interface ManagerCallsWorkloadRow {
   callAttributionPolicy?: CallAttributionPolicy;
   allCalls: CallPopulationSummary;
   linkedDealCalls: LinkedDealCallPopulationSummary;
+  callsHourlyHeatmap: HourlyWeekdayWorkloadHeatmap;
   stageBreakdown: StageCallMetric[];
 }
 

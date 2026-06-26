@@ -351,7 +351,7 @@ const DEFAULT_CONVERSION_EVENT_VISITS_TIMEOUT_MS = 1_800_000;
 export const ACTIVITY_HISTORY_COVERAGE_VERSION = "activity-bindings-v2";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_STREAM = "deal_custom_fields";
 export const DEAL_CUSTOM_FIELDS_COVERAGE_PROVIDER = "all";
-export const DEAL_CUSTOM_FIELDS_COVERAGE_VERSION = "deal-custom-fields-v5";
+export const DEAL_CUSTOM_FIELDS_COVERAGE_VERSION = "deal-custom-fields-v6";
 export const DEAL_MEETING_DATE_FIELD_COVERAGE_STREAM = "deal_meeting_date_field";
 export const DEAL_MEETING_DATE_FIELD_COVERAGE_VERSION =
   "deal-meeting-date-field-v1";

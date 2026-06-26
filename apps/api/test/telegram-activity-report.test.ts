@@ -1,6 +1,8 @@
 import type {
   ActivitiesWorkloadReport,
-  CallsWorkloadReport
+  CallsWorkloadReport,
+  HourlyWeekdayWorkloadHeatmap,
+  WorkloadHeatmapBasisInfo
 } from "@bitrix24-reporting/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -28,6 +30,50 @@ const emptyLinkedDealCalls = {
   averageCallsPerDeal: 0,
   stageBreakdown: []
 };
+
+const OUTGOING_CALLS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "outgoing_calls",
+  label: "Исходящие звонки"
+};
+const TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "tasks",
+  label: "Задачи"
+};
+const CREATED_TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "created_tasks",
+  label: "Созданные задачи"
+};
+const CLOSED_TASKS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "closed_tasks",
+  label: "Закрытые задачи"
+};
+const MEETINGS_HEATMAP_BASIS: WorkloadHeatmapBasisInfo = {
+  key: "meetings",
+  label: "Встречи"
+};
+
+function emptyHourlyWeekdayWorkloadHeatmap(
+  basis: WorkloadHeatmapBasisInfo
+): HourlyWeekdayWorkloadHeatmap {
+  return {
+    basis,
+    hours: [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+    weekdays: [
+      { weekday: 1 as const, label: "Пн" },
+      { weekday: 2 as const, label: "Вт" },
+      { weekday: 3 as const, label: "Ср" },
+      { weekday: 4 as const, label: "Чт" },
+      { weekday: 5 as const, label: "Пт" },
+      { weekday: 6 as const, label: "Сб" },
+      { weekday: 7 as const, label: "Вс" }
+    ],
+    cells: [],
+    total: 0,
+    gridTotal: 0,
+    outsideGridTotal: 0,
+    peak: null
+  };
+}
 
 function createActivitiesReport(
   managerRows: ActivitiesWorkloadReport["managerRows"]
@@ -126,6 +172,18 @@ function createActivityRow(
     meetingTypeBreakdown: [],
     businessClubBreakdown: [],
     meetingBusinessClubBreakdown: [],
+    tasksHourlyHeatmap:
+      input.tasksHourlyHeatmap ??
+      emptyHourlyWeekdayWorkloadHeatmap(TASKS_HEATMAP_BASIS),
+    createdTasksHourlyHeatmap:
+      input.createdTasksHourlyHeatmap ??
+      emptyHourlyWeekdayWorkloadHeatmap(CREATED_TASKS_HEATMAP_BASIS),
+    closedTasksHourlyHeatmap:
+      input.closedTasksHourlyHeatmap ??
+      emptyHourlyWeekdayWorkloadHeatmap(CLOSED_TASKS_HEATMAP_BASIS),
+    meetingsHourlyHeatmap:
+      input.meetingsHourlyHeatmap ??
+      emptyHourlyWeekdayWorkloadHeatmap(MEETINGS_HEATMAP_BASIS),
     slaMetrics: [],
     stageBreakdown: []
   };
@@ -154,6 +212,9 @@ function createCallRow(
     averageDurationSeconds: 0,
     allCalls: emptyCallPopulation,
     linkedDealCalls: emptyLinkedDealCalls,
+    callsHourlyHeatmap:
+      input.callsHourlyHeatmap ??
+      emptyHourlyWeekdayWorkloadHeatmap(OUTGOING_CALLS_HEATMAP_BASIS),
     stageBreakdown: []
   };
 }

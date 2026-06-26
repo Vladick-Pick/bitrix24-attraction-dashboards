@@ -43,6 +43,7 @@ export const ALLOWED_BITRIX_METHODS = [
   "crm.contact.list",
   "crm.contact.fields",
   "crm.item.list",
+  "lists.element.get",
   "crm.stagehistory.list",
   "crm.activity.list",
   "crm.activity.binding.list",

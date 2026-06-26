@@ -3,6 +3,230 @@ import { describe, expect, it } from "vitest";
 import { buildActivitiesWorkloadReport } from "../src/domain/operational-reports";
 
 describe("buildActivitiesWorkloadReport", () => {
+  it("adds per-manager created-task, closed-task and meeting heatmaps by weekday and hour from 9 to 21", () => {
+    const result = buildActivitiesWorkloadReport({
+      range: {
+        from: "2026-05-04T00:00:00.000Z",
+        to: "2026-05-10T23:59:59.999Z"
+      },
+      deals: [
+        {
+          id: "HEATMAP_DEAL",
+          leadId: null,
+          categoryId: "10",
+          stageId: "C10:MEETING",
+          stageSemanticId: "P",
+          opportunity: null,
+          assignedById: "7",
+          sourceId: "WEB",
+          qualityValue: null,
+          businessClubValue: null,
+          targetGroupValue: null,
+          meetingTypeValue: "Zoom",
+          meetingDateValue: "2026-05-05T15:00:00.000Z",
+          meetingSlots: [
+            {
+              index: 1,
+              dateValue: "2026-05-05T15:00:00.000Z",
+              typeValue: "Zoom",
+              placeValue: null,
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields"
+            },
+            {
+              index: 2,
+              dateValue: "2026-05-10T20:00:00.000Z",
+              typeValue: "Офлайн",
+              placeValue: null,
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields"
+            },
+            {
+              index: 3,
+              dateValue: "2026-05-06T22:00:00.000Z",
+              typeValue: "Zoom",
+              placeValue: null,
+              calendarValue: null,
+              eventId: null,
+              source: "deal_fields"
+            }
+          ],
+          dateCreate: "2026-05-04T08:00:00.000Z",
+          dateModify: "2026-05-10T20:30:00.000Z",
+          dateClosed: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          utmTerm: null
+        }
+      ],
+      stageCatalog: [
+        {
+          entityType: "deal",
+          categoryId: "10",
+          statusId: "C10:MEETING",
+          name: "Встреча-знакомство",
+          semanticId: "P",
+          sortOrder: 20
+        }
+      ],
+      stageHistory: [],
+      activities: [
+        {
+          id: "TASK_MONDAY",
+          ownerTypeId: "2",
+          ownerId: "HEATMAP_DEAL",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "7",
+          createdTime: "2026-05-04T09:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-05-04T09:30:00.000Z",
+          completed: true,
+          completedTime: "2026-05-04T09:30:00.000Z"
+        },
+        {
+          id: "TASK_SUNDAY",
+          ownerTypeId: "2",
+          ownerId: "HEATMAP_DEAL",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "7",
+          createdTime: "2026-05-10T21:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-05-10T21:15:00.000Z",
+          completed: true,
+          completedTime: "2026-05-10T21:15:00.000Z"
+        },
+        {
+          id: "TASK_OUTSIDE_HOUR",
+          ownerTypeId: "2",
+          ownerId: "HEATMAP_DEAL",
+          typeId: "6",
+          providerId: "CRM_TODO",
+          responsibleId: "7",
+          createdTime: "2026-05-06T22:00:00.000Z",
+          deadline: null,
+          lastUpdated: "2026-05-06T22:15:00.000Z",
+          completed: true,
+          completedTime: "2026-05-06T22:15:00.000Z"
+        }
+      ],
+      deadlineChanges: [],
+      meetingDateChanges: [],
+      managerDirectory: [{ id: "7", name: "Анна Куратор" }]
+    });
+
+    const row = result.managerRows.find((item) => item.managerId === "7");
+    const tasksHeatmap = (row as any)?.tasksHourlyHeatmap;
+    const createdTaskHeatmap = (row as any)?.createdTasksHourlyHeatmap;
+    const closedTaskHeatmap = (row as any)?.closedTasksHourlyHeatmap;
+    const meetingHeatmap = (row as any)?.meetingsHourlyHeatmap;
+    const mondayTasks = tasksHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) => cell.weekday === 1 && cell.hour === 9
+    );
+    const sundayTasks = tasksHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 7 && cell.hour === 21
+    );
+    const createdMondayTask = createdTaskHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) => cell.weekday === 1 && cell.hour === 9
+    );
+    const createdSundayTask = createdTaskHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 7 && cell.hour === 21
+    );
+    const closedMondayTask = closedTaskHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) => cell.weekday === 1 && cell.hour === 9
+    );
+    const closedSundayTask = closedTaskHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 7 && cell.hour === 21
+    );
+    const outsideTask = closedTaskHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 3 && cell.hour === 22
+    );
+    const tuesdayMeeting = meetingHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 2 && cell.hour === 15
+    );
+    const sundayMeeting = meetingHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 7 && cell.hour === 20
+    );
+    const outsideMeeting = meetingHeatmap?.cells.find(
+      (cell: { weekday: number; hour: number }) =>
+        cell.weekday === 3 && cell.hour === 22
+    );
+
+    expect(createdTaskHeatmap?.hours).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(createdTaskHeatmap?.weekdays.map((weekday: { label: string }) => weekday.label)).toEqual([
+      "Пн",
+      "Вт",
+      "Ср",
+      "Чт",
+      "Пт",
+      "Сб",
+      "Вс"
+    ]);
+    expect(createdTaskHeatmap?.basis).toEqual({
+      key: "created_tasks",
+      label: "Созданные задачи"
+    });
+    expect(closedTaskHeatmap?.basis).toEqual({
+      key: "closed_tasks",
+      label: "Закрытые задачи"
+    });
+    expect(meetingHeatmap?.basis).toEqual({
+      key: "meetings",
+      label: "Встречи"
+    });
+    expect(tasksHeatmap?.basis).toEqual({
+      key: "tasks",
+      label: "Задачи"
+    });
+    expect(mondayTasks).toMatchObject({ count: 2, intensity: 5 });
+    expect(mondayTasks?.segments).toEqual([
+      { key: "created_tasks", label: "Созданные задачи", count: 1, intensity: 5 },
+      { key: "closed_tasks", label: "Закрытые задачи", count: 1, intensity: 5 }
+    ]);
+    expect(sundayTasks).toMatchObject({ count: 2, intensity: 5 });
+    expect(tasksHeatmap?.total).toBe(6);
+    expect(tasksHeatmap?.gridTotal).toBe(4);
+    expect(tasksHeatmap?.outsideGridTotal).toBe(2);
+    expect(createdMondayTask).toMatchObject({ count: 1, intensity: 5 });
+    expect(createdSundayTask).toMatchObject({ count: 1, intensity: 5 });
+    expect(createdTaskHeatmap?.total).toBe(3);
+    expect(createdTaskHeatmap?.gridTotal).toBe(2);
+    expect(createdTaskHeatmap?.outsideGridTotal).toBe(1);
+    expect(closedMondayTask).toMatchObject({ count: 1, intensity: 5 });
+    expect(closedSundayTask).toMatchObject({ count: 1, intensity: 5 });
+    expect(outsideTask).toBeUndefined();
+    expect(closedTaskHeatmap?.total).toBe(3);
+    expect(closedTaskHeatmap?.gridTotal).toBe(2);
+    expect(closedTaskHeatmap?.outsideGridTotal).toBe(1);
+    expect(tuesdayMeeting).toMatchObject({ count: 1, intensity: 5 });
+    expect(tuesdayMeeting?.segments).toEqual([
+      { key: "meeting_slot_1", label: "Встреча 1", count: 1, intensity: 5 },
+      { key: "meeting_slot_2", label: "Встреча 2", count: 0, intensity: 0 },
+      { key: "meeting_slot_3", label: "Встреча 3", count: 0, intensity: 0 }
+    ]);
+    expect(sundayMeeting).toMatchObject({ count: 1, intensity: 5 });
+    expect(sundayMeeting?.segments).toEqual([
+      { key: "meeting_slot_1", label: "Встреча 1", count: 0, intensity: 0 },
+      { key: "meeting_slot_2", label: "Встреча 2", count: 1, intensity: 5 },
+      { key: "meeting_slot_3", label: "Встреча 3", count: 0, intensity: 0 }
+    ]);
+    expect(outsideMeeting).toBeUndefined();
+    expect(meetingHeatmap?.total).toBe(3);
+    expect(meetingHeatmap?.gridTotal).toBe(2);
+    expect(meetingHeatmap?.outsideGridTotal).toBe(1);
+  });
+
   it("counts each dated deal meeting slot by its own meeting type", () => {
     const result = buildActivitiesWorkloadReport({
       range: {
@@ -503,6 +727,10 @@ describe("buildActivitiesWorkloadReport", () => {
               count: 1
             }
           ],
+          tasksHourlyHeatmap: expect.any(Object),
+          createdTasksHourlyHeatmap: expect.any(Object),
+          closedTasksHourlyHeatmap: expect.any(Object),
+          meetingsHourlyHeatmap: expect.any(Object),
           slaMetrics: [
             {
               slaKey: "sla1",
@@ -575,6 +803,10 @@ describe("buildActivitiesWorkloadReport", () => {
             }
           ],
           meetingBusinessClubBreakdown: [],
+          tasksHourlyHeatmap: expect.any(Object),
+          createdTasksHourlyHeatmap: expect.any(Object),
+          closedTasksHourlyHeatmap: expect.any(Object),
+          meetingsHourlyHeatmap: expect.any(Object),
           slaMetrics: [
             {
               slaKey: "sla1",
@@ -630,6 +862,10 @@ describe("buildActivitiesWorkloadReport", () => {
           meetingTypeBreakdown: [],
           businessClubBreakdown: [],
           meetingBusinessClubBreakdown: [],
+          tasksHourlyHeatmap: expect.any(Object),
+          createdTasksHourlyHeatmap: expect.any(Object),
+          closedTasksHourlyHeatmap: expect.any(Object),
+          meetingsHourlyHeatmap: expect.any(Object),
           slaMetrics: [],
           stageBreakdown: []
         }

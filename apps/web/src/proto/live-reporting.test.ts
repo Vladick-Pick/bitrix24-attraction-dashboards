@@ -486,6 +486,130 @@ describe('live-reporting', () => {
     ])
   })
 
+  it('carries manager hourly heatmaps into activity summary rows', () => {
+    const createdTasksHourlyHeatmap = {
+      basis: { key: 'created_tasks' as const, label: 'Созданные задачи' },
+      hours: [9],
+      weekdays: [{ weekday: 1 as const, label: 'Пн' }],
+      cells: [{ weekday: 1 as const, weekdayLabel: 'Пн', hour: 9, count: 2, intensity: 5 }],
+      total: 2,
+      gridTotal: 2,
+      outsideGridTotal: 0,
+      peak: { weekday: 1 as const, weekdayLabel: 'Пн', hour: 9, count: 2, intensity: 5 },
+    }
+    const closedTasksHourlyHeatmap = {
+      basis: { key: 'closed_tasks' as const, label: 'Закрытые задачи' },
+      hours: [9],
+      weekdays: [{ weekday: 1 as const, label: 'Пн' }],
+      cells: [{ weekday: 1 as const, weekdayLabel: 'Пн', hour: 9, count: 1, intensity: 5 }],
+      total: 1,
+      gridTotal: 1,
+      outsideGridTotal: 0,
+      peak: { weekday: 1 as const, weekdayLabel: 'Пн', hour: 9, count: 1, intensity: 5 },
+    }
+    const meetingsHourlyHeatmap = {
+      basis: { key: 'meetings' as const, label: 'Встречи' },
+      hours: [15],
+      weekdays: [{ weekday: 2 as const, label: 'Вт' }],
+      cells: [{ weekday: 2 as const, weekdayLabel: 'Вт', hour: 15, count: 1, intensity: 5 }],
+      total: 1,
+      gridTotal: 1,
+      outsideGridTotal: 0,
+      peak: { weekday: 2 as const, weekdayLabel: 'Вт', hour: 15, count: 1, intensity: 5 },
+    }
+    const callsHourlyHeatmap = {
+      basis: { key: 'outgoing_calls' as const, label: 'Исходящие звонки' },
+      hours: [10],
+      weekdays: [{ weekday: 3 as const, label: 'Ср' }],
+      cells: [{ weekday: 3 as const, weekdayLabel: 'Ср', hour: 10, count: 2, intensity: 5 }],
+      total: 2,
+      gridTotal: 2,
+      outsideGridTotal: 0,
+      peak: { weekday: 3 as const, weekdayLabel: 'Ср', hour: 10, count: 2, intensity: 5 },
+    }
+    const activities: ActivitiesWorkloadReport = {
+      range: {
+        from: '2026-04-06T00:00:00.000Z',
+        to: '2026-04-12T23:59:59.999Z',
+      },
+      totalDealCount: 1,
+      totalCreatedCount: 1,
+      totalRescheduledCount: 0,
+      totalClosedCount: 1,
+      totalMeetingCount: 1,
+      warnings: [],
+      conversionEventRows: [],
+      managerRows: [
+        {
+          managerId: '7',
+          managerName: 'Анна Петрова',
+          dealCount: 1,
+          createdCount: 1,
+          rescheduledCount: 0,
+          closedCount: 1,
+          meetingCount: 1,
+          averageCreatedPerDeal: 1,
+          averageRescheduledPerDeal: 0,
+          averageClosedPerDeal: 1,
+          averageMeetingsPerDeal: 1,
+          meetingTypeBreakdown: [],
+          businessClubBreakdown: [],
+          meetingBusinessClubBreakdown: [],
+          createdTasksHourlyHeatmap,
+          closedTasksHourlyHeatmap,
+          meetingsHourlyHeatmap,
+          slaMetrics: [],
+          stageBreakdown: [],
+        },
+      ],
+    }
+    const calls: CallsWorkloadReport = {
+      range: {
+        from: '2026-04-06T00:00:00.000Z',
+        to: '2026-04-12T23:59:59.999Z',
+      },
+      totalDealCount: 1,
+      totalCalls: 2,
+      totalIncomingCalls: 0,
+      totalOutgoingCalls: 2,
+      totalOtherOutgoingCalls: 0,
+      totalConnectedCalls: 2,
+      totalFailedCalls: 0,
+      totalCallsOverThirtySeconds: 2,
+      totalConnectedCallsOverThirtySeconds: 2,
+      warnings: [],
+      managerRows: [
+        {
+          managerId: '7',
+          managerName: 'Анна Петрова',
+          dealCount: 1,
+          totalCalls: 2,
+          incomingCalls: 0,
+          outgoingCalls: 2,
+          otherOutgoingCalls: 0,
+          connectedCalls: 2,
+          failedCalls: 0,
+          callsOverThirtySeconds: 2,
+          connectedCallsOverThirtySeconds: 2,
+          averageCallsPerDeal: 2,
+          averageDurationSeconds: 90,
+          callsHourlyHeatmap,
+          stageBreakdown: [],
+        },
+      ],
+    }
+
+    const scene = mapActivitiesCallsSceneData({ activities, calls })
+
+    expect(scene.summaryRows[0]?.createdTasksHourlyHeatmap).toEqual(
+      createdTasksHourlyHeatmap,
+    )
+    expect(scene.summaryRows[0]?.closedTasksHourlyHeatmap).toEqual(
+      closedTasksHourlyHeatmap,
+    )
+    expect(scene.summaryRows[0]?.callsHourlyHeatmap).toEqual(callsHourlyHeatmap)
+  })
+
   it('shows when direct-only attribution excludes contact fallback calls from the calls-per-deal KPI', () => {
     const activities: ActivitiesWorkloadReport = {
       range: {

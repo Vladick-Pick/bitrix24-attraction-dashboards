@@ -222,6 +222,12 @@ describe('ActivitiesScene', () => {
 
     expect(screen.getByText('Исходящие звонки по часам')).toBeInTheDocument()
     expect(screen.getByText('Задачи по часам')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-summary-heatmap-grid')).toHaveClass(
+      'xl:grid-cols-2',
+    )
+    expect(screen.getByTestId('activity-summary-heatmap-grid')).not.toHaveClass(
+      '2xl:grid-cols-2',
+    )
     expect(screen.queryByText('Созданные задачи по часам')).not.toBeInTheDocument()
     expect(screen.queryByText('Закрытые задачи по часам')).not.toBeInTheDocument()
     expect(screen.getByText('вне 09-21 1')).toBeInTheDocument()

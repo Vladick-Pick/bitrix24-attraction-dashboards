@@ -6163,6 +6163,51 @@ describe('ProtoApp', () => {
     })
   })
 
+  it('shows filter apply loading state while an active lazy scene waits for sales refresh', async () => {
+    render(<ProtoApp />)
+
+    const applyButton = await screen.findByRole('button', { name: /^применить фильтры$/i })
+    await waitFor(() => expect(applyButton).not.toBeDisabled())
+
+    await userEvent.click(screen.getByRole('button', { name: /^отчет активности$/i }))
+    await waitFor(() => expect(apiClient.getActivitiesWorkloadReport).toHaveBeenCalled())
+    expect(await screen.findByRole('heading', { name: /^сводка по менеджерам$/i })).toBeInTheDocument()
+
+    vi.mocked(apiClient.getDashboard).mockClear()
+    const pendingDashboard = createDeferred<DashboardData>()
+    vi.mocked(apiClient.getDashboard).mockImplementationOnce(async () => pendingDashboard.promise)
+
+    const startInput = screen.getByLabelText(
+      'Дата начала основного диапазона',
+    ) as HTMLInputElement
+    const endInput = screen.getByLabelText(
+      'Дата конца основного диапазона',
+    ) as HTMLInputElement
+    startInput.value = '2026-05-25'
+    endInput.value = '2026-05-31'
+
+    await userEvent.click(applyButton)
+
+    await waitFor(() => {
+      expect(apiClient.getDashboard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preset: 'custom',
+          from: '2026-05-25T00:00:00.000+03:00',
+          to: '2026-05-31T23:59:59.999+03:00',
+        }),
+      )
+    })
+    expect(screen.getByRole('button', { name: /^загружаю$/i })).toBeDisabled()
+    expect(
+      screen.getByText('Загружаю данные за 25.05.2026..31.05.2026'),
+    ).toBeInTheDocument()
+
+    pendingDashboard.resolve(createSalesDashboard(3))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^применить фильтры$/i })).not.toBeDisabled()
+    })
+  })
+
   it('uses the active leadgen module when refreshing data', async () => {
     const owner: AuthUser = {
       id: 1,

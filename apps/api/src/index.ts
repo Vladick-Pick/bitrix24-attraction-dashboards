@@ -120,7 +120,10 @@ const service = createReportingService({
   repository: attractionRepository,
   client,
   defaultPeriodDays: env.REPORT_DEFAULT_PERIOD_DAYS,
-  bootstrapLookbackDays: env.BITRIX24_BOOTSTRAP_LOOKBACK_DAYS
+  bootstrapLookbackDays: env.BITRIX24_BOOTSTRAP_LOOKBACK_DAYS,
+  ...(env.BITRIX24_PORTAL_HOST
+    ? { bitrixPortalHost: env.BITRIX24_PORTAL_HOST }
+    : {})
 });
 const leadgenService = createLeadgenService({
   categoryId: env.leadgenCategoryId,

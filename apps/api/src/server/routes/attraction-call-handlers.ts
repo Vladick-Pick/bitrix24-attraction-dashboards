@@ -25,6 +25,7 @@ export interface CallAnalysisQueueRequest {
     sourceKeys?: string[];
   };
   eventParticipantMode?: UnitEconomicsEventParticipantMode;
+  stageIds?: string[];
   callTypes?: CallAnalysisQueueCallType[];
   analysisStatuses?: CallAnalysisQueueStatus[];
 }

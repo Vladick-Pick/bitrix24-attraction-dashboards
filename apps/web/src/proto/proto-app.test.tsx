@@ -1726,6 +1726,43 @@ describe('ProtoApp', () => {
   })
 
   it('applies call analysis filters only after the apply button is pressed', async () => {
+    vi.mocked(apiClient.getMeta).mockResolvedValueOnce({
+      stageCatalog: [
+        {
+          entityType: 'deal',
+          categoryId: '10',
+          statusId: 'C10:QUALIFICATION',
+          name: 'Квалификация',
+          semanticId: 'P',
+        },
+        {
+          entityType: 'deal',
+          categoryId: '10',
+          statusId: 'C10:CONTRACT',
+          name: 'Договор',
+          semanticId: 'P',
+        },
+      ],
+      managerCatalog: [],
+      sourceCatalog: [],
+      wonStageIds: [],
+      defaultPeriodDays: 30,
+      lastSync: null,
+      snapshotStats: {
+        deals: 0,
+        activities: 0,
+        calls: 0,
+        stageHistory: 0,
+      },
+      syncHealth: {
+        status: 'ready',
+        blocking: false,
+        checkedAt: '2026-04-10T12:00:00.000Z',
+        lastSuccessfulSync: null,
+        issues: [],
+        warnings: [],
+      },
+    })
     render(<ProtoApp />)
 
     await userEvent.click(await screen.findByRole('button', { name: /^анализ звонков$/i }))
@@ -1735,6 +1772,9 @@ describe('ProtoApp', () => {
 
     const dateFromInput = screen.getByLabelText(/^Дата с$/i)
     fireEvent.change(dateFromInput, { target: { value: '2026-06-08' } })
+    await userEvent.click(screen.getByRole('button', { name: /^Этап$/i }))
+    const qualificationOptions = await screen.findAllByText('Квалификация')
+    await userEvent.click(qualificationOptions.at(-1)!)
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(apiClient.getCallAnalysisQueue).not.toHaveBeenCalled()
 
@@ -1742,6 +1782,13 @@ describe('ProtoApp', () => {
     await waitFor(() => {
       expect(apiClient.getCallAnalysisQueue).toHaveBeenCalledTimes(1)
     })
+    expect(apiClient.getCallAnalysisQueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: '2026-06-08T00:00:00.000+03:00',
+        stageIds: ['C10:QUALIFICATION'],
+      }),
+      'attraction',
+    )
   })
 
   it('allows rerunning call analysis only when the selected call has an error', async () => {

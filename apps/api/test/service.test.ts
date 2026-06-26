@@ -805,6 +805,181 @@ describe("createReportingService", () => {
     expect(queue.items.at(-1)?.callId).toBe("CALL_201");
   });
 
+  it("filters the call analysis queue by the stage at call time", async () => {
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      bitrixPortalHost: "example.bitrix24.ru",
+      repository: withReportingRepositoryDefaults({
+        getAllDeals: async () => [
+          {
+            id: "STAGE_MATCH_DEAL",
+            leadId: null,
+            categoryId: "10",
+            stageId: "C10:CONTRACT",
+            stageSemanticId: "P",
+            opportunity: 0,
+            assignedById: "78",
+            sourceId: "WEB",
+            qualityValue: null,
+            dateCreate: "2026-06-09T08:00:00.000Z",
+            dateModify: "2026-06-09T15:00:00.000Z",
+            dateClosed: null,
+            utmSource: null,
+            utmMedium: null,
+            utmCampaign: null,
+            utmContent: null,
+            utmTerm: null
+          },
+          {
+            id: "CURRENT_STAGE_MATCH_DEAL",
+            leadId: null,
+            categoryId: "10",
+            stageId: "C10:QUALIFICATION",
+            stageSemanticId: "P",
+            opportunity: 0,
+            assignedById: "78",
+            sourceId: "WEB",
+            qualityValue: null,
+            dateCreate: "2026-06-09T08:00:00.000Z",
+            dateModify: "2026-06-09T09:00:00.000Z",
+            dateClosed: null,
+            utmSource: null,
+            utmMedium: null,
+            utmCampaign: null,
+            utmContent: null,
+            utmTerm: null
+          },
+          {
+            id: "STAGE_SKIP_DEAL",
+            leadId: null,
+            categoryId: "10",
+            stageId: "C10:NEW",
+            stageSemanticId: "P",
+            opportunity: 0,
+            assignedById: "78",
+            sourceId: "WEB",
+            qualityValue: null,
+            dateCreate: "2026-06-09T08:00:00.000Z",
+            dateModify: "2026-06-09T09:00:00.000Z",
+            dateClosed: null,
+            utmSource: null,
+            utmMedium: null,
+            utmCampaign: null,
+            utmContent: null,
+            utmTerm: null
+          }
+        ],
+        getStageCatalog: async () => [
+          {
+            entityType: "deal" as const,
+            categoryId: "10",
+            statusId: "C10:QUALIFICATION",
+            name: "Квалификация",
+            semanticId: "P",
+            sortOrder: 10
+          },
+          {
+            entityType: "deal" as const,
+            categoryId: "10",
+            statusId: "C10:CONTRACT",
+            name: "Договор",
+            semanticId: "P",
+            sortOrder: 20
+          },
+          {
+            entityType: "deal" as const,
+            categoryId: "10",
+            statusId: "C10:NEW",
+            name: "Новая",
+            semanticId: "P",
+            sortOrder: 30
+          }
+        ],
+        getAllStageHistory: async () => [
+          {
+            id: "H1",
+            ownerId: "STAGE_MATCH_DEAL",
+            typeId: "2",
+            stageId: "C10:QUALIFICATION",
+            categoryId: "10",
+            createdTime: "2026-06-09T09:00:00.000Z"
+          },
+          {
+            id: "H2",
+            ownerId: "STAGE_MATCH_DEAL",
+            typeId: "2",
+            stageId: "C10:CONTRACT",
+            categoryId: "10",
+            createdTime: "2026-06-09T13:00:00.000Z"
+          }
+        ],
+        getAllActivities: async () => [],
+        getAllCalls: async () => [
+          {
+            id: "CALL_STAGE_AT_TIME",
+            crmActivityId: null,
+            portalUserId: "78",
+            callType: "1",
+            callStartDate: "2026-06-09T10:00:00.000Z",
+            callDurationSeconds: 90,
+            crmEntityType: "DEAL",
+            crmEntityId: "STAGE_MATCH_DEAL",
+            callFailedCode: "200"
+          },
+          {
+            id: "CALL_CURRENT_STAGE_FALLBACK",
+            crmActivityId: null,
+            portalUserId: "78",
+            callType: "1",
+            callStartDate: "2026-06-09T11:00:00.000Z",
+            callDurationSeconds: 80,
+            crmEntityType: "DEAL",
+            crmEntityId: "CURRENT_STAGE_MATCH_DEAL",
+            callFailedCode: "200"
+          },
+          {
+            id: "CALL_WRONG_STAGE",
+            crmActivityId: null,
+            portalUserId: "78",
+            callType: "1",
+            callStartDate: "2026-06-09T12:00:00.000Z",
+            callDurationSeconds: 70,
+            crmEntityType: "DEAL",
+            crmEntityId: "STAGE_SKIP_DEAL",
+            callFailedCode: "200"
+          }
+        ],
+        getManagerDirectory: async () => [],
+        getCallAnalysisResult: async () => null,
+        getLatestCallAnalysisRuns: async () => []
+      }),
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    const queue = await service.getCallAnalysisQueue({
+      range: {
+        from: "2026-06-09T00:00:00.000Z",
+        to: "2026-06-09T23:59:59.999Z"
+      },
+      stageIds: ["C10:QUALIFICATION"]
+    });
+
+    expect(queue.items.map((item) => item.callId)).toEqual([
+      "CALL_STAGE_AT_TIME",
+      "CALL_CURRENT_STAGE_FALLBACK"
+    ]);
+    expect(queue.items[0]).toMatchObject({
+      stageAtCallId: "C10:QUALIFICATION",
+      dealCurrentStageId: "C10:CONTRACT",
+      bitrixUrl: "https://example.bitrix24.ru/crm/deal/details/STAGE_MATCH_DEAL/"
+    });
+  });
+
   it("counts manager phone calls even when Bitrix attaches the activity to another funnel", async () => {
     const repository = {
       getAllDeals: async () => [

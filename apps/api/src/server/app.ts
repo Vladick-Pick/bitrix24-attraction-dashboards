@@ -724,6 +724,9 @@ const managerWhitelistSettingsBodySchema = z.object({
 });
 
 const callAnalysisQueueQuerySchema = z.object({
+  stageIds: z
+    .preprocess(parseCsvArray, z.array(z.string().trim().min(1)).optional())
+    .optional(),
   callTypes: z
     .preprocess(
       parseCsvArray,
@@ -827,6 +830,7 @@ function parseCallAnalysisQueueRequest(query: unknown): CallAnalysisQueueRequest
 
   return {
     ...base,
+    ...(parsed.stageIds?.length ? { stageIds: parsed.stageIds } : {}),
     ...(parsed.callTypes?.length ? { callTypes: parsed.callTypes } : {}),
     ...(parsed.analysisStatuses?.length
       ? { analysisStatuses: parsed.analysisStatuses }

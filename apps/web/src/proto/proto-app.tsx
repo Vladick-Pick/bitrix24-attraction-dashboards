@@ -795,6 +795,33 @@ function normalizeManagerPickerOptions(
     })
 }
 
+function buildStagePickerOptions(
+  entries: MetaResponse['stageCatalog'],
+  categoryId: string | null | undefined,
+): PickerOption[] {
+  const seen = new Set<string>()
+
+  return entries
+    .filter(
+      (entry) =>
+        entry.entityType === 'deal' &&
+        entry.statusId &&
+        (!categoryId || entry.categoryId === categoryId),
+    )
+    .filter((entry) => {
+      if (seen.has(entry.statusId)) {
+        return false
+      }
+      seen.add(entry.statusId)
+      return true
+    })
+    .map((entry) => ({
+      id: entry.statusId,
+      label: entry.name || entry.statusId,
+      meta: 'Этап',
+    }))
+}
+
 function buildWhitelistedManagerOptions(
   managerWhitelistSettings: ProtoRuntimeData['managerWhitelistSettings'],
 ): PickerOption[] {
@@ -2463,6 +2490,10 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
           label: entry.label,
           meta: 'Источник',
         }))
+        const stagePickerOptions = buildStagePickerOptions(
+          meta.stageCatalog,
+          activeModule?.bitrixCategoryId ?? '10',
+        )
         setSnapshotStats(meta.snapshotStats)
         setLastSync(meta.lastSync)
         setSyncWarning(resolveSyncHealthWarning(meta))
@@ -2476,6 +2507,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             ...current,
             managerOptions: managerPickerOptions,
             sourceOptions: sourcePickerOptions,
+            stageOptions: stagePickerOptions,
             ...(current.salesPlan ? { salesPlan: current.salesPlan } : {}),
             ...(current.salesPlanMonth ? { salesPlanMonth: current.salesPlanMonth } : {}),
             ...(current.salesPlanQuarter ? { salesPlanQuarter: current.salesPlanQuarter } : {}),
@@ -2540,7 +2572,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [activeModuleId, appliedFilters, isLeadgenModule, salesPlanQuarter])
+  }, [activeModule?.bitrixCategoryId, activeModuleId, appliedFilters, isLeadgenModule, salesPlanQuarter])
 
   useEffect(() => {
     if (!isLeadgenModule || leadgenActiveReportId !== 'activity') {
@@ -4572,6 +4604,7 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               moduleId={activeModuleId}
               managerOptions={visibleManagerOptions}
               sourceOptions={availableSourceOptions}
+              stageOptions={runtimeData.stageOptions ?? []}
             />
           </Suspense>
         ) : route === 'ontology' ? (

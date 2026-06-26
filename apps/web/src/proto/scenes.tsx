@@ -568,13 +568,13 @@ function HourlyWeekdayHeatmap({
   const legendSegments = collectHeatmapSegments(heatmap)
 
   return (
-    <div className={`rounded-xl border bg-white ${toneStyle.border}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 px-3 py-2">
-        <div>
+    <div className={`min-w-0 rounded-xl border bg-white ${toneStyle.border}`}>
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 border-b border-slate-100 px-3 py-2">
+        <div className="min-w-0">
           <div className={`text-sm font-bold ${toneStyle.label}`}>{title}</div>
           <div className="mt-0.5 text-xs text-slate-500">Пик: {peakLabel}</div>
         </div>
-        <div className="flex flex-wrap justify-end gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-1.5">
           {legendSegments.map((segment) => (
             <span
               key={segment.key}
@@ -603,7 +603,7 @@ function HourlyWeekdayHeatmap({
           ) : null}
         </div>
       </div>
-      <div className="overflow-x-auto p-3">
+      <div className="max-w-full overflow-x-auto p-3">
         <table className="min-w-[520px] w-full table-fixed text-xs" aria-label={title}>
           <thead>
             <tr>
@@ -3919,8 +3919,12 @@ function getManagerActionGroupSortValue(
 
 function ManagerActionOutcomeSection({
   report,
+  status = 'idle',
+  error,
 }: {
   report: ManagerActionOutcomeReport | undefined
+  status?: 'idle' | 'loading' | 'ready' | 'error' | undefined
+  error?: string | null | undefined
 }) {
   const [sortState, setSortState] = useState<{
     key: ManagerActionSortKey
@@ -3934,7 +3938,39 @@ function ManagerActionOutcomeSection({
   const [expandedDealDetails, setExpandedDealDetails] = useState<Set<string>>(() => new Set())
 
   if (!report) {
-    return null
+    return (
+      <section className="panel p-5">
+        <PanelHeading
+          title="Действия → результат"
+          description="Детализация по сделкам и действиям считается отдельно от когортной матрицы, чтобы не блокировать открытие отчета."
+          right={
+            <span
+              className={
+                status === 'error'
+                  ? 'badge-chip bg-rose-50 text-rose-700'
+                  : 'badge-chip badge-neutral'
+              }
+            >
+              {status === 'loading'
+                ? 'загружается'
+                : status === 'error'
+                  ? 'ошибка'
+                  : 'не загружено'}
+            </span>
+          }
+        />
+        {status === 'loading' ? (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+            <span className="btn-spinner" aria-hidden="true" />
+            <span>Считаю тяжелую детализацию, основной когортный отчет уже доступен.</span>
+          </div>
+        ) : error ? (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {error}
+          </div>
+        ) : null}
+      </section>
+    )
   }
 
   const columns: Array<{
@@ -5030,11 +5066,16 @@ function ActivitiesMeetingsSection({
                     {isExpanded ? (
                       <tr className="border-b border-slate-100 bg-slate-50/70">
                         <td colSpan={3} className="px-3 py-4">
-                          <HourlyWeekdayHeatmap
-                            title="Встречи по часам"
-                            heatmap={row.meetingsHourlyHeatmap}
-                            tone="meetings"
-                          />
+                          <div
+                            className="sticky left-0 min-w-0"
+                            style={{ width: 'min(100%, calc(100vw - 5rem))' }}
+                          >
+                            <HourlyWeekdayHeatmap
+                              title="Встречи по часам"
+                              heatmap={row.meetingsHourlyHeatmap}
+                              tone="meetings"
+                            />
+                          </div>
                         </td>
                       </tr>
                     ) : null}
@@ -5649,17 +5690,22 @@ export function ActivitiesScene({ filters, runtimeData }: SceneComponentProps) {
                     {isExpanded ? (
                       <tr className="border-b border-slate-100 bg-slate-50/70">
                         <td colSpan={activitySummaryColumns.length + 1} className="px-3 py-4">
-                          <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-                            <HourlyWeekdayHeatmap
-                              title="Исходящие звонки по часам"
-                              heatmap={row.callsHourlyHeatmap}
-                              tone="calls"
-                            />
-                            <HourlyWeekdayHeatmap
-                              title="Задачи по часам"
-                              heatmap={row.tasksHourlyHeatmap}
-                              tone="tasks"
-                            />
+                          <div
+                            className="sticky left-0 min-w-0"
+                            style={{ width: 'min(100%, calc(100vw - 5rem))' }}
+                          >
+                            <div className="grid min-w-0 gap-3 2xl:grid-cols-2">
+                              <HourlyWeekdayHeatmap
+                                title="Исходящие звонки по часам"
+                                heatmap={row.callsHourlyHeatmap}
+                                tone="calls"
+                              />
+                              <HourlyWeekdayHeatmap
+                                title="Задачи по часам"
+                                heatmap={row.tasksHourlyHeatmap}
+                                tone="tasks"
+                              />
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -6864,7 +6910,11 @@ export function CohortsScene({ filters, runtimeData }: SceneComponentProps) {
         </div>
       </section>
 
-      <ManagerActionOutcomeSection report={runtimeData?.managerActionOutcomes} />
+      <ManagerActionOutcomeSection
+        report={runtimeData?.managerActionOutcomes}
+        status={runtimeData?.managerActionOutcomesStatus}
+        error={runtimeData?.managerActionOutcomesError}
+      />
     </div>
   )
 }

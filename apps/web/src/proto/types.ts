@@ -482,6 +482,8 @@ export interface ProtoRuntimeData {
   acquisitionOutcomes?: AcquisitionOutcomesReport
   targetGroupConversion?: TargetGroupConversionReport
   managerActionOutcomes?: ManagerActionOutcomeReport
+  managerActionOutcomesStatus?: 'idle' | 'loading' | 'ready' | 'error'
+  managerActionOutcomesError?: string | null
   conversionEvents?: ConversionEventsReport
   revenueVelocity?: RevenueVelocityReport
   attractionOntology?: AttractionOntologyResponse

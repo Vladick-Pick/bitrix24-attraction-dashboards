@@ -2480,6 +2480,25 @@ describe('ProtoApp', () => {
     await waitFor(() => expect(apiClient.getTocFlowReport).toHaveBeenCalled())
   })
 
+  it('does not block the cohort scene while manager action outcomes are still loading', async () => {
+    const managerActionDeferred = createDeferred<
+      Awaited<ReturnType<typeof apiClient.getManagerActionOutcomeReport>>
+    >()
+    vi.mocked(apiClient.getManagerActionOutcomeReport).mockImplementationOnce(
+      async () => managerActionDeferred.promise,
+    )
+
+    render(<ProtoApp />)
+
+    await waitFor(() => expect(apiClient.getDashboard).toHaveBeenCalled())
+    await userEvent.click(screen.getByRole('button', { name: /^когортный отчет$/i }))
+
+    await waitFor(() => expect(apiClient.getCohortConversionReport).toHaveBeenCalled())
+    expect(await screen.findByRole('heading', { name: /^когортная матрица$/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^действия → результат$/i })).toBeInTheDocument()
+    expect(screen.getByText('загружается')).toBeInTheDocument()
+  })
+
   it('settles the activity report under StrictMode after all lazy live reports resolve', async () => {
     render(
       <StrictMode>

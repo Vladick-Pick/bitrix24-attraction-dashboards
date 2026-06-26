@@ -92,6 +92,7 @@ export interface CreateCallAnalysisServiceInput {
 
 const DEFAULT_RECORDING_DOWNLOAD_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_RECORDING_BYTES = 50 * 1024 * 1024;
+const MAX_ANALYSIS_ERROR_MESSAGE_LENGTH = 1_000;
 
 export class CallAnalysisServiceError extends Error {
   constructor(
@@ -228,6 +229,12 @@ export function createCallAnalysisService(input: CreateCallAnalysisServiceInput)
           errorCode: normalizedError.code,
           errorMessage: normalizedError.message
         });
+        logCallAnalysisFailure({
+          runId,
+          callId: call.id,
+          error: normalizedError,
+          cause: error
+        });
         throw normalizedError;
       }
     }
@@ -313,12 +320,57 @@ function normalizeAnalysisError(error: unknown) {
     return error;
   }
 
+  const causeMessage = getSafeErrorMessage(error);
   return new CallAnalysisServiceError(
     "CALL_ANALYSIS_FAILED",
-    "Call analysis failed.",
+    causeMessage ? `Call analysis failed: ${causeMessage}` : "Call analysis failed.",
     500,
     error instanceof Error ? { cause: error } : undefined
   );
+}
+
+function logCallAnalysisFailure(input: {
+  runId: string;
+  callId: string;
+  error: CallAnalysisServiceError;
+  cause: unknown;
+}) {
+  console.error(
+    "call_analysis.failed",
+    JSON.stringify({
+      runId: input.runId,
+      callId: input.callId,
+      errorCode: input.error.code,
+      errorMessage: input.error.message,
+      causeName: getErrorName(input.cause),
+      causeMessage: getSafeErrorMessage(input.cause)
+    })
+  );
+}
+
+function getErrorName(error: unknown) {
+  return error instanceof Error ? error.name : typeof error;
+}
+
+function getSafeErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return truncateAnalysisErrorMessage(error.message || error.name);
+  }
+
+  if (typeof error === "string") {
+    return truncateAnalysisErrorMessage(error);
+  }
+
+  return "";
+}
+
+function truncateAnalysisErrorMessage(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_ANALYSIS_ERROR_MESSAGE_LENGTH) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, MAX_ANALYSIS_ERROR_MESSAGE_LENGTH - 1)}…`;
 }
 
 function resolveDealId(call: CallSnapshot, activity: ActivitySnapshot | null) {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createCallAnalysisService } from "../src/server/call-analysis-service";
 import type { CallAnalysisServiceError } from "../src/server/call-analysis-service";
@@ -105,6 +105,10 @@ const providerResultWithRaw = {
     providerOnlyTopLevel: "kept-for-debug"
   }
 } satisfies OpenRouterCallAnalysisResult;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function createRepository() {
   return {
@@ -429,6 +433,7 @@ describe("createCallAnalysisService", () => {
   });
 
   it("marks the run as error when a selected call has no downloadable recording", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const repository = createRepository();
     const service = createCallAnalysisService({
       repository,
@@ -456,7 +461,76 @@ describe("createCallAnalysisService", () => {
     });
   });
 
+  it("persists and logs the provider root cause when call analysis fails", async () => {
+    const repository = createRepository();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const service = createCallAnalysisService({
+      repository,
+      client: {
+        listCallRecordingActivitiesByIds: vi.fn().mockResolvedValue([
+          {
+            ID: "A1",
+            OWNER_TYPE_ID: "2",
+            OWNER_ID: "23841",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            FILES: [{ id: 338028, name: "call.mp3" }],
+            STORAGE_ELEMENT_IDS: []
+          }
+        ]),
+        getDiskFile: vi.fn().mockResolvedValue({
+          ID: "338028",
+          DOWNLOAD_URL: "https://bitrix.example/disk/download/call.mp3"
+        })
+      },
+      provider: {
+        analyzeCall: vi.fn().mockRejectedValue(
+          new Error(
+            "OpenRouter call analysis failed: 402 Payment Required - Insufficient credits"
+          )
+        )
+      },
+      downloadRecording: vi.fn().mockResolvedValue({
+        audio: Buffer.from("mp3-bytes"),
+        audioFormat: "mp3"
+      }),
+      idGenerator: () => "run-provider-error",
+      now: () => new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    try {
+      await expect(service.analyzeCall({ callId: "CALL1" })).rejects.toMatchObject({
+        code: "CALL_ANALYSIS_FAILED",
+        message:
+          "Call analysis failed: OpenRouter call analysis failed: 402 Payment Required - Insufficient credits"
+      } satisfies Partial<CallAnalysisServiceError>);
+      expect(repository.failCallAnalysisRun).toHaveBeenCalledWith({
+        runId: "run-provider-error",
+        failedAt: "2026-06-09T12:00:00.000Z",
+        status: "error",
+        errorCode: "CALL_ANALYSIS_FAILED",
+        errorMessage:
+          "Call analysis failed: OpenRouter call analysis failed: 402 Payment Required - Insufficient credits"
+      });
+      expect(consoleError).toHaveBeenCalledWith(
+        "call_analysis.failed",
+        JSON.stringify({
+          runId: "run-provider-error",
+          callId: "CALL1",
+          errorCode: "CALL_ANALYSIS_FAILED",
+          errorMessage:
+            "Call analysis failed: OpenRouter call analysis failed: 402 Payment Required - Insufficient credits",
+          causeName: "Error",
+          causeMessage:
+            "OpenRouter call analysis failed: 402 Payment Required - Insufficient credits"
+        })
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("downloads recordings with an abort signal and rejects files above the configured byte cap", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const repository = createRepository();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

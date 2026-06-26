@@ -179,6 +179,35 @@ describe("OpenRouterCallAnalysisProvider", () => {
     });
   });
 
+  it("includes safe OpenRouter error body details when the provider rejects the request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 402,
+      statusText: "Payment Required",
+      text: async () =>
+        JSON.stringify({
+          error: {
+            message: "Insufficient credits. Please top up your OpenRouter balance."
+          }
+        })
+    } as Response);
+
+    const provider = new OpenRouterCallAnalysisProvider({
+      apiKey: "openrouter-key",
+      fetch: fetchMock
+    });
+
+    await expect(
+      provider.analyzeCall({
+        callId: "221736",
+        audio: Buffer.from("mp3-bytes"),
+        audioFormat: "mp3"
+      })
+    ).rejects.toThrow(
+      /OpenRouter call analysis failed: 402 Payment Required.+Insufficient credits/
+    );
+  });
+
   it("accepts a JSON object wrapped in provider prose", async () => {
     const analysis = {
       transcriptByRoles: [

@@ -2683,8 +2683,7 @@ export function createReportingService(
           const durationCompare =
             right.call.callDurationSeconds - left.call.callDurationSeconds;
           return durationCompare || right.call.callStartDate.localeCompare(left.call.callStartDate);
-        })
-        .slice(0, 200);
+        });
 
       const managerIds = Array.from(
         new Set(

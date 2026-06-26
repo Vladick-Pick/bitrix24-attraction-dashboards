@@ -1312,7 +1312,8 @@ describe("createApp", () => {
           analyzedAt: "2026-06-09T12:00:30.000Z",
           updatedAt: "2026-06-09T12:00:31.000Z",
           errorCode: null,
-          errorMessage: null
+          errorMessage: null,
+          bitrixUrl: "https://example.bitrix24.ru/crm/deal/details/23841/"
         }
       ]
     });
@@ -1322,7 +1323,7 @@ describe("createApp", () => {
 
     await request(app)
       .get(
-        "/api/modules/attraction/calls/analysis-queue?from=2026-06-09T00:00:00.000%2B03:00&to=2026-06-09T23:59:59.999%2B03:00&managerIds=7&sourceKeys=LEADGEN_US&callTypes=outgoing_over_30&analysisStatuses=ready"
+        "/api/modules/attraction/calls/analysis-queue?from=2026-06-09T00:00:00.000%2B03:00&to=2026-06-09T23:59:59.999%2B03:00&managerIds=7&sourceKeys=LEADGEN_US&stageIds=C10%3AQUALIFICATION&callTypes=outgoing_over_30&analysisStatuses=ready"
       )
       .expect(200)
       .expect(({ body }) => {
@@ -1352,6 +1353,7 @@ describe("createApp", () => {
         managerIds: ["7"],
         sourceKeys: ["LEADGEN_US"]
       },
+      stageIds: ["C10:QUALIFICATION"],
       callTypes: ["outgoing_over_30"],
       analysisStatuses: ["ready"]
     });

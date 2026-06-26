@@ -150,6 +150,7 @@ interface CreateReportingServiceInput {
   client: SyncClient;
   defaultPeriodDays: number;
   bootstrapLookbackDays?: number;
+  bitrixPortalHost?: string;
   now?: () => Date;
 }
 
@@ -205,6 +206,7 @@ export interface ReportingService {
     periodDays?: number;
     range?: ReportRange;
     filters?: ReportFilters;
+    stageIds?: string[];
     callTypes?: CallAnalysisQueueCallType[];
     analysisStatuses?: CallAnalysisQueueStatus[];
   }): Promise<CallAnalysisQueueResponse>;
@@ -474,6 +476,23 @@ function resolveStageCatalogName(
         (stage.categoryId === (categoryId ?? null) || !stage.categoryId)
     )?.name ?? stageId
   );
+}
+
+function normalizeBitrixPortalHost(value: string | undefined) {
+  const host = value
+    ?.trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "");
+
+  return host || null;
+}
+
+function buildBitrixDealUrl(portalHost: string | null, dealId: string | null | undefined) {
+  if (!portalHost || !dealId) {
+    return null;
+  }
+
+  return `https://${portalHost}/crm/deal/details/${encodeURIComponent(dealId)}/`;
 }
 
 function extractQueueScore(result: CallAnalysisResultRecord | null) {
@@ -977,6 +996,7 @@ export function createReportingService(
   const leadgenManagerIds = uniqueStrings(input.leadgenManagerIds ?? []);
   const workloadScope = input.workloadScope ?? "attraction";
   const noLeadgenManagerMatchId = "__NO_LEADGEN_MANAGER_MATCH__";
+  const bitrixPortalHost = normalizeBitrixPortalHost(input.bitrixPortalHost);
   const getScopedStageCatalog = async (includeSources = false) =>
     filterStageCatalog(
       await input.repository.getStageCatalog(),
@@ -2611,6 +2631,7 @@ export function createReportingService(
       periodDays,
       range,
       filters,
+      stageIds,
       callTypes,
       analysisStatuses
     }) {
@@ -2634,6 +2655,7 @@ export function createReportingService(
       const sourceLabels = buildSourceLabelMap(stageCatalog);
       const managerFilter = new Set(scopedFilters.managerIds ?? []);
       const sourceFilter = new Set(scopedFilters.sourceKeys ?? []);
+      const stageFilter = new Set(stageIds ?? []);
       const callTypeFilter = new Set(callTypes ?? []);
 
       const scopedCalls = calls
@@ -2647,6 +2669,12 @@ export function createReportingService(
           const managerId = resolveCallManagerId(call, activity, deal);
           const sourceKey = deal ? resolveDealSource(deal, sourceLabels).key : null;
           const callType = resolveQueueCallType(call);
+          const stageAtCall = resolveStageAtCall(
+            stageHistory,
+            deal?.id ?? null,
+            call.callStartDate
+          );
+          const stageAtCallId = stageAtCall?.stageId ?? deal?.stageId ?? null;
 
           return {
             call,
@@ -2654,6 +2682,7 @@ export function createReportingService(
             deal,
             managerId,
             sourceKey,
+            stageAtCallId,
             callType
           };
         })
@@ -2670,6 +2699,10 @@ export function createReportingService(
           }
 
           if (sourceFilter.size > 0 && (!row.sourceKey || !sourceFilter.has(row.sourceKey))) {
+            return false;
+          }
+
+          if (stageFilter.size > 0 && (!row.stageAtCallId || !stageFilter.has(row.stageAtCallId))) {
             return false;
           }
 
@@ -2713,12 +2746,6 @@ export function createReportingService(
           const result = resultByCallId.get(row.call.id) ?? null;
           const latestRun = latestRunByCallId.get(row.call.id) ?? null;
           const analysisStatus = resolveQueueAnalysisStatus(result, latestRun);
-          const stageAtCall = resolveStageAtCall(
-            stageHistory,
-            row.deal?.id ?? null,
-            row.call.callStartDate
-          );
-          const stageAtCallId = stageAtCall?.stageId ?? row.deal?.stageId ?? null;
 
           return {
             callId: row.call.id,
@@ -2739,11 +2766,11 @@ export function createReportingService(
               row.deal?.categoryId,
               row.deal?.stageId
             ),
-            stageAtCallId,
+            stageAtCallId: row.stageAtCallId,
             stageAtCallName: resolveStageCatalogName(
               stageCatalog,
               row.deal?.categoryId,
-              stageAtCallId
+              row.stageAtCallId
             ),
             analysisStatus,
             score: extractQueueScore(result),
@@ -2752,7 +2779,8 @@ export function createReportingService(
             analyzedAt: result?.analyzedAt ?? null,
             updatedAt: result?.updatedAt ?? latestRun?.finishedAt ?? null,
             errorCode: latestRun?.errorCode ?? null,
-            errorMessage: latestRun?.errorMessage ?? null
+            errorMessage: latestRun?.errorMessage ?? null,
+            bitrixUrl: buildBitrixDealUrl(bitrixPortalHost, row.deal?.id ?? null)
           };
         })
         .filter((item) =>

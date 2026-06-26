@@ -32,6 +32,7 @@ interface CallAnalysisFilters {
   rangeEnd: string
   managerId: string
   sourceKey: string
+  stageId: string
   callType: '' | CallAnalysisQueueCallType
   analysisStatus: '' | CallAnalysisQueueStatus
 }
@@ -46,6 +47,7 @@ export function createDefaultCallAnalysisFilters(today = new Date()): CallAnalys
     rangeEnd: formatDateInputValue(previousWeekEnd),
     managerId: '',
     sourceKey: '',
+    stageId: '',
     callType: '',
     analysisStatus: '',
   }
@@ -658,10 +660,12 @@ export function CallAnalysisWorkspace({
   moduleId,
   managerOptions,
   sourceOptions,
+  stageOptions,
 }: {
   moduleId: string
   managerOptions: PickerOption[]
   sourceOptions: PickerOption[]
+  stageOptions: PickerOption[]
 }) {
   const [draftFilters, setDraftFilters] = useState<CallAnalysisFilters>(() => createDefaultCallAnalysisFilters())
   const [appliedFilters, setAppliedFilters] = useState<CallAnalysisFilters>(() => createDefaultCallAnalysisFilters())
@@ -687,6 +691,7 @@ export function CallAnalysisWorkspace({
           to: toRangeEnd(appliedFilters.rangeEnd),
           ...(appliedFilters.managerId ? { managerIds: [appliedFilters.managerId] } : {}),
           ...(appliedFilters.sourceKey ? { sourceKeys: [appliedFilters.sourceKey] } : {}),
+          ...(appliedFilters.stageId ? { stageIds: [appliedFilters.stageId] } : {}),
           ...(appliedFilters.callType ? { callTypes: [appliedFilters.callType] } : {}),
           ...(appliedFilters.analysisStatus ? { analysisStatuses: [appliedFilters.analysisStatus] } : {}),
         }
@@ -789,6 +794,17 @@ export function CallAnalysisWorkspace({
     ],
     [sourceOptions],
   )
+  const stageFilterOptions = useMemo<SingleSelectOption[]>(
+    () => [
+      { value: '', label: 'Все этапы', meta: 'Этап' },
+      ...stageOptions.map((option) => ({
+        value: option.id,
+        label: option.label,
+        meta: option.meta || 'Этап',
+      })),
+    ],
+    [stageOptions],
+  )
   const callTypeFilterOptions = useMemo<SingleSelectOption[]>(
     () => callTypeOptions.map((option) => ({
       value: option.value,
@@ -849,7 +865,7 @@ export function CallAnalysisWorkspace({
   return (
     <div className="grid gap-6">
       <section className="panel p-5" data-comment-block-id="call-analysis-filters" data-comment-block-label="Анализ звонков: фильтры">
-        <div className="grid gap-3 xl:grid-cols-[150px_150px_minmax(0,1fr)_minmax(0,1fr)_170px_160px_auto] xl:items-end">
+        <div className="grid gap-3 xl:grid-cols-[150px_150px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_170px_160px_auto] xl:items-end">
           <label className="grid gap-1.5">
             <span className="subtle-label">Дата с</span>
             <input
@@ -881,6 +897,13 @@ export function CallAnalysisWorkspace({
             options={sourceFilterOptions}
             value={draftFilters.sourceKey}
             onChange={(sourceKey) => setDraftFilters((current) => ({ ...current, sourceKey }))}
+          />
+          <SingleSelectField
+            label="Этап"
+            placeholder="Поиск этапа"
+            options={stageFilterOptions}
+            value={draftFilters.stageId}
+            onChange={(stageId) => setDraftFilters((current) => ({ ...current, stageId }))}
           />
           <SingleSelectField
             label="Тип звонка"
@@ -956,14 +979,26 @@ export function CallAnalysisWorkspace({
                   ) : null}
                 </div>
               </div>
-              <button
-                className="btn btn-primary h-[42px] px-5"
-                type="button"
-                disabled={analysisActionState.disabled}
-                onClick={() => void runAnalysis()}
-              >
-                {analysisActionState.label}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {selectedCall?.bitrixUrl ? (
+                  <a
+                    className="btn btn-ghost h-[42px] px-4"
+                    href={selectedCall.bitrixUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Открыть в Bitrix
+                  </a>
+                ) : null}
+                <button
+                  className="btn btn-primary h-[42px] px-5"
+                  type="button"
+                  disabled={analysisActionState.disabled}
+                  onClick={() => void runAnalysis()}
+                >
+                  {analysisActionState.label}
+                </button>
+              </div>
             </div>
 
             {selectedCall ? (

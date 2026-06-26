@@ -472,6 +472,7 @@ export interface CallAnalysisQueueItem {
   updatedAt: string | null;
   errorCode: string | null;
   errorMessage: string | null;
+  bitrixUrl?: string | null;
 }
 
 export interface CallAnalysisQueueTotals {

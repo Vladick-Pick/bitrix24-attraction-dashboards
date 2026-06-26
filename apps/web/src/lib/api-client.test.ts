@@ -2934,6 +2934,7 @@ describe('apiClient', () => {
             updatedAt: '2026-06-09T12:00:31.000Z',
             errorCode: null,
             errorMessage: null,
+            bitrixUrl: 'https://example.bitrix24.ru/crm/deal/details/23841/',
           },
         ],
       }),
@@ -2946,6 +2947,7 @@ describe('apiClient', () => {
       to: '2026-06-09T23:59:59.999+03:00',
       managerIds: ['7'],
       sourceKeys: ['LEADGEN_US'],
+      stageIds: ['C10:QUALIFICATION'],
       callTypes: ['outgoing_over_30'],
       analysisStatuses: ['ready'],
     })
@@ -2957,6 +2959,7 @@ describe('apiClient', () => {
     expect(parsedUrl.pathname).toBe('/api/calls/analysis-queue')
     expect(parsedUrl.searchParams.get('managerIds')).toBe('7')
     expect(parsedUrl.searchParams.get('sourceKeys')).toBe('LEADGEN_US')
+    expect(parsedUrl.searchParams.get('stageIds')).toBe('C10:QUALIFICATION')
     expect(parsedUrl.searchParams.get('callTypes')).toBe('outgoing_over_30')
     expect(parsedUrl.searchParams.get('analysisStatuses')).toBe('ready')
     expect(queue.totals).toMatchObject({
@@ -2969,6 +2972,7 @@ describe('apiClient', () => {
       analysisStatus: 'ready',
       score: 88,
       stageAtCallName: 'Квалификация',
+      bitrixUrl: 'https://example.bitrix24.ru/crm/deal/details/23841/',
     })
   })
 

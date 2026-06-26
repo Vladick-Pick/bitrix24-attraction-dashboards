@@ -1275,6 +1275,7 @@ function normalizeCallAnalysisQueueItem(value: unknown): CallAnalysisQueueItem {
     updatedAt: asNullableString(data.updatedAt),
     errorCode: asNullableString(data.errorCode),
     errorMessage: asNullableString(data.errorMessage),
+    bitrixUrl: asNullableString(data.bitrixUrl),
   }
 }
 
@@ -3929,6 +3930,7 @@ export const apiClient = {
       to: string
       managerIds?: string[]
       sourceKeys?: string[]
+      stageIds?: string[]
       callTypes?: CallAnalysisQueueCallType[]
       analysisStatuses?: CallAnalysisQueueStatus[]
     },
@@ -3940,6 +3942,7 @@ export const apiClient = {
         to: params.to,
         managerIds: params.managerIds,
         sourceKeys: params.sourceKeys,
+        stageIds: params.stageIds,
         callTypes: params.callTypes,
         analysisStatuses: params.analysisStatuses,
       }),

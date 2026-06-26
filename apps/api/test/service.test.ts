@@ -735,6 +735,76 @@ describe("createReportingService", () => {
     });
   });
 
+  it("returns every matching call in the call analysis queue", async () => {
+    const calls = Array.from({ length: 201 }, (_, index) => ({
+      id: `CALL_${String(index + 1).padStart(3, "0")}`,
+      crmActivityId: null,
+      portalUserId: "78",
+      callType: "1",
+      callStartDate: `2026-06-09T${String(8 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`,
+      callDurationSeconds: 201 - index,
+      crmEntityType: "DEAL",
+      crmEntityId: "ATTR_DEAL",
+      callFailedCode: "200"
+    }));
+    let requestedRunCallIds: string[] = [];
+
+    const service = createReportingService({
+      dealCategoryIds: ["10"],
+      qualityFieldName: "UF_CRM_TEST",
+      repository: withReportingRepositoryDefaults({
+        getAllDeals: async () => [
+          {
+            id: "ATTR_DEAL",
+            leadId: null,
+            categoryId: "10",
+            stageId: "C10:QUALIFICATION",
+            stageSemanticId: "P",
+            opportunity: 0,
+            assignedById: "78",
+            sourceId: "WEB",
+            qualityValue: null,
+            dateCreate: "2026-06-09T08:00:00.000Z",
+            dateModify: "2026-06-09T08:00:00.000Z",
+            dateClosed: null,
+            utmSource: null,
+            utmMedium: null,
+            utmCampaign: null,
+            utmContent: null,
+            utmTerm: null
+          }
+        ],
+        getStageCatalog: async () => [],
+        getAllStageHistory: async () => [],
+        getAllActivities: async () => [],
+        getAllCalls: async () => calls,
+        getManagerDirectory: async () => [],
+        getCallAnalysisResult: async () => null,
+        getLatestCallAnalysisRuns: async (callIds: string[]) => {
+          requestedRunCallIds = callIds;
+          return [];
+        }
+      }),
+      client: {
+        fetchUsers: async () => []
+      } as never,
+      defaultPeriodDays: 30,
+      now: () => new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    const queue = await service.getCallAnalysisQueue({
+      range: {
+        from: "2026-06-09T00:00:00.000Z",
+        to: "2026-06-09T23:59:59.999Z"
+      }
+    });
+
+    expect(queue.items).toHaveLength(201);
+    expect(queue.totals.total).toBe(201);
+    expect(requestedRunCallIds).toHaveLength(201);
+    expect(queue.items.at(-1)?.callId).toBe("CALL_201");
+  });
+
   it("counts manager phone calls even when Bitrix attaches the activity to another funnel", async () => {
     const repository = {
       getAllDeals: async () => [

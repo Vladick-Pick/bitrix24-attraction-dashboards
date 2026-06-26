@@ -25,6 +25,7 @@ const DEFAULT_OPENROUTER_MODEL = "google/gemini-3.5-flash";
 const DEFAULT_PROMPT_VERSION = "calls-v2";
 const OPENROUTER_CHAT_COMPLETIONS_URL =
   "https://openrouter.ai/api/v1/chat/completions";
+const MAX_OPENROUTER_ERROR_DETAIL_LENGTH = 500;
 
 const emotionalBackgroundSchema = z.object({
   managerTone: z.string(),
@@ -356,8 +357,9 @@ export class OpenRouterCallAnalysisProvider {
     const responseText = await response.text();
 
     if (!response.ok) {
+      const errorDetail = summarizeOpenRouterErrorBody(responseText);
       throw new Error(
-        `OpenRouter call analysis failed: ${response.status} ${response.statusText}`
+        `OpenRouter call analysis failed: ${response.status} ${response.statusText}${errorDetail ? ` - ${errorDetail}` : ""}`
       );
     }
 
@@ -479,6 +481,59 @@ function parseJsonObject(value: string, label: string) {
       cause: strictError
     });
   }
+}
+
+function summarizeOpenRouterErrorBody(responseText: string) {
+  const trimmed = responseText.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const message = extractOpenRouterErrorMessage(parsed);
+    if (message) {
+      return truncateDiagnosticText(message, MAX_OPENROUTER_ERROR_DETAIL_LENGTH);
+    }
+  } catch {
+    // Fall back to the raw body snippet below.
+  }
+
+  return truncateDiagnosticText(trimmed, MAX_OPENROUTER_ERROR_DETAIL_LENGTH);
+}
+
+function extractOpenRouterErrorMessage(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const topLevelMessage = (value as { message?: unknown }).message;
+  if (typeof topLevelMessage === "string" && topLevelMessage.trim()) {
+    return topLevelMessage;
+  }
+
+  const error = (value as { error?: unknown }).error;
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const errorMessage = (error as { message?: unknown }).message;
+    if (typeof errorMessage === "string" && errorMessage.trim()) {
+      return errorMessage;
+    }
+  }
+
+  return null;
+}
+
+function truncateDiagnosticText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
 function stripJsonFence(value: string) {

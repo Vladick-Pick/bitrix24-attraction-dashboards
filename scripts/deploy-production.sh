@@ -261,6 +261,36 @@ clone_or_update_repo() {
   fi
 }
 
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  local file="${3:-.env.production}"
+
+  if [ -z "$value" ]; then
+    return 0
+  fi
+
+  local tmp
+  tmp="$(mktemp)"
+
+  if grep -q "^${key}=" "$file"; then
+    awk -v key="$key" -v value="$value" '
+      $0 ~ "^" key "=" {
+        print key "=" value
+        next
+      }
+      { print }
+    ' "$file" > "$tmp"
+  else
+    cat "$file" > "$tmp"
+    printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  fi
+
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+  chmod 600 "$file"
+}
+
 verify_runtime() {
   local expected_ref="$1"
   local allow_missing_revision="${2:-false}"
@@ -322,6 +352,11 @@ main() {
   git checkout -B main "$DEPLOY_REF"
   git reset --hard "$DEPLOY_REF"
   git clean -fdx -e .env.production
+
+  if [ -n "${DEPLOY_MCP_ACCESS_TOKEN:-}" ]; then
+    log "Updating MCP access token in production environment"
+    set_env_value MCP_ACCESS_TOKEN "$DEPLOY_MCP_ACCESS_TOKEN" .env.production
+  fi
 
   log "Building and starting compose project"
   if ! build_compose_project "$DEPLOY_REF"; then

@@ -23,6 +23,9 @@ architectural issue found in the deep review.
 | [008](./008-capture-deal-meeting-slots.md) | Capture deal meeting slots 1-3 in sync and storage | P1 | L | - | DONE |
 | [009](./009-count-meeting-slots-in-reports-and-economics.md) | Count meeting slots in reports, timelines, and economics | P1 | L | 008 | DONE |
 | [010](./010-display-meeting-slots-in-dashboard-ui.md) | Display meeting slots 1-3 in dashboard deal cards | P1 | M | 008, 009 | DONE |
+| [011](./011-complete-agent-readable-report-catalog.md) | Complete agent-readable attraction report catalog | P1 | M | 004 | DONE |
+| [012](./012-build-read-only-attraction-agent-gateway.md) | Build read-only attraction agent gateway | P1 | M | 011 | DONE |
+| [013](./013-add-stdio-mcp-server-and-agent-evals.md) | Add stdio MCP server and agent evals | P1 | M | 011, 012 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale - finding fixed independently or approach
@@ -60,6 +63,12 @@ abandoned).
   counting CRM meeting activities.
 - 010 depends on 008 and 009 because the dashboard should render the final API
   shape instead of inventing client-side meeting counts.
+- 011 depends on the module capability boundary from 004. It must complete the
+  attraction report catalog before an agent gateway can safely execute reports.
+- 012 depends on 011 because the gateway must use manifest report descriptors
+  and `agentReadable` policy rather than maintaining a hidden allowlist.
+- 013 depends on 011 and 012 because MCP should be a thin stdio protocol adapter
+  over reviewed read-only gateway methods.
 
 ## Verification Baseline
 

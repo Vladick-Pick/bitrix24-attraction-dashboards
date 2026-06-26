@@ -60,6 +60,21 @@ function getFakeCustomModuleActivationReport() {
   return activationReport;
 }
 
+const expectedAttractionAnalyticsRoutes = [
+  "/api/dashboard",
+  "/api/reports/source-quality-conversion",
+  "/api/reports/activities-workload",
+  "/api/reports/acquisition-outcomes",
+  "/api/reports/target-group-conversion",
+  "/api/reports/manager-action-outcomes",
+  "/api/reports/calls-workload",
+  "/api/reports/conversion-events",
+  "/api/reports/cohort-conversion",
+  "/api/reports/toc-flow",
+  "/api/reports/revenue-velocity",
+  "/api/reports/unit-economics"
+] as const;
+
 describe("module capability manifests", () => {
   it("defines attraction and leadgen as metadata-only manifests", () => {
     const attraction = createAttractionCapabilityManifest();
@@ -114,6 +129,42 @@ describe("module capability manifests", () => {
     );
   });
 
+  it("describes every live attraction analytics route exactly once", () => {
+    const attraction = createAttractionCapabilityManifest();
+
+    expect(attraction.reports.map((report) => report.route).sort()).toEqual(
+      [...expectedAttractionAnalyticsRoutes].sort()
+    );
+    expect(new Set(attraction.reports.map((report) => report.id)).size).toBe(
+      attraction.reports.length
+    );
+    expect(new Set(attraction.reports.map((report) => report.route)).size).toBe(
+      attraction.reports.length
+    );
+  });
+
+  it("keeps sensitive financial execution policy explicit for agents", () => {
+    const attraction = createAttractionCapabilityManifest();
+    const reportsById = new Map(
+      attraction.reports.map((report) => [report.id, report])
+    );
+
+    expect(reportsById.get("revenue-velocity")).toEqual(
+      expect.objectContaining({
+        route: "/api/reports/revenue-velocity",
+        status: "available",
+        agentReadable: true
+      })
+    );
+    expect(reportsById.get("unit-economics")).toEqual(
+      expect.objectContaining({
+        route: "/api/reports/unit-economics",
+        status: "available",
+        agentReadable: false
+      })
+    );
+  });
+
   it("keeps custom-module reports available only when the adapter lists the live route", () => {
     const registry = createModuleCapabilityRegistry({
       adapters: [
@@ -136,16 +187,22 @@ describe("module capability manifests", () => {
 
   it("derives built-in report availability from narrow service adapter inputs", () => {
     const attractionAdapter = createAttractionCapabilityAdapter({
-      getSourceQualityConversionReport: () => undefined
+      getDashboard: () => undefined,
+      getSourceQualityConversionReport: () => undefined,
+      getRevenueVelocityReport: () => undefined
     });
     const leadgenUnavailableAdapter = createLeadgenCapabilityAdapter(undefined);
     const leadgenAvailableAdapter = createLeadgenCapabilityAdapter({
       getLeadgenFunnelReport: () => undefined
     });
 
-    expect([...(attractionAdapter.availableReportRoutes ?? [])]).toEqual([
-      "/api/reports/source-quality-conversion"
-    ]);
+    expect([...(attractionAdapter.availableReportRoutes ?? [])].sort()).toEqual(
+      [
+        "/api/dashboard",
+        "/api/reports/revenue-velocity",
+        "/api/reports/source-quality-conversion"
+      ].sort()
+    );
     expect([...(leadgenUnavailableAdapter.availableReportRoutes ?? [])]).toEqual([]);
     expect([...(leadgenAvailableAdapter.availableReportRoutes ?? [])]).toEqual([
       "/api/modules/leadgen/reports/funnel"

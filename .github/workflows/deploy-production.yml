@@ -75,6 +75,7 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+          MCP_ACCESS_TOKEN: ${{ secrets.MCP_ACCESS_TOKEN }}
           DEPLOY_REF: ${{ github.sha }}
           DEPLOY_REPO: git@github.com:${{ github.repository }}.git
         run: |
@@ -89,5 +90,5 @@ jobs:
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=12 \
             "$VPS_USER@$VPS_HOST" \
-            "DEPLOY_REPO='$DEPLOY_REPO' DEPLOY_REF='$DEPLOY_REF' DEPLOY_HEALTH_URL='$PRODUCTION_URL/api/health' DEPLOY_DASHBOARD_URL='$PRODUCTION_URL/api/dashboard' bash -s" \
+            "DEPLOY_REPO='$DEPLOY_REPO' DEPLOY_REF='$DEPLOY_REF' DEPLOY_HEALTH_URL='$PRODUCTION_URL/api/health' DEPLOY_DASHBOARD_URL='$PRODUCTION_URL/api/dashboard' DEPLOY_MCP_ACCESS_TOKEN='$MCP_ACCESS_TOKEN' bash -s" \
             < scripts/deploy-production.sh

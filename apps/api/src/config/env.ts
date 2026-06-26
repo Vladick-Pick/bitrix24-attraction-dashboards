@@ -136,6 +136,7 @@ const envSchema = z
     ATTRACTION_DATABASE_URL: optionalTrimmedString(),
     LEADGEN_DATABASE_URL: optionalTrimmedString(),
     JSON_BODY_LIMIT: z.string().trim().min(1).default("256kb"),
+    MCP_ACCESS_TOKEN: optionalTrimmedString(),
     NODE_ENV: z.string().default("development"),
     CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: z.coerce
       .number()
@@ -219,6 +220,14 @@ const envSchema = z
             "SESSION_SECRET must be configured and at least 32 characters when AUTH_MODE=password."
         });
       }
+    }
+
+    if (value.MCP_ACCESS_TOKEN && value.MCP_ACCESS_TOKEN.length < 32) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["MCP_ACCESS_TOKEN"],
+        message: "MCP_ACCESS_TOKEN must be at least 32 characters when configured."
+      });
     }
 
     if (value.NODE_ENV === "production") {

@@ -224,6 +224,12 @@ function setRuntimeSceneState(
   }
 }
 
+function withoutManagerActionOutcomes(runtimeData: ProtoRuntimeData): ProtoRuntimeData {
+  const next = { ...runtimeData }
+  delete next.managerActionOutcomes
+  return next
+}
+
 function resetAttractionReportData(
   runtimeData: ProtoRuntimeData,
   salesStatus: SceneLoadStatus,
@@ -2674,10 +2680,9 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             appliedFilters.managers.length > 0
               ? appliedFilters.managers
               : currentManagerOptions.map((option) => option.id).slice(0, 5)
-          const [cohort, managerActionOutcomes, managerBreakdownResults] =
+          const [cohort, managerBreakdownResults] =
             await Promise.all([
               apiClient.getCohortConversionReport(query),
-              apiClient.getManagerActionOutcomeReport(query),
               Promise.allSettled(
                 managerBreakdownIds.map(async (managerId) => {
                   const report = await apiClient.getCohortConversionReport({
@@ -2705,11 +2710,12 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
             return
           }
 
-          setRuntimeData((current) =>
-            setRuntimeSceneState(
+          setRuntimeData((current) => {
+            return setRuntimeSceneState(
               {
-                ...current,
-                managerActionOutcomes,
+                ...withoutManagerActionOutcomes(current),
+                managerActionOutcomesStatus: 'loading',
+                managerActionOutcomesError: null,
                 cohorts: mapCohortSceneData({
                   report: cohort,
                   managerBreakdowns,
@@ -2719,8 +2725,39 @@ export function ProtoApp({ currentUser }: ProtoAppProps = {}) {
               activeAttractionSceneLoadKey,
               'ready',
               null,
-            ),
-          )
+            )
+          })
+
+          void apiClient
+            .getManagerActionOutcomeReport(query)
+            .then((managerActionOutcomes) => {
+              if (!isMountedRef.current || runtimeRequestRef.current !== requestId) {
+                return
+              }
+
+              setRuntimeData((current) => ({
+                ...current,
+                managerActionOutcomes,
+                managerActionOutcomesStatus: 'ready',
+                managerActionOutcomesError: null,
+              }))
+            })
+            .catch((error) => {
+              if (!isMountedRef.current || runtimeRequestRef.current !== requestId) {
+                return
+              }
+
+              setRuntimeData((current) => {
+                return {
+                  ...withoutManagerActionOutcomes(current),
+                  managerActionOutcomesStatus: 'error',
+                  managerActionOutcomesError:
+                    error instanceof Error
+                      ? error.message
+                      : 'Не удалось загрузить детализацию действий',
+                }
+              })
+            })
           return
         }
 

@@ -493,6 +493,63 @@ describe("buildDealLifecycleCard", () => {
     });
   });
 
+  it("matches Leadgen US lead purchase cost for numbered ready-to-meet quality", () => {
+    const card = buildDealLifecycleCard({
+      range,
+      deal: {
+        ...baseDeal,
+        sourceId: "8",
+        qualityValue: "3.1 Готов ко встрече с представителем клуба"
+      },
+      status: "won",
+      stageCatalog: [
+        ...stageCatalog,
+        {
+          entityType: "source",
+          categoryId: null,
+          statusId: "8",
+          name: "Лидген УС",
+          semanticId: null,
+          sortOrder: 20
+        }
+      ],
+      stageHistory,
+      touchpointFacts: [],
+      eventVisitFacts: [],
+      events: [],
+      pricingRules: DEFAULT_PRICING_RULES,
+      costRules: [
+        {
+          id: "leadgen-label-ready-to-meet",
+          articleId: "lead_purchase",
+          pnlLevel: "variable_contribution",
+          costBehavior: "variable",
+          calculationMethod: "amount_per_lead",
+          unitPrice: 20_000,
+          percent: null,
+          amount: null,
+          sourceKey: "Лидген УС",
+          qualityValue: "Готов к встрече",
+          enabled: true,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+          sortOrder: 10
+        }
+      ],
+      costFacts: [],
+      eventParticipantMode: "invited"
+    });
+
+    expect(card.economics.saleCostAmount).toBe(20_000);
+    expect(card.economics.costRows).toEqual([
+      expect.objectContaining({
+        articleId: "lead_purchase",
+        amount: 20_000,
+        basis: "Созданная сделка источника/качества"
+      })
+    ]);
+  });
+
   it("allocates fixed period costs across manager won deals in the sale month", () => {
     const secondWonDeal = {
       ...baseDeal,

@@ -715,7 +715,9 @@ function isRuleEffectiveAt(rule: UnitEconomicsCostRule, occurredAt: string | nul
 }
 
 function normalizeQualityForMatch(value: string | null | undefined) {
-  return normalizeText(value).replace(/^\d+(\.\d+)?\s*/, "");
+  return normalizeText(value)
+    .replace(/^\d+(\.\d+)?\s*/, "")
+    .replace(/готов ко встрече/g, "готов к встрече");
 }
 
 function ruleMatchesDeal(

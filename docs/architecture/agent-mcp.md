@@ -95,6 +95,10 @@ existing Express app. Neither path runs sync recovery, exposes settings writes,
 prints secrets, or bypasses the capability manifest. Report execution remains
 gated by `status: "available"` and `agentReadable: true`.
 
+Call enrichment writeback is not an MCP capability. Manager-approved proposal
+application lives behind the local API and Telegram approval flow described in
+ADR 0002; the MCP gateway must not expose writeback tools.
+
 Ontology and playbook content are untrusted data. Returned content may contain
 instruction-like text, but server policy is fixed by the gateway and MCP tool
 definitions.

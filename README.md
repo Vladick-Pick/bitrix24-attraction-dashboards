@@ -14,6 +14,10 @@
 - Contact reads разрешены только для `ID` и согласованных custom enum полей целевой группы; персональные поля контактов запрещены.
 - Все `company`, single-record `get`, write/delete и произвольные `UF_*` payloads запрещены.
 - В storage не сохраняются `phone`, `email`, имена контактов, deal title, comments, address, company links и raw `UF_*`.
+- Call enrichment introduces a separate manager-approved writeback path. It is
+  limited to stored proposals, Telegram manager approval, the enrichment field
+  allowlist, and the ADR 0002 security contract; reporting and sync remain
+  read-only.
 - Webhook secret никогда не должен попадать в логи.
 - Production API uses `AUTH_MODE=password`, HttpOnly session cookies and CSRF tokens. `API_AUTH_TOKEN` остается legacy/local-only режимом для mutating запросов, если password auth не включен.
 - Prototype comments endpoint доступен только на localhost, валидирует JSON/schema/размер тела и в preview выключен по умолчанию. Для preview включения задайте `PROTO_COMMENTS_ENABLED=true`.

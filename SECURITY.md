@@ -42,6 +42,35 @@
 
 `CONTACT_ID` is allowed only as a relationship key for resolving allowed target-group enum values. Contact names, phones, emails and other personal fields remain forbidden.
 
+## Manager-approved call enrichment writeback
+
+The reporting, sync, MCP, and agent-readable report surfaces remain read-only.
+The call enrichment subsystem has a separate destructive exception recorded in
+`docs/adr/0002-manager-approved-call-enrichment-writeback.md`.
+
+Only these Bitrix24 write methods are allowed for that subsystem:
+
+- `crm.contact.update` for the agreed contact enrichment field allowlist.
+- `crm.deal.update` for the agreed deal enrichment field allowlist.
+
+This exception is valid only when all conditions are true:
+
+- a call analysis/enrichment proposal exists in local SQLite;
+- the proposal belongs to the manager receiving the Telegram action;
+- the proposal has not expired;
+- the target field is in the entity-specific allowlist;
+- the proposed normalized value was produced by the enrichment validator;
+- the current Bitrix value is re-read immediately before writeback;
+- the manager clicked `Записать` or `Перезаписать`.
+
+Still forbidden:
+
+- generic crm update dispatch (`crm.*.update`);
+- direct LLM-specified method names, entity names, or field codes;
+- update/add/delete for fields outside the enrichment allowlist;
+- phone, email, name, comments, company, address, or multifield updates;
+- transcript dumps into Telegram messages, logs, or audit events.
+
 ## Local API
 
 - `WEB_ORIGIN` is the CORS allowlist origin; wildcard CORS is not used.

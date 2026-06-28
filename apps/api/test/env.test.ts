@@ -23,6 +23,9 @@ describe("readEnv", () => {
       "OPENROUTER_API_KEY",
       "OPENROUTER_MODEL",
       "OPENROUTER_PROMPT_VERSION",
+      "OPENROUTER_DIALOGUE_GATE_MODEL",
+      "OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION",
+      "CALL_ANALYSIS_DIALOGUE_GATE_ENABLED",
       "OPENROUTER_APP_REFERER",
       "OPENROUTER_APP_TITLE"
     ]) {
@@ -97,7 +100,10 @@ describe("readEnv", () => {
     expect(readEnv({})).toMatchObject({
       CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: 60_000,
       CALL_ANALYSIS_MAX_AUDIO_BYTES: 50 * 1024 * 1024,
-      OPENROUTER_MODEL: "google/gemini-3.5-flash"
+      OPENROUTER_MODEL: "google/gemini-3.5-flash",
+      OPENROUTER_DIALOGUE_GATE_MODEL: "google/gemini-2.5-flash-lite",
+      OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION: "dialogue-gate-v1",
+      callAnalysisDialogueGateEnabled: false
     });
 
     expect(
@@ -108,6 +114,46 @@ describe("readEnv", () => {
     ).toMatchObject({
       CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: 15_000,
       CALL_ANALYSIS_MAX_AUDIO_BYTES: 12 * 1024 * 1024
+    });
+  });
+
+  it("defaults the dialogue gate on when call enrichment intake is enabled", () => {
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters"
+      }).callAnalysisDialogueGateEnabled
+    ).toBe(true);
+
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        CALL_ANALYSIS_DIALOGUE_GATE_ENABLED: ""
+      }).callAnalysisDialogueGateEnabled
+    ).toBe(true);
+
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        CALL_ANALYSIS_DIALOGUE_GATE_ENABLED: "false"
+      }).callAnalysisDialogueGateEnabled
+    ).toBe(false);
+
+    expect(
+      readEnv({
+        CALL_ANALYSIS_DIALOGUE_GATE_ENABLED: "true",
+        OPENROUTER_DIALOGUE_GATE_MODEL: "custom/cheap-audio-model",
+        OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION: "dialogue-gate-test"
+      })
+    ).toMatchObject({
+      callAnalysisDialogueGateEnabled: true,
+      OPENROUTER_DIALOGUE_GATE_MODEL: "custom/cheap-audio-model",
+      OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION: "dialogue-gate-test"
     });
   });
 

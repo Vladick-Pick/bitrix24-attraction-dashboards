@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createCallAnalysisService } from "../src/server/call-analysis-service";
 import type { CallAnalysisServiceError } from "../src/server/call-analysis-service";
+import type { DialogueGateResult } from "../src/server/openrouter-dialogue-gate";
 import type { OpenRouterCallAnalysisResult } from "../src/server/openrouter-call-analysis";
 
 const providerResult: OpenRouterCallAnalysisResult = {
@@ -105,6 +106,30 @@ const providerResultWithRaw = {
     providerOnlyTopLevel: "kept-for-debug"
   }
 } satisfies OpenRouterCallAnalysisResult;
+
+const noDialogueGateResult: DialogueGateResult = {
+  callId: "CALL1",
+  model: "google/gemini-2.5-flash-lite",
+  promptVersion: "dialogue-gate-v1",
+  analyzedAt: "2026-06-09T12:00:20.000Z",
+  gate: {
+    hasDialogue: false,
+    evidenceType: "operator_no_answer",
+    confidence: 0.94,
+    reason: "Оператор сказал, что не удалось дозвониться.",
+    evidenceSnippet: "Не удалось дозвониться."
+  },
+  rawGate: {
+    hasDialogue: false,
+    evidenceType: "operator_no_answer",
+    confidence: 0.94,
+    reason: "Оператор сказал, что не удалось дозвониться.",
+    evidenceSnippet: "Не удалось дозвониться."
+  },
+  usage: {
+    totalTokens: 64
+  }
+};
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -309,6 +334,176 @@ describe("createCallAnalysisService", () => {
         }
       }
     });
+  });
+
+  it("skips automatic full analysis when the dialogue gate finds no conversation with high confidence", async () => {
+    const repository = createRepository();
+    const downloadRecording = vi.fn().mockResolvedValue({
+      audio: Buffer.from("mp3-bytes"),
+      audioFormat: "mp3"
+    });
+    const dialogueGate = {
+      analyzeDialogue: vi.fn().mockResolvedValue(noDialogueGateResult)
+    };
+    const provider = {
+      analyzeCall: vi.fn()
+    };
+    const service = createCallAnalysisService({
+      repository,
+      client: {
+        listCallRecordingActivitiesByIds: vi.fn().mockResolvedValue([
+          {
+            ID: "A1",
+            OWNER_TYPE_ID: "2",
+            OWNER_ID: "23841",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            FILES: [{ id: 338028, name: "call.mp3" }],
+            STORAGE_ELEMENT_IDS: []
+          }
+        ]),
+        getDiskFile: vi.fn().mockResolvedValue({
+          ID: "338028",
+          DOWNLOAD_URL: "https://bitrix.example/disk/download/call.mp3"
+        })
+      },
+      provider,
+      dialogueGate,
+      downloadRecording,
+      idGenerator: () => "run-skipped",
+      now: () => new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    await expect(
+      service.analyzeCall({
+        callId: "CALL1",
+        triggerMode: "automatic"
+      })
+    ).resolves.toEqual({
+      status: "skipped",
+      reusedExistingResult: false,
+      callId: "CALL1",
+      dialogueGate: noDialogueGateResult
+    });
+
+    expect(dialogueGate.analyzeDialogue).toHaveBeenCalledWith({
+      callId: "CALL1",
+      audio: Buffer.from("mp3-bytes"),
+      audioFormat: "mp3",
+      metadata: {
+        durationSeconds: 318,
+        callFailedCode: null
+      }
+    });
+    expect(provider.analyzeCall).not.toHaveBeenCalled();
+    expect(repository.startCallAnalysisRun).not.toHaveBeenCalled();
+    expect(repository.saveCallAnalysisResult).not.toHaveBeenCalled();
+  });
+
+  it("continues automatic full analysis when the dialogue gate confidence is low", async () => {
+    const repository = createRepository();
+    const lowConfidenceGateResult: DialogueGateResult = {
+      ...noDialogueGateResult,
+      gate: {
+        ...noDialogueGateResult.gate,
+        confidence: 0.42
+      }
+    };
+    const dialogueGate = {
+      analyzeDialogue: vi.fn().mockResolvedValue(lowConfidenceGateResult)
+    };
+    const provider = {
+      analyzeCall: vi.fn().mockResolvedValue(providerResult)
+    };
+    const service = createCallAnalysisService({
+      repository,
+      client: {
+        listCallRecordingActivitiesByIds: vi.fn().mockResolvedValue([
+          {
+            ID: "A1",
+            OWNER_TYPE_ID: "2",
+            OWNER_ID: "23841",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            FILES: [{ id: 338028, name: "call.mp3" }],
+            STORAGE_ELEMENT_IDS: []
+          }
+        ]),
+        getDiskFile: vi.fn().mockResolvedValue({
+          ID: "338028",
+          DOWNLOAD_URL: "https://bitrix.example/disk/download/call.mp3"
+        })
+      },
+      provider,
+      dialogueGate,
+      downloadRecording: vi.fn().mockResolvedValue({
+        audio: Buffer.from("mp3-bytes"),
+        audioFormat: "mp3"
+      }),
+      idGenerator: () => "run-low-confidence",
+      now: () => new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    await expect(
+      service.analyzeCall({
+        callId: "CALL1",
+        triggerMode: "automatic"
+      })
+    ).resolves.toMatchObject({
+      status: "ready",
+      reusedExistingResult: false
+    });
+
+    expect(dialogueGate.analyzeDialogue).toHaveBeenCalledTimes(1);
+    expect(provider.analyzeCall).toHaveBeenCalledTimes(1);
+    expect(repository.startCallAnalysisRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "run-low-confidence",
+        triggerMode: "automatic",
+        status: "analyzing"
+      })
+    );
+  });
+
+  it("does not run the dialogue gate for manual analysis", async () => {
+    const repository = createRepository();
+    const dialogueGate = {
+      analyzeDialogue: vi.fn()
+    };
+    const provider = {
+      analyzeCall: vi.fn().mockResolvedValue(providerResult)
+    };
+    const service = createCallAnalysisService({
+      repository,
+      client: {
+        listCallRecordingActivitiesByIds: vi.fn().mockResolvedValue([
+          {
+            ID: "A1",
+            OWNER_TYPE_ID: "2",
+            OWNER_ID: "23841",
+            PROVIDER_ID: "VOXIMPLANT_CALL",
+            FILES: [{ id: 338028, name: "call.mp3" }],
+            STORAGE_ELEMENT_IDS: []
+          }
+        ]),
+        getDiskFile: vi.fn().mockResolvedValue({
+          ID: "338028",
+          DOWNLOAD_URL: "https://bitrix.example/disk/download/call.mp3"
+        })
+      },
+      provider,
+      dialogueGate,
+      downloadRecording: vi.fn().mockResolvedValue({
+        audio: Buffer.from("mp3-bytes"),
+        audioFormat: "mp3"
+      })
+    });
+
+    await service.analyzeCall({
+      callId: "CALL1",
+      triggerMode: "manual"
+    });
+
+    expect(dialogueGate.analyzeDialogue).not.toHaveBeenCalled();
+    expect(provider.analyzeCall).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a second analysis while the selected call already has an active run", async () => {

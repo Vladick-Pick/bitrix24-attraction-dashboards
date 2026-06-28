@@ -6,6 +6,7 @@ import { createPasswordAuthService, createSqliteAuthStore } from "./server/auth.
 import { createApp } from "./server/app.js";
 import { createCallAnalysisService } from "./server/call-analysis-service.js";
 import { createLeadgenService } from "./server/leadgen-service.js";
+import { OpenRouterDialogueGateProvider } from "./server/openrouter-dialogue-gate.js";
 import { OpenRouterCallAnalysisProvider } from "./server/openrouter-call-analysis.js";
 import { PaperclipClient } from "./server/paperclip-client.js";
 import type {
@@ -139,6 +140,21 @@ const callAnalysis = env.OPENROUTER_API_KEY
       client,
       recordingDownloadTimeoutMs: env.CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS,
       maxRecordingBytes: env.CALL_ANALYSIS_MAX_AUDIO_BYTES,
+      ...(env.callAnalysisDialogueGateEnabled
+        ? {
+            dialogueGate: new OpenRouterDialogueGateProvider({
+              apiKey: env.OPENROUTER_API_KEY,
+              model: env.OPENROUTER_DIALOGUE_GATE_MODEL,
+              promptVersion: env.OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION,
+              ...(env.OPENROUTER_APP_REFERER
+                ? { appReferer: env.OPENROUTER_APP_REFERER }
+                : {}),
+              ...(env.OPENROUTER_APP_TITLE
+                ? { appTitle: env.OPENROUTER_APP_TITLE }
+                : {})
+            })
+          }
+        : {}),
       provider: new OpenRouterCallAnalysisProvider({
         apiKey: env.OPENROUTER_API_KEY,
         model: env.OPENROUTER_MODEL,

@@ -15,8 +15,13 @@ import type {
 } from "./sqlite-repository.js";
 import {
   resolveCallRecordingDownload,
-  type CallRecordingResolverClient
+  type CallRecordingResolverClient,
+  type ResolvedCallRecordingDownload
 } from "./call-recording-resolver.js";
+import type {
+  DialogueGateInput,
+  DialogueGateResult
+} from "./openrouter-dialogue-gate.js";
 import type {
   AnalyzeCallInput,
   CallAudioFormat,
@@ -50,6 +55,10 @@ export interface CallAnalysisProvider {
   analyzeCall(input: AnalyzeCallInput): Promise<OpenRouterCallAnalysisResult>;
 }
 
+export interface DialogueGateProvider {
+  analyzeDialogue(input: DialogueGateInput): Promise<DialogueGateResult>;
+}
+
 export interface CallAnalysisRepository
   extends Pick<
     SqliteRepository,
@@ -78,10 +87,23 @@ export interface AnalyzeSelectedCallResult {
   result: CallAnalysisResultRecord;
 }
 
+export interface SkippedCallAnalysisResult {
+  status: "skipped";
+  reusedExistingResult: false;
+  callId: string;
+  dialogueGate: DialogueGateResult;
+}
+
+export type CallAnalysisResult =
+  | AnalyzeSelectedCallResult
+  | SkippedCallAnalysisResult;
+
 export interface CreateCallAnalysisServiceInput {
   repository: CallAnalysisRepository;
   client: CallRecordingResolverClient;
   provider: CallAnalysisProvider;
+  dialogueGate?: DialogueGateProvider;
+  dialogueGateSkipConfidenceThreshold?: number;
   downloadRecording?: DownloadCallRecording;
   fetch?: FetchLike;
   recordingDownloadTimeoutMs?: number;
@@ -92,6 +114,7 @@ export interface CreateCallAnalysisServiceInput {
 
 const DEFAULT_RECORDING_DOWNLOAD_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_RECORDING_BYTES = 50 * 1024 * 1024;
+const DEFAULT_DIALOGUE_GATE_SKIP_CONFIDENCE = 0.7;
 const MAX_ANALYSIS_ERROR_MESSAGE_LENGTH = 1_000;
 
 export class CallAnalysisServiceError extends Error {
@@ -125,7 +148,7 @@ export function createCallAnalysisService(input: CreateCallAnalysisServiceInput)
     async analyzeCall({
       callId,
       triggerMode = "manual"
-    }: AnalyzeSelectedCallInput): Promise<AnalyzeSelectedCallResult> {
+    }: AnalyzeSelectedCallInput): Promise<CallAnalysisResult> {
       const existingResult = await input.repository.getCallAnalysisResult(callId);
       if (existingResult) {
         return {
@@ -153,6 +176,38 @@ export function createCallAnalysisService(input: CreateCallAnalysisServiceInput)
         );
       }
 
+      let preparedRecording: PreparedCallRecording | null = null;
+      if (triggerMode === "automatic" && input.dialogueGate) {
+        preparedRecording = await resolveAndDownloadCallRecording({
+          client: input.client,
+          call,
+          downloadRecording
+        });
+        const dialogueGateResult = await input.dialogueGate.analyzeDialogue({
+          callId: call.id,
+          audio: preparedRecording.downloaded.audio,
+          audioFormat: preparedRecording.downloaded.audioFormat,
+          metadata: {
+            durationSeconds: call.callDurationSeconds,
+            callFailedCode: call.callFailedCode
+          }
+        });
+
+        if (
+          shouldSkipAfterDialogueGate(
+            dialogueGateResult,
+            input.dialogueGateSkipConfidenceThreshold
+          )
+        ) {
+          return {
+            status: "skipped",
+            reusedExistingResult: false,
+            callId: call.id,
+            dialogueGate: dialogueGateResult
+          };
+        }
+      }
+
       const runId = idGenerator();
       const startedAt = now().toISOString();
       await input.repository.startCallAnalysisRun({
@@ -173,28 +228,17 @@ export function createCallAnalysisService(input: CreateCallAnalysisServiceInput)
           repository: input.repository,
           call
         });
-        const recording = await resolveCallRecordingDownload({
-          client: input.client,
-          call: {
-            ID: call.id,
-            CRM_ACTIVITY_ID: call.crmActivityId,
-            CALL_RECORD_URL: null
-          }
-        });
-
-        if (!recording) {
-          throw new CallAnalysisServiceError(
-            "CALL_RECORDING_NOT_FOUND",
-            "Call recording is not available for analysis.",
-            404
-          );
-        }
-
-        const downloaded = await downloadRecording(recording.url);
+        const recording =
+          preparedRecording ??
+          (await resolveAndDownloadCallRecording({
+            client: input.client,
+            call,
+            downloadRecording
+          }));
         const providerResult = await input.provider.analyzeCall({
           callId: call.id,
-          audio: downloaded.audio,
-          audioFormat: downloaded.audioFormat
+          audio: recording.downloaded.audio,
+          audioFormat: recording.downloaded.audioFormat
         });
         const updatedAt = now().toISOString();
         const resultRecord = toResultRecord({
@@ -211,8 +255,8 @@ export function createCallAnalysisService(input: CreateCallAnalysisServiceInput)
           status: "ready",
           model: providerResult.model,
           promptVersion: providerResult.promptVersion,
-          recordingSource: recording.source,
-          recordingFileId: recording.fileId
+          recordingSource: recording.recording.source,
+          recordingFileId: recording.recording.fileId
         });
 
         return {
@@ -239,6 +283,46 @@ export function createCallAnalysisService(input: CreateCallAnalysisServiceInput)
       }
     }
   };
+}
+
+interface PreparedCallRecording {
+  recording: ResolvedCallRecordingDownload;
+  downloaded: DownloadedCallRecording;
+}
+
+async function resolveAndDownloadCallRecording(input: {
+  client: CallRecordingResolverClient;
+  call: CallSnapshot;
+  downloadRecording: DownloadCallRecording;
+}): Promise<PreparedCallRecording> {
+  const recording = await resolveCallRecordingDownload({
+    client: input.client,
+    call: {
+      ID: input.call.id,
+      CRM_ACTIVITY_ID: input.call.crmActivityId,
+      CALL_RECORD_URL: null
+    }
+  });
+
+  if (!recording) {
+    throw new CallAnalysisServiceError(
+      "CALL_RECORDING_NOT_FOUND",
+      "Call recording is not available for analysis.",
+      404
+    );
+  }
+
+  return {
+    recording,
+    downloaded: await input.downloadRecording(recording.url)
+  };
+}
+
+function shouldSkipAfterDialogueGate(
+  result: DialogueGateResult,
+  threshold = DEFAULT_DIALOGUE_GATE_SKIP_CONFIDENCE
+) {
+  return !result.gate.hasDialogue && result.gate.confidence >= threshold;
 }
 
 async function buildCallAnalysisContext(input: {

@@ -153,6 +153,20 @@ const envSchema = z
     OPENROUTER_API_KEY: optionalTrimmedString(),
     OPENROUTER_MODEL: z.string().trim().min(1).default("google/gemini-3.5-flash"),
     OPENROUTER_PROMPT_VERSION: z.string().trim().min(1).default("calls-v2"),
+    OPENROUTER_DIALOGUE_GATE_MODEL: z
+      .string()
+      .trim()
+      .min(1)
+      .default("google/gemini-2.5-flash-lite"),
+    OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION: z
+      .string()
+      .trim()
+      .min(1)
+      .default("dialogue-gate-v1"),
+    CALL_ANALYSIS_DIALOGUE_GATE_ENABLED: z.preprocess(
+      emptyStringToUndefined,
+      z.enum(["true", "false"]).optional()
+    ),
     OPENROUTER_APP_REFERER: optionalTrimmedString(),
     OPENROUTER_APP_TITLE: optionalTrimmedString(),
     PAPERCLIP_API_URL: optionalTrimmedString(),
@@ -300,6 +314,7 @@ export type AppEnv = z.infer<typeof envSchema> & {
   attractionAutoSyncIntervalMs: number;
   callEnrichmentIntakeEnabled: boolean;
   bitrixCallEventWebhookSecret?: string;
+  callAnalysisDialogueGateEnabled: boolean;
   telegramActivityReportEnabled: boolean;
   telegramActivityReportChatIds: string[];
   telegramActivityReportTime: string;
@@ -328,6 +343,12 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     parsed.ATTRACTION_AUTO_SYNC_ENABLED === undefined
       ? parsed.NODE_ENV === "production"
       : parsed.ATTRACTION_AUTO_SYNC_ENABLED === "true";
+  const callEnrichmentIntakeEnabled =
+    parsed.CALL_ENRICHMENT_INTAKE_ENABLED === "true";
+  const callAnalysisDialogueGateEnabled =
+    parsed.CALL_ANALYSIS_DIALOGUE_GATE_ENABLED === undefined
+      ? callEnrichmentIntakeEnabled
+      : parsed.CALL_ANALYSIS_DIALOGUE_GATE_ENABLED === "true";
   const telegramActivityReportChatIds = Array.from(
     new Set([
       ...parseCsv(parsed.TELEGRAM_ACTIVITY_REPORT_CHAT_IDS),
@@ -358,11 +379,11 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     attractionAutoSyncEnabled,
     attractionAutoSyncIntervalMs:
       parsed.ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1_000,
-    callEnrichmentIntakeEnabled:
-      parsed.CALL_ENRICHMENT_INTAKE_ENABLED === "true",
+    callEnrichmentIntakeEnabled,
     ...(parsed.BITRIX_CALL_EVENT_WEBHOOK_SECRET
       ? { bitrixCallEventWebhookSecret: parsed.BITRIX_CALL_EVENT_WEBHOOK_SECRET }
       : {}),
+    callAnalysisDialogueGateEnabled,
     telegramActivityReportEnabled:
       parsed.TELEGRAM_ACTIVITY_REPORT_ENABLED === "true",
     telegramActivityReportChatIds,

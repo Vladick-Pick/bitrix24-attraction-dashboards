@@ -568,6 +568,17 @@ describe("Bitrix transport security", () => {
       })
     ).not.toThrow();
     expect(() =>
+      assertSafeCallEnrichmentWriteFields("contact", {
+        UF_CRM_1647946359: "602",
+        UF_CRM_1766136147: 42
+      })
+    ).toThrow(/exactly one/i);
+    expect(() =>
+      assertSafeCallEnrichmentWriteFields("contact", {
+        UF_CRM_1649418456: "Москва"
+      })
+    ).toThrow(/not writable/i);
+    expect(() =>
       assertSafeCallEnrichmentWriteFields("deal", {
         UF_CRM_1647946359: "602"
       })

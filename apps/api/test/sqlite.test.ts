@@ -330,6 +330,23 @@ describe("createSqliteRepository", () => {
     ).toThrow(/UNIQUE|constraint/i);
   });
 
+  it("reads one enrichment proposal by id for writeback decisions", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(createEnrichmentBatch());
+
+    await expect(repository.getEnrichmentProposal("proposal-1")).resolves.toEqual(
+      expect.objectContaining({
+        id: "proposal-1",
+        batchId: "batch-1",
+        entityType: "contact",
+        fieldCode: "UF_CRM_1647946359",
+        status: "pending"
+      })
+    );
+    await expect(repository.getEnrichmentProposal("missing")).resolves.toBeNull();
+  });
+
   it("persists telegram enrichment action tokens and delivery ids", async () => {
     const repository = createTempRepository();
 

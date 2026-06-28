@@ -70,8 +70,8 @@ export function assertSafeCallEnrichmentWriteFields(
 ) {
   const fieldCodes = Object.keys(fields);
 
-  if (fieldCodes.length === 0) {
-    throw new Error("Call enrichment write fields must not be empty");
+  if (fieldCodes.length !== 1) {
+    throw new Error("Call enrichment write must contain exactly one field");
   }
 
   for (const fieldCode of fieldCodes) {
@@ -81,7 +81,28 @@ export function assertSafeCallEnrichmentWriteFields(
       throw new Error(`Forbidden Bitrix24 field in enrichment write: ${fieldCode}`);
     }
 
-    assertCallEnrichmentFieldAllowed(entityType, fieldCode);
+    const descriptor = assertCallEnrichmentFieldAllowed(entityType, fieldCode);
+    if (!descriptor.writableInV1) {
+      throw new Error(
+        `Call enrichment field ${fieldCode} is not writable in V1`
+      );
+    }
+
+    const value = fields[fieldCode];
+    if (value === undefined) {
+      throw new Error(`Call enrichment field ${fieldCode} value is undefined`);
+    }
+
+    if (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      (value as { kind?: unknown }).kind === "unresolved_reference"
+    ) {
+      throw new Error(
+        `Call enrichment field ${fieldCode} contains an unresolved reference`
+      );
+    }
   }
 }
 

@@ -6,8 +6,14 @@ import {
   parseCallbackToken,
   type TelegramEnrichmentApprovalRepository
 } from "../src/server/telegram-enrichment-approval";
+import {
+  createCallEnrichmentWritebackService,
+  type CallEnrichmentWritebackService
+} from "../src/server/call-enrichment-writeback";
 import type {
   CreateEnrichmentProposalInput,
+  EnrichmentProposalBatchRecord,
+  EnrichmentProposalRecord,
   TelegramEnrichmentActionTokenRecord
 } from "../src/server/sqlite-repository";
 import type { TelegramInteractiveSender } from "../src/server/telegram-client";
@@ -39,6 +45,22 @@ const proposal = {
   updatedAt: "2026-06-28T10:00:00.000Z"
 } satisfies CreateEnrichmentProposalInput;
 
+const writebackBatch = {
+  ...batch,
+  activityId: "A1",
+  callAnalysisRunId: "run-1",
+  status: "pending",
+  telegramChatId: "chat-78",
+  telegramMessageId: "42",
+  createdAt: "2026-06-28T10:00:00.000Z",
+  updatedAt: "2026-06-28T10:00:00.000Z"
+} satisfies EnrichmentProposalBatchRecord;
+
+const writebackProposal = {
+  ...proposal,
+  batchId: "batch-1"
+} satisfies EnrichmentProposalRecord;
+
 function createRepository(
   token?: TelegramEnrichmentActionTokenRecord | null
 ): TelegramEnrichmentApprovalRepository {
@@ -47,8 +69,7 @@ function createRepository(
     getTelegramEnrichmentActionToken: vi.fn().mockResolvedValue(token ?? null),
     markTelegramEnrichmentActionTokenUsed: vi.fn().mockResolvedValue(true),
     updateEnrichmentProposalBatchTelegramMessage: vi.fn().mockResolvedValue(undefined),
-    appendEnrichmentProposalEvent: vi.fn().mockResolvedValue(undefined),
-    markEnrichmentProposalDecision: vi.fn().mockResolvedValue(true)
+    appendEnrichmentProposalEvent: vi.fn().mockResolvedValue(undefined)
   };
 }
 
@@ -56,6 +77,19 @@ function createSender(): TelegramInteractiveSender {
   return {
     sendMessage: vi.fn().mockResolvedValue({ messageId: "42" }),
     answerCallbackQuery: vi.fn().mockResolvedValue(undefined)
+  };
+}
+
+function createDecisionService(
+  result: Awaited<
+    ReturnType<CallEnrichmentWritebackService["applyManagerEnrichmentDecision"]>
+  > = {
+    status: "applied",
+    proposalId: "proposal-1"
+  }
+): CallEnrichmentWritebackService {
+  return {
+    applyManagerEnrichmentDecision: vi.fn().mockResolvedValue(result)
   };
 }
 
@@ -102,6 +136,7 @@ describe("telegram enrichment approval", () => {
     const service = createTelegramEnrichmentApprovalService({
       repository,
       sender,
+      decisionService: createDecisionService(),
       managerChatIds: {
         "78": "chat-78"
       },
@@ -141,6 +176,7 @@ describe("telegram enrichment approval", () => {
     const service = createTelegramEnrichmentApprovalService({
       repository,
       sender,
+      decisionService: createDecisionService(),
       managerChatIds: {},
       idGenerator: () => "event-1",
       now: () => new Date("2026-06-28T10:00:00.000Z")
@@ -166,6 +202,7 @@ describe("telegram enrichment approval", () => {
     const service = createTelegramEnrichmentApprovalService({
       repository,
       sender,
+      decisionService: createDecisionService(),
       managerChatIds: {
         "78": "chat-78"
       },
@@ -205,9 +242,11 @@ describe("telegram enrichment approval", () => {
     } satisfies TelegramEnrichmentActionTokenRecord;
     const repository = createRepository(token);
     const sender = createSender();
+    const decisionService = createDecisionService();
     const service = createTelegramEnrichmentApprovalService({
       repository,
       sender,
+      decisionService,
       managerChatIds: {
         "78": "chat-78"
       },
@@ -225,20 +264,15 @@ describe("telegram enrichment approval", () => {
       token: "approve-token",
       usedAt: "2026-06-28T11:00:00.000Z"
     });
-    expect(repository.markEnrichmentProposalDecision).toHaveBeenCalledWith({
+    expect(decisionService.applyManagerEnrichmentDecision).toHaveBeenCalledWith({
       proposalId: "proposal-1",
-      status: "approved",
-      actorId: "78",
-      decidedAt: "2026-06-28T11:00:00.000Z",
-      eventId: "event-1",
-      reason: "telegram_approved",
-      metadata: {
-        telegramCallbackQueryId: "callback-1"
-      }
+      managerId: "78",
+      action: "approve",
+      decidedAt: "2026-06-28T11:00:00.000Z"
     });
     expect(sender.answerCallbackQuery).toHaveBeenCalledWith({
       callbackQueryId: "callback-1",
-      text: "Записано в очередь."
+      text: "Записано в CRM."
     });
   });
 
@@ -255,11 +289,15 @@ describe("telegram enrichment approval", () => {
       createdAt: "2026-06-28T10:00:00.000Z"
     } satisfies TelegramEnrichmentActionTokenRecord;
     const repository = createRepository(token);
-    vi.mocked(repository.markEnrichmentProposalDecision).mockResolvedValue(false);
+    const decisionService = createDecisionService({
+      status: "already_decided",
+      proposalId: "proposal-1"
+    });
     const sender = createSender();
     const service = createTelegramEnrichmentApprovalService({
       repository,
       sender,
+      decisionService,
       managerChatIds: {
         "78": "chat-78"
       },
@@ -276,6 +314,69 @@ describe("telegram enrichment approval", () => {
     expect(sender.answerCallbackQuery).toHaveBeenCalledWith({
       callbackQueryId: "callback-1",
       text: "Решение уже записано."
+    });
+  });
+
+  it("passes approved callbacks through the writeback service to Bitrix", async () => {
+    const token = {
+      token: "approve-token",
+      batchId: "batch-1",
+      proposalId: "proposal-1",
+      action: "approve",
+      managerId: "78",
+      telegramChatId: "chat-78",
+      expiresAt: "2026-06-30T10:00:00.000Z",
+      usedAt: null,
+      createdAt: "2026-06-28T10:00:00.000Z"
+    } satisfies TelegramEnrichmentActionTokenRecord;
+    const repository = {
+      ...createRepository(token),
+      getEnrichmentProposal: vi.fn().mockResolvedValue(writebackProposal),
+      getEnrichmentProposalBatch: vi.fn().mockResolvedValue(writebackBatch),
+      markEnrichmentProposalDecision: vi.fn().mockResolvedValue(true),
+      markEnrichmentProposalApplied: vi.fn().mockResolvedValue(undefined),
+      markEnrichmentProposalFailed: vi.fn().mockResolvedValue(undefined)
+    };
+    const bitrix = {
+      getContactEnrichmentValues: vi
+        .fn()
+        .mockResolvedValue({ UF_CRM_1647946359: null }),
+      getDealEnrichmentValues: vi.fn().mockResolvedValue({}),
+      updateContactEnrichmentField: vi.fn().mockResolvedValue(undefined),
+      updateDealEnrichmentField: vi.fn().mockResolvedValue(undefined)
+    };
+    const sender = createSender();
+    const service = createTelegramEnrichmentApprovalService({
+      repository,
+      sender,
+      decisionService: createCallEnrichmentWritebackService({
+        repository,
+        bitrix,
+        idGenerator: vi
+          .fn()
+          .mockReturnValueOnce("event-approved")
+          .mockReturnValueOnce("event-applied")
+      }),
+      managerChatIds: {
+        "78": "chat-78"
+      },
+      now: () => new Date("2026-06-28T11:00:00.000Z")
+    });
+
+    await service.handleCallback({
+      callbackQueryId: "callback-1",
+      chatId: "chat-78",
+      data: "ce:approve-token"
+    });
+
+    expect(bitrix.updateContactEnrichmentField).toHaveBeenCalledWith({
+      entityId: "contact-1",
+      fieldCode: "UF_CRM_1647946359",
+      value: "602"
+    });
+    expect(sender.answerCallbackQuery).toHaveBeenCalledWith({
+      callbackQueryId: "callback-1",
+      text: "Записано в CRM."
     });
   });
 });

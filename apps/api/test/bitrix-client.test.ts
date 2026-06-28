@@ -1805,4 +1805,87 @@ describe("BitrixClient pagination", () => {
       start: 0
     });
   });
+
+  it("updates one approved contact enrichment field through crm.contact.update", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(createResponse({ result: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.updateContactEnrichmentField({
+        entityId: "901",
+        fieldCode: "UF_CRM_1647946359",
+        value: "602"
+      })
+    ).resolves.toBeUndefined();
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/crm.contact.update");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      id: "901",
+      fields: {
+        UF_CRM_1647946359: "602"
+      }
+    });
+  });
+
+  it("updates one approved deal enrichment field through crm.deal.update", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(createResponse({ result: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.updateDealEnrichmentField({
+        entityId: "23841",
+        fieldCode: "UF_CRM_1766147164481",
+        value: "Ключевой проект"
+      })
+    ).resolves.toBeUndefined();
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/crm.deal.update");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      id: "23841",
+      fields: {
+        UF_CRM_1766147164481: "Ключевой проект"
+      }
+    });
+  });
+
+  it("rejects wrong-entity enrichment fields before calling Bitrix update", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BitrixClient({
+      portalHost: "example.bitrix24.ru",
+      userId: "1",
+      webhookToken: "token",
+      timeoutMs: 1_000,
+      requestIntervalMs: 0,
+      dealCategoryIds: ["10"]
+    });
+
+    await expect(
+      client.updateContactEnrichmentField({
+        entityId: "901",
+        fieldCode: "UF_CRM_1766147164481",
+        value: "Ключевой проект"
+      })
+    ).rejects.toThrow(/belongs to deal/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

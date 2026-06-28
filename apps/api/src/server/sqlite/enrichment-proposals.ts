@@ -25,6 +25,7 @@ type EnrichmentProposalRepositoryMethods = Pick<
   | "createEnrichmentProposalBatch"
   | "getEnrichmentProposalBatch"
   | "getEnrichmentProposalBatchByCallId"
+  | "getEnrichmentProposal"
   | "listEnrichmentProposals"
   | "listEnrichmentProposalEvents"
   | "createTelegramEnrichmentActionToken"
@@ -297,6 +298,26 @@ export function createEnrichmentProposalRepositoryMethods(
     FROM enrichment_proposals
     WHERE batch_id = ?
     ORDER BY created_at ASC, id ASC
+  `);
+  const getProposalByIdStatement = database.prepare(`
+    SELECT
+      id,
+      batch_id AS batchId,
+      entity_type AS entityType,
+      entity_id AS entityId,
+      field_code AS fieldCode,
+      field_title AS fieldTitle,
+      action_type AS actionType,
+      current_value_json AS currentValueJson,
+      proposed_value_json AS proposedValueJson,
+      normalized_value_json AS normalizedValueJson,
+      confidence,
+      evidence_snippet AS evidenceSnippet,
+      status,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM enrichment_proposals
+    WHERE id = ?
   `);
   const insertEventStatement = database.prepare(`
     INSERT INTO enrichment_proposal_events (
@@ -610,6 +631,13 @@ export function createEnrichmentProposalRepositoryMethods(
         | EnrichmentProposalBatchRow
         | undefined;
       return row ? readBatch(row) : null;
+    },
+
+    async getEnrichmentProposal(proposalId) {
+      const row = getProposalByIdStatement.get(proposalId) as
+        | EnrichmentProposalRow
+        | undefined;
+      return row ? readProposal(row) : null;
     },
 
     async listEnrichmentProposals(batchId) {

@@ -7,6 +7,7 @@ import { createApp } from "./server/app.js";
 import { createCallAnalysisService } from "./server/call-analysis-service.js";
 import { buildCallEnrichmentDiff } from "./server/call-enrichment-diff.js";
 import { createCallEnrichmentOrchestrator } from "./server/call-enrichment-orchestrator.js";
+import { createCallEnrichmentWritebackService } from "./server/call-enrichment-writeback.js";
 import { createLeadgenService } from "./server/leadgen-service.js";
 import { OpenRouterDialogueGateProvider } from "./server/openrouter-dialogue-gate.js";
 import { OpenRouterEnrichmentExtractionProvider } from "./server/openrouter-enrichment-extraction.js";
@@ -185,11 +186,20 @@ const telegramEnrichmentSender =
         botToken: env.TELEGRAM_ENRICHMENT_BOT_TOKEN
       })
     : undefined;
+const callEnrichmentWriteback = env.bitrixEnabled
+  ? createCallEnrichmentWritebackService({
+      repository: attractionRepository,
+      bitrix: client
+    })
+  : undefined;
 const telegramEnrichmentApproval =
-  telegramEnrichmentSender && env.telegramEnrichmentEnabled
+  telegramEnrichmentSender &&
+  callEnrichmentWriteback &&
+  env.telegramEnrichmentEnabled
     ? createTelegramEnrichmentApprovalService({
         repository: attractionRepository,
         sender: telegramEnrichmentSender,
+        decisionService: callEnrichmentWriteback,
         managerChatIds: env.telegramEnrichmentManagerChatIds
       })
     : undefined;

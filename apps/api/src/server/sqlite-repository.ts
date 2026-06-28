@@ -440,7 +440,7 @@ export interface MarkEnrichmentProposalFailedInput {
   proposalId: string;
   failedAt: string;
   eventId: string;
-  status?: Extract<EnrichmentProposalStatus, "failed" | "conflict">;
+  status?: Extract<EnrichmentProposalStatus, "failed" | "conflict" | "expired">;
   actorType?: EnrichmentProposalActorType;
   actorId?: string | null;
   reason: string;
@@ -504,6 +504,9 @@ export interface SqliteRepository {
   getEnrichmentProposalBatchByCallId(
     callId: string
   ): Promise<EnrichmentProposalBatchRecord | null>;
+  getEnrichmentProposal(
+    proposalId: string
+  ): Promise<EnrichmentProposalRecord | null>;
   listEnrichmentProposals(batchId: string): Promise<EnrichmentProposalRecord[]>;
   listEnrichmentProposalEvents(
     batchId: string

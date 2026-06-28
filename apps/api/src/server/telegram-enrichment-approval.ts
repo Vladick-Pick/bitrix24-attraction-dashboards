@@ -8,6 +8,10 @@ import type {
   TelegramEnrichmentActionTokenRecord
 } from "./sqlite-repository.js";
 import type { TelegramInteractiveSender } from "./telegram-client.js";
+import type {
+  CallEnrichmentWritebackResult,
+  CallEnrichmentWritebackService
+} from "./call-enrichment-writeback.js";
 
 export interface TelegramEnrichmentBatchInput {
   id: string;
@@ -32,12 +36,12 @@ export interface TelegramEnrichmentApprovalRepository
     | "markTelegramEnrichmentActionTokenUsed"
     | "updateEnrichmentProposalBatchTelegramMessage"
     | "appendEnrichmentProposalEvent"
-    | "markEnrichmentProposalDecision"
   > {}
 
 export interface TelegramEnrichmentApprovalServiceInput {
   repository: TelegramEnrichmentApprovalRepository;
   sender: TelegramInteractiveSender;
+  decisionService: CallEnrichmentWritebackService;
   managerChatIds: Record<string, string>;
   idGenerator?: () => string;
   now?: () => Date;
@@ -161,27 +165,13 @@ export function createTelegramEnrichmentApprovalService(
       return;
     }
 
-    const decisionWasMarked = await input.repository.markEnrichmentProposalDecision({
+    const result = await input.decisionService.applyManagerEnrichmentDecision({
       proposalId: token.proposalId,
-      status: token.action === "approve" ? "approved" : "declined",
-      actorId: token.managerId,
-      decidedAt: nowIso,
-      eventId: idGenerator(),
-      reason:
-        token.action === "approve" ? "telegram_approved" : "telegram_declined",
-      metadata: {
-        telegramCallbackQueryId: callback.callbackQueryId
-      }
+      managerId: token.managerId,
+      action: token.action,
+      decidedAt: nowIso
     });
-    if (!decisionWasMarked) {
-      await answer(callback.callbackQueryId, "Решение уже записано.");
-      return;
-    }
-
-    await answer(
-      callback.callbackQueryId,
-      token.action === "approve" ? "Записано в очередь." : "Не заполняем."
-    );
+    await answer(callback.callbackQueryId, formatDecisionResultText(result));
   }
 
   async function createActionTokens(
@@ -368,4 +358,32 @@ function redactSensitiveText(value: string) {
   return value
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "[email]")
     .replace(/(?:\+?\d[\d\s().-]{7,}\d)/gu, "[phone]");
+}
+
+function formatDecisionResultText(result: CallEnrichmentWritebackResult) {
+  if (result.status === "applied") {
+    return "Записано в CRM.";
+  }
+
+  if (result.status === "declined") {
+    return "Не заполняем.";
+  }
+
+  if (result.status === "conflict") {
+    return "CRM уже изменилась, не перезаписываю.";
+  }
+
+  if (result.status === "expired") {
+    return "Срок действия предложения истек.";
+  }
+
+  if (result.status === "failed") {
+    return "Не удалось записать в CRM.";
+  }
+
+  if (result.status === "rejected") {
+    return "Нет доступа к этому предложению.";
+  }
+
+  return "Решение уже записано.";
 }

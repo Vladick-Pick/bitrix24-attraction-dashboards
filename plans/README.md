@@ -29,7 +29,7 @@ architectural issue found in the deep review.
 | [013](./013-add-stdio-mcp-server-and-agent-evals.md) | Add stdio MCP server and agent evals | P1 | M | 011, 012 | DONE |
 | [014](./014-fix-workload-heatmap-metric-contract.md) | Make workload heatmaps use the same metric contract as their table rows | P1 | M | - | TODO |
 | [015](./015-record-call-enrichment-security-contract.md) | Record the call enrichment writeback security contract | P1 | S | - | DONE |
-| [016](./016-add-call-enrichment-field-allowlist.md) | Add the call enrichment field allowlist and value contracts | P1 | M | 015 | TODO |
+| [016](./016-add-call-enrichment-field-allowlist.md) | Add the call enrichment field allowlist and value contracts | P1 | M | 015 | DONE |
 | [017](./017-add-call-enrichment-proposal-storage.md) | Add call enrichment proposal storage, lifecycle, and audit events | P1 | M | 016 | TODO |
 | [018](./018-add-bitrix-call-event-intake.md) | Add idempotent Bitrix call event intake for automatic analysis | P1 | M | 017 | TODO |
 | [019](./019-add-cheap-dialogue-gate.md) | Add a cheap OpenRouter dialogue gate before full call analysis | P1 | M | 018 | TODO |

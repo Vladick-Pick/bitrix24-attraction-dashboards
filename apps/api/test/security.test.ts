@@ -11,8 +11,10 @@ import { describe, expect, it } from "vitest";
 import {
   ALLOWED_BITRIX_METHODS,
   FORBIDDEN_FIELD_TOKENS,
+  assertAllowedCallEnrichmentWriteMethod,
   assertAllowedBitrixMethod,
   assertSafeSelectFields,
+  assertSafeCallEnrichmentWriteFields,
   redactWebhookUrl
 } from "../src/bitrix/security";
 import { createApp } from "../src/server/app";
@@ -495,6 +497,8 @@ describe("Bitrix transport security", () => {
     expect(() => assertAllowedBitrixMethod("crm.contact.get")).toThrow(
       /forbidden/i
     );
+    expect(ALLOWED_BITRIX_METHODS).not.toContain("crm.contact.update");
+    expect(ALLOWED_BITRIX_METHODS).not.toContain("crm.deal.update");
   });
 
   it("rejects selects that contain pii or wildcard fields while allowing the configured quality field", () => {
@@ -515,6 +519,52 @@ describe("Bitrix transport security", () => {
       )
     ).not.toThrow();
     expect(() => assertSafeSelectFields(["ID", "DATE_CREATE"])).not.toThrow();
+  });
+
+  it("keeps call enrichment writes behind a separate allowlist", () => {
+    expect(() =>
+      assertAllowedCallEnrichmentWriteMethod("crm.contact.update")
+    ).not.toThrow();
+    expect(() =>
+      assertAllowedCallEnrichmentWriteMethod("crm.deal.update")
+    ).not.toThrow();
+    expect(() =>
+      assertAllowedCallEnrichmentWriteMethod("crm.item.update")
+    ).toThrow(/forbidden/i);
+
+    expect(() =>
+      assertSafeCallEnrichmentWriteFields("contact", {
+        UF_CRM_1647946359: "602"
+      })
+    ).not.toThrow();
+    expect(() =>
+      assertSafeCallEnrichmentWriteFields("deal", {
+        UF_CRM_1766147164481: "Проект"
+      })
+    ).not.toThrow();
+    expect(() =>
+      assertSafeCallEnrichmentWriteFields("deal", {
+        UF_CRM_1647946359: "602"
+      })
+    ).toThrow(/belongs to contact/);
+    expect(() =>
+      assertSafeCallEnrichmentWriteFields("contact", {
+        UF_CRM_1766147164481: "Проект"
+      })
+    ).toThrow(/belongs to deal/);
+
+    for (const field of [
+      "PHONE",
+      "EMAIL",
+      "NAME",
+      "COMMENTS",
+      "CONTACT_IDS",
+      "COMPANY_ID"
+    ]) {
+      expect(() =>
+        assertSafeCallEnrichmentWriteFields("contact", { [field]: "x" })
+      ).toThrow(new RegExp(field));
+    }
   });
 
   it("redacts the secret part of the webhook url before logging", () => {

@@ -34,7 +34,7 @@ architectural issue found in the deep review.
 | [018](./018-add-bitrix-call-event-intake.md) | Add idempotent Bitrix call event intake for automatic analysis | P1 | M | 017 | DONE |
 | [019](./019-add-cheap-dialogue-gate.md) | Add a cheap OpenRouter dialogue gate before full call analysis | P1 | M | 018 | DONE |
 | [020](./020-wire-automatic-call-analysis-enrichment-orchestrator.md) | Wire automatic call analysis into an enrichment orchestrator | P1 | M | 017, 018, 019 | DONE |
-| [021](./021-add-enrichment-extraction-agent.md) | Add the CRM enrichment extraction agent | P1 | M | 016, 020 | TODO |
+| [021](./021-add-enrichment-extraction-agent.md) | Add the CRM enrichment extraction agent | P1 | M | 016, 020 | DONE |
 | [022](./022-add-current-crm-values-diff.md) | Add current CRM value reads and meaningful enrichment diff | P1 | L | 016, 021 | TODO |
 | [023](./023-add-telegram-enrichment-approval-flow.md) | Add Telegram approval batches for enrichment proposals | P1 | L | 017, 022 | TODO |
 | [024](./024-add-narrow-bitrix-enrichment-write-adapter.md) | Add the narrow Bitrix enrichment write adapter | P1 | L | 015, 016, 022, 023 | TODO |

@@ -5,6 +5,7 @@ import { createPlaybookReader } from "./agent/playbook-reader.js";
 import { createPasswordAuthService, createSqliteAuthStore } from "./server/auth.js";
 import { createApp } from "./server/app.js";
 import { createCallAnalysisService } from "./server/call-analysis-service.js";
+import { createCallEnrichmentOrchestrator } from "./server/call-enrichment-orchestrator.js";
 import { createLeadgenService } from "./server/leadgen-service.js";
 import { OpenRouterDialogueGateProvider } from "./server/openrouter-dialogue-gate.js";
 import { OpenRouterCallAnalysisProvider } from "./server/openrouter-call-analysis.js";
@@ -166,6 +167,13 @@ const callAnalysis = env.OPENROUTER_API_KEY
       })
     })
   : undefined;
+const callEnrichmentOrchestrator =
+  callAnalysis && env.callEnrichmentIntakeEnabled && env.bitrixEnabled
+    ? createCallEnrichmentOrchestrator({
+        analysis: callAnalysis,
+        repository: attractionRepository
+      })
+    : undefined;
 const authStore =
   env.AUTH_MODE === "password"
     ? createSqliteAuthStore({
@@ -246,7 +254,19 @@ const app = createApp(service, {
   comments: platformComments,
   ...(paperclip ? { paperclip } : {}),
   protoComments,
-  ...(callAnalysis ? { callAnalysis } : {}),
+  ...(callAnalysis
+    ? {
+        callAnalysis: {
+          ...callAnalysis,
+          ...(callEnrichmentOrchestrator
+            ? {
+                queueAutomaticCallAnalysis:
+                  callEnrichmentOrchestrator.queueAutomaticCallAnalysis
+              }
+            : {})
+        }
+      }
+    : {}),
   modules: {
     attraction: service,
     leadgen: leadgenService

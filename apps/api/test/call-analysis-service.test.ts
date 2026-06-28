@@ -151,6 +151,7 @@ function createRepository() {
     getDealsByIds: vi.fn().mockResolvedValue([
       {
         id: "23841",
+        contactId: "901",
         leadId: null,
         categoryId: "10",
         stageId: "C10:NEW",
@@ -297,6 +298,7 @@ describe("createCallAnalysisService", () => {
           callTypeLabel: "Исх >30",
           bitrixDurationSeconds: 318,
           dealId: "23841",
+          contactId: "901",
           dealSourceId: "LEADGEN_US",
           stageAtCallId: "C10:QUALIFICATION",
           stageAtCallName: "Квалификация",
@@ -334,6 +336,35 @@ describe("createCallAnalysisService", () => {
         }
       }
     });
+  });
+
+  it("returns reusable call analysis context with deal, contact and manager ids", async () => {
+    const repository = createRepository();
+    const service = createCallAnalysisService({
+      repository,
+      client: {
+        listCallRecordingActivitiesByIds: vi.fn(),
+        getDiskFile: vi.fn()
+      },
+      provider: {
+        analyzeCall: vi.fn()
+      },
+      downloadRecording: vi.fn()
+    });
+
+    await expect(service.getCallAnalysisContext("CALL1")).resolves.toMatchObject({
+      attributes: {
+        callId: "CALL1",
+        crmActivityId: "A1",
+        dealId: "23841",
+        contactId: "901",
+        managerId: "7",
+        managerName: "Мария"
+      }
+    });
+    expect(repository.getCallById).toHaveBeenCalledWith("CALL1");
+    expect(repository.getDealsByIds).toHaveBeenCalledWith(["23841"]);
+    expect(repository.startCallAnalysisRun).not.toHaveBeenCalled();
   });
 
   it("skips automatic full analysis when the dialogue gate finds no conversation with high confidence", async () => {

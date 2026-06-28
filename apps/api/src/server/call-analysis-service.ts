@@ -42,6 +42,7 @@ export interface CallAnalysisAttributes {
   bitrixDurationSeconds?: number | null;
   audioDurationSeconds?: number | null;
   dealId?: string | null;
+  contactId?: string | null;
   dealCurrentStageName?: string | null;
   dealSourceId?: string | null;
   [key: string]: string | number | boolean | null | undefined;
@@ -98,6 +99,10 @@ export type CallAnalysisResult =
   | AnalyzeSelectedCallResult
   | SkippedCallAnalysisResult;
 
+export interface CallAnalysisContext {
+  attributes: CallAnalysisAttributes;
+}
+
 export interface CreateCallAnalysisServiceInput {
   repository: CallAnalysisRepository;
   client: CallRecordingResolverClient;
@@ -143,6 +148,22 @@ export function createCallAnalysisService(input: CreateCallAnalysisServiceInput)
   return {
     async getCallAnalysisResult(callId: string) {
       return input.repository.getCallAnalysisResult(callId);
+    },
+
+    async getCallAnalysisContext(callId: string): Promise<CallAnalysisContext> {
+      const call = await input.repository.getCallById(callId);
+      if (!call) {
+        throw new CallAnalysisServiceError(
+          "CALL_NOT_FOUND",
+          "Call was not found in local snapshot.",
+          404
+        );
+      }
+
+      return buildCallAnalysisContext({
+        repository: input.repository,
+        call
+      });
     },
 
     async analyzeCall({
@@ -361,6 +382,7 @@ async function buildCallAnalysisContext(input: {
       bitrixDurationSeconds: input.call.callDurationSeconds,
       callFailedCode: input.call.callFailedCode,
       dealId,
+      contactId: deal?.contactId ?? null,
       dealCurrentStageId: deal?.stageId ?? null,
       dealCurrentStageName: resolveStageName(deal?.stageId ?? null, deal, stageCatalog),
       dealSourceId: deal?.sourceId ?? null,

@@ -10,6 +10,10 @@ import type express from "express";
 import { z } from "zod";
 
 import { CallAnalysisServiceError } from "../call-analysis-service.js";
+import type {
+  QueueAutomaticCallAnalysisInput,
+  QueueAutomaticCallAnalysisResult
+} from "../call-enrichment-orchestrator.js";
 import type { AttractionCallRouteHandlers } from "./attraction-routes.js";
 
 export interface CallAnalysisQueueRequest {
@@ -39,30 +43,14 @@ export interface AttractionCallRouteService {
   getCallAnalysisResult?(callId: string): Promise<unknown | null>;
 }
 
-export interface NormalizedCallEventInput {
-  callId: string;
-  activityId: string | null;
-  dealId: string | null;
-  contactId: string | null;
-  managerId: string | null;
-  durationSeconds: number | null;
-  occurredAt: string | null;
-}
-
-export type AutomaticCallAnalysisQueueResult = {
-  status: "queued" | "duplicate" | "skipped";
-  callId: string;
-  reason?: string;
-};
-
 export interface CallAnalysisRunner {
   analyzeCall(input: {
     callId: string;
     triggerMode?: "manual" | "automatic";
   }): Promise<unknown>;
   queueAutomaticCallAnalysis?(
-    input: NormalizedCallEventInput
-  ): Promise<AutomaticCallAnalysisQueueResult>;
+    input: QueueAutomaticCallAnalysisInput
+  ): Promise<QueueAutomaticCallAnalysisResult>;
   getCallAnalysisResult?(callId: string): Promise<unknown>;
 }
 
@@ -152,7 +140,7 @@ function isSameSecret(left: string | undefined, right: string) {
   );
 }
 
-function normalizeCallEventPayload(payload: unknown): NormalizedCallEventInput {
+function normalizeCallEventPayload(payload: unknown): QueueAutomaticCallAnalysisInput {
   const parsed = callEventPayloadSchema.parse(payload);
   return {
     callId: parsed.callId,

@@ -5,9 +5,15 @@ import {
   ALLOWED_LEAD_FIELDS,
   buildConversionEventListParams,
   buildConversionEventItemListParams,
+  buildContactEnrichmentValuesParams,
   buildDealBackfillParams,
+  buildDealEnrichmentValuesParams,
   buildDealListParams
 } from "../src/bitrix/selectors";
+import {
+  CALL_ENRICHMENT_CONTACT_FIELD_CODES,
+  CALL_ENRICHMENT_DEAL_FIELD_CODES
+} from "../src/server/call-enrichment-fields";
 
 describe("Bitrix24 selector whitelist", () => {
   it("keeps deal field selection free from deal names, contact data and company data", () => {
@@ -47,6 +53,37 @@ describe("Bitrix24 selector whitelist", () => {
       "UTM_CONTENT",
       "UTM_TERM"
     ]);
+  });
+
+  it("builds call enrichment contact params with only approved CRM fields", () => {
+    expect(buildContactEnrichmentValuesParams("901")).toEqual({
+      order: {
+        ID: "ASC"
+      },
+      filter: {
+        ID: "901"
+      },
+      select: ["ID", ...CALL_ENRICHMENT_CONTACT_FIELD_CODES],
+      start: 0
+    });
+  });
+
+  it("builds call enrichment deal params with only approved CRM fields", () => {
+    expect(buildDealEnrichmentValuesParams("23841")).toEqual({
+      order: {
+        ID: "ASC"
+      },
+      filter: {
+        ID: "23841"
+      },
+      select: [
+        "ID",
+        "CONTACT_ID",
+        "ASSIGNED_BY_ID",
+        ...CALL_ENRICHMENT_DEAL_FIELD_CODES
+      ],
+      start: 0
+    });
   });
 
   it("builds smart-process item params without selecting raw client names", () => {

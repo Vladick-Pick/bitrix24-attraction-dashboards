@@ -5,9 +5,11 @@ import { createPlaybookReader } from "./agent/playbook-reader.js";
 import { createPasswordAuthService, createSqliteAuthStore } from "./server/auth.js";
 import { createApp } from "./server/app.js";
 import { createCallAnalysisService } from "./server/call-analysis-service.js";
+import { buildCallEnrichmentDiff } from "./server/call-enrichment-diff.js";
 import { createCallEnrichmentOrchestrator } from "./server/call-enrichment-orchestrator.js";
 import { createLeadgenService } from "./server/leadgen-service.js";
 import { OpenRouterDialogueGateProvider } from "./server/openrouter-dialogue-gate.js";
+import { OpenRouterEnrichmentExtractionProvider } from "./server/openrouter-enrichment-extraction.js";
 import { OpenRouterCallAnalysisProvider } from "./server/openrouter-call-analysis.js";
 import { PaperclipClient } from "./server/paperclip-client.js";
 import type {
@@ -167,11 +169,81 @@ const callAnalysis = env.OPENROUTER_API_KEY
       })
     })
   : undefined;
+const callEnrichmentExtractionProvider = env.OPENROUTER_API_KEY
+  ? new OpenRouterEnrichmentExtractionProvider({
+      apiKey: env.OPENROUTER_API_KEY,
+      ...(env.OPENROUTER_APP_REFERER
+        ? { appReferer: env.OPENROUTER_APP_REFERER }
+        : {}),
+      ...(env.OPENROUTER_APP_TITLE ? { appTitle: env.OPENROUTER_APP_TITLE } : {})
+    })
+  : undefined;
 const callEnrichmentOrchestrator =
-  callAnalysis && env.callEnrichmentIntakeEnabled && env.bitrixEnabled
+  callAnalysis &&
+  callEnrichmentExtractionProvider &&
+  env.callEnrichmentIntakeEnabled &&
+  env.bitrixEnabled
     ? createCallEnrichmentOrchestrator({
         analysis: callAnalysis,
-        repository: attractionRepository
+        repository: attractionRepository,
+        enrichmentPipeline: {
+          async runAfterCallAnalysis({ context, analysis }) {
+            const dealId = normalizeRuntimeEntityId(
+              context.attributes.dealId ?? analysis.attributes.dealId
+            );
+            const contactId = normalizeRuntimeEntityId(
+              context.attributes.contactId ?? analysis.attributes.contactId
+            );
+
+            if (!dealId) {
+              return {
+                proposals: [],
+                skipped: [],
+                metadata: {
+                  reason: "DEAL_NOT_RESOLVED"
+                }
+              };
+            }
+
+            const extraction =
+              await callEnrichmentExtractionProvider.extractCallEnrichment({
+                callId: analysis.callId,
+                fullTranscriptText: analysis.fullTranscriptText,
+                transcriptByRoles: analysis.transcriptByRoles,
+                analysisSummary: extractCallAnalysisSummary(analysis.aiEvaluation),
+                dealId,
+                contactId: contactId ?? "not_resolved"
+              });
+            const [contactValues, dealValues] = await Promise.all([
+              contactId
+                ? client.getContactEnrichmentValues(contactId)
+                : Promise.resolve(null),
+              client.getDealEnrichmentValues(dealId)
+            ]);
+            const diff = buildCallEnrichmentDiff({
+              dealId,
+              contactId,
+              candidates: extraction.candidates,
+              currentValues: {
+                contact: contactValues,
+                deal: dealValues
+              }
+            });
+
+            return {
+              ...diff,
+              metadata: {
+                extraction: {
+                  model: extraction.model,
+                  promptVersion: extraction.promptVersion,
+                  analyzedAt: extraction.analyzedAt,
+                  candidateCount: extraction.candidates.length,
+                  totalTokens: extraction.usage.totalTokens
+                }
+              }
+            };
+          }
+        }
       })
     : undefined;
 const authStore =
@@ -321,3 +393,19 @@ process.on("SIGINT", () => {
   authStore?.close();
   server.close(() => process.exit(0));
 });
+
+function normalizeRuntimeEntityId(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized.length > 0 && normalized !== "0" ? normalized : null;
+}
+
+function extractCallAnalysisSummary(aiEvaluation: Record<string, unknown>) {
+  const summary = aiEvaluation.summary;
+  return typeof summary === "string" && summary.trim().length > 0
+    ? summary.trim()
+    : null;
+}

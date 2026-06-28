@@ -6,6 +6,10 @@ import type {
 } from "./call-analysis-service.js";
 import { CallAnalysisServiceError } from "./call-analysis-service.js";
 import type {
+  CallEnrichmentProposalDraft,
+  SkippedCallEnrichmentCandidate
+} from "./call-enrichment-diff.js";
+import type {
   CallAnalysisResultRecord,
   SqliteRepository
 } from "./sqlite-repository.js";
@@ -38,7 +42,13 @@ export interface CallEnrichmentPipeline {
     callEvent: QueueAutomaticCallAnalysisInput;
     context: CallAnalysisContext;
     analysis: CallAnalysisResultRecord;
-  }): Promise<void>;
+  }): Promise<CallEnrichmentPipelineResult>;
+}
+
+export interface CallEnrichmentPipelineResult {
+  proposals: CallEnrichmentProposalDraft[];
+  skipped?: SkippedCallEnrichmentCandidate[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface CallEnrichmentOrchestratorRepository
@@ -67,13 +77,13 @@ export function createCallEnrichmentOrchestrator(
   const idGenerator = input.idGenerator ?? randomUUID;
   const now = input.now ?? (() => new Date());
   const proposalTtlMs = input.proposalTtlMs ?? DEFAULT_PROPOSAL_TTL_MS;
+  const defaultEnrichmentPipeline: CallEnrichmentPipeline = {
+    async runAfterCallAnalysis() {
+      return { proposals: [] };
+    }
+  };
   const enrichmentPipeline =
-    input.enrichmentPipeline ??
-    ({
-      async runAfterCallAnalysis() {
-        // Plan 021 plugs the extraction agent into this boundary.
-      }
-    } satisfies CallEnrichmentPipeline);
+    input.enrichmentPipeline ?? defaultEnrichmentPipeline;
 
   async function queueAutomaticCallAnalysis(
     callEvent: QueueAutomaticCallAnalysisInput
@@ -142,10 +152,39 @@ export function createCallEnrichmentOrchestrator(
         };
       }
 
-      await enrichmentPipeline.runAfterCallAnalysis({
+      const enrichmentResult = await enrichmentPipeline.runAfterCallAnalysis({
         callEvent,
         context,
         analysis: analysisResult.result
+      });
+
+      if (enrichmentResult.proposals.length === 0) {
+        await recordSkippedBatch({
+          callEvent,
+          context,
+          dealId,
+          managerId,
+          reason: "NO_MATERIAL_UPDATES",
+          callAnalysisRunId: analysisResult.result.runId,
+          metadata: {
+            skippedCandidates: enrichmentResult.skipped ?? [],
+            ...(enrichmentResult.metadata ?? {})
+          }
+        });
+        return { status: "skipped", callId, reason: "NO_MATERIAL_UPDATES" };
+      }
+
+      await recordPendingBatch({
+        callEvent,
+        context,
+        dealId,
+        managerId,
+        callAnalysisRunId: analysisResult.result.runId,
+        proposals: enrichmentResult.proposals,
+        metadata: {
+          skippedCandidates: enrichmentResult.skipped ?? [],
+          ...(enrichmentResult.metadata ?? {})
+        }
       });
 
       return { status: "queued", callId };
@@ -207,6 +246,59 @@ export function createCallEnrichmentOrchestrator(
       afterStatus: "failed",
       reason: inputData.reason,
       metadata: inputData.metadata ?? null,
+      createdAt
+    });
+  }
+
+  async function recordPendingBatch(inputData: {
+    callEvent: QueueAutomaticCallAnalysisInput;
+    context: CallAnalysisContext;
+    dealId: string;
+    managerId: string;
+    callAnalysisRunId: string;
+    proposals: CallEnrichmentProposalDraft[];
+    metadata?: Record<string, unknown>;
+  }) {
+    const createdAt = now().toISOString();
+    const batchId = idGenerator();
+    await input.repository.createEnrichmentProposalBatch({
+      id: batchId,
+      callId: inputData.callEvent.callId,
+      activityId: normalizeId(
+        inputData.context.attributes.crmActivityId ?? inputData.callEvent.activityId
+      ),
+      dealId: inputData.dealId,
+      contactId: normalizeId(
+        inputData.context.attributes.contactId ?? inputData.callEvent.contactId
+      ),
+      managerId: inputData.managerId,
+      callAnalysisRunId: inputData.callAnalysisRunId,
+      status: "pending",
+      expiresAt: new Date(Date.parse(createdAt) + proposalTtlMs).toISOString(),
+      createdAt,
+      updatedAt: createdAt,
+      proposals: inputData.proposals.map((proposal) => ({
+        ...proposal,
+        id: idGenerator(),
+        status: "pending",
+        createdAt,
+        updatedAt: createdAt
+      }))
+    });
+    await input.repository.appendEnrichmentProposalEvent({
+      id: idGenerator(),
+      batchId,
+      proposalId: null,
+      actorType: "system",
+      actorId: null,
+      action: "batch.created",
+      beforeStatus: null,
+      afterStatus: "pending",
+      reason: null,
+      metadata: {
+        proposalCount: inputData.proposals.length,
+        ...(inputData.metadata ?? {})
+      },
       createdAt
     });
   }

@@ -7,9 +7,11 @@ import type {
 } from "@bitrix24-reporting/contracts";
 
 import {
+  buildContactEnrichmentValuesParams,
   buildConversionEventListParams,
   buildConversionEventItemListParams,
   buildDealBackfillParams,
+  buildDealEnrichmentValuesParams,
   buildSmartProcessStageHistoryListParams
 } from "./selectors.js";
 import {
@@ -22,6 +24,10 @@ import {
   resolveConversionEventName,
   resolveConversionEventStatus
 } from "../domain/conversion-events.js";
+import {
+  CALL_ENRICHMENT_CONTACT_FIELD_CODES,
+  CALL_ENRICHMENT_DEAL_FIELD_CODES
+} from "../server/call-enrichment-fields.js";
 
 interface BitrixClientConfig {
   dealCategoryIds: string[];
@@ -184,6 +190,8 @@ export interface ContactRow {
   ID: string;
   [key: string]: unknown;
 }
+
+export type CallEnrichmentValuesRow = Record<string, unknown>;
 
 interface SmartProcessTypeRow {
   entityTypeId: string | number;
@@ -362,6 +370,17 @@ function toNumber(value: string | number | null | undefined) {
 
 function toStringArray(values: string[]) {
   return values.map((value) => String(value));
+}
+
+function pickAllowedFieldValues(
+  row: Record<string, unknown>,
+  fieldCodes: string[]
+): CallEnrichmentValuesRow {
+  return Object.fromEntries(
+    fieldCodes
+      .filter((fieldCode) => Object.prototype.hasOwnProperty.call(row, fieldCode))
+      .map((fieldCode) => [fieldCode, row[fieldCode]])
+  );
 }
 
 function normalizeOptionalString(value: unknown) {
@@ -1469,6 +1488,23 @@ export class BitrixClient {
     }));
   }
 
+  async getDealEnrichmentValues(
+    dealId: string
+  ): Promise<CallEnrichmentValuesRow | null> {
+    const response = await this.call<Array<Record<string, unknown>>>(
+      "crm.deal.list",
+      buildDealEnrichmentValuesParams(dealId),
+      {
+        allowedCustomFields: CALL_ENRICHMENT_DEAL_FIELD_CODES
+      }
+    );
+    const row = this.extractItems(response)[0];
+
+    return row
+      ? pickAllowedFieldValues(row, CALL_ENRICHMENT_DEAL_FIELD_CODES)
+      : null;
+  }
+
   async fetchDealStages(categoryIds: string[]): Promise<StageCatalogEntry[]> {
     const rows = await Promise.all(
       Array.from(new Set(categoryIds)).map(async (categoryId) => {
@@ -1810,6 +1846,23 @@ export class BitrixClient {
         return this.extractItems(response);
       }
     );
+  }
+
+  async getContactEnrichmentValues(
+    contactId: string
+  ): Promise<CallEnrichmentValuesRow | null> {
+    const response = await this.call<ContactRow[]>(
+      "crm.contact.list",
+      buildContactEnrichmentValuesParams(contactId),
+      {
+        allowedCustomFields: CALL_ENRICHMENT_CONTACT_FIELD_CODES
+      }
+    );
+    const row = this.extractItems(response)[0];
+
+    return row
+      ? pickAllowedFieldValues(row, CALL_ENRICHMENT_CONTACT_FIELD_CODES)
+      : null;
   }
 
   async listActivitiesByIds(activityIds: string[]) {

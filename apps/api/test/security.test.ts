@@ -17,6 +17,10 @@ import {
   assertSafeCallEnrichmentWriteFields,
   redactWebhookUrl
 } from "../src/bitrix/security";
+import {
+  CALL_ENRICHMENT_CONTACT_FIELD_CODES,
+  CALL_ENRICHMENT_DEAL_FIELD_CODES
+} from "../src/server/call-enrichment-fields";
 import { createApp } from "../src/server/app";
 
 function getPlaybookInlineScriptHash() {
@@ -519,6 +523,27 @@ describe("Bitrix transport security", () => {
       )
     ).not.toThrow();
     expect(() => assertSafeSelectFields(["ID", "DATE_CREATE"])).not.toThrow();
+  });
+
+  it("allows only approved call enrichment custom fields in read selects", () => {
+    expect(() =>
+      assertSafeSelectFields(
+        ["ID", ...CALL_ENRICHMENT_CONTACT_FIELD_CODES],
+        CALL_ENRICHMENT_CONTACT_FIELD_CODES
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertSafeSelectFields(
+        ["ID", "CONTACT_ID", "ASSIGNED_BY_ID", ...CALL_ENRICHMENT_DEAL_FIELD_CODES],
+        CALL_ENRICHMENT_DEAL_FIELD_CODES
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertSafeSelectFields(
+        ["ID", ...CALL_ENRICHMENT_DEAL_FIELD_CODES, "UF_CRM_UNAPPROVED"],
+        CALL_ENRICHMENT_DEAL_FIELD_CODES
+      )
+    ).toThrow(/UF_CRM_UNAPPROVED/);
   });
 
   it("keeps call enrichment writes behind a separate allowlist", () => {

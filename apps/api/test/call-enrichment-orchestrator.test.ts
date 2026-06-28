@@ -7,6 +7,7 @@ import {
   type CallEnrichmentOrchestratorRepository,
   type CallEnrichmentPipeline
 } from "../src/server/call-enrichment-orchestrator";
+import type { CallEnrichmentProposalDraft } from "../src/server/call-enrichment-diff";
 import type { CallAnalysisResultRecord } from "../src/server/sqlite-repository";
 
 const callEvent = {
@@ -62,6 +63,19 @@ const failedOrNoConversationAnalysis = {
   }
 } satisfies CallAnalysisResultRecord;
 
+const proposalDraft = {
+  entityType: "contact",
+  entityId: "901",
+  fieldCode: "UF_CRM_1647946359",
+  fieldTitle: "Оборот бизнеса",
+  actionType: "fill_empty",
+  currentValue: null,
+  proposedValue: "602",
+  normalizedValue: "602",
+  confidence: 0.86,
+  evidenceSnippet: "оборот 500-1000 млн"
+} satisfies CallEnrichmentProposalDraft;
+
 function createRepository(
   overrides: Partial<CallEnrichmentOrchestratorRepository> = {}
 ): CallEnrichmentOrchestratorRepository {
@@ -87,9 +101,14 @@ function createAnalysis(
   };
 }
 
-function createPipeline(): CallEnrichmentPipeline {
+function createPipeline(
+  proposals: CallEnrichmentProposalDraft[] = [proposalDraft]
+): CallEnrichmentPipeline {
   return {
-    runAfterCallAnalysis: vi.fn().mockResolvedValue(undefined)
+    runAfterCallAnalysis: vi.fn().mockResolvedValue({
+      proposals,
+      skipped: []
+    })
   };
 }
 
@@ -176,7 +195,7 @@ describe("createCallEnrichmentOrchestrator", () => {
         }
       })
     });
-    const pipeline = createPipeline();
+    const pipeline = createPipeline([]);
     const orchestrator = createCallEnrichmentOrchestrator({
       analysis,
       repository,
@@ -243,7 +262,7 @@ describe("createCallEnrichmentOrchestrator", () => {
         result: failedOrNoConversationAnalysis
       })
     });
-    const pipeline = createPipeline();
+    const pipeline = createPipeline([]);
     const orchestrator = createCallEnrichmentOrchestrator({
       analysis,
       repository,
@@ -313,13 +332,20 @@ describe("createCallEnrichmentOrchestrator", () => {
     expect(analysis.analyzeCall).not.toHaveBeenCalled();
   });
 
-  it("calls downstream enrichment pipeline once for successful analysis", async () => {
+  it("creates a pending proposal batch after successful enrichment diff", async () => {
     const pipeline = createPipeline();
+    const repository = createRepository();
     const analysis = createAnalysis();
     const orchestrator = createCallEnrichmentOrchestrator({
       analysis,
-      repository: createRepository(),
-      enrichmentPipeline: pipeline
+      repository,
+      enrichmentPipeline: pipeline,
+      idGenerator: vi
+        .fn()
+        .mockReturnValueOnce("batch-1")
+        .mockReturnValueOnce("proposal-1")
+        .mockReturnValueOnce("event-1"),
+      now: () => new Date("2026-06-09T12:00:00.000Z")
     });
 
     await expect(orchestrator.queueAutomaticCallAnalysis(callEvent)).resolves.toEqual({
@@ -332,6 +358,73 @@ describe("createCallEnrichmentOrchestrator", () => {
       context,
       analysis: readyAnalysis
     });
+    expect(repository.createEnrichmentProposalBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "batch-1",
+        callId: "CALL1",
+        activityId: "A1",
+        dealId: "23841",
+        contactId: "901",
+        managerId: "7",
+        callAnalysisRunId: "run-1",
+        status: "pending",
+        proposals: [
+          {
+            ...proposalDraft,
+            id: "proposal-1",
+            status: "pending",
+            createdAt: "2026-06-09T12:00:00.000Z",
+            updatedAt: "2026-06-09T12:00:00.000Z"
+          }
+        ]
+      })
+    );
+    expect(repository.appendEnrichmentProposalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-1",
+        batchId: "batch-1",
+        action: "batch.created",
+        afterStatus: "pending",
+        metadata: {
+          proposalCount: 1,
+          skippedCandidates: []
+        }
+      })
+    );
+  });
+
+  it("records a skipped batch when enrichment has no material updates", async () => {
+    const repository = createRepository();
+    const pipeline = createPipeline([]);
+    const orchestrator = createCallEnrichmentOrchestrator({
+      analysis: createAnalysis(),
+      repository,
+      enrichmentPipeline: pipeline,
+      idGenerator: vi.fn().mockReturnValueOnce("batch-1").mockReturnValueOnce("event-1"),
+      now: () => new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    await expect(orchestrator.queueAutomaticCallAnalysis(callEvent)).resolves.toEqual({
+      status: "skipped",
+      callId: "CALL1",
+      reason: "NO_MATERIAL_UPDATES"
+    });
+    expect(repository.createEnrichmentProposalBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "batch-1",
+        callAnalysisRunId: "run-1",
+        status: "failed",
+        proposals: []
+      })
+    );
+    expect(repository.appendEnrichmentProposalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-1",
+        batchId: "batch-1",
+        action: "batch.skipped",
+        reason: "NO_MATERIAL_UPDATES"
+      })
+    );
   });
 
   it("converts service active-run errors to duplicate queue responses", async () => {

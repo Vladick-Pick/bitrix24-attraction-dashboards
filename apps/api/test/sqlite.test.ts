@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ATTRACTION_MANAGER_IDS } from "../src/domain/attraction-managers";
-import { createSqliteRepository } from "../src/server/sqlite-repository";
+import {
+  createSqliteRepository,
+  type CreateEnrichmentProposalBatchInput,
+  type CreateEnrichmentProposalInput
+} from "../src/server/sqlite-repository";
 
 const tempDirs: string[] = [];
 
@@ -14,6 +18,61 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+function createTempRepository() {
+  const directory = mkdtempSync(join(tmpdir(), "bitrix24-reporting-"));
+  tempDirs.push(directory);
+
+  return createSqliteRepository({
+    databaseUrl: `file:${join(directory, "reporting.db")}`,
+    defaultWonStageIds: ["C1:WON"]
+  });
+}
+
+function createEnrichmentProposal(
+  overrides: Partial<CreateEnrichmentProposalInput> = {}
+): CreateEnrichmentProposalInput {
+  return {
+    id: "proposal-1",
+    entityType: "contact",
+    entityId: "contact-1",
+    fieldCode: "UF_CRM_1647946359",
+    fieldTitle: "Оборот бизнеса",
+    actionType: "fill_empty",
+    currentValue: null,
+    proposedValue: "500-1000 млн. рублей",
+    normalizedValue: {
+      id: "602",
+      label: "500-1000 млн. рублей"
+    },
+    confidence: 0.86,
+    evidenceSnippet: "Оборот около 700 млн.",
+    status: "pending",
+    createdAt: "2026-06-28T10:00:00.000Z",
+    updatedAt: "2026-06-28T10:00:00.000Z",
+    ...overrides
+  };
+}
+
+function createEnrichmentBatch(
+  overrides: Partial<CreateEnrichmentProposalBatchInput> = {}
+): CreateEnrichmentProposalBatchInput {
+  return {
+    id: "batch-1",
+    callId: "call-1",
+    activityId: "activity-1",
+    dealId: "deal-1",
+    contactId: "contact-1",
+    managerId: "manager-1",
+    callAnalysisRunId: "run-1",
+    status: "pending",
+    expiresAt: "2026-06-30T10:00:00.000Z",
+    createdAt: "2026-06-28T10:00:00.000Z",
+    updatedAt: "2026-06-28T10:00:00.000Z",
+    proposals: [createEnrichmentProposal()],
+    ...overrides
+  };
+}
 
 describe("createSqliteRepository", () => {
   it("persists manager team assignments in whitelist settings", async () => {
@@ -181,6 +240,257 @@ describe("createSqliteRepository", () => {
       promptVersion: "calls-v1",
       analyzedAt: "2026-06-09T12:00:30.000Z",
       updatedAt: "2026-06-09T12:00:31.000Z"
+    });
+  });
+
+  it("persists enrichment batches, proposals, and parsed proposal values", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(
+      createEnrichmentBatch({
+        proposals: [
+          createEnrichmentProposal(),
+          createEnrichmentProposal({
+            id: "proposal-2",
+            entityType: "deal",
+            entityId: "deal-1",
+            fieldCode: "UF_CRM_1766147164481",
+            fieldTitle: "Ключевые проекты",
+            actionType: "overwrite",
+            currentValue: "Старый проект",
+            proposedValue: "Новый завод",
+            normalizedValue: "Новый завод",
+            confidence: 0.78,
+            evidenceSnippet: "Запускаем новый завод."
+          })
+        ]
+      })
+    );
+
+    await expect(repository.getEnrichmentProposalBatch("batch-1")).resolves.toEqual({
+      id: "batch-1",
+      callId: "call-1",
+      activityId: "activity-1",
+      dealId: "deal-1",
+      contactId: "contact-1",
+      managerId: "manager-1",
+      callAnalysisRunId: "run-1",
+      status: "pending",
+      expiresAt: "2026-06-30T10:00:00.000Z",
+      telegramChatId: null,
+      telegramMessageId: null,
+      createdAt: "2026-06-28T10:00:00.000Z",
+      updatedAt: "2026-06-28T10:00:00.000Z"
+    });
+    await expect(
+      repository.getEnrichmentProposalBatchByCallId("call-1")
+    ).resolves.toMatchObject({
+      id: "batch-1",
+      callId: "call-1"
+    });
+    await expect(repository.listEnrichmentProposals("batch-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "proposal-1",
+        batchId: "batch-1",
+        entityType: "contact",
+        currentValue: null,
+        proposedValue: "500-1000 млн. рублей",
+        normalizedValue: {
+          id: "602",
+          label: "500-1000 млн. рублей"
+        }
+      }),
+      expect.objectContaining({
+        id: "proposal-2",
+        batchId: "batch-1",
+        entityType: "deal",
+        currentValue: "Старый проект",
+        proposedValue: "Новый завод",
+        normalizedValue: "Новый завод"
+      })
+    ]);
+  });
+
+  it("rejects duplicate enrichment batches for one call", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(createEnrichmentBatch());
+
+    expect(() =>
+      repository.createEnrichmentProposalBatch(
+        createEnrichmentBatch({
+          id: "batch-2",
+          proposals: [
+            createEnrichmentProposal({
+              id: "proposal-2"
+            })
+          ]
+        })
+      )
+    ).toThrow(/UNIQUE|constraint/i);
+  });
+
+  it("records system and manager enrichment proposal events", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(createEnrichmentBatch());
+    await repository.appendEnrichmentProposalEvent({
+      id: "event-1",
+      batchId: "batch-1",
+      proposalId: null,
+      actorType: "system",
+      actorId: null,
+      action: "batch.created",
+      beforeStatus: null,
+      afterStatus: "pending",
+      reason: null,
+      metadata: {
+        source: "test"
+      },
+      createdAt: "2026-06-28T10:00:01.000Z"
+    });
+    await repository.markEnrichmentProposalDecision({
+      proposalId: "proposal-1",
+      status: "approved",
+      actorId: "manager-1",
+      decidedAt: "2026-06-28T10:05:00.000Z",
+      eventId: "event-2",
+      reason: "manager accepted"
+    });
+
+    await expect(repository.listEnrichmentProposalEvents("batch-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "event-1",
+        actorType: "system",
+        action: "batch.created",
+        metadata: {
+          source: "test"
+        }
+      }),
+      expect.objectContaining({
+        id: "event-2",
+        proposalId: "proposal-1",
+        actorType: "manager",
+        actorId: "manager-1",
+        action: "proposal.approved",
+        beforeStatus: "pending",
+        afterStatus: "approved"
+      })
+    ]);
+  });
+
+  it("expires pending enrichment proposals after the expiry timestamp", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(
+      createEnrichmentBatch({
+        expiresAt: "2026-06-30T10:00:00.000Z"
+      })
+    );
+    await repository.expirePendingEnrichmentProposals({
+      expiredAt: "2026-06-30T10:00:01.000Z"
+    });
+
+    await expect(repository.getEnrichmentProposalBatch("batch-1")).resolves.toMatchObject({
+      status: "expired",
+      updatedAt: "2026-06-30T10:00:01.000Z"
+    });
+    await expect(repository.listEnrichmentProposals("batch-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "proposal-1",
+        status: "expired",
+        updatedAt: "2026-06-30T10:00:01.000Z"
+      })
+    ]);
+    await expect(repository.listEnrichmentProposalEvents("batch-1")).resolves.toEqual([
+      expect.objectContaining({
+        action: "batch.expired",
+        beforeStatus: "pending",
+        afterStatus: "expired"
+      })
+    ]);
+  });
+
+  it("does not expire an already applied enrichment proposal", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(
+      createEnrichmentBatch({
+        expiresAt: "2026-06-30T10:00:00.000Z"
+      })
+    );
+    await repository.markEnrichmentProposalApplied({
+      proposalId: "proposal-1",
+      appliedAt: "2026-06-29T10:00:00.000Z",
+      eventId: "event-applied"
+    });
+    await repository.expirePendingEnrichmentProposals({
+      expiredAt: "2026-06-30T10:00:01.000Z"
+    });
+
+    await expect(repository.getEnrichmentProposalBatch("batch-1")).resolves.toMatchObject({
+      status: "applied",
+      updatedAt: "2026-06-29T10:00:00.000Z"
+    });
+    await expect(repository.listEnrichmentProposals("batch-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "proposal-1",
+        status: "applied"
+      })
+    ]);
+  });
+
+  it("records conflict and failed statuses without losing proposed values", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(
+      createEnrichmentBatch({
+        proposals: [
+          createEnrichmentProposal(),
+          createEnrichmentProposal({
+            id: "proposal-2",
+            fieldCode: "UF_CRM_1643816950",
+            fieldTitle: "Цели/задачи по клубу",
+            proposedValue: "Найти партнеров",
+            normalizedValue: "Найти партнеров"
+          })
+        ]
+      })
+    );
+    await repository.markEnrichmentProposalFailed({
+      proposalId: "proposal-1",
+      status: "conflict",
+      failedAt: "2026-06-28T10:10:00.000Z",
+      eventId: "event-conflict",
+      reason: "current value changed"
+    });
+    await repository.markEnrichmentProposalFailed({
+      proposalId: "proposal-2",
+      status: "failed",
+      failedAt: "2026-06-28T10:11:00.000Z",
+      eventId: "event-failed",
+      reason: "bitrix rejected"
+    });
+
+    await expect(repository.listEnrichmentProposals("batch-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "proposal-1",
+        status: "conflict",
+        proposedValue: "500-1000 млн. рублей",
+        normalizedValue: {
+          id: "602",
+          label: "500-1000 млн. рублей"
+        }
+      }),
+      expect.objectContaining({
+        id: "proposal-2",
+        status: "failed",
+        proposedValue: "Найти партнеров",
+        normalizedValue: "Найти партнеров"
+      })
+    ]);
+    await expect(repository.getEnrichmentProposalBatch("batch-1")).resolves.toMatchObject({
+      status: "failed"
     });
   });
 

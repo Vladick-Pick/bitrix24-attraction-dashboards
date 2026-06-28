@@ -47,6 +47,7 @@ import { ATTRACTION_MANAGER_CATALOG } from "../domain/attraction-managers.js";
 import { sanitizeRefusalReasonDetail } from "../domain/refusal-detail.js";
 import { createCallAnalysisRepositoryMethods } from "./sqlite/call-analysis.js";
 import { createCommentRepositoryMethods } from "./sqlite/comments.js";
+import { createEnrichmentProposalRepositoryMethods } from "./sqlite/enrichment-proposals.js";
 
 export interface LastSyncSummary {
   finishedAt: string;
@@ -268,6 +269,158 @@ export interface CallAnalysisResultRecord {
   updatedAt: string;
 }
 
+export type EnrichmentProposalBatchStatus =
+  | "pending"
+  | "partially_applied"
+  | "applied"
+  | "declined"
+  | "expired"
+  | "failed";
+
+export type EnrichmentProposalStatus =
+  | "pending"
+  | "approved"
+  | "declined"
+  | "applied"
+  | "failed"
+  | "expired"
+  | "conflict";
+
+export type EnrichmentProposalActionType = "fill_empty" | "overwrite";
+export type EnrichmentProposalEntityType = "contact" | "deal";
+export type EnrichmentProposalActorType = "system" | "manager";
+
+export interface CreateEnrichmentProposalInput {
+  id: string;
+  batchId?: string;
+  entityType: EnrichmentProposalEntityType;
+  entityId: string;
+  fieldCode: string;
+  fieldTitle: string;
+  actionType: EnrichmentProposalActionType;
+  currentValue: unknown | null;
+  proposedValue: unknown;
+  normalizedValue: unknown;
+  confidence: number;
+  evidenceSnippet: string | null;
+  status: EnrichmentProposalStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateEnrichmentProposalBatchInput {
+  id: string;
+  callId: string;
+  activityId: string | null;
+  dealId: string;
+  contactId: string | null;
+  managerId: string;
+  callAnalysisRunId: string | null;
+  status: EnrichmentProposalBatchStatus;
+  expiresAt: string;
+  telegramChatId?: string | null;
+  telegramMessageId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  proposals: CreateEnrichmentProposalInput[];
+}
+
+export interface EnrichmentProposalBatchRecord {
+  id: string;
+  callId: string;
+  activityId: string | null;
+  dealId: string;
+  contactId: string | null;
+  managerId: string;
+  callAnalysisRunId: string | null;
+  status: EnrichmentProposalBatchStatus;
+  expiresAt: string;
+  telegramChatId: string | null;
+  telegramMessageId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EnrichmentProposalRecord {
+  id: string;
+  batchId: string;
+  entityType: EnrichmentProposalEntityType;
+  entityId: string;
+  fieldCode: string;
+  fieldTitle: string;
+  actionType: EnrichmentProposalActionType;
+  currentValue: unknown | null;
+  proposedValue: unknown;
+  normalizedValue: unknown;
+  confidence: number;
+  evidenceSnippet: string | null;
+  status: EnrichmentProposalStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EnrichmentProposalEventInput {
+  id: string;
+  batchId: string;
+  proposalId: string | null;
+  actorType: EnrichmentProposalActorType;
+  actorId: string | null;
+  action: string;
+  beforeStatus: string | null;
+  afterStatus: string | null;
+  reason: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface EnrichmentProposalEventRecord {
+  id: string;
+  batchId: string;
+  proposalId: string | null;
+  actorType: EnrichmentProposalActorType;
+  actorId: string | null;
+  action: string;
+  beforeStatus: string | null;
+  afterStatus: string | null;
+  reason: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface MarkEnrichmentProposalDecisionInput {
+  proposalId: string;
+  status: Extract<EnrichmentProposalStatus, "approved" | "declined">;
+  actorId: string;
+  decidedAt: string;
+  eventId: string;
+  reason?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface MarkEnrichmentProposalAppliedInput {
+  proposalId: string;
+  appliedAt: string;
+  eventId: string;
+  actorType?: EnrichmentProposalActorType;
+  actorId?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface MarkEnrichmentProposalFailedInput {
+  proposalId: string;
+  failedAt: string;
+  eventId: string;
+  status?: Extract<EnrichmentProposalStatus, "failed" | "conflict">;
+  actorType?: EnrichmentProposalActorType;
+  actorId?: string | null;
+  reason: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ExpirePendingEnrichmentProposalsInput {
+  expiredAt: string;
+}
+
 export interface SqliteRepository {
   getLatestSuccessCursor(
     categoryIds?: string[],
@@ -312,6 +465,34 @@ export interface SqliteRepository {
   saveCallAnalysisResult(input: CallAnalysisResultRecord): Promise<void>;
   finishCallAnalysisRun(input: FinishCallAnalysisRunInput): Promise<void>;
   failCallAnalysisRun(input: FailCallAnalysisRunInput): Promise<void>;
+  createEnrichmentProposalBatch(
+    input: CreateEnrichmentProposalBatchInput
+  ): Promise<void>;
+  getEnrichmentProposalBatch(
+    batchId: string
+  ): Promise<EnrichmentProposalBatchRecord | null>;
+  getEnrichmentProposalBatchByCallId(
+    callId: string
+  ): Promise<EnrichmentProposalBatchRecord | null>;
+  listEnrichmentProposals(batchId: string): Promise<EnrichmentProposalRecord[]>;
+  listEnrichmentProposalEvents(
+    batchId: string
+  ): Promise<EnrichmentProposalEventRecord[]>;
+  appendEnrichmentProposalEvent(
+    input: EnrichmentProposalEventInput
+  ): Promise<void>;
+  markEnrichmentProposalDecision(
+    input: MarkEnrichmentProposalDecisionInput
+  ): Promise<void>;
+  markEnrichmentProposalApplied(
+    input: MarkEnrichmentProposalAppliedInput
+  ): Promise<void>;
+  markEnrichmentProposalFailed(
+    input: MarkEnrichmentProposalFailedInput
+  ): Promise<void>;
+  expirePendingEnrichmentProposals(
+    input: ExpirePendingEnrichmentProposalsInput
+  ): Promise<void>;
   getCallActivityIdsMissingActivities(
     limit?: number,
     callStartDateFrom?: string | null,
@@ -1049,6 +1230,63 @@ export function createSqliteRepository(
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS enrichment_proposal_batches (
+      id TEXT PRIMARY KEY,
+      call_id TEXT NOT NULL UNIQUE,
+      activity_id TEXT,
+      deal_id TEXT NOT NULL,
+      contact_id TEXT,
+      manager_id TEXT NOT NULL,
+      call_analysis_run_id TEXT,
+      status TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      telegram_chat_id TEXT,
+      telegram_message_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS enrichment_proposals (
+      id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      field_code TEXT NOT NULL,
+      field_title TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      current_value_json TEXT,
+      proposed_value_json TEXT NOT NULL,
+      normalized_value_json TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      evidence_snippet TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (batch_id)
+        REFERENCES enrichment_proposal_batches(id)
+        ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS enrichment_proposal_events (
+      id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      proposal_id TEXT,
+      actor_type TEXT NOT NULL,
+      actor_id TEXT,
+      action TEXT NOT NULL,
+      before_status TEXT,
+      after_status TEXT,
+      reason TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (batch_id)
+        REFERENCES enrichment_proposal_batches(id)
+        ON DELETE CASCADE,
+      FOREIGN KEY (proposal_id)
+        REFERENCES enrichment_proposals(id)
+        ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS manager_directory (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL
@@ -1223,6 +1461,16 @@ export function createSqliteRepository(
       ON call_snapshots (crm_activity_id);
     CREATE INDEX IF NOT EXISTS idx_call_analysis_runs_call
       ON call_analysis_runs (call_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_enrichment_batches_call
+      ON enrichment_proposal_batches (call_id);
+    CREATE INDEX IF NOT EXISTS idx_enrichment_batches_manager_status
+      ON enrichment_proposal_batches (manager_id, status);
+    CREATE INDEX IF NOT EXISTS idx_enrichment_batches_expires
+      ON enrichment_proposal_batches (expires_at);
+    CREATE INDEX IF NOT EXISTS idx_enrichment_proposals_batch_status
+      ON enrichment_proposals (batch_id, status);
+    CREATE INDEX IF NOT EXISTS idx_enrichment_events_batch_created
+      ON enrichment_proposal_events (batch_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_proto_comments_scene_status
       ON proto_comments (scene_id, status);
     CREATE INDEX IF NOT EXISTS idx_unit_economics_cost_articles_sort
@@ -2726,6 +2974,8 @@ export function createSqliteRepository(
   );
   const callAnalysisRepositoryMethods =
     createCallAnalysisRepositoryMethods(database);
+  const enrichmentProposalRepositoryMethods =
+    createEnrichmentProposalRepositoryMethods(database);
   const commentRepositoryMethods = createCommentRepositoryMethods(database);
 
   const hydrateDealMeetingSlots = (deals: DealSnapshot[]): DealSnapshot[] => {
@@ -3266,6 +3516,7 @@ export function createSqliteRepository(
     },
 
     ...callAnalysisRepositoryMethods,
+    ...enrichmentProposalRepositoryMethods,
 
     async getCallActivityIdsMissingActivities(
       limit = 20_000,

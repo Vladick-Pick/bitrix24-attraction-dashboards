@@ -498,6 +498,7 @@ function createTestApp(
       };
     };
     telegramEnrichment?: AppConfig["telegramEnrichment"];
+    callEnrichmentExpiry?: AppConfig["callEnrichmentExpiry"];
     modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
     moduleCapabilityManifests?: ModuleCapabilityManifest[];
     moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
@@ -945,6 +946,7 @@ function createTestApp(
           };
         };
         telegramEnrichment?: AppConfig["telegramEnrichment"];
+        callEnrichmentExpiry?: AppConfig["callEnrichmentExpiry"];
         modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
         moduleCapabilityManifests?: ModuleCapabilityManifest[];
         moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
@@ -4445,6 +4447,38 @@ describe("createApp", () => {
       expect(performSync).toHaveBeenCalledTimes(1);
     } finally {
       app.locals.stopAttractionAutoSync?.();
+      vi.useRealTimers();
+    }
+  });
+
+  it("expires pending call enrichment proposals on the configured interval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-28T10:00:00.000Z"));
+    const expirePendingEnrichmentProposals = vi.fn(async () => undefined);
+    const app = createTestApp(undefined, {
+      callEnrichmentExpiry: {
+        enabled: true,
+        intervalMs: 1_000,
+        initialDelayMs: 1_000,
+        repository: {
+          expirePendingEnrichmentProposals
+        }
+      }
+    });
+
+    try {
+      await vi.advanceTimersByTimeAsync(999);
+      expect(expirePendingEnrichmentProposals).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(expirePendingEnrichmentProposals).toHaveBeenCalledWith({
+        expiredAt: "2026-06-28T10:00:01.000Z"
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(expirePendingEnrichmentProposals).toHaveBeenCalledTimes(2);
+    } finally {
+      app.locals.stopCallEnrichmentExpiry?.();
       vi.useRealTimers();
     }
   });

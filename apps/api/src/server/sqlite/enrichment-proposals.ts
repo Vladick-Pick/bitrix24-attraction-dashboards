@@ -172,10 +172,17 @@ function resolveBatchStatus(statuses: EnrichmentProposalStatus[]) {
   if (
     statuses.some((status) => status === "failed" || status === "conflict") &&
     statuses.every((status) =>
-      ["failed", "conflict", "declined", "expired"].includes(status)
+      ["failed", "conflict", "approved", "declined", "expired"].includes(status)
     )
   ) {
     return "failed" satisfies EnrichmentProposalBatchStatus;
+  }
+
+  if (
+    statuses.some((status) => status === "approved") &&
+    statuses.every((status) => ["approved", "declined", "expired"].includes(status))
+  ) {
+    return "approved" satisfies EnrichmentProposalBatchStatus;
   }
 
   return "pending" satisfies EnrichmentProposalBatchStatus;
@@ -482,6 +489,7 @@ export function createEnrichmentProposalRepositoryMethods(
     }>;
     const status = resolveBatchStatus(rows.map((row) => row.status));
     updateBatchStatusStatement.run({ batchId, status, updatedAt });
+    return status;
   }
 
   const createBatchTransaction = database.transaction(
@@ -592,11 +600,7 @@ export function createEnrichmentProposalRepositoryMethods(
 
     for (const batch of batches) {
       expirePendingProposalsStatement.run({ batchId: batch.id, expiredAt });
-      updateBatchStatusStatement.run({
-        batchId: batch.id,
-        status: "expired",
-        updatedAt: expiredAt
-      });
+      const status = refreshBatchStatus(batch.id, expiredAt);
       appendEvent({
         id: randomUUID(),
         batchId: batch.id,
@@ -605,7 +609,7 @@ export function createEnrichmentProposalRepositoryMethods(
         actorId: null,
         action: "batch.expired",
         beforeStatus: "pending",
-        afterStatus: "expired",
+        afterStatus: status,
         reason: "expires_at reached",
         metadata: null,
         createdAt: expiredAt

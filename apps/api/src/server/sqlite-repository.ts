@@ -272,6 +272,7 @@ export interface CallAnalysisResultRecord {
 export type EnrichmentProposalBatchStatus =
   | "pending"
   | "partially_applied"
+  | "approved"
   | "applied"
   | "declined"
   | "expired"

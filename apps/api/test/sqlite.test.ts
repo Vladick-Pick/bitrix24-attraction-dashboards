@@ -449,6 +449,50 @@ describe("createSqliteRepository", () => {
         afterStatus: "approved"
       })
     ]);
+    await expect(repository.getEnrichmentProposalBatch("batch-1")).resolves.toEqual(
+      expect.objectContaining({
+        status: "approved"
+      })
+    );
+  });
+
+  it("keeps approved enrichment batches terminal when remaining proposals expire", async () => {
+    const repository = createTempRepository();
+    await repository.createEnrichmentProposalBatch(
+      createEnrichmentBatch({
+        proposals: [
+          createEnrichmentProposal(),
+          createEnrichmentProposal({
+            id: "proposal-2",
+            fieldCode: "UF_CRM_1712252375",
+            fieldTitle: "Группа ЦА"
+          })
+        ]
+      })
+    );
+
+    await repository.markEnrichmentProposalDecision({
+      proposalId: "proposal-1",
+      status: "approved",
+      actorId: "manager-1",
+      decidedAt: "2026-06-28T10:05:00.000Z",
+      eventId: "event-1",
+      reason: "telegram only"
+    });
+    await repository.expirePendingEnrichmentProposals({
+      expiredAt: "2026-06-30T10:00:01.000Z"
+    });
+
+    await expect(repository.getEnrichmentProposalBatch("batch-1")).resolves.toEqual(
+      expect.objectContaining({
+        status: "approved"
+      })
+    );
+    await expect(repository.getEnrichmentProposal("proposal-2")).resolves.toEqual(
+      expect.objectContaining({
+        status: "expired"
+      })
+    );
   });
 
   it("does not overwrite an already decided enrichment proposal", async () => {

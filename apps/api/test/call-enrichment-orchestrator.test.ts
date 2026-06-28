@@ -402,7 +402,7 @@ describe("createCallEnrichmentOrchestrator", () => {
         dealId: "23841",
         contactId: "901",
         managerId: "7",
-        expiresAt: "2026-06-16T12:00:00.000Z"
+        expiresAt: "2026-06-11T12:00:00.000Z"
       },
       proposals: [
         {

@@ -212,6 +212,92 @@ describe("createCallEnrichmentWritebackService", () => {
     expect(bitrix.updateContactEnrichmentField).not.toHaveBeenCalled();
   });
 
+  it("records approved decisions without Bitrix writes when writeback is disabled", async () => {
+    const repository = createRepository();
+    const bitrix = createBitrix();
+    const service = createCallEnrichmentWritebackService({
+      repository,
+      bitrix,
+      writebackMode: "disabled",
+      idGenerator: () => "event-1"
+    });
+
+    await expect(
+      service.applyManagerEnrichmentDecision({
+        proposalId: "proposal-1",
+        managerId: "7",
+        action: "approve",
+        decidedAt: "2026-06-28T11:00:00.000Z"
+      })
+    ).resolves.toEqual({
+      status: "recorded",
+      proposalId: "proposal-1",
+      reason: "WRITEBACK_DISABLED_TELEGRAM_ONLY"
+    });
+
+    expect(repository.markEnrichmentProposalDecision).toHaveBeenCalledWith({
+      proposalId: "proposal-1",
+      status: "approved",
+      actorId: "7",
+      decidedAt: "2026-06-28T11:00:00.000Z",
+      eventId: "event-1",
+      reason: "WRITEBACK_DISABLED_TELEGRAM_ONLY",
+      metadata: null
+    });
+    expect(bitrix.getContactEnrichmentValues).not.toHaveBeenCalled();
+    expect(bitrix.updateContactEnrichmentField).not.toHaveBeenCalled();
+  });
+
+  it("records non-pilot approvals without writes in limited write mode", async () => {
+    const repository = createRepository();
+    const bitrix = createBitrix();
+    const service = createCallEnrichmentWritebackService({
+      repository,
+      bitrix,
+      writebackMode: "limited",
+      pilotManagerIds: ["other-manager"],
+      idGenerator: () => "event-1"
+    });
+
+    await expect(
+      service.applyManagerEnrichmentDecision({
+        proposalId: "proposal-1",
+        managerId: "7",
+        action: "approve",
+        decidedAt: "2026-06-28T11:00:00.000Z"
+      })
+    ).resolves.toMatchObject({
+      status: "recorded",
+      reason: "WRITEBACK_DISABLED_MANAGER_NOT_IN_PILOT"
+    });
+    expect(bitrix.updateContactEnrichmentField).not.toHaveBeenCalled();
+  });
+
+  it("writes pilot manager approvals in limited write mode", async () => {
+    const repository = createRepository();
+    const bitrix = createBitrix();
+    const service = createCallEnrichmentWritebackService({
+      repository,
+      bitrix,
+      writebackMode: "limited",
+      pilotManagerIds: ["7"],
+      idGenerator: () => "event-1"
+    });
+
+    await expect(
+      service.applyManagerEnrichmentDecision({
+        proposalId: "proposal-1",
+        managerId: "7",
+        action: "approve",
+        decidedAt: "2026-06-28T11:00:00.000Z"
+      })
+    ).resolves.toEqual({
+      status: "applied",
+      proposalId: "proposal-1"
+    });
+    expect(bitrix.updateContactEnrichmentField).toHaveBeenCalledTimes(1);
+  });
+
   it("allows pending proposals in a partially applied batch to be applied", async () => {
     const repository = createRepository({
       getEnrichmentProposalBatch: vi.fn().mockResolvedValue({

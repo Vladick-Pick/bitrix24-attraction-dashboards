@@ -19,6 +19,7 @@ import type {
 } from "./sqlite-repository.js";
 
 export type CallEnrichmentWritebackAction = "approve" | "decline";
+export type CallEnrichmentWritebackMode = "disabled" | "limited" | "enabled";
 
 export interface ApplyManagerEnrichmentDecisionInput {
   proposalId: string;
@@ -29,6 +30,7 @@ export interface ApplyManagerEnrichmentDecisionInput {
 
 export type CallEnrichmentWritebackResult =
   | { status: "applied"; proposalId: string }
+  | { status: "recorded"; proposalId: string; reason: string }
   | { status: "declined"; proposalId: string }
   | { status: "already_decided"; proposalId: string }
   | { status: "conflict"; proposalId: string; reason: string }
@@ -72,7 +74,9 @@ interface CallEnrichmentWritebackBitrixClient {
 
 export interface CreateCallEnrichmentWritebackServiceInput {
   repository: CallEnrichmentWritebackRepository;
-  bitrix: CallEnrichmentWritebackBitrixClient;
+  bitrix?: CallEnrichmentWritebackBitrixClient;
+  writebackMode?: CallEnrichmentWritebackMode;
+  pilotManagerIds?: string[];
   idGenerator?: () => string;
 }
 
@@ -82,6 +86,8 @@ export function createCallEnrichmentWritebackService(
   input: CreateCallEnrichmentWritebackServiceInput
 ): CallEnrichmentWritebackService {
   const idGenerator = input.idGenerator ?? randomUUID;
+  const writebackMode = input.writebackMode ?? "enabled";
+  const pilotManagerIds = new Set(input.pilotManagerIds ?? []);
 
   async function applyManagerEnrichmentDecision(
     decision: ApplyManagerEnrichmentDecisionInput
@@ -109,12 +115,22 @@ export function createCallEnrichmentWritebackService(
       return markFailed(decision, "UNRESOLVED_REFERENCE");
     }
 
-    const decisionWasMarked = await markApproved(decision);
+    const disabledReason = getWritebackDisabledReason(decision.managerId);
+    if (disabledReason) {
+      return recordApprovedWithoutWrite(decision, disabledReason);
+    }
+
+    if (!input.bitrix) {
+      return markFailed(decision, "BITRIX_WRITEBACK_NOT_CONFIGURED");
+    }
+
+    const bitrix = input.bitrix;
+    const decisionWasMarked = await markApproved(decision, "telegram_approved");
     if (!decisionWasMarked) {
       return { status: "already_decided", proposalId: decision.proposalId };
     }
 
-    const currentValues = await readCurrentValues(proposal);
+    const currentValues = await readCurrentValues(bitrix, proposal);
     if (!currentValues) {
       return markConflict(decision, "CURRENT_VALUE_UNAVAILABLE");
     }
@@ -138,7 +154,7 @@ export function createCallEnrichmentWritebackService(
     }
 
     try {
-      await updateBitrixField(proposal);
+      await updateBitrixField(bitrix, proposal);
     } catch (error) {
       return markBitrixFailure(decision, error);
     }
@@ -256,14 +272,27 @@ export function createCallEnrichmentWritebackService(
       : ({ status: "already_decided", proposalId: decision.proposalId } as const);
   }
 
-  async function markApproved(decision: ApplyManagerEnrichmentDecisionInput) {
+  async function recordApprovedWithoutWrite(
+    decision: ApplyManagerEnrichmentDecisionInput,
+    reason: string
+  ) {
+    const decisionWasMarked = await markApproved(decision, reason);
+    return decisionWasMarked
+      ? ({ status: "recorded", proposalId: decision.proposalId, reason } as const)
+      : ({ status: "already_decided", proposalId: decision.proposalId } as const);
+  }
+
+  async function markApproved(
+    decision: ApplyManagerEnrichmentDecisionInput,
+    reason: string
+  ) {
     return input.repository.markEnrichmentProposalDecision({
       proposalId: decision.proposalId,
       status: "approved",
       actorId: decision.managerId,
       decidedAt: decision.decidedAt,
       eventId: idGenerator(),
-      reason: "telegram_approved",
+      reason,
       metadata: null
     } satisfies MarkEnrichmentProposalDecisionInput);
   }
@@ -333,13 +362,19 @@ export function createCallEnrichmentWritebackService(
     });
   }
 
-  async function readCurrentValues(proposal: EnrichmentProposalRecord) {
+  async function readCurrentValues(
+    bitrix: CallEnrichmentWritebackBitrixClient,
+    proposal: EnrichmentProposalRecord
+  ) {
     return proposal.entityType === "contact"
-      ? input.bitrix.getContactEnrichmentValues(proposal.entityId)
-      : input.bitrix.getDealEnrichmentValues(proposal.entityId);
+      ? bitrix.getContactEnrichmentValues(proposal.entityId)
+      : bitrix.getDealEnrichmentValues(proposal.entityId);
   }
 
-  async function updateBitrixField(proposal: EnrichmentProposalRecord) {
+  async function updateBitrixField(
+    bitrix: CallEnrichmentWritebackBitrixClient,
+    proposal: EnrichmentProposalRecord
+  ) {
     const updateInput = {
       entityId: proposal.entityId,
       fieldCode: proposal.fieldCode,
@@ -347,11 +382,23 @@ export function createCallEnrichmentWritebackService(
     };
 
     if (proposal.entityType === "contact") {
-      await input.bitrix.updateContactEnrichmentField(updateInput);
+      await bitrix.updateContactEnrichmentField(updateInput);
       return;
     }
 
-    await input.bitrix.updateDealEnrichmentField(updateInput);
+    await bitrix.updateDealEnrichmentField(updateInput);
+  }
+
+  function getWritebackDisabledReason(managerId: string) {
+    if (writebackMode === "disabled") {
+      return "WRITEBACK_DISABLED_TELEGRAM_ONLY";
+    }
+
+    if (writebackMode === "limited" && !pilotManagerIds.has(managerId)) {
+      return "WRITEBACK_DISABLED_MANAGER_NOT_IN_PILOT";
+    }
+
+    return null;
   }
 
   async function appendAuditEvent(

@@ -186,10 +186,16 @@ const telegramEnrichmentSender =
         botToken: env.TELEGRAM_ENRICHMENT_BOT_TOKEN
       })
     : undefined;
-const callEnrichmentWriteback = env.bitrixEnabled
+const callEnrichmentWriteback = env.telegramEnrichmentEnabled
   ? createCallEnrichmentWritebackService({
       repository: attractionRepository,
-      bitrix: client
+      ...(env.bitrixEnabled ? { bitrix: client } : {}),
+      writebackMode: env.callEnrichmentWritebackEnabled
+        ? env.callEnrichmentMode === "limited_write"
+          ? "limited"
+          : "enabled"
+        : "disabled",
+      pilotManagerIds: env.callEnrichmentPilotManagerIds
     })
   : undefined;
 const telegramEnrichmentApproval =
@@ -206,7 +212,7 @@ const telegramEnrichmentApproval =
 const callEnrichmentOrchestrator =
   callAnalysis &&
   callEnrichmentExtractionProvider &&
-  env.callEnrichmentIntakeEnabled &&
+  env.callEnrichmentAnalysisEnabled &&
   env.bitrixEnabled
     ? createCallEnrichmentOrchestrator({
         analysis: callAnalysis,
@@ -391,10 +397,15 @@ const app = createApp(service, {
     intervalMs: env.attractionAutoSyncIntervalMs
   },
   callEnrichmentIntake: {
-    enabled: env.callEnrichmentIntakeEnabled,
+    enabled: env.callEnrichmentAnalysisEnabled,
     ...(env.bitrixCallEventWebhookSecret
       ? { secret: env.bitrixCallEventWebhookSecret }
       : {})
+  },
+  callEnrichmentExpiry: {
+    enabled: env.callEnrichmentAnalysisEnabled,
+    intervalMs: env.callEnrichmentExpiryIntervalMs,
+    repository: attractionRepository
   },
   telegramActivityReport: {
     enabled: env.telegramActivityReportEnabled,
@@ -424,6 +435,7 @@ const server = app.listen(env.API_PORT, env.API_HOST, () => {
 process.on("SIGINT", () => {
   app.locals.stopAttractionAutoSync?.();
   app.locals.stopTelegramActivityReport?.();
+  app.locals.stopCallEnrichmentExpiry?.();
   for (const repository of repositories) {
     repository.close();
   }

@@ -61,7 +61,8 @@ import type {
 import { AuthError, hashPassword, verifyPassword } from "./auth.js";
 import type {
   DashboardCommentRecord,
-  PaperclipCommentStatus
+  PaperclipCommentStatus,
+  SqliteRepository
 } from "./sqlite-repository.js";
 import type {
   PlatformCommentRepository,
@@ -305,6 +306,12 @@ interface AppConfig {
   callEnrichmentIntake?: {
     enabled?: boolean;
     secret?: string;
+  };
+  callEnrichmentExpiry?: {
+    enabled?: boolean;
+    intervalMs?: number;
+    initialDelayMs?: number;
+    repository?: Pick<SqliteRepository, "expirePendingEnrichmentProposals">;
   };
   callAnalysis?: CallAnalysisRunner;
   modules?: Record<string, ModuleService>;
@@ -1874,6 +1881,72 @@ export function createApp(
     };
   }
 
+  function startCallEnrichmentExpiry() {
+    if (!config.callEnrichmentExpiry?.enabled) {
+      return undefined;
+    }
+
+    const repository = config.callEnrichmentExpiry.repository;
+    if (!repository) {
+      throw new Error("Call enrichment expiry requires a repository when enabled.");
+    }
+    const expirePendingEnrichmentProposals =
+      repository.expirePendingEnrichmentProposals.bind(repository);
+
+    const intervalMs =
+      config.callEnrichmentExpiry.intervalMs &&
+      Number.isFinite(config.callEnrichmentExpiry.intervalMs) &&
+      config.callEnrichmentExpiry.intervalMs > 0
+        ? config.callEnrichmentExpiry.intervalMs
+        : 60 * 60 * 1_000;
+    const initialDelayMs =
+      config.callEnrichmentExpiry.initialDelayMs !== undefined &&
+      Number.isFinite(config.callEnrichmentExpiry.initialDelayMs) &&
+      config.callEnrichmentExpiry.initialDelayMs >= 0
+        ? config.callEnrichmentExpiry.initialDelayMs
+        : intervalMs;
+
+    let intervalTimer: ReturnType<typeof setInterval> | null = null;
+
+    function runExpiry() {
+      const startedMs = performance.now();
+      const expiredAt = new Date().toISOString();
+      expirePendingEnrichmentProposals({ expiredAt })
+        .then(() => {
+          logJson("info", "call_enrichment.expiry.completed", {
+            expiredAt,
+            durationMs: Math.round(performance.now() - startedMs)
+          });
+        })
+        .catch((error) => {
+          logJson("error", "call_enrichment.expiry.failed", {
+            expiredAt,
+            durationMs: Math.round(performance.now() - startedMs),
+            error: describeError(error)
+          });
+        });
+    }
+
+    const initialTimer = setTimeout(() => {
+      runExpiry();
+      intervalTimer = setInterval(runExpiry, intervalMs);
+      intervalTimer.unref?.();
+    }, initialDelayMs);
+    initialTimer.unref?.();
+
+    logJson("info", "call_enrichment.expiry.enabled", {
+      intervalMs,
+      initialDelayMs
+    });
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (intervalTimer) {
+        clearInterval(intervalTimer);
+      }
+    };
+  }
+
   function denyIfMissingAttractionAccess(
     response: express.Response,
     options: { leaderOnly?: boolean } = {}
@@ -2166,6 +2239,10 @@ export function createApp(
   const stopTelegramActivityReport = startTelegramActivityReport();
   if (stopTelegramActivityReport) {
     app.locals.stopTelegramActivityReport = stopTelegramActivityReport;
+  }
+  const stopCallEnrichmentExpiry = startCallEnrichmentExpiry();
+  if (stopCallEnrichmentExpiry) {
+    app.locals.stopCallEnrichmentExpiry = stopCallEnrichmentExpiry;
   }
 
   registerPlatformPublicRoutes(app, {

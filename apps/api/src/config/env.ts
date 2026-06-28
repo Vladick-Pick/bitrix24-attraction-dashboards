@@ -33,6 +33,14 @@ const ALLOWED_BITRIX_CUSTOM_FIELDS = new Set([
   "UF_CRM_1691070302"
 ]);
 const REPORT_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const CALL_ENRICHMENT_MODES = [
+  "off",
+  "dry_run",
+  "telegram_only",
+  "limited_write",
+  "full_v1"
+] as const;
+type CallEnrichmentMode = (typeof CALL_ENRICHMENT_MODES)[number];
 
 function assertAllowedCustomField(value: string) {
   if (!ALLOWED_BITRIX_CUSTOM_FIELDS.has(value)) {
@@ -81,6 +89,30 @@ function parseManagerChatIdPairs(value: string | undefined) {
       return [managerId, chatId];
     })
   );
+}
+
+function resolveCallEnrichmentMode(input: {
+  mode: CallEnrichmentMode | undefined;
+  legacyIntakeEnabled: string;
+  legacyTelegramEnabled: string;
+}): CallEnrichmentMode {
+  if (input.mode) {
+    return input.mode;
+  }
+
+  if (input.legacyIntakeEnabled === "true") {
+    return input.legacyTelegramEnabled === "true" ? "telegram_only" : "dry_run";
+  }
+
+  return "off";
+}
+
+function callEnrichmentNeedsTelegram(mode: CallEnrichmentMode) {
+  return ["telegram_only", "limited_write", "full_v1"].includes(mode);
+}
+
+function callEnrichmentNeedsWriteback(mode: CallEnrichmentMode) {
+  return ["limited_write", "full_v1"].includes(mode);
 }
 
 function canonicalDatabaseUrl(databaseUrl: string) {
@@ -172,6 +204,13 @@ const envSchema = z
       .positive()
       .default(50 * 1024 * 1024),
     CALL_ENRICHMENT_INTAKE_ENABLED: z.enum(["true", "false"]).default("false"),
+    CALL_ENRICHMENT_MODE: z.enum(CALL_ENRICHMENT_MODES).optional(),
+    CALL_ENRICHMENT_PILOT_MANAGER_IDS: z.string().default(""),
+    CALL_ENRICHMENT_EXPIRY_INTERVAL_MINUTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60),
     BITRIX_CALL_EVENT_WEBHOOK_SECRET: optionalTrimmedString(),
     OPENROUTER_API_KEY: optionalTrimmedString(),
     OPENROUTER_MODEL: z.string().trim().min(1).default("google/gemini-3.5-flash"),
@@ -273,8 +312,14 @@ const envSchema = z
       });
     }
 
+    const callEnrichmentMode = resolveCallEnrichmentMode({
+      mode: value.CALL_ENRICHMENT_MODE,
+      legacyIntakeEnabled: value.CALL_ENRICHMENT_INTAKE_ENABLED,
+      legacyTelegramEnabled: value.TELEGRAM_ENRICHMENT_ENABLED
+    });
+
     if (
-      value.CALL_ENRICHMENT_INTAKE_ENABLED === "true" &&
+      callEnrichmentMode !== "off" &&
       (!value.BITRIX_CALL_EVENT_WEBHOOK_SECRET ||
         value.BITRIX_CALL_EVENT_WEBHOOK_SECRET.length < 32)
     ) {
@@ -282,7 +327,19 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ["BITRIX_CALL_EVENT_WEBHOOK_SECRET"],
         message:
-          "BITRIX_CALL_EVENT_WEBHOOK_SECRET must be configured and at least 32 characters when CALL_ENRICHMENT_INTAKE_ENABLED=true."
+          "BITRIX_CALL_EVENT_WEBHOOK_SECRET must be configured and at least 32 characters when call enrichment mode is not off."
+      });
+    }
+
+    if (
+      callEnrichmentMode === "limited_write" &&
+      parseCsv(value.CALL_ENRICHMENT_PILOT_MANAGER_IDS).length === 0
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["CALL_ENRICHMENT_PILOT_MANAGER_IDS"],
+        message:
+          "CALL_ENRICHMENT_PILOT_MANAGER_IDS must be configured when CALL_ENRICHMENT_MODE=limited_write."
       });
     }
 
@@ -327,13 +384,16 @@ const envSchema = z
       }
     }
 
-    if (value.TELEGRAM_ENRICHMENT_ENABLED === "true") {
+    if (
+      value.TELEGRAM_ENRICHMENT_ENABLED === "true" ||
+      callEnrichmentNeedsTelegram(callEnrichmentMode)
+    ) {
       if (!value.TELEGRAM_ENRICHMENT_BOT_TOKEN) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["TELEGRAM_ENRICHMENT_BOT_TOKEN"],
           message:
-            "TELEGRAM_ENRICHMENT_BOT_TOKEN must be configured when TELEGRAM_ENRICHMENT_ENABLED=true."
+            "TELEGRAM_ENRICHMENT_BOT_TOKEN must be configured when Telegram enrichment is enabled."
         });
       }
 
@@ -342,7 +402,7 @@ const envSchema = z
           code: z.ZodIssueCode.custom,
           path: ["TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS"],
           message:
-            "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must be configured when TELEGRAM_ENRICHMENT_ENABLED=true."
+            "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must be configured when Telegram enrichment is enabled."
         });
       }
 
@@ -354,7 +414,7 @@ const envSchema = z
           code: z.ZodIssueCode.custom,
           path: ["TELEGRAM_ENRICHMENT_CALLBACK_SECRET"],
           message:
-            "TELEGRAM_ENRICHMENT_CALLBACK_SECRET must be at least 32 characters when TELEGRAM_ENRICHMENT_ENABLED=true."
+            "TELEGRAM_ENRICHMENT_CALLBACK_SECRET must be at least 32 characters when Telegram enrichment is enabled."
         });
       }
     }
@@ -371,8 +431,14 @@ export type AppEnv = z.infer<typeof envSchema> & {
   bitrixEnabled: boolean;
   attractionAutoSyncEnabled: boolean;
   attractionAutoSyncIntervalMs: number;
+  callEnrichmentMode: CallEnrichmentMode;
+  callEnrichmentPilotManagerIds: string[];
+  callEnrichmentExpiryIntervalMs: number;
   callEnrichmentIntakeEnabled: boolean;
   bitrixCallEventWebhookSecret?: string;
+  callEnrichmentAnalysisEnabled: boolean;
+  callEnrichmentTelegramEnabled: boolean;
+  callEnrichmentWritebackEnabled: boolean;
   callAnalysisDialogueGateEnabled: boolean;
   telegramActivityReportEnabled: boolean;
   telegramActivityReportChatIds: string[];
@@ -405,11 +471,20 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     parsed.ATTRACTION_AUTO_SYNC_ENABLED === undefined
       ? parsed.NODE_ENV === "production"
       : parsed.ATTRACTION_AUTO_SYNC_ENABLED === "true";
-  const callEnrichmentIntakeEnabled =
-    parsed.CALL_ENRICHMENT_INTAKE_ENABLED === "true";
+  const callEnrichmentMode = resolveCallEnrichmentMode({
+    mode: parsed.CALL_ENRICHMENT_MODE,
+    legacyIntakeEnabled: parsed.CALL_ENRICHMENT_INTAKE_ENABLED,
+    legacyTelegramEnabled: parsed.TELEGRAM_ENRICHMENT_ENABLED
+  });
+  const callEnrichmentAnalysisEnabled = callEnrichmentMode !== "off";
+  const callEnrichmentTelegramEnabled =
+    callEnrichmentNeedsTelegram(callEnrichmentMode);
+  const callEnrichmentWritebackEnabled =
+    callEnrichmentNeedsWriteback(callEnrichmentMode);
+  const callEnrichmentIntakeEnabled = callEnrichmentAnalysisEnabled;
   const callAnalysisDialogueGateEnabled =
     parsed.CALL_ANALYSIS_DIALOGUE_GATE_ENABLED === undefined
-      ? callEnrichmentIntakeEnabled
+      ? callEnrichmentAnalysisEnabled
       : parsed.CALL_ANALYSIS_DIALOGUE_GATE_ENABLED === "true";
   const telegramActivityReportChatIds = Array.from(
     new Set([
@@ -444,16 +519,27 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     attractionAutoSyncEnabled,
     attractionAutoSyncIntervalMs:
       parsed.ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1_000,
+    callEnrichmentMode,
+    callEnrichmentPilotManagerIds: parseCsv(
+      parsed.CALL_ENRICHMENT_PILOT_MANAGER_IDS
+    ),
+    callEnrichmentExpiryIntervalMs:
+      parsed.CALL_ENRICHMENT_EXPIRY_INTERVAL_MINUTES * 60 * 1_000,
     callEnrichmentIntakeEnabled,
     ...(parsed.BITRIX_CALL_EVENT_WEBHOOK_SECRET
       ? { bitrixCallEventWebhookSecret: parsed.BITRIX_CALL_EVENT_WEBHOOK_SECRET }
       : {}),
     callAnalysisDialogueGateEnabled,
+    callEnrichmentAnalysisEnabled,
+    callEnrichmentTelegramEnabled,
+    callEnrichmentWritebackEnabled,
     telegramActivityReportEnabled:
       parsed.TELEGRAM_ACTIVITY_REPORT_ENABLED === "true",
     telegramActivityReportChatIds,
     telegramActivityReportTime: parsed.TELEGRAM_ACTIVITY_REPORT_TIME,
-    telegramEnrichmentEnabled: parsed.TELEGRAM_ENRICHMENT_ENABLED === "true",
+    telegramEnrichmentEnabled:
+      parsed.TELEGRAM_ENRICHMENT_ENABLED === "true" ||
+      callEnrichmentTelegramEnabled,
     telegramEnrichmentManagerChatIds,
     ...(parsed.TELEGRAM_ENRICHMENT_CALLBACK_SECRET
       ? {

@@ -84,7 +84,7 @@ export interface CreateCallEnrichmentOrchestratorInput {
   proposalTtlMs?: number;
 }
 
-const DEFAULT_PROPOSAL_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+const DEFAULT_PROPOSAL_TTL_MS = 48 * 60 * 60 * 1_000;
 
 export function createCallEnrichmentOrchestrator(
   input: CreateCallEnrichmentOrchestratorInput

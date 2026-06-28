@@ -365,6 +365,10 @@ function formatDecisionResultText(result: CallEnrichmentWritebackResult) {
     return "Записано в CRM.";
   }
 
+  if (result.status === "recorded") {
+    return "Решение записано, CRM не обновляю.";
+  }
+
   if (result.status === "declined") {
     return "Не заполняем.";
   }

@@ -18,6 +18,8 @@ describe("readEnv", () => {
     for (const name of [
       "CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS",
       "CALL_ANALYSIS_MAX_AUDIO_BYTES",
+      "CALL_ENRICHMENT_INTAKE_ENABLED",
+      "BITRIX_CALL_EVENT_WEBHOOK_SECRET",
       "OPENROUTER_API_KEY",
       "OPENROUTER_MODEL",
       "OPENROUTER_PROMPT_VERSION",
@@ -106,6 +108,42 @@ describe("readEnv", () => {
     ).toMatchObject({
       CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: 15_000,
       CALL_ANALYSIS_MAX_AUDIO_BYTES: 12 * 1024 * 1024
+    });
+  });
+
+  it("keeps call enrichment intake disabled by default", () => {
+    const env = readEnv({});
+
+    expect(env.callEnrichmentIntakeEnabled).toBe(false);
+    expect(env.bitrixCallEventWebhookSecret).toBeUndefined();
+  });
+
+  it("requires a long Bitrix call event secret when call enrichment intake is enabled", () => {
+    expect(() =>
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true"
+      })
+    ).toThrow(/BITRIX_CALL_EVENT_WEBHOOK_SECRET/i);
+
+    expect(() =>
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET: "short"
+      })
+    ).toThrow(/BITRIX_CALL_EVENT_WEBHOOK_SECRET/i);
+  });
+
+  it("derives call enrichment intake settings from env", () => {
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters"
+      })
+    ).toMatchObject({
+      callEnrichmentIntakeEnabled: true,
+      bitrixCallEventWebhookSecret:
+        "bitrix-call-event-secret-with-32-characters"
     });
   });
 

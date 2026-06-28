@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import type {
   CallAnalysisQueueCallType,
   CallAnalysisQueueResponse,
@@ -37,11 +39,30 @@ export interface AttractionCallRouteService {
   getCallAnalysisResult?(callId: string): Promise<unknown | null>;
 }
 
+export interface NormalizedCallEventInput {
+  callId: string;
+  activityId: string | null;
+  dealId: string | null;
+  contactId: string | null;
+  managerId: string | null;
+  durationSeconds: number | null;
+  occurredAt: string | null;
+}
+
+export type AutomaticCallAnalysisQueueResult = {
+  status: "queued" | "duplicate" | "skipped";
+  callId: string;
+  reason?: string;
+};
+
 export interface CallAnalysisRunner {
   analyzeCall(input: {
     callId: string;
     triggerMode?: "manual" | "automatic";
   }): Promise<unknown>;
+  queueAutomaticCallAnalysis?(
+    input: NormalizedCallEventInput
+  ): Promise<AutomaticCallAnalysisQueueResult>;
   getCallAnalysisResult?(callId: string): Promise<unknown>;
 }
 
@@ -60,9 +81,43 @@ export interface CreateAttractionCallRouteHandlersInput {
     callId: string
   ): Promise<boolean>;
   denyIfMissingAttractionAccess(response: express.Response): boolean;
+  callEnrichmentIntake?: {
+    enabled?: boolean;
+    secret?: string;
+  };
 }
 
 const callAnalysisCallIdSchema = z.string().trim().min(1).max(200);
+const optionalCallEventStringSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .nullable()
+  .optional();
+const callEventPayloadSchema = z
+  .object({
+    callId: z.string().trim().min(1).max(200),
+    activityId: optionalCallEventStringSchema,
+    dealId: optionalCallEventStringSchema,
+    contactId: optionalCallEventStringSchema,
+    managerId: optionalCallEventStringSchema,
+    durationSeconds: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .max(24 * 60 * 60)
+      .nullable()
+      .optional(),
+    occurredAt: z
+      .string()
+      .trim()
+      .datetime({ offset: true })
+      .max(80)
+      .nullable()
+      .optional()
+  })
+  .strict();
 
 function createErrorResponse(code: string, details?: unknown) {
   return {
@@ -84,15 +139,84 @@ function requestModuleId(request: express.Request) {
   return requestRouteParam(request, "moduleId").trim() || "attraction";
 }
 
+function isSameSecret(left: string | undefined, right: string) {
+  if (!left) {
+    return false;
+  }
+
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    timingSafeEqual(leftBuffer, rightBuffer)
+  );
+}
+
+function normalizeCallEventPayload(payload: unknown): NormalizedCallEventInput {
+  const parsed = callEventPayloadSchema.parse(payload);
+  return {
+    callId: parsed.callId,
+    activityId: parsed.activityId ?? null,
+    dealId: parsed.dealId ?? null,
+    contactId: parsed.contactId ?? null,
+    managerId: parsed.managerId ?? null,
+    durationSeconds: parsed.durationSeconds ?? null,
+    occurredAt: parsed.occurredAt ?? null
+  };
+}
+
 export function createAttractionCallRouteHandlers({
   service,
   callAnalysis,
   parseCallAnalysisQueueRequest,
   scopeCallAnalysisQueueRequest,
   denyIfMissingCallAnalysisAccess,
-  denyIfMissingAttractionAccess
+  denyIfMissingAttractionAccess,
+  callEnrichmentIntake
 }: CreateAttractionCallRouteHandlersInput): AttractionCallRouteHandlers {
   return {
+    receiveCallEvent: async (request, response, next) => {
+      const moduleId = requestModuleId(request);
+      if (moduleId !== "attraction") {
+        next("route");
+        return;
+      }
+
+      if (!callEnrichmentIntake?.enabled) {
+        response.status(404).json(createErrorResponse("NOT_FOUND"));
+        return;
+      }
+
+      const configuredSecret = callEnrichmentIntake.secret?.trim();
+      if (!configuredSecret) {
+        response
+          .status(503)
+          .json(createErrorResponse("CALL_ENRICHMENT_NOT_CONFIGURED"));
+        return;
+      }
+
+      const eventSecret = request.header("X-Bitrix-Call-Event-Secret")?.trim();
+      if (!isSameSecret(eventSecret, configuredSecret)) {
+        response.status(401).json(createErrorResponse("UNAUTHORIZED"));
+        return;
+      }
+
+      if (!callAnalysis?.queueAutomaticCallAnalysis) {
+        response
+          .status(503)
+          .json(createErrorResponse("CALL_ENRICHMENT_NOT_CONFIGURED"));
+        return;
+      }
+
+      try {
+        const result = await callAnalysis.queueAutomaticCallAnalysis(
+          normalizeCallEventPayload(request.body)
+        );
+        response.status(result.status === "duplicate" ? 200 : 202).json(result);
+      } catch (error) {
+        next(error);
+      }
+    },
     listCallAnalysisQueue: async (request, response, next) => {
       const moduleId = requestModuleId(request);
       if (moduleId !== "attraction") {

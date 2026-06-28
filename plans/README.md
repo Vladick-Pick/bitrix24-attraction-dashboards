@@ -31,7 +31,7 @@ architectural issue found in the deep review.
 | [015](./015-record-call-enrichment-security-contract.md) | Record the call enrichment writeback security contract | P1 | S | - | DONE |
 | [016](./016-add-call-enrichment-field-allowlist.md) | Add the call enrichment field allowlist and value contracts | P1 | M | 015 | DONE |
 | [017](./017-add-call-enrichment-proposal-storage.md) | Add call enrichment proposal storage, lifecycle, and audit events | P1 | M | 016 | DONE |
-| [018](./018-add-bitrix-call-event-intake.md) | Add idempotent Bitrix call event intake for automatic analysis | P1 | M | 017 | TODO |
+| [018](./018-add-bitrix-call-event-intake.md) | Add idempotent Bitrix call event intake for automatic analysis | P1 | M | 017 | DONE |
 | [019](./019-add-cheap-dialogue-gate.md) | Add a cheap OpenRouter dialogue gate before full call analysis | P1 | M | 018 | TODO |
 | [020](./020-wire-automatic-call-analysis-enrichment-orchestrator.md) | Wire automatic call analysis into an enrichment orchestrator | P1 | M | 017, 018, 019 | TODO |
 | [021](./021-add-enrichment-extraction-agent.md) | Add the CRM enrichment extraction agent | P1 | M | 016, 020 | TODO |

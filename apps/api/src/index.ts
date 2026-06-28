@@ -254,6 +254,12 @@ const app = createApp(service, {
     enabled: env.attractionAutoSyncEnabled && env.bitrixEnabled,
     intervalMs: env.attractionAutoSyncIntervalMs
   },
+  callEnrichmentIntake: {
+    enabled: env.callEnrichmentIntakeEnabled,
+    ...(env.bitrixCallEventWebhookSecret
+      ? { secret: env.bitrixCallEventWebhookSecret }
+      : {})
+  },
   telegramActivityReport: {
     enabled: env.telegramActivityReportEnabled,
     time: env.telegramActivityReportTime,

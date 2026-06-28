@@ -3,6 +3,7 @@ import type express from "express";
 import type { ApiRouteHandler } from "./route-handler.js";
 
 export interface AttractionRouteHandlers {
+  receiveCallEvent: ApiRouteHandler;
   listCallAnalysisQueue: ApiRouteHandler;
   analyzeCall: ApiRouteHandler;
   getCallAnalysis: ApiRouteHandler;
@@ -45,6 +46,10 @@ const callAnalysisQueuePaths = [
   "/api/calls/analysis-queue",
   "/api/modules/:moduleId/calls/analysis-queue"
 ];
+const callEventPaths = [
+  "/api/calls/events/bitrix",
+  "/api/modules/:moduleId/calls/events/bitrix"
+];
 const analyzeCallPaths = [
   "/api/calls/:callId/analyze",
   "/api/modules/:moduleId/calls/:callId/analyze"
@@ -56,7 +61,10 @@ const callAnalysisPaths = [
 
 export type AttractionCallRouteHandlers = Pick<
   AttractionRouteHandlers,
-  "listCallAnalysisQueue" | "analyzeCall" | "getCallAnalysis"
+  | "receiveCallEvent"
+  | "listCallAnalysisQueue"
+  | "analyzeCall"
+  | "getCallAnalysis"
 >;
 
 export function registerAttractionCallRoutes(
@@ -64,6 +72,7 @@ export function registerAttractionCallRoutes(
   handlers: AttractionCallRouteHandlers
 ) {
   app.get(callAnalysisQueuePaths, handlers.listCallAnalysisQueue);
+  app.post(callEventPaths, handlers.receiveCallEvent);
   app.post(analyzeCallPaths, handlers.analyzeCall);
   app.get(callAnalysisPaths, handlers.getCallAnalysis);
 }

@@ -148,6 +148,8 @@ const envSchema = z
       .int()
       .positive()
       .default(50 * 1024 * 1024),
+    CALL_ENRICHMENT_INTAKE_ENABLED: z.enum(["true", "false"]).default("false"),
+    BITRIX_CALL_EVENT_WEBHOOK_SECRET: optionalTrimmedString(),
     OPENROUTER_API_KEY: optionalTrimmedString(),
     OPENROUTER_MODEL: z.string().trim().min(1).default("google/gemini-3.5-flash"),
     OPENROUTER_PROMPT_VERSION: z.string().trim().min(1).default("calls-v2"),
@@ -230,6 +232,19 @@ const envSchema = z
       });
     }
 
+    if (
+      value.CALL_ENRICHMENT_INTAKE_ENABLED === "true" &&
+      (!value.BITRIX_CALL_EVENT_WEBHOOK_SECRET ||
+        value.BITRIX_CALL_EVENT_WEBHOOK_SECRET.length < 32)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["BITRIX_CALL_EVENT_WEBHOOK_SECRET"],
+        message:
+          "BITRIX_CALL_EVENT_WEBHOOK_SECRET must be configured and at least 32 characters when CALL_ENRICHMENT_INTAKE_ENABLED=true."
+      });
+    }
+
     if (value.NODE_ENV === "production") {
       if (value.AUTH_MODE !== "password") {
         context.addIssue({
@@ -283,6 +298,8 @@ export type AppEnv = z.infer<typeof envSchema> & {
   bitrixEnabled: boolean;
   attractionAutoSyncEnabled: boolean;
   attractionAutoSyncIntervalMs: number;
+  callEnrichmentIntakeEnabled: boolean;
+  bitrixCallEventWebhookSecret?: string;
   telegramActivityReportEnabled: boolean;
   telegramActivityReportChatIds: string[];
   telegramActivityReportTime: string;
@@ -341,6 +358,11 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     attractionAutoSyncEnabled,
     attractionAutoSyncIntervalMs:
       parsed.ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1_000,
+    callEnrichmentIntakeEnabled:
+      parsed.CALL_ENRICHMENT_INTAKE_ENABLED === "true",
+    ...(parsed.BITRIX_CALL_EVENT_WEBHOOK_SECRET
+      ? { bitrixCallEventWebhookSecret: parsed.BITRIX_CALL_EVENT_WEBHOOK_SECRET }
+      : {}),
     telegramActivityReportEnabled:
       parsed.TELEGRAM_ACTIVITY_REPORT_ENABLED === "true",
     telegramActivityReportChatIds,

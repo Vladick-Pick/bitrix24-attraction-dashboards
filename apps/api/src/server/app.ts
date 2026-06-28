@@ -295,6 +295,10 @@ interface AppConfig {
     retryDelayMs?: number;
     sender?: TelegramMessageSender;
   };
+  callEnrichmentIntake?: {
+    enabled?: boolean;
+    secret?: string;
+  };
   callAnalysis?: CallAnalysisRunner;
   modules?: Record<string, ModuleService>;
   moduleCapabilityManifests?: ModuleCapabilityManifest[];
@@ -1495,6 +1499,13 @@ function readBearerToken(value: string | undefined) {
   return match?.[1]?.trim();
 }
 
+function isBitrixCallEventRoute(request: express.Request) {
+  return (
+    request.method === "POST" &&
+    /^\/api\/(?:modules\/[^/]+\/)?calls\/events\/bitrix$/.test(request.path)
+  );
+}
+
 const localWebHostnames = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function isAllowedWebOrigin(origin: string, webOrigin: string) {
@@ -2194,6 +2205,11 @@ export function createApp(
       return;
     }
 
+    if (isBitrixCallEventRoute(request)) {
+      next();
+      return;
+    }
+
     const sessionToken = readSessionCookie(request, auth.cookieName);
 
     if (!sessionToken) {
@@ -2233,6 +2249,11 @@ export function createApp(
     }
 
     if (request.path === "/api/health") {
+      next();
+      return;
+    }
+
+    if (isBitrixCallEventRoute(request)) {
       next();
       return;
     }
@@ -2493,6 +2514,9 @@ export function createApp(
       service,
       ...(config.callAnalysis ? { callAnalysis: config.callAnalysis } : {}),
       parseCallAnalysisQueueRequest,
+      ...(config.callEnrichmentIntake
+        ? { callEnrichmentIntake: config.callEnrichmentIntake }
+        : {}),
       scopeCallAnalysisQueueRequest: (_request, response, input) =>
         scopeAttractionRangeRequest(response, input),
       denyIfMissingCallAnalysisAccess: (_request, response, callId) =>

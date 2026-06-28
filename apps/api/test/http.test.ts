@@ -501,13 +501,8 @@ function createTestApp(
     moduleCapabilityManifests?: ModuleCapabilityManifest[];
     moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
     auth?: AppConfig["auth"];
-    callAnalysis?: {
-      analyzeCall(input: {
-        callId: string;
-        triggerMode?: "manual" | "automatic";
-      }): Promise<unknown>;
-      getCallAnalysisResult?(callId: string): Promise<unknown>;
-    };
+    callAnalysis?: AppConfig["callAnalysis"];
+    callEnrichmentIntake?: AppConfig["callEnrichmentIntake"];
     protoComments?: {
       getProtoComments(): Promise<{
         comments: unknown[];
@@ -948,10 +943,10 @@ function createTestApp(
             sendMessage(input: { chatId: string; text: string }): Promise<void>;
           };
         };
-          modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
-          moduleCapabilityManifests?: ModuleCapabilityManifest[];
-          moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
-          auth?: AppConfig["auth"];
+        modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
+        moduleCapabilityManifests?: ModuleCapabilityManifest[];
+        moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
+        auth?: AppConfig["auth"];
         protoComments?: {
           getProtoComments(): Promise<{
             comments: unknown[];
@@ -965,13 +960,8 @@ function createTestApp(
             updatedAt: string | null;
           }>;
         };
-        callAnalysis?: {
-          analyzeCall(input: {
-            callId: string;
-            triggerMode?: "manual" | "automatic";
-          }): Promise<unknown>;
-          getCallAnalysisResult?(callId: string): Promise<unknown>;
-        };
+        callAnalysis?: AppConfig["callAnalysis"];
+        callEnrichmentIntake?: AppConfig["callEnrichmentIntake"];
       }
     ) => ReturnType<typeof createApp>
   )(service, config);
@@ -1272,6 +1262,276 @@ describe("createApp", () => {
       .expect(({ body }) => {
         expect(body.moduleId).toBe("custom-module");
         expect(body.items).toEqual([]);
+      });
+  });
+
+  it("keeps Bitrix call event intake disabled by default", async () => {
+    const queueAutomaticCallAnalysis = vi.fn();
+    const app = createTestApp(
+      {},
+      {
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .send({ callId: "CALL1" })
+      .expect(404)
+      .expect(({ body }) => {
+        expect(body.code).toBe("NOT_FOUND");
+      });
+
+    expect(queueAutomaticCallAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("rejects Bitrix call events without the configured shared secret", async () => {
+    const queueAutomaticCallAnalysis = vi.fn();
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .send({ callId: "CALL1" })
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.code).toBe("UNAUTHORIZED");
+      });
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .set("X-Bitrix-Call-Event-Secret", "wrong-secret")
+      .send({ callId: "CALL1" })
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.code).toBe("UNAUTHORIZED");
+      });
+
+    expect(queueAutomaticCallAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("queues a normalized Bitrix call event for automatic analysis", async () => {
+    const queueAutomaticCallAnalysis = vi.fn().mockResolvedValue({
+      status: "queued",
+      callId: "CALL1"
+    });
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/modules/attraction/calls/events/bitrix")
+      .set(
+        "X-Bitrix-Call-Event-Secret",
+        "bitrix-call-event-secret-with-32-characters"
+      )
+      .send({
+        callId: " CALL1 ",
+        activityId: "A1",
+        dealId: "23841",
+        contactId: "901",
+        managerId: "7",
+        durationSeconds: "45",
+        occurredAt: "2026-06-28T12:00:00.000Z"
+      })
+      .expect(202)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          status: "queued",
+          callId: "CALL1"
+        });
+      });
+
+    expect(queueAutomaticCallAnalysis).toHaveBeenCalledWith({
+      callId: "CALL1",
+      activityId: "A1",
+      dealId: "23841",
+      contactId: "901",
+      managerId: "7",
+      durationSeconds: 45,
+      occurredAt: "2026-06-28T12:00:00.000Z"
+    });
+  });
+
+  it("returns ok for duplicate Bitrix call events without enqueueing a second semantic status", async () => {
+    const queueAutomaticCallAnalysis = vi.fn().mockResolvedValue({
+      status: "duplicate",
+      callId: "CALL1",
+      reason: "already queued"
+    });
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .set(
+        "X-Bitrix-Call-Event-Secret",
+        "bitrix-call-event-secret-with-32-characters"
+      )
+      .send({ callId: "CALL1" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          status: "duplicate",
+          callId: "CALL1",
+          reason: "already queued"
+        });
+      });
+  });
+
+  it("rejects Bitrix call event payloads with unknown fields", async () => {
+    const queueAutomaticCallAnalysis = vi.fn();
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .set(
+        "X-Bitrix-Call-Event-Secret",
+        "bitrix-call-event-secret-with-32-characters"
+      )
+      .send({ callId: "CALL1", phone: "+79990000000" })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.code).toBe("VALIDATION_ERROR");
+      });
+
+    expect(queueAutomaticCallAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("returns service unavailable when Bitrix call event intake has no automatic runner", async () => {
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn()
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .set(
+        "X-Bitrix-Call-Event-Secret",
+        "bitrix-call-event-secret-with-32-characters"
+      )
+      .send({ callId: "CALL1" })
+      .expect(503)
+      .expect(({ body }) => {
+        expect(body.code).toBe("CALL_ENRICHMENT_NOT_CONFIGURED");
+      });
+  });
+
+  it("does not require browser auth or CSRF for Bitrix call events with the shared secret", async () => {
+    const queueAutomaticCallAnalysis = vi.fn().mockResolvedValue({
+      status: "queued",
+      callId: "CALL1"
+    });
+    const app = createTestApp(
+      {},
+      {
+        auth: createStaticAuthService(null),
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .set(
+        "X-Bitrix-Call-Event-Secret",
+        "bitrix-call-event-secret-with-32-characters"
+      )
+      .send({ callId: "CALL1" })
+      .expect(202);
+
+    expect(queueAutomaticCallAnalysis).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows later module call event routes to handle generic custom module ids", async () => {
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis: vi.fn()
+        }
+      }
+    );
+    app.post("/api/modules/:moduleId/calls/events/bitrix", (request, response) => {
+      response.json({ moduleId: request.params.moduleId });
+    });
+
+    await request(app)
+      .post("/api/modules/custom-module/calls/events/bitrix")
+      .set(
+        "X-Bitrix-Call-Event-Secret",
+        "bitrix-call-event-secret-with-32-characters"
+      )
+      .send({ callId: "CALL1" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.moduleId).toBe("custom-module");
       });
   });
 

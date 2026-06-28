@@ -60,6 +60,29 @@ function parseCsv(value: string | undefined) {
     .filter(Boolean);
 }
 
+function parseManagerChatIdPairs(value: string | undefined) {
+  return Object.fromEntries(
+    parseCsv(value).map((item) => {
+      const separatorIndex = item.indexOf(":");
+      if (separatorIndex === -1) {
+        throw new Error(
+          "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must use bitrixUserId:telegramChatId pairs."
+        );
+      }
+
+      const managerId = item.slice(0, separatorIndex).trim();
+      const chatId = item.slice(separatorIndex + 1).trim();
+      if (!managerId || !chatId) {
+        throw new Error(
+          "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must use bitrixUserId:telegramChatId pairs."
+        );
+      }
+
+      return [managerId, chatId];
+    })
+  );
+}
+
 function canonicalDatabaseUrl(databaseUrl: string) {
   if (!databaseUrl.startsWith("file:")) {
     return databaseUrl;
@@ -200,6 +223,10 @@ const envSchema = z
       .trim()
       .regex(REPORT_TIME_PATTERN, "TELEGRAM_ACTIVITY_REPORT_TIME must be HH:mm")
       .default("20:00"),
+    TELEGRAM_ENRICHMENT_ENABLED: z.enum(["true", "false"]).default("false"),
+    TELEGRAM_ENRICHMENT_BOT_TOKEN: optionalTrimmedString(),
+    TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: optionalTrimmedString(),
+    TELEGRAM_ENRICHMENT_CALLBACK_SECRET: optionalTrimmedString(),
     WEB_STATIC_DIR: optionalTrimmedString(),
     WEB_ORIGIN: z.string().default("http://localhost:5173")
   })
@@ -299,6 +326,38 @@ const envSchema = z
         });
       }
     }
+
+    if (value.TELEGRAM_ENRICHMENT_ENABLED === "true") {
+      if (!value.TELEGRAM_ENRICHMENT_BOT_TOKEN) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["TELEGRAM_ENRICHMENT_BOT_TOKEN"],
+          message:
+            "TELEGRAM_ENRICHMENT_BOT_TOKEN must be configured when TELEGRAM_ENRICHMENT_ENABLED=true."
+        });
+      }
+
+      if (!value.TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS"],
+          message:
+            "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must be configured when TELEGRAM_ENRICHMENT_ENABLED=true."
+        });
+      }
+
+      if (
+        !value.TELEGRAM_ENRICHMENT_CALLBACK_SECRET ||
+        value.TELEGRAM_ENRICHMENT_CALLBACK_SECRET.length < 32
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["TELEGRAM_ENRICHMENT_CALLBACK_SECRET"],
+          message:
+            "TELEGRAM_ENRICHMENT_CALLBACK_SECRET must be at least 32 characters when TELEGRAM_ENRICHMENT_ENABLED=true."
+        });
+      }
+    }
   });
 
 export type AppEnv = z.infer<typeof envSchema> & {
@@ -318,6 +377,9 @@ export type AppEnv = z.infer<typeof envSchema> & {
   telegramActivityReportEnabled: boolean;
   telegramActivityReportChatIds: string[];
   telegramActivityReportTime: string;
+  telegramEnrichmentEnabled: boolean;
+  telegramEnrichmentManagerChatIds: Record<string, string>;
+  telegramEnrichmentCallbackSecret?: string;
 };
 
 export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
@@ -355,6 +417,9 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
       ...parseCsv(parsed.TELEGRAM_ACTIVITY_REPORT_CHAT_ID)
     ])
   );
+  const telegramEnrichmentManagerChatIds = parseManagerChatIdPairs(
+    parsed.TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS
+  );
 
   return {
     ...parsed,
@@ -387,6 +452,14 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     telegramActivityReportEnabled:
       parsed.TELEGRAM_ACTIVITY_REPORT_ENABLED === "true",
     telegramActivityReportChatIds,
-    telegramActivityReportTime: parsed.TELEGRAM_ACTIVITY_REPORT_TIME
+    telegramActivityReportTime: parsed.TELEGRAM_ACTIVITY_REPORT_TIME,
+    telegramEnrichmentEnabled: parsed.TELEGRAM_ENRICHMENT_ENABLED === "true",
+    telegramEnrichmentManagerChatIds,
+    ...(parsed.TELEGRAM_ENRICHMENT_CALLBACK_SECRET
+      ? {
+          telegramEnrichmentCallbackSecret:
+            parsed.TELEGRAM_ENRICHMENT_CALLBACK_SECRET
+        }
+      : {})
   };
 }

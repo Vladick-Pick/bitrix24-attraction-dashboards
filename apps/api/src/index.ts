@@ -12,6 +12,7 @@ import { OpenRouterDialogueGateProvider } from "./server/openrouter-dialogue-gat
 import { OpenRouterEnrichmentExtractionProvider } from "./server/openrouter-enrichment-extraction.js";
 import { OpenRouterCallAnalysisProvider } from "./server/openrouter-call-analysis.js";
 import { PaperclipClient } from "./server/paperclip-client.js";
+import { createTelegramEnrichmentApprovalService } from "./server/telegram-enrichment-approval.js";
 import type {
   PlatformCommentRepository,
   ProtoCommentRepository,
@@ -178,6 +179,20 @@ const callEnrichmentExtractionProvider = env.OPENROUTER_API_KEY
       ...(env.OPENROUTER_APP_TITLE ? { appTitle: env.OPENROUTER_APP_TITLE } : {})
     })
   : undefined;
+const telegramEnrichmentSender =
+  env.telegramEnrichmentEnabled && env.TELEGRAM_ENRICHMENT_BOT_TOKEN
+    ? new TelegramBotClient({
+        botToken: env.TELEGRAM_ENRICHMENT_BOT_TOKEN
+      })
+    : undefined;
+const telegramEnrichmentApproval =
+  telegramEnrichmentSender && env.telegramEnrichmentEnabled
+    ? createTelegramEnrichmentApprovalService({
+        repository: attractionRepository,
+        sender: telegramEnrichmentSender,
+        managerChatIds: env.telegramEnrichmentManagerChatIds
+      })
+    : undefined;
 const callEnrichmentOrchestrator =
   callAnalysis &&
   callEnrichmentExtractionProvider &&
@@ -186,6 +201,9 @@ const callEnrichmentOrchestrator =
     ? createCallEnrichmentOrchestrator({
         analysis: callAnalysis,
         repository: attractionRepository,
+        ...(telegramEnrichmentApproval
+          ? { proposalNotifier: telegramEnrichmentApproval }
+          : {}),
         enrichmentPipeline: {
           async runAfterCallAnalysis({ context, analysis }) {
             const dealId = normalizeRuntimeEntityId(
@@ -375,6 +393,15 @@ const app = createApp(service, {
     chatIds: env.telegramActivityReportChatIds,
     ...(telegramActivityReportSender
       ? { sender: telegramActivityReportSender }
+      : {})
+  },
+  telegramEnrichment: {
+    enabled: env.telegramEnrichmentEnabled,
+    ...(env.telegramEnrichmentCallbackSecret
+      ? { secret: env.telegramEnrichmentCallbackSecret }
+      : {}),
+    ...(telegramEnrichmentApproval
+      ? { approvalService: telegramEnrichmentApproval }
       : {})
   },
   ...(env.WEB_STATIC_DIR ? { webStaticDir: env.WEB_STATIC_DIR } : {})

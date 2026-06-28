@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 
 import type {
+  CreateTelegramEnrichmentActionTokenInput,
   CreateEnrichmentProposalBatchInput,
   EnrichmentProposalBatchRecord,
   EnrichmentProposalBatchStatus,
@@ -10,10 +11,13 @@ import type {
   EnrichmentProposalEventRecord,
   EnrichmentProposalRecord,
   EnrichmentProposalStatus,
+  MarkTelegramEnrichmentActionTokenUsedInput,
   MarkEnrichmentProposalAppliedInput,
   MarkEnrichmentProposalDecisionInput,
   MarkEnrichmentProposalFailedInput,
-  SqliteRepository
+  SqliteRepository,
+  TelegramEnrichmentActionTokenRecord,
+  UpdateEnrichmentProposalBatchTelegramMessageInput
 } from "../sqlite-repository.js";
 
 type EnrichmentProposalRepositoryMethods = Pick<
@@ -23,6 +27,10 @@ type EnrichmentProposalRepositoryMethods = Pick<
   | "getEnrichmentProposalBatchByCallId"
   | "listEnrichmentProposals"
   | "listEnrichmentProposalEvents"
+  | "createTelegramEnrichmentActionToken"
+  | "getTelegramEnrichmentActionToken"
+  | "markTelegramEnrichmentActionTokenUsed"
+  | "updateEnrichmentProposalBatchTelegramMessage"
   | "appendEnrichmentProposalEvent"
   | "markEnrichmentProposalDecision"
   | "markEnrichmentProposalApplied"
@@ -54,6 +62,13 @@ type EnrichmentProposalEventRow = Omit<
 > & {
   actorType: string;
   metadataJson: string | null;
+};
+
+type TelegramEnrichmentActionTokenRow = Omit<
+  TelegramEnrichmentActionTokenRecord,
+  "action"
+> & {
+  action: string;
 };
 
 function stringifyOptionalJson(value: unknown | null | undefined) {
@@ -120,6 +135,15 @@ function readEvent(row: EnrichmentProposalEventRow): EnrichmentProposalEventReco
       row.metadataJson,
       "enrichment_proposal_events.metadata_json"
     )
+  };
+}
+
+function readTelegramToken(
+  row: TelegramEnrichmentActionTokenRow
+): TelegramEnrichmentActionTokenRecord {
+  return {
+    ...row,
+    action: row.action as TelegramEnrichmentActionTokenRecord["action"]
   };
 }
 
@@ -318,6 +342,49 @@ export function createEnrichmentProposalRepositoryMethods(
     WHERE batch_id = ?
     ORDER BY created_at ASC, id ASC
   `);
+  const insertTelegramTokenStatement = database.prepare(`
+    INSERT INTO telegram_enrichment_action_tokens (
+      token,
+      batch_id,
+      proposal_id,
+      action,
+      manager_id,
+      telegram_chat_id,
+      expires_at,
+      used_at,
+      created_at
+    ) VALUES (
+      @token,
+      @batchId,
+      @proposalId,
+      @action,
+      @managerId,
+      @telegramChatId,
+      @expiresAt,
+      NULL,
+      @createdAt
+    )
+  `);
+  const getTelegramTokenStatement = database.prepare(`
+    SELECT
+      token,
+      batch_id AS batchId,
+      proposal_id AS proposalId,
+      action,
+      manager_id AS managerId,
+      telegram_chat_id AS telegramChatId,
+      expires_at AS expiresAt,
+      used_at AS usedAt,
+      created_at AS createdAt
+    FROM telegram_enrichment_action_tokens
+    WHERE token = ?
+  `);
+  const markTelegramTokenUsedStatement = database.prepare(`
+    UPDATE telegram_enrichment_action_tokens
+    SET used_at = @usedAt
+    WHERE token = @token
+      AND used_at IS NULL
+  `);
   const getProposalStatusStatement = database.prepare(`
     SELECT
       id,
@@ -335,6 +402,13 @@ export function createEnrichmentProposalRepositoryMethods(
   const updateBatchStatusStatement = database.prepare(`
     UPDATE enrichment_proposal_batches
     SET status = @status,
+      updated_at = @updatedAt
+    WHERE id = @batchId
+  `);
+  const updateBatchTelegramMessageStatement = database.prepare(`
+    UPDATE enrichment_proposal_batches
+    SET telegram_chat_id = @telegramChatId,
+      telegram_message_id = @telegramMessageId,
       updated_at = @updatedAt
     WHERE id = @batchId
   `);
@@ -412,6 +486,10 @@ export function createEnrichmentProposalRepositoryMethods(
   const markDecisionTransaction = database.transaction(
     (input: MarkEnrichmentProposalDecisionInput) => {
       const proposal = getProposalStatus(input.proposalId);
+      if (proposal.status !== "pending") {
+        return false;
+      }
+
       updateProposalStatusStatement.run({
         proposalId: input.proposalId,
         status: input.status,
@@ -431,6 +509,7 @@ export function createEnrichmentProposalRepositoryMethods(
         createdAt: input.decidedAt
       });
       refreshBatchStatus(proposal.batchId, input.decidedAt);
+      return true;
     }
   );
 
@@ -543,14 +622,41 @@ export function createEnrichmentProposalRepositoryMethods(
       return rows.map(readEvent);
     },
 
+    createTelegramEnrichmentActionToken(
+      input: CreateTelegramEnrichmentActionTokenInput
+    ) {
+      insertTelegramTokenStatement.run(input);
+      return Promise.resolve();
+    },
+
+    async getTelegramEnrichmentActionToken(token) {
+      const row = getTelegramTokenStatement.get(token) as
+        | TelegramEnrichmentActionTokenRow
+        | undefined;
+      return row ? readTelegramToken(row) : null;
+    },
+
+    markTelegramEnrichmentActionTokenUsed(
+      input: MarkTelegramEnrichmentActionTokenUsedInput
+    ) {
+      const result = markTelegramTokenUsedStatement.run(input);
+      return Promise.resolve(result.changes > 0);
+    },
+
+    updateEnrichmentProposalBatchTelegramMessage(
+      input: UpdateEnrichmentProposalBatchTelegramMessageInput
+    ) {
+      updateBatchTelegramMessageStatement.run(input);
+      return Promise.resolve();
+    },
+
     appendEnrichmentProposalEvent(input) {
       appendEvent(input);
       return Promise.resolve();
     },
 
     markEnrichmentProposalDecision(input) {
-      markDecisionTransaction(input);
-      return Promise.resolve();
+      return Promise.resolve(markDecisionTransaction(input));
     },
 
     markEnrichmentProposalApplied(input) {

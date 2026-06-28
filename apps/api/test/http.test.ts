@@ -497,6 +497,7 @@ function createTestApp(
         sendMessage(input: { chatId: string; text: string }): Promise<void>;
       };
     };
+    telegramEnrichment?: AppConfig["telegramEnrichment"];
     modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
     moduleCapabilityManifests?: ModuleCapabilityManifest[];
     moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
@@ -943,6 +944,7 @@ function createTestApp(
             sendMessage(input: { chatId: string; text: string }): Promise<void>;
           };
         };
+        telegramEnrichment?: AppConfig["telegramEnrichment"];
         modules?: Record<string, Partial<Parameters<typeof createApp>[0]>>;
         moduleCapabilityManifests?: ModuleCapabilityManifest[];
         moduleCapabilityAdapters?: ModuleCapabilityAdapter[];
@@ -1263,6 +1265,124 @@ describe("createApp", () => {
         expect(body.moduleId).toBe("custom-module");
         expect(body.items).toEqual([]);
       });
+  });
+
+  it("keeps Telegram enrichment callbacks disabled by default", async () => {
+    const app = createTestApp();
+
+    await request(app)
+      .post("/api/telegram/enrichment/callback")
+      .send({
+        callback_query: {
+          id: "callback-1",
+          data: "ce:approve-token"
+        }
+      })
+      .expect(404)
+      .expect(({ body }) => {
+        expect(body.code).toBe("NOT_FOUND");
+      });
+  });
+
+  it("rejects Telegram enrichment callbacks without the configured shared secret", async () => {
+    const approvalService = {
+      sendProposalBatch: vi.fn().mockResolvedValue(undefined),
+      handleCallback: vi.fn().mockResolvedValue(undefined)
+    };
+    const app = createTestApp(
+      {},
+      {
+        telegramEnrichment: {
+          enabled: true,
+          secret: "telegram-enrichment-secret-with-32-chars",
+          approvalService
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/telegram/enrichment/callback")
+      .send({
+        callback_query: {
+          id: "callback-1",
+          data: "ce:approve-token"
+        }
+      })
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.code).toBe("UNAUTHORIZED");
+      });
+
+    await request(app)
+      .post("/api/telegram/enrichment/callback")
+      .set("X-Telegram-Enrichment-Secret", "wrong-secret")
+      .send({
+        callback_query: {
+          id: "callback-1",
+          data: "ce:approve-token"
+        }
+      })
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.code).toBe("UNAUTHORIZED");
+      });
+
+    expect(approvalService.handleCallback).not.toHaveBeenCalled();
+  });
+
+  it("passes Telegram enrichment callback payloads with native Telegram fields to the approval service", async () => {
+    const approvalService = {
+      sendProposalBatch: vi.fn().mockResolvedValue(undefined),
+      handleCallback: vi.fn().mockResolvedValue(undefined)
+    };
+    const app = createTestApp(
+      {},
+      {
+        telegramEnrichment: {
+          enabled: true,
+          secret: "telegram-enrichment-secret-with-32-chars",
+          approvalService
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/telegram/enrichment/callback")
+      .set(
+        "X-Telegram-Enrichment-Secret",
+        "telegram-enrichment-secret-with-32-chars"
+      )
+      .send({
+        update_id: 42,
+        callback_query: {
+          id: "callback-1",
+          from: {
+            id: 78,
+            is_bot: false,
+            first_name: "Manager"
+          },
+          chat_instance: "chat-instance",
+          data: "ce:approve-token",
+          message: {
+            message_id: 123,
+            text: "После звонка есть предложения для CRM.",
+            chat: {
+              id: "chat-78",
+              type: "private"
+            }
+          }
+        }
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ ok: true });
+      });
+
+    expect(approvalService.handleCallback).toHaveBeenCalledWith({
+      callbackQueryId: "callback-1",
+      data: "ce:approve-token",
+      chatId: "chat-78"
+    });
   });
 
   it("keeps Bitrix call event intake disabled by default", async () => {

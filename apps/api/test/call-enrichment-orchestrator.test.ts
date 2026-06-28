@@ -336,10 +336,14 @@ describe("createCallEnrichmentOrchestrator", () => {
     const pipeline = createPipeline();
     const repository = createRepository();
     const analysis = createAnalysis();
+    const proposalNotifier = {
+      sendProposalBatch: vi.fn().mockResolvedValue(undefined)
+    };
     const orchestrator = createCallEnrichmentOrchestrator({
       analysis,
       repository,
       enrichmentPipeline: pipeline,
+      proposalNotifier,
       idGenerator: vi
         .fn()
         .mockReturnValueOnce("batch-1")
@@ -391,6 +395,25 @@ describe("createCallEnrichmentOrchestrator", () => {
         }
       })
     );
+    expect(proposalNotifier.sendProposalBatch).toHaveBeenCalledWith({
+      batch: {
+        id: "batch-1",
+        callId: "CALL1",
+        dealId: "23841",
+        contactId: "901",
+        managerId: "7",
+        expiresAt: "2026-06-16T12:00:00.000Z"
+      },
+      proposals: [
+        {
+          ...proposalDraft,
+          id: "proposal-1",
+          status: "pending",
+          createdAt: "2026-06-09T12:00:00.000Z",
+          updatedAt: "2026-06-09T12:00:00.000Z"
+        }
+      ]
+    });
   });
 
   it("records a skipped batch when enrichment has no material updates", async () => {

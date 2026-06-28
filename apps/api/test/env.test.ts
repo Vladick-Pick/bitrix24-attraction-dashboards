@@ -27,7 +27,11 @@ describe("readEnv", () => {
       "OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION",
       "CALL_ANALYSIS_DIALOGUE_GATE_ENABLED",
       "OPENROUTER_APP_REFERER",
-      "OPENROUTER_APP_TITLE"
+      "OPENROUTER_APP_TITLE",
+      "TELEGRAM_ENRICHMENT_ENABLED",
+      "TELEGRAM_ENRICHMENT_BOT_TOKEN",
+      "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS",
+      "TELEGRAM_ENRICHMENT_CALLBACK_SECRET"
     ]) {
       expect(envExample).toContain(`${name}=`);
     }
@@ -276,6 +280,53 @@ describe("readEnv", () => {
         TELEGRAM_ACTIVITY_REPORT_TIME: "24:00"
       })
     ).toThrow(/TELEGRAM_ACTIVITY_REPORT_TIME/i);
+  });
+
+  it("keeps telegram enrichment disabled by default and validates enabled config", () => {
+    expect(readEnv({})).toMatchObject({
+      telegramEnrichmentEnabled: false,
+      telegramEnrichmentManagerChatIds: {}
+    });
+
+    expect(() =>
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true"
+      })
+    ).toThrow(/TELEGRAM_ENRICHMENT_BOT_TOKEN/i);
+
+    expect(() =>
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token"
+      })
+    ).toThrow(/TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS/i);
+
+    expect(() =>
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "78:123"
+      })
+    ).toThrow(/TELEGRAM_ENRICHMENT_CALLBACK_SECRET/i);
+
+    expect(
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "78:123, 13020:-10042",
+        TELEGRAM_ENRICHMENT_CALLBACK_SECRET:
+          "telegram-enrichment-secret-with-32-bytes"
+      })
+    ).toMatchObject({
+      telegramEnrichmentEnabled: true,
+      TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+      telegramEnrichmentManagerChatIds: {
+        "78": "123",
+        "13020": "-10042"
+      },
+      telegramEnrichmentCallbackSecret:
+        "telegram-enrichment-secret-with-32-bytes"
+    });
   });
 
   it("derives separate platform, attraction, and leadgen database URLs", () => {

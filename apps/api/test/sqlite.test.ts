@@ -330,6 +330,61 @@ describe("createSqliteRepository", () => {
     ).toThrow(/UNIQUE|constraint/i);
   });
 
+  it("persists telegram enrichment action tokens and delivery ids", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(createEnrichmentBatch());
+    await repository.createTelegramEnrichmentActionToken({
+      token: "token-1",
+      batchId: "batch-1",
+      proposalId: "proposal-1",
+      action: "approve",
+      managerId: "manager-1",
+      telegramChatId: "chat-1",
+      expiresAt: "2026-06-30T10:00:00.000Z",
+      createdAt: "2026-06-28T10:00:00.000Z"
+    });
+    await repository.updateEnrichmentProposalBatchTelegramMessage({
+      batchId: "batch-1",
+      telegramChatId: "chat-1",
+      telegramMessageId: "42",
+      updatedAt: "2026-06-28T10:01:00.000Z"
+    });
+
+    await expect(
+      repository.getTelegramEnrichmentActionToken("token-1")
+    ).resolves.toEqual({
+      token: "token-1",
+      batchId: "batch-1",
+      proposalId: "proposal-1",
+      action: "approve",
+      managerId: "manager-1",
+      telegramChatId: "chat-1",
+      expiresAt: "2026-06-30T10:00:00.000Z",
+      usedAt: null,
+      createdAt: "2026-06-28T10:00:00.000Z"
+    });
+    await expect(repository.getEnrichmentProposalBatch("batch-1")).resolves.toEqual(
+      expect.objectContaining({
+        telegramChatId: "chat-1",
+        telegramMessageId: "42",
+        updatedAt: "2026-06-28T10:01:00.000Z"
+      })
+    );
+    await expect(
+      repository.markTelegramEnrichmentActionTokenUsed({
+        token: "token-1",
+        usedAt: "2026-06-28T10:02:00.000Z"
+      })
+    ).resolves.toBe(true);
+    await expect(
+      repository.markTelegramEnrichmentActionTokenUsed({
+        token: "token-1",
+        usedAt: "2026-06-28T10:03:00.000Z"
+      })
+    ).resolves.toBe(false);
+  });
+
   it("records system and manager enrichment proposal events", async () => {
     const repository = createTempRepository();
 
@@ -375,6 +430,45 @@ describe("createSqliteRepository", () => {
         action: "proposal.approved",
         beforeStatus: "pending",
         afterStatus: "approved"
+      })
+    ]);
+  });
+
+  it("does not overwrite an already decided enrichment proposal", async () => {
+    const repository = createTempRepository();
+
+    await repository.createEnrichmentProposalBatch(createEnrichmentBatch());
+    await expect(
+      repository.markEnrichmentProposalDecision({
+        proposalId: "proposal-1",
+        status: "approved",
+        actorId: "manager-1",
+        decidedAt: "2026-06-28T10:05:00.000Z",
+        eventId: "event-1",
+        reason: "first click"
+      })
+    ).resolves.toBe(true);
+    await expect(
+      repository.markEnrichmentProposalDecision({
+        proposalId: "proposal-1",
+        status: "declined",
+        actorId: "manager-1",
+        decidedAt: "2026-06-28T10:06:00.000Z",
+        eventId: "event-2",
+        reason: "second click"
+      })
+    ).resolves.toBe(false);
+
+    await expect(repository.listEnrichmentProposals("batch-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "proposal-1",
+        status: "approved"
+      })
+    ]);
+    await expect(repository.listEnrichmentProposalEvents("batch-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "event-1",
+        action: "proposal.approved"
       })
     ]);
   });

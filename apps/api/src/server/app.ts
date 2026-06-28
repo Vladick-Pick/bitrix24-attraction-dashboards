@@ -87,6 +87,7 @@ import {
   registerPlatformRoutes
 } from "./routes/platform-routes.js";
 import { registerSyncRoutes } from "./routes/sync-routes.js";
+import { registerTelegramEnrichmentRoutes } from "./routes/telegram-enrichment-routes.js";
 import {
   buildManagerTeams,
   NO_ATTRACTION_MANAGER_MATCH_ID,
@@ -103,6 +104,7 @@ import type {
   PaperclipIssueComment
 } from "./paperclip-client.js";
 import type { TelegramMessageSender } from "./telegram-client.js";
+import type { TelegramEnrichmentApprovalService } from "./telegram-enrichment-approval.js";
 import {
   buildDailyActivityReportRange,
   buildTelegramActivityReportMessages,
@@ -294,6 +296,11 @@ interface AppConfig {
     timezone?: string;
     retryDelayMs?: number;
     sender?: TelegramMessageSender;
+  };
+  telegramEnrichment?: {
+    enabled?: boolean;
+    secret?: string;
+    approvalService?: TelegramEnrichmentApprovalService;
   };
   callEnrichmentIntake?: {
     enabled?: boolean;
@@ -2136,11 +2143,14 @@ export function createApp(
         "Content-Type",
         "Authorization",
         "X-API-Token",
-        "X-CSRF-Token"
+        "X-CSRF-Token",
+        "X-Telegram-Enrichment-Secret"
       ]
     })
   );
   app.use(express.json({ limit: config.jsonBodyLimit ?? "256kb" }));
+
+  registerTelegramEnrichmentRoutes(app, config.telegramEnrichment ?? {});
 
   if (config.agentMcp?.accessToken && config.agentMcp.gateway) {
     registerAttractionMcpHttpRoute(app, {

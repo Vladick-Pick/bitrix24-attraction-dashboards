@@ -11,6 +11,7 @@ import type {
 } from "./call-enrichment-diff.js";
 import type {
   CallAnalysisResultRecord,
+  CreateEnrichmentProposalInput,
   SqliteRepository
 } from "./sqlite-repository.js";
 
@@ -51,6 +52,20 @@ export interface CallEnrichmentPipelineResult {
   metadata?: Record<string, unknown>;
 }
 
+export interface CallEnrichmentProposalNotifier {
+  sendProposalBatch(input: {
+    batch: {
+      id: string;
+      callId: string;
+      dealId: string;
+      contactId: string | null;
+      managerId: string;
+      expiresAt: string;
+    };
+    proposals: CreateEnrichmentProposalInput[];
+  }): Promise<void>;
+}
+
 export interface CallEnrichmentOrchestratorRepository
   extends Pick<
     SqliteRepository,
@@ -63,6 +78,7 @@ export interface CreateCallEnrichmentOrchestratorInput {
   analysis: CallEnrichmentAnalysisService;
   repository: CallEnrichmentOrchestratorRepository;
   enrichmentPipeline?: CallEnrichmentPipeline;
+  proposalNotifier?: CallEnrichmentProposalNotifier;
   idGenerator?: () => string;
   now?: () => Date;
   proposalTtlMs?: number;
@@ -174,7 +190,7 @@ export function createCallEnrichmentOrchestrator(
         return { status: "skipped", callId, reason: "NO_MATERIAL_UPDATES" };
       }
 
-      await recordPendingBatch({
+      const createdBatch = await recordPendingBatch({
         callEvent,
         context,
         dealId,
@@ -186,6 +202,7 @@ export function createCallEnrichmentOrchestrator(
           ...(enrichmentResult.metadata ?? {})
         }
       });
+      await input.proposalNotifier?.sendProposalBatch(createdBatch);
 
       return { status: "queued", callId };
     } catch (error) {
@@ -261,6 +278,16 @@ export function createCallEnrichmentOrchestrator(
   }) {
     const createdAt = now().toISOString();
     const batchId = idGenerator();
+    const contactId = normalizeId(
+      inputData.context.attributes.contactId ?? inputData.callEvent.contactId
+    );
+    const proposals = inputData.proposals.map((proposal) => ({
+      ...proposal,
+      id: idGenerator(),
+      status: "pending" as const,
+      createdAt,
+      updatedAt: createdAt
+    }));
     await input.repository.createEnrichmentProposalBatch({
       id: batchId,
       callId: inputData.callEvent.callId,
@@ -268,22 +295,14 @@ export function createCallEnrichmentOrchestrator(
         inputData.context.attributes.crmActivityId ?? inputData.callEvent.activityId
       ),
       dealId: inputData.dealId,
-      contactId: normalizeId(
-        inputData.context.attributes.contactId ?? inputData.callEvent.contactId
-      ),
+      contactId,
       managerId: inputData.managerId,
       callAnalysisRunId: inputData.callAnalysisRunId,
       status: "pending",
       expiresAt: new Date(Date.parse(createdAt) + proposalTtlMs).toISOString(),
       createdAt,
       updatedAt: createdAt,
-      proposals: inputData.proposals.map((proposal) => ({
-        ...proposal,
-        id: idGenerator(),
-        status: "pending",
-        createdAt,
-        updatedAt: createdAt
-      }))
+      proposals
     });
     await input.repository.appendEnrichmentProposalEvent({
       id: idGenerator(),
@@ -301,6 +320,17 @@ export function createCallEnrichmentOrchestrator(
       },
       createdAt
     });
+    return {
+      batch: {
+        id: batchId,
+        callId: inputData.callEvent.callId,
+        dealId: inputData.dealId,
+        contactId,
+        managerId: inputData.managerId,
+        expiresAt: new Date(Date.parse(createdAt) + proposalTtlMs).toISOString()
+      },
+      proposals
+    };
   }
 
   return {

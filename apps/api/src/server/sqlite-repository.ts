@@ -387,6 +387,36 @@ export interface EnrichmentProposalEventRecord {
   createdAt: string;
 }
 
+export type TelegramEnrichmentAction = "approve" | "decline";
+
+export interface CreateTelegramEnrichmentActionTokenInput {
+  token: string;
+  batchId: string;
+  proposalId: string;
+  action: TelegramEnrichmentAction;
+  managerId: string;
+  telegramChatId: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface TelegramEnrichmentActionTokenRecord
+  extends CreateTelegramEnrichmentActionTokenInput {
+  usedAt: string | null;
+}
+
+export interface MarkTelegramEnrichmentActionTokenUsedInput {
+  token: string;
+  usedAt: string;
+}
+
+export interface UpdateEnrichmentProposalBatchTelegramMessageInput {
+  batchId: string;
+  telegramChatId: string;
+  telegramMessageId: string | null;
+  updatedAt: string;
+}
+
 export interface MarkEnrichmentProposalDecisionInput {
   proposalId: string;
   status: Extract<EnrichmentProposalStatus, "approved" | "declined">;
@@ -478,12 +508,24 @@ export interface SqliteRepository {
   listEnrichmentProposalEvents(
     batchId: string
   ): Promise<EnrichmentProposalEventRecord[]>;
+  createTelegramEnrichmentActionToken(
+    input: CreateTelegramEnrichmentActionTokenInput
+  ): Promise<void>;
+  getTelegramEnrichmentActionToken(
+    token: string
+  ): Promise<TelegramEnrichmentActionTokenRecord | null>;
+  markTelegramEnrichmentActionTokenUsed(
+    input: MarkTelegramEnrichmentActionTokenUsedInput
+  ): Promise<boolean>;
+  updateEnrichmentProposalBatchTelegramMessage(
+    input: UpdateEnrichmentProposalBatchTelegramMessageInput
+  ): Promise<void>;
   appendEnrichmentProposalEvent(
     input: EnrichmentProposalEventInput
   ): Promise<void>;
   markEnrichmentProposalDecision(
     input: MarkEnrichmentProposalDecisionInput
-  ): Promise<void>;
+  ): Promise<boolean>;
   markEnrichmentProposalApplied(
     input: MarkEnrichmentProposalAppliedInput
   ): Promise<void>;
@@ -1285,6 +1327,24 @@ export function createSqliteRepository(
       FOREIGN KEY (proposal_id)
         REFERENCES enrichment_proposals(id)
         ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS telegram_enrichment_action_tokens (
+      token TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      manager_id TEXT NOT NULL,
+      telegram_chat_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (batch_id)
+        REFERENCES enrichment_proposal_batches(id)
+        ON DELETE CASCADE,
+      FOREIGN KEY (proposal_id)
+        REFERENCES enrichment_proposals(id)
+        ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS manager_directory (

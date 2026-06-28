@@ -36,7 +36,7 @@ architectural issue found in the deep review.
 | [020](./020-wire-automatic-call-analysis-enrichment-orchestrator.md) | Wire automatic call analysis into an enrichment orchestrator | P1 | M | 017, 018, 019 | DONE |
 | [021](./021-add-enrichment-extraction-agent.md) | Add the CRM enrichment extraction agent | P1 | M | 016, 020 | DONE |
 | [022](./022-add-current-crm-values-diff.md) | Add current CRM value reads and meaningful enrichment diff | P1 | L | 016, 021 | DONE |
-| [023](./023-add-telegram-enrichment-approval-flow.md) | Add Telegram approval batches for enrichment proposals | P1 | L | 017, 022 | TODO |
+| [023](./023-add-telegram-enrichment-approval-flow.md) | Add Telegram approval batches for enrichment proposals | P1 | L | 017, 022 | DONE |
 | [024](./024-add-narrow-bitrix-enrichment-write-adapter.md) | Add the narrow Bitrix enrichment write adapter | P1 | L | 015, 016, 022, 023 | TODO |
 | [025](./025-add-call-enrichment-rollout-and-e2e-verification.md) | Add rollout gates and end-to-end verification for call enrichment | P1 | M | 020, 021, 022, 023, 024 | TODO |
 

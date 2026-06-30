@@ -201,4 +201,46 @@ describe("OpenRouterDialogueGateProvider", () => {
       })
     ).rejects.toThrow(/OpenRouter dialogue gate failed: 429 Too Many Requests.+Rate limit/);
   });
+
+  it("aborts dialogue gate requests after the configured timeout", async () => {
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: () =>
+          new Promise<string>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new Error("aborted"));
+            });
+          })
+      } as Response);
+    });
+    const provider = new OpenRouterDialogueGateProvider({
+      apiKey: "openrouter-key",
+      fetch: fetchMock,
+      timeoutMs: 10
+    });
+
+    const result = provider.analyzeDialogue({
+      callId: "CALL1",
+      audio: Buffer.from("mp3-bytes"),
+      audioFormat: "mp3"
+    });
+    const earlyResult = await Promise.race([
+      result
+        .then(() => "resolved")
+        .catch((error: unknown) =>
+          error instanceof Error && error.message === "OpenRouter dialogue gate timed out."
+            ? "provider_timeout"
+            : "other_error"
+        ),
+      new Promise<"still_pending">((resolve) =>
+        setTimeout(() => resolve("still_pending"), 25)
+      )
+    ]);
+    await result.catch(() => undefined);
+
+    expect(earlyResult).toBe("provider_timeout");
+  });
 });

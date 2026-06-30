@@ -400,6 +400,34 @@ describe("createSqliteRepository", () => {
         usedAt: "2026-06-28T10:03:00.000Z"
       })
     ).resolves.toBe(false);
+    await repository.releaseTelegramEnrichmentActionToken({
+      token: "token-1",
+      usedAt: "2026-06-28T10:03:00.000Z"
+    });
+    await expect(
+      repository.getTelegramEnrichmentActionToken("token-1")
+    ).resolves.toEqual(
+      expect.objectContaining({
+        usedAt: "2026-06-28T10:02:00.000Z"
+      })
+    );
+    await repository.releaseTelegramEnrichmentActionToken({
+      token: "token-1",
+      usedAt: "2026-06-28T10:02:00.000Z"
+    });
+    await expect(
+      repository.getTelegramEnrichmentActionToken("token-1")
+    ).resolves.toEqual(
+      expect.objectContaining({
+        usedAt: null
+      })
+    );
+    await expect(
+      repository.markTelegramEnrichmentActionTokenUsed({
+        token: "token-1",
+        usedAt: "2026-06-28T10:04:00.000Z"
+      })
+    ).resolves.toBe(true);
   });
 
   it("records system and manager enrichment proposal events", async () => {

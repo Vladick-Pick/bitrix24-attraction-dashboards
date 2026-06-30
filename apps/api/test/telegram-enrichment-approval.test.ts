@@ -68,6 +68,7 @@ function createRepository(
     createTelegramEnrichmentActionToken: vi.fn().mockResolvedValue(undefined),
     getTelegramEnrichmentActionToken: vi.fn().mockResolvedValue(token ?? null),
     markTelegramEnrichmentActionTokenUsed: vi.fn().mockResolvedValue(true),
+    releaseTelegramEnrichmentActionToken: vi.fn().mockResolvedValue(undefined),
     updateEnrichmentProposalBatchTelegramMessage: vi.fn().mockResolvedValue(undefined),
     appendEnrichmentProposalEvent: vi.fn().mockResolvedValue(undefined)
   };
@@ -264,6 +265,11 @@ describe("telegram enrichment approval", () => {
       token: "approve-token",
       usedAt: "2026-06-28T11:00:00.000Z"
     });
+    const claimOrder = vi.mocked(repository.markTelegramEnrichmentActionTokenUsed)
+      .mock.invocationCallOrder[0];
+    const writebackOrder = vi.mocked(decisionService.applyManagerEnrichmentDecision)
+      .mock.invocationCallOrder[0];
+    expect(claimOrder).toBeLessThan(writebackOrder ?? 0);
     expect(decisionService.applyManagerEnrichmentDecision).toHaveBeenCalledWith({
       proposalId: "proposal-1",
       managerId: "78",
@@ -274,6 +280,75 @@ describe("telegram enrichment approval", () => {
       callbackQueryId: "callback-1",
       text: "Записано в CRM."
     });
+  });
+
+  it("does not run writeback twice for concurrent callbacks with the same token", async () => {
+    const token = {
+      token: "approve-token",
+      batchId: "batch-1",
+      proposalId: "proposal-1",
+      action: "approve",
+      managerId: "78",
+      telegramChatId: "chat-78",
+      expiresAt: "2026-06-30T10:00:00.000Z",
+      usedAt: null,
+      createdAt: "2026-06-28T10:00:00.000Z"
+    } satisfies TelegramEnrichmentActionTokenRecord;
+    const repository = createRepository(token);
+    let claimed = false;
+    vi.mocked(repository.markTelegramEnrichmentActionTokenUsed).mockImplementation(
+      async () => {
+        if (claimed) {
+          return false;
+        }
+        claimed = true;
+        return true;
+      }
+    );
+    let finishDecision = (_value: {
+      status: "applied";
+      proposalId: string;
+    }) => {};
+    const decisionService = {
+      applyManagerEnrichmentDecision: vi.fn(
+        () =>
+          new Promise<{ status: "applied"; proposalId: string }>((resolve) => {
+            finishDecision = resolve;
+          })
+      )
+    } satisfies CallEnrichmentWritebackService;
+    const sender = createSender();
+    const service = createTelegramEnrichmentApprovalService({
+      repository,
+      sender,
+      decisionService,
+      managerChatIds: {
+        "78": "chat-78"
+      },
+      now: () => new Date("2026-06-28T11:00:00.000Z")
+    });
+
+    const first = service.handleCallback({
+      callbackQueryId: "callback-1",
+      chatId: "chat-78",
+      data: "ce:approve-token"
+    });
+    const second = service.handleCallback({
+      callbackQueryId: "callback-2",
+      chatId: "chat-78",
+      data: "ce:approve-token"
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(decisionService.applyManagerEnrichmentDecision).toHaveBeenCalledTimes(1);
+    expect(sender.answerCallbackQuery).toHaveBeenCalledWith({
+      callbackQueryId: "callback-2",
+      text: "Решение уже записано."
+    });
+
+    finishDecision({ status: "applied", proposalId: "proposal-1" });
+    await Promise.all([first, second]);
   });
 
   it("answers already recorded when another proposal action already decided the proposal", async () => {
@@ -378,5 +453,53 @@ describe("telegram enrichment approval", () => {
       callbackQueryId: "callback-1",
       text: "Записано в CRM."
     });
+  });
+
+  it("releases claimed callback tokens when writeback throws", async () => {
+    const token = {
+      token: "approve-token",
+      batchId: "batch-1",
+      proposalId: "proposal-1",
+      action: "approve",
+      managerId: "78",
+      telegramChatId: "chat-78",
+      expiresAt: "2026-06-30T10:00:00.000Z",
+      usedAt: null,
+      createdAt: "2026-06-28T10:00:00.000Z"
+    } satisfies TelegramEnrichmentActionTokenRecord;
+    const repository = createRepository(token);
+    const sender = createSender();
+    const decisionService = {
+      applyManagerEnrichmentDecision: vi
+        .fn()
+        .mockRejectedValue(new Error("writeback interrupted"))
+    } satisfies CallEnrichmentWritebackService;
+    const service = createTelegramEnrichmentApprovalService({
+      repository,
+      sender,
+      decisionService,
+      managerChatIds: {
+        "78": "chat-78"
+      },
+      now: () => new Date("2026-06-28T11:00:00.000Z")
+    });
+
+    await expect(
+      service.handleCallback({
+        callbackQueryId: "callback-1",
+        chatId: "chat-78",
+        data: "ce:approve-token"
+      })
+    ).rejects.toThrow("writeback interrupted");
+
+    expect(repository.markTelegramEnrichmentActionTokenUsed).toHaveBeenCalledWith({
+      token: "approve-token",
+      usedAt: "2026-06-28T11:00:00.000Z"
+    });
+    expect(repository.releaseTelegramEnrichmentActionToken).toHaveBeenCalledWith({
+      token: "approve-token",
+      usedAt: "2026-06-28T11:00:00.000Z"
+    });
+    expect(sender.answerCallbackQuery).not.toHaveBeenCalled();
   });
 });

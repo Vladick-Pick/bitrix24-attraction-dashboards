@@ -14,6 +14,7 @@ import type {
   QueueAutomaticCallAnalysisInput,
   QueueAutomaticCallAnalysisResult
 } from "../call-enrichment-orchestrator.js";
+import { safeErrorMessage } from "../safe-error-message.js";
 import type { AttractionCallRouteHandlers } from "./attraction-routes.js";
 
 export interface CallAnalysisQueueRequest {
@@ -106,6 +107,54 @@ const callEventPayloadSchema = z
       .optional()
   })
   .strict();
+const bitrixCallEventNameSchema = z.string().trim().min(1).max(80);
+const bitrixCallEventCallIdSchema = z.preprocess(
+  normalizeBitrixStringValue,
+  z.string().min(1).max(200)
+);
+const optionalBitrixCallEventStringSchema = z.preprocess(
+  normalizeBitrixStringValue,
+  z.string().min(1).max(200).optional()
+);
+const optionalBitrixCallEventDurationSchema = z.preprocess(
+  normalizeBitrixOptionalValue,
+  z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .max(24 * 60 * 60)
+    .optional()
+);
+const optionalBitrixCallEventDateTimeSchema = z.preprocess(
+  normalizeBitrixStringValue,
+  z.string().datetime({ offset: true }).max(80).optional()
+);
+const bitrixCallEventPayloadSchema = z
+  .object({
+    event: bitrixCallEventNameSchema,
+    data: z
+      .object({
+        CALL_ID: bitrixCallEventCallIdSchema,
+        CRM_ACTIVITY_ID: optionalBitrixCallEventStringSchema,
+        PORTAL_USER_ID: optionalBitrixCallEventStringSchema,
+        USER_ID: optionalBitrixCallEventStringSchema,
+        CALL_DURATION: optionalBitrixCallEventDurationSchema,
+        CALL_START_DATE: optionalBitrixCallEventDateTimeSchema
+      })
+      .passthrough()
+  })
+  .passthrough();
+
+type NormalizedCallEventPayload =
+  | {
+      action: "queue";
+      callEvent: QueueAutomaticCallAnalysisInput;
+    }
+  | {
+      action: "skip";
+      callId: string;
+      reason: "UNSUPPORTED_BITRIX_CALL_EVENT";
+    };
 
 function createErrorResponse(code: string, details?: unknown) {
   return {
@@ -140,16 +189,98 @@ function isSameSecret(left: string | undefined, right: string) {
   );
 }
 
-function normalizeCallEventPayload(payload: unknown): QueueAutomaticCallAnalysisInput {
+function payloadApplicationToken(payload: unknown) {
+  if (!payload || typeof payload !== "object" || !("auth" in payload)) {
+    return undefined;
+  }
+  const auth = (payload as { auth?: unknown }).auth;
+  if (!auth || typeof auth !== "object" || !("application_token" in auth)) {
+    return undefined;
+  }
+  const token = (auth as { application_token?: unknown }).application_token;
+  if (typeof token !== "string") {
+    return undefined;
+  }
+  return token.trim() || undefined;
+}
+
+function hasMatchingCallEventSecret(
+  request: express.Request,
+  configuredSecret: string
+) {
+  const headerSecret = request.header("X-Bitrix-Call-Event-Secret")?.trim();
+  return [headerSecret, payloadApplicationToken(request.body)].some((secret) =>
+    isSameSecret(secret, configuredSecret)
+  );
+}
+
+function normalizeBitrixStringValue(value: unknown) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const trimmed = String(value).trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeBitrixOptionalValue(value: unknown) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === "string" && value.trim().length === 0) {
+    return undefined;
+  }
+  return value;
+}
+
+function isBitrixCallWebhookPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object" || !("event" in payload)) {
+    return false;
+  }
+  const event = (payload as { event?: unknown }).event;
+  return (
+    typeof event === "string" &&
+    event.trim().toUpperCase().startsWith("ONVOXIMPLANTCALL")
+  );
+}
+
+function normalizeCallEventPayload(payload: unknown): NormalizedCallEventPayload {
+  if (isBitrixCallWebhookPayload(payload)) {
+    const parsed = bitrixCallEventPayloadSchema.parse(payload);
+    const event = parsed.event.toUpperCase();
+    if (event !== "ONVOXIMPLANTCALLEND") {
+      return {
+        action: "skip",
+        callId: parsed.data.CALL_ID,
+        reason: "UNSUPPORTED_BITRIX_CALL_EVENT"
+      };
+    }
+
+    return {
+      action: "queue",
+      callEvent: {
+        callId: parsed.data.CALL_ID,
+        activityId: parsed.data.CRM_ACTIVITY_ID ?? null,
+        dealId: null,
+        contactId: null,
+        managerId: parsed.data.PORTAL_USER_ID ?? parsed.data.USER_ID ?? null,
+        durationSeconds: parsed.data.CALL_DURATION ?? null,
+        occurredAt: parsed.data.CALL_START_DATE ?? null
+      }
+    };
+  }
+
   const parsed = callEventPayloadSchema.parse(payload);
   return {
-    callId: parsed.callId,
-    activityId: parsed.activityId ?? null,
-    dealId: parsed.dealId ?? null,
-    contactId: parsed.contactId ?? null,
-    managerId: parsed.managerId ?? null,
-    durationSeconds: parsed.durationSeconds ?? null,
-    occurredAt: parsed.occurredAt ?? null
+    action: "queue",
+    callEvent: {
+      callId: parsed.callId,
+      activityId: parsed.activityId ?? null,
+      dealId: parsed.dealId ?? null,
+      contactId: parsed.contactId ?? null,
+      managerId: parsed.managerId ?? null,
+      durationSeconds: parsed.durationSeconds ?? null,
+      occurredAt: parsed.occurredAt ?? null
+    }
   };
 }
 
@@ -183,8 +314,7 @@ export function createAttractionCallRouteHandlers({
         return;
       }
 
-      const eventSecret = request.header("X-Bitrix-Call-Event-Secret")?.trim();
-      if (!isSameSecret(eventSecret, configuredSecret)) {
+      if (!hasMatchingCallEventSecret(request, configuredSecret)) {
         response.status(401).json(createErrorResponse("UNAUTHORIZED"));
         return;
       }
@@ -195,12 +325,32 @@ export function createAttractionCallRouteHandlers({
           .json(createErrorResponse("CALL_ENRICHMENT_NOT_CONFIGURED"));
         return;
       }
+      const queueAutomaticCallAnalysis = callAnalysis.queueAutomaticCallAnalysis;
 
       try {
-        const result = await callAnalysis.queueAutomaticCallAnalysis(
-          normalizeCallEventPayload(request.body)
-        );
-        response.status(result.status === "duplicate" ? 200 : 202).json(result);
+        const normalizedCallEvent = normalizeCallEventPayload(request.body);
+        if (normalizedCallEvent.action === "skip") {
+          response.status(202).json({
+            status: "skipped",
+            callId: normalizedCallEvent.callId,
+            reason: normalizedCallEvent.reason
+          });
+          return;
+        }
+
+        const callEvent = normalizedCallEvent.callEvent;
+        void Promise.resolve()
+          .then(() => queueAutomaticCallAnalysis(callEvent))
+          .catch((error: unknown) => {
+            console.error("call_enrichment.intake.failed", {
+              callId: callEvent.callId,
+              error: safeErrorMessage(error)
+            });
+          });
+        response.status(202).json({
+          status: "queued",
+          callId: callEvent.callId
+        });
       } catch (error) {
         next(error);
       }

@@ -60,6 +60,7 @@ export interface OpenRouterEnrichmentExtractionProviderConfig {
   appReferer?: string;
   appTitle?: string;
   minConfidence?: number;
+  timeoutMs?: number;
 }
 
 const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash";
@@ -69,6 +70,7 @@ const OPENROUTER_CHAT_COMPLETIONS_URL =
 const MAX_OPENROUTER_ERROR_DETAIL_LENGTH = 500;
 const DEFAULT_MIN_CONFIDENCE = 0.55;
 const MAX_EVIDENCE_SNIPPET_LENGTH = 500;
+const DEFAULT_OPENROUTER_TIMEOUT_MS = 60_000;
 
 const rawCandidateSchema = z.object({
   entity: z.enum(["contact", "deal"]),
@@ -168,6 +170,7 @@ export class OpenRouterEnrichmentExtractionProvider {
   private readonly fetchImpl: FetchLike;
   private readonly now: () => Date;
   private readonly minConfidence: number;
+  private readonly timeoutMs: number;
 
   constructor(private readonly config: OpenRouterEnrichmentExtractionProviderConfig) {
     this.model = config.model ?? DEFAULT_OPENROUTER_MODEL;
@@ -176,6 +179,7 @@ export class OpenRouterEnrichmentExtractionProvider {
     this.fetchImpl = config.fetch ?? fetch;
     this.now = config.now ?? (() => new Date());
     this.minConfidence = config.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
+    this.timeoutMs = config.timeoutMs ?? DEFAULT_OPENROUTER_TIMEOUT_MS;
   }
 
   async extractCallEnrichment(
@@ -185,12 +189,27 @@ export class OpenRouterEnrichmentExtractionProvider {
       throw new Error("OpenRouter API key is not configured.");
     }
 
-    const response = await this.fetchImpl(this.endpointUrl, {
-      method: "POST",
-      headers: this.buildHeaders(),
-      body: JSON.stringify(this.buildRequest(input))
-    });
-    const responseText = await response.text();
+    const timeoutError = new Error("OpenRouter enrichment extraction timed out.");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(timeoutError), this.timeoutMs);
+    let response: Response;
+    let responseText: string;
+    try {
+      response = await this.fetchImpl(this.endpointUrl, {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify(this.buildRequest(input)),
+        signal: controller.signal
+      });
+      responseText = await response.text();
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       const errorDetail = summarizeOpenRouterErrorBody(responseText);

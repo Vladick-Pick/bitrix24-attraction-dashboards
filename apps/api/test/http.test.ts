@@ -1317,7 +1317,7 @@ describe("createApp", () => {
 
     await request(app)
       .post("/api/telegram/enrichment/callback")
-      .set("X-Telegram-Enrichment-Secret", "wrong-secret")
+      .set("X-Telegram-Bot-Api-Secret-Token", "wrong-secret")
       .send({
         callback_query: {
           id: "callback-1",
@@ -1351,7 +1351,7 @@ describe("createApp", () => {
     await request(app)
       .post("/api/telegram/enrichment/callback")
       .set(
-        "X-Telegram-Enrichment-Secret",
+        "X-Telegram-Bot-Api-Secret-Token",
         "telegram-enrichment-secret-with-32-chars"
       )
       .send({
@@ -1446,6 +1446,57 @@ describe("createApp", () => {
     expect(queueAutomaticCallAnalysis).not.toHaveBeenCalled();
   });
 
+  it("accepts the native Bitrix outgoing webhook application token", async () => {
+    const queueAutomaticCallAnalysis = vi.fn().mockResolvedValue({
+      status: "queued",
+      callId: "CALL1"
+    });
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .send({
+        event: "ONVOXIMPLANTCALLEND",
+        data: {
+          CALL_ID: "CALL1",
+          PORTAL_USER_ID: "13020"
+        },
+        auth: {
+          application_token: "bitrix-call-event-secret-with-32-characters"
+        }
+      })
+      .expect(202)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          status: "queued",
+          callId: "CALL1"
+        });
+      });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(queueAutomaticCallAnalysis).toHaveBeenCalledWith({
+      callId: "CALL1",
+      activityId: null,
+      dealId: null,
+      contactId: null,
+      managerId: "13020",
+      durationSeconds: null,
+      occurredAt: null
+    });
+  });
+
   it("queues a normalized Bitrix call event for automatic analysis", async () => {
     const queueAutomaticCallAnalysis = vi.fn().mockResolvedValue({
       status: "queued",
@@ -1499,11 +1550,10 @@ describe("createApp", () => {
     });
   });
 
-  it("returns ok for duplicate Bitrix call events without enqueueing a second semantic status", async () => {
+  it("queues a native Bitrix call end webhook for automatic analysis", async () => {
     const queueAutomaticCallAnalysis = vi.fn().mockResolvedValue({
-      status: "duplicate",
-      callId: "CALL1",
-      reason: "already queued"
+      status: "queued",
+      callId: "externalCall.abc"
     });
     const app = createTestApp(
       {},
@@ -1525,15 +1575,191 @@ describe("createApp", () => {
         "X-Bitrix-Call-Event-Secret",
         "bitrix-call-event-secret-with-32-characters"
       )
-      .send({ callId: "CALL1" })
-      .expect(200)
+      .send({
+        event: "ONVOXIMPLANTCALLEND",
+        event_handler_id: "1061",
+        data: {
+          CALL_ID: " externalCall.abc ",
+          PORTAL_USER_ID: "13020",
+          CALL_DURATION: "45",
+          CALL_START_DATE: "2026-03-11T17:28:46+02:00",
+          CRM_ACTIVITY_ID: "7953",
+          PHONE_NUMBER: "+79990000000"
+        },
+        ts: "1773239624",
+        auth: {
+          access_token: "secret-token",
+          domain: "example.bitrix24.ru"
+        }
+      })
+      .expect(202)
       .expect(({ body }) => {
         expect(body).toEqual({
-          status: "duplicate",
-          callId: "CALL1",
-          reason: "already queued"
+          status: "queued",
+          callId: "externalCall.abc"
         });
       });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(queueAutomaticCallAnalysis).toHaveBeenCalledWith({
+      callId: "externalCall.abc",
+      activityId: "7953",
+      dealId: null,
+      contactId: null,
+      managerId: "13020",
+      durationSeconds: 45,
+      occurredAt: "2026-03-11T17:28:46+02:00"
+    });
+  });
+
+  it("acknowledges non-end native Bitrix call webhooks without enqueueing analysis", async () => {
+    const queueAutomaticCallAnalysis = vi.fn().mockResolvedValue({
+      status: "queued",
+      callId: "CALL1"
+    });
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    await request(app)
+      .post("/api/calls/events/bitrix")
+      .set(
+        "X-Bitrix-Call-Event-Secret",
+        "bitrix-call-event-secret-with-32-characters"
+      )
+      .send({
+        event: "ONVOXIMPLANTCALLSTART",
+        data: {
+          CALL_ID: "CALL1",
+          USER_ID: "13020"
+        }
+      })
+      .expect(202)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          status: "skipped",
+          callId: "CALL1",
+          reason: "UNSUPPORTED_BITRIX_CALL_EVENT"
+        });
+      });
+
+    expect(queueAutomaticCallAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges Bitrix call events without waiting for automatic analysis", async () => {
+    let finishAnalysis: ((value: { status: "queued"; callId: string }) => void) | null =
+      null;
+    const queueAutomaticCallAnalysis = vi.fn(
+      () =>
+        new Promise<{ status: "queued"; callId: string }>((resolve) => {
+          finishAnalysis = resolve;
+        })
+    );
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    const pendingRequest = request(app)
+      .post("/api/calls/events/bitrix")
+      .set(
+        "X-Bitrix-Call-Event-Secret",
+        "bitrix-call-event-secret-with-32-characters"
+      )
+      .send({ callId: "CALL1" })
+      .expect(202)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          status: "queued",
+          callId: "CALL1"
+        });
+      });
+    const responsePromise = Promise.resolve(pendingRequest);
+
+    const earlyResult = await Promise.race([
+      responsePromise.then(() => "responded"),
+      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 1000))
+    ]);
+    const resolveAnalysis = finishAnalysis as
+      | ((value: { status: "queued"; callId: string }) => void)
+      | null;
+    resolveAnalysis?.({ status: "queued", callId: "CALL1" });
+    await responsePromise;
+
+    expect(earlyResult).toBe("responded");
+  });
+
+  it("redacts sensitive details from asynchronous Bitrix call intake errors", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const queueAutomaticCallAnalysis = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          "Bitrix failed at https://portal/rest/1/secret/crm.activity.get for user@example.com +7 999 111-22-33"
+        )
+      );
+    const app = createTestApp(
+      {},
+      {
+        callEnrichmentIntake: {
+          enabled: true,
+          secret: "bitrix-call-event-secret-with-32-characters"
+        },
+        callAnalysis: {
+          analyzeCall: vi.fn(),
+          queueAutomaticCallAnalysis
+        }
+      }
+    );
+
+    try {
+      await request(app)
+        .post("/api/calls/events/bitrix")
+        .set(
+          "X-Bitrix-Call-Event-Secret",
+          "bitrix-call-event-secret-with-32-characters"
+        )
+        .send({ callId: "CALL1" })
+        .expect(202);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(consoleError).toHaveBeenCalledWith(
+        "call_enrichment.intake.failed",
+        expect.objectContaining({
+          callId: "CALL1",
+          error: expect.stringContaining("[url]")
+        })
+      );
+      const loggedPayload = consoleError.mock.calls[0]?.[1] as
+        | { error?: string }
+        | undefined;
+      expect(loggedPayload?.error).not.toContain("https://portal");
+      expect(loggedPayload?.error).not.toContain("user@example.com");
+      expect(loggedPayload?.error).not.toContain("+7 999 111-22-33");
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("rejects Bitrix call event payloads with unknown fields", async () => {

@@ -32,6 +32,7 @@ export interface OpenRouterDialogueGateProviderConfig {
   now?: () => Date;
   appReferer?: string;
   appTitle?: string;
+  timeoutMs?: number;
 }
 
 const DEFAULT_DIALOGUE_GATE_MODEL = "google/gemini-2.5-flash-lite";
@@ -39,6 +40,7 @@ const DEFAULT_PROMPT_VERSION = "dialogue-gate-v1";
 const OPENROUTER_CHAT_COMPLETIONS_URL =
   "https://openrouter.ai/api/v1/chat/completions";
 const MAX_OPENROUTER_ERROR_DETAIL_LENGTH = 500;
+const DEFAULT_OPENROUTER_TIMEOUT_MS = 60_000;
 
 const dialogueGateResponseSchema = z.object({
   hasDialogue: z.boolean(),
@@ -116,6 +118,7 @@ export class OpenRouterDialogueGateProvider {
   private readonly endpointUrl: string;
   private readonly fetchImpl: FetchLike;
   private readonly now: () => Date;
+  private readonly timeoutMs: number;
 
   constructor(private readonly config: OpenRouterDialogueGateProviderConfig) {
     this.model = config.model ?? DEFAULT_DIALOGUE_GATE_MODEL;
@@ -123,6 +126,7 @@ export class OpenRouterDialogueGateProvider {
     this.endpointUrl = config.endpointUrl ?? OPENROUTER_CHAT_COMPLETIONS_URL;
     this.fetchImpl = config.fetch ?? fetch;
     this.now = config.now ?? (() => new Date());
+    this.timeoutMs = config.timeoutMs ?? DEFAULT_OPENROUTER_TIMEOUT_MS;
   }
 
   async analyzeDialogue(input: DialogueGateInput): Promise<DialogueGateResult> {
@@ -130,12 +134,27 @@ export class OpenRouterDialogueGateProvider {
       throw new Error("OpenRouter API key is not configured.");
     }
 
-    const response = await this.fetchImpl(this.endpointUrl, {
-      method: "POST",
-      headers: this.buildHeaders(),
-      body: JSON.stringify(this.buildRequest(input))
-    });
-    const responseText = await response.text();
+    const timeoutError = new Error("OpenRouter dialogue gate timed out.");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(timeoutError), this.timeoutMs);
+    let response: Response;
+    let responseText: string;
+    try {
+      response = await this.fetchImpl(this.endpointUrl, {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify(this.buildRequest(input)),
+        signal: controller.signal
+      });
+      responseText = await response.text();
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       const errorDetail = summarizeOpenRouterErrorBody(responseText);

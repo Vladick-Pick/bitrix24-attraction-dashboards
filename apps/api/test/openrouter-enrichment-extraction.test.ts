@@ -407,4 +407,43 @@ describe("OpenRouterEnrichmentExtractionProvider", () => {
       /OpenRouter enrichment extraction failed: 402 Payment Required.+Insufficient credits/
     );
   });
+
+  it("aborts enrichment extraction requests after the configured timeout", async () => {
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: () =>
+          new Promise<string>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new Error("aborted"));
+            });
+          })
+      } as Response);
+    });
+    const provider = new OpenRouterEnrichmentExtractionProvider({
+      apiKey: "openrouter-key",
+      fetch: fetchMock,
+      timeoutMs: 10
+    });
+
+    const result = provider.extractCallEnrichment(createInput());
+    const earlyResult = await Promise.race([
+      result
+        .then(() => "resolved")
+        .catch((error: unknown) =>
+          error instanceof Error &&
+          error.message === "OpenRouter enrichment extraction timed out."
+            ? "provider_timeout"
+            : "other_error"
+        ),
+      new Promise<"still_pending">((resolve) =>
+        setTimeout(() => resolve("still_pending"), 25)
+      )
+    ]);
+    await result.catch(() => undefined);
+
+    expect(earlyResult).toBe("provider_timeout");
+  });
 });

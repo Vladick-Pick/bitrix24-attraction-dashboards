@@ -521,6 +521,9 @@ export interface SqliteRepository {
   markTelegramEnrichmentActionTokenUsed(
     input: MarkTelegramEnrichmentActionTokenUsedInput
   ): Promise<boolean>;
+  releaseTelegramEnrichmentActionToken(
+    input: MarkTelegramEnrichmentActionTokenUsedInput
+  ): Promise<void>;
   updateEnrichmentProposalBatchTelegramMessage(
     input: UpdateEnrichmentProposalBatchTelegramMessageInput
   ): Promise<void>;

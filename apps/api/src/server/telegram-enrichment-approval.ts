@@ -34,6 +34,7 @@ export interface TelegramEnrichmentApprovalRepository
     | "createTelegramEnrichmentActionToken"
     | "getTelegramEnrichmentActionToken"
     | "markTelegramEnrichmentActionTokenUsed"
+    | "releaseTelegramEnrichmentActionToken"
     | "updateEnrichmentProposalBatchTelegramMessage"
     | "appendEnrichmentProposalEvent"
   > {}
@@ -165,12 +166,22 @@ export function createTelegramEnrichmentApprovalService(
       return;
     }
 
-    const result = await input.decisionService.applyManagerEnrichmentDecision({
-      proposalId: token.proposalId,
-      managerId: token.managerId,
-      action: token.action,
-      decidedAt: nowIso
-    });
+    let result: CallEnrichmentWritebackResult;
+    try {
+      result = await input.decisionService.applyManagerEnrichmentDecision({
+        proposalId: token.proposalId,
+        managerId: token.managerId,
+        action: token.action,
+        decidedAt: nowIso
+      });
+    } catch (error) {
+      await input.repository.releaseTelegramEnrichmentActionToken({
+        token: token.token,
+        usedAt: nowIso
+      });
+      throw error;
+    }
+
     await answer(callback.callbackQueryId, formatDecisionResultText(result));
   }
 

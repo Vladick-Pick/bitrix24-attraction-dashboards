@@ -438,6 +438,85 @@ describe("createCallEnrichmentWritebackService", () => {
     expect(metadata?.errorMessage).not.toContain("+7 999 111-22-33");
   });
 
+  it("marks Bitrix current-value read failures as failed without throwing", async () => {
+    const repository = createRepository();
+    const bitrix = createBitrix({
+      getContactEnrichmentValues: vi
+        .fn()
+        .mockRejectedValue(new Error("Bitrix current value read failed"))
+    });
+    const service = createCallEnrichmentWritebackService({
+      repository,
+      bitrix,
+      idGenerator: () => "event-1"
+    });
+
+    await expect(
+      service.applyManagerEnrichmentDecision({
+        proposalId: "proposal-1",
+        managerId: "7",
+        action: "approve",
+        decidedAt: "2026-06-28T11:00:00.000Z"
+      })
+    ).resolves.toEqual({
+      status: "failed",
+      proposalId: "proposal-1",
+      reason: "BITRIX_READ_FAILED"
+    });
+
+    expect(bitrix.updateContactEnrichmentField).not.toHaveBeenCalled();
+    expect(repository.markEnrichmentProposalFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        reason: "BITRIX_READ_FAILED"
+      })
+    );
+  });
+
+  it("resumes an approved proposal write even when sibling proposals keep the batch pending", async () => {
+    const approvedProposal = {
+      ...contactProposal,
+      status: "approved"
+    } satisfies EnrichmentProposalRecord;
+    const repository = createRepository({
+      getEnrichmentProposal: vi.fn().mockResolvedValue(approvedProposal),
+      getEnrichmentProposalBatch: vi.fn().mockResolvedValue({
+        ...batch,
+        status: "pending"
+      })
+    });
+    const bitrix = createBitrix();
+    const service = createCallEnrichmentWritebackService({
+      repository,
+      bitrix,
+      idGenerator: () => "event-1"
+    });
+
+    await expect(
+      service.applyManagerEnrichmentDecision({
+        proposalId: "proposal-1",
+        managerId: "7",
+        action: "approve",
+        decidedAt: "2026-06-28T11:00:00.000Z"
+      })
+    ).resolves.toEqual({
+      status: "applied",
+      proposalId: "proposal-1"
+    });
+
+    expect(repository.markEnrichmentProposalDecision).not.toHaveBeenCalled();
+    expect(bitrix.updateContactEnrichmentField).toHaveBeenCalledWith({
+      entityId: "901",
+      fieldCode: "UF_CRM_1647946359",
+      value: "602"
+    });
+    expect(repository.markEnrichmentProposalApplied).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: "proposal-1"
+      })
+    );
+  });
+
   it("declines a proposal without calling Bitrix", async () => {
     const repository = createRepository();
     const bitrix = createBitrix();

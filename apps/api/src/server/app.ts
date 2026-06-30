@@ -2217,7 +2217,7 @@ export function createApp(
         "Authorization",
         "X-API-Token",
         "X-CSRF-Token",
-        "X-Telegram-Enrichment-Secret"
+        "X-Telegram-Bot-Api-Secret-Token"
       ]
     })
   );

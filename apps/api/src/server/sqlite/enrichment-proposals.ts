@@ -31,6 +31,7 @@ type EnrichmentProposalRepositoryMethods = Pick<
   | "createTelegramEnrichmentActionToken"
   | "getTelegramEnrichmentActionToken"
   | "markTelegramEnrichmentActionTokenUsed"
+  | "releaseTelegramEnrichmentActionToken"
   | "updateEnrichmentProposalBatchTelegramMessage"
   | "appendEnrichmentProposalEvent"
   | "markEnrichmentProposalDecision"
@@ -413,6 +414,12 @@ export function createEnrichmentProposalRepositoryMethods(
     WHERE token = @token
       AND used_at IS NULL
   `);
+  const releaseTelegramTokenStatement = database.prepare(`
+    UPDATE telegram_enrichment_action_tokens
+    SET used_at = NULL
+    WHERE token = @token
+      AND used_at = @usedAt
+  `);
   const getProposalStatusStatement = database.prepare(`
     SELECT
       id,
@@ -673,6 +680,13 @@ export function createEnrichmentProposalRepositoryMethods(
     ) {
       const result = markTelegramTokenUsedStatement.run(input);
       return Promise.resolve(result.changes > 0);
+    },
+
+    releaseTelegramEnrichmentActionToken(
+      input: MarkTelegramEnrichmentActionTokenUsedInput
+    ) {
+      releaseTelegramTokenStatement.run(input);
+      return Promise.resolve();
     },
 
     updateEnrichmentProposalBatchTelegramMessage(

@@ -51,7 +51,7 @@ export function registerTelegramEnrichmentRoutes(
     }
 
     const requestSecret = request
-      .header("X-Telegram-Enrichment-Secret")
+      .header("X-Telegram-Bot-Api-Secret-Token")
       ?.trim();
     if (!isSameSecret(requestSecret, configuredSecret)) {
       response.status(401).json(createErrorResponse("UNAUTHORIZED"));

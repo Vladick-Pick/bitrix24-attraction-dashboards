@@ -8,6 +8,7 @@ import {
   normalizeCallEnrichmentValue,
   valuesAreEquivalent
 } from "./call-enrichment-current-values.js";
+import { safeErrorMessage } from "./safe-error-message.js";
 import type { CallEnrichmentValuesRow } from "../bitrix/client.js";
 import type {
   EnrichmentProposalBatchRecord,
@@ -80,8 +81,6 @@ export interface CreateCallEnrichmentWritebackServiceInput {
   idGenerator?: () => string;
 }
 
-const SAFE_ERROR_MESSAGE_LENGTH = 180;
-
 export function createCallEnrichmentWritebackService(
   input: CreateCallEnrichmentWritebackServiceInput
 ): CallEnrichmentWritebackService {
@@ -125,12 +124,20 @@ export function createCallEnrichmentWritebackService(
     }
 
     const bitrix = input.bitrix;
-    const decisionWasMarked = await markApproved(decision, "telegram_approved");
-    if (!decisionWasMarked) {
-      return { status: "already_decided", proposalId: decision.proposalId };
+    if (proposal.status === "pending") {
+      const decisionWasMarked = await markApproved(decision, "telegram_approved");
+      if (!decisionWasMarked) {
+        return { status: "already_decided", proposalId: decision.proposalId };
+      }
     }
 
-    const currentValues = await readCurrentValues(bitrix, proposal);
+    let currentValues: CallEnrichmentValuesRow | null;
+    try {
+      currentValues = await readCurrentValues(bitrix, proposal);
+    } catch (error) {
+      return markBitrixFailure(decision, error, "BITRIX_READ_FAILED");
+    }
+
     if (!currentValues) {
       return markConflict(decision, "CURRENT_VALUE_UNAVAILABLE");
     }
@@ -156,7 +163,7 @@ export function createCallEnrichmentWritebackService(
     try {
       await updateBitrixField(bitrix, proposal);
     } catch (error) {
-      return markBitrixFailure(decision, error);
+      return markBitrixFailure(decision, error, "BITRIX_UPDATE_FAILED");
     }
 
     await input.repository.markEnrichmentProposalApplied({
@@ -222,10 +229,17 @@ export function createCallEnrichmentWritebackService(
       };
     }
 
-    if (
-      proposal.status !== "pending" ||
-      !["pending", "partially_applied"].includes(batch.status)
-    ) {
+    const canStartDecision =
+      proposal.status === "pending" &&
+      ["pending", "partially_applied"].includes(batch.status);
+    const canResumeApprovedWrite =
+      decision.action === "approve" &&
+      proposal.status === "approved" &&
+      ["pending", "approved", "partially_applied", "failed"].includes(
+        batch.status
+      );
+
+    if (!canStartDecision && !canResumeApprovedWrite) {
       return {
         result: {
           status: "already_decided",
@@ -323,7 +337,8 @@ export function createCallEnrichmentWritebackService(
 
   async function markBitrixFailure(
     decision: ApplyManagerEnrichmentDecisionInput,
-    error: unknown
+    error: unknown,
+    reason: "BITRIX_READ_FAILED" | "BITRIX_UPDATE_FAILED"
   ) {
     const metadata = {
       errorMessage: safeErrorMessage(error)
@@ -335,13 +350,13 @@ export function createCallEnrichmentWritebackService(
       status: "failed",
       actorType: "manager",
       actorId: decision.managerId,
-      reason: "BITRIX_UPDATE_FAILED",
+      reason,
       metadata
     });
     return {
       status: "failed",
       proposalId: decision.proposalId,
-      reason: "BITRIX_UPDATE_FAILED"
+      reason
     } as const;
   }
 
@@ -426,18 +441,4 @@ export function createCallEnrichmentWritebackService(
   return {
     applyManagerEnrichmentDecision
   };
-}
-
-function safeErrorMessage(error: unknown) {
-  if (!(error instanceof Error)) {
-    return "unknown";
-  }
-
-  return error.message
-    .replace(/https?:\/\/\S+/giu, "[url]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "[email]")
-    .replace(/(?:\+?\d[\d\s().-]{7,}\d)/gu, "[phone]")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .slice(0, SAFE_ERROR_MESSAGE_LENGTH);
 }

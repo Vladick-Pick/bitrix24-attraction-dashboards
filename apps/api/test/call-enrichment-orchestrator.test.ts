@@ -332,6 +332,50 @@ describe("createCallEnrichmentOrchestrator", () => {
     expect(analysis.analyzeCall).not.toHaveBeenCalled();
   });
 
+  it("skips non-pilot managers before full analysis", async () => {
+    const repository = createRepository();
+    const analysis = createAnalysis();
+    const pipeline = createPipeline();
+    const proposalNotifier = {
+      sendProposalBatch: vi.fn().mockResolvedValue(undefined)
+    };
+    const orchestrator = createCallEnrichmentOrchestrator({
+      analysis,
+      repository,
+      enrichmentPipeline: pipeline,
+      proposalNotifier,
+      pilotManagerIds: ["other-manager"],
+      idGenerator: vi.fn().mockReturnValueOnce("batch-1").mockReturnValueOnce("event-1"),
+      now: () => new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    await expect(orchestrator.queueAutomaticCallAnalysis(callEvent)).resolves.toEqual({
+      status: "skipped",
+      callId: "CALL1",
+      reason: "MANAGER_NOT_IN_PILOT"
+    });
+    expect(analysis.analyzeCall).not.toHaveBeenCalled();
+    expect(pipeline.runAfterCallAnalysis).not.toHaveBeenCalled();
+    expect(proposalNotifier.sendProposalBatch).not.toHaveBeenCalled();
+    expect(repository.createEnrichmentProposalBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "batch-1",
+        callId: "CALL1",
+        managerId: "7",
+        status: "failed",
+        proposals: []
+      })
+    );
+    expect(repository.appendEnrichmentProposalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-1",
+        batchId: "batch-1",
+        action: "batch.skipped",
+        reason: "MANAGER_NOT_IN_PILOT"
+      })
+    );
+  });
+
   it("creates a pending proposal batch after successful enrichment diff", async () => {
     const pipeline = createPipeline();
     const repository = createRepository();

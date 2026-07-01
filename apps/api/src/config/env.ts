@@ -69,26 +69,32 @@ function parseCsv(value: string | undefined) {
 }
 
 function parseManagerChatIdPairs(value: string | undefined) {
-  return Object.fromEntries(
-    parseCsv(value).map((item) => {
-      const separatorIndex = item.indexOf(":");
-      if (separatorIndex === -1) {
-        throw new Error(
-          "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must use bitrixUserId:telegramChatId pairs."
-        );
-      }
+  const result: Record<string, string[]> = {};
 
-      const managerId = item.slice(0, separatorIndex).trim();
-      const chatId = item.slice(separatorIndex + 1).trim();
-      if (!managerId || !chatId) {
-        throw new Error(
-          "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must use bitrixUserId:telegramChatId pairs."
-        );
-      }
+  for (const item of parseCsv(value)) {
+    const separatorIndex = item.indexOf(":");
+    if (separatorIndex === -1) {
+      throw new Error(
+        "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must use bitrixUserId:telegramChatId pairs."
+      );
+    }
 
-      return [managerId, chatId];
-    })
-  );
+    const managerId = item.slice(0, separatorIndex).trim();
+    const chatId = item.slice(separatorIndex + 1).trim();
+    if (!managerId || !chatId) {
+      throw new Error(
+        "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS must use bitrixUserId:telegramChatId pairs."
+      );
+    }
+
+    const chatIds = result[managerId] ?? [];
+    if (!chatIds.includes(chatId)) {
+      chatIds.push(chatId);
+    }
+    result[managerId] = chatIds;
+  }
+
+  return result;
 }
 
 function resolveCallEnrichmentMode(input: {
@@ -444,7 +450,7 @@ export type AppEnv = z.infer<typeof envSchema> & {
   telegramActivityReportChatIds: string[];
   telegramActivityReportTime: string;
   telegramEnrichmentEnabled: boolean;
-  telegramEnrichmentManagerChatIds: Record<string, string>;
+  telegramEnrichmentManagerChatIds: Record<string, string[]>;
   telegramEnrichmentCallbackSecret?: string;
 };
 

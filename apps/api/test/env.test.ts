@@ -429,11 +429,27 @@ describe("readEnv", () => {
       telegramEnrichmentEnabled: true,
       TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
       telegramEnrichmentManagerChatIds: {
-        "78": "123",
-        "13020": "-10042"
+        "78": ["123"],
+        "13020": ["-10042"]
       },
       telegramEnrichmentCallbackSecret:
         "telegram-enrichment-secret-with-32-bytes"
+    });
+  });
+
+  it("keeps multiple telegram enrichment chats for one manager", () => {
+    expect(
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "13020:839402543,13020:1364600907,13020:839402543",
+        TELEGRAM_ENRICHMENT_CALLBACK_SECRET:
+          "telegram-enrichment-secret-with-32-bytes"
+      })
+    ).toMatchObject({
+      telegramEnrichmentManagerChatIds: {
+        "13020": ["839402543", "1364600907"]
+      }
     });
   });
 

@@ -439,6 +439,7 @@ export type AppEnv = z.infer<typeof envSchema> & {
   attractionAutoSyncIntervalMs: number;
   callEnrichmentMode: CallEnrichmentMode;
   callEnrichmentPilotManagerIds: string[];
+  callEnrichmentIntakePilotManagerIds: string[];
   callEnrichmentExpiryIntervalMs: number;
   callEnrichmentIntakeEnabled: boolean;
   bitrixCallEventWebhookSecret?: string;
@@ -488,6 +489,11 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   const callEnrichmentWritebackEnabled =
     callEnrichmentNeedsWriteback(callEnrichmentMode);
   const callEnrichmentIntakeEnabled = callEnrichmentAnalysisEnabled;
+  const callEnrichmentPilotManagerIds = parseCsv(
+    parsed.CALL_ENRICHMENT_PILOT_MANAGER_IDS
+  );
+  const callEnrichmentIntakePilotManagerIds =
+    callEnrichmentMode === "full_v1" ? [] : callEnrichmentPilotManagerIds;
   const callAnalysisDialogueGateEnabled =
     parsed.CALL_ANALYSIS_DIALOGUE_GATE_ENABLED === undefined
       ? callEnrichmentAnalysisEnabled
@@ -526,9 +532,8 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     attractionAutoSyncIntervalMs:
       parsed.ATTRACTION_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1_000,
     callEnrichmentMode,
-    callEnrichmentPilotManagerIds: parseCsv(
-      parsed.CALL_ENRICHMENT_PILOT_MANAGER_IDS
-    ),
+    callEnrichmentPilotManagerIds,
+    callEnrichmentIntakePilotManagerIds,
     callEnrichmentExpiryIntervalMs:
       parsed.CALL_ENRICHMENT_EXPIRY_INTERVAL_MINUTES * 60 * 1_000,
     callEnrichmentIntakeEnabled,

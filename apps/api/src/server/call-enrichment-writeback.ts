@@ -27,6 +27,7 @@ export interface ApplyManagerEnrichmentDecisionInput {
   managerId: string;
   action: CallEnrichmentWritebackAction;
   decidedAt: string;
+  allowApprovedResume?: boolean;
 }
 
 export type CallEnrichmentWritebackResult =
@@ -233,6 +234,7 @@ export function createCallEnrichmentWritebackService(
       proposal.status === "pending" &&
       ["pending", "partially_applied"].includes(batch.status);
     const canResumeApprovedWrite =
+      decision.allowApprovedResume !== false &&
       decision.action === "approve" &&
       proposal.status === "approved" &&
       ["pending", "approved", "partially_applied", "failed"].includes(

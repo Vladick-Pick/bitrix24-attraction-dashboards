@@ -350,7 +350,8 @@ describe("telegram enrichment approval", () => {
       proposalId: "proposal-1",
       managerId: "78",
       action: "approve",
-      decidedAt: "2026-06-28T11:00:00.000Z"
+      decidedAt: "2026-06-28T11:00:00.000Z",
+      allowApprovedResume: false
     });
     expect(sender.answerCallbackQuery).toHaveBeenCalledWith({
       callbackQueryId: "callback-1",

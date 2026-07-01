@@ -179,7 +179,8 @@ export function createTelegramEnrichmentApprovalService(
         proposalId: token.proposalId,
         managerId: token.managerId,
         action: token.action,
-        decidedAt: nowIso
+        decidedAt: nowIso,
+        allowApprovedResume: false
       });
     } catch (error) {
       await input.repository.releaseTelegramEnrichmentActionToken({

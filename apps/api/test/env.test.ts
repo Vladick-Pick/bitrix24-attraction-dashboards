@@ -258,12 +258,14 @@ describe("readEnv", () => {
     ).toMatchObject({
       callEnrichmentMode: "limited_write",
       callEnrichmentPilotManagerIds: ["78", "13020"],
+      callEnrichmentIntakePilotManagerIds: ["78", "13020"],
       callEnrichmentWritebackEnabled: true
     });
 
     expect(
       readEnv({
         CALL_ENRICHMENT_MODE: "full_v1",
+        CALL_ENRICHMENT_PILOT_MANAGER_IDS: "78, 13020",
         BITRIX_CALL_EVENT_WEBHOOK_SECRET:
           "bitrix-call-event-secret-with-32-characters",
         TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
@@ -273,6 +275,8 @@ describe("readEnv", () => {
       })
     ).toMatchObject({
       callEnrichmentMode: "full_v1",
+      callEnrichmentPilotManagerIds: ["78", "13020"],
+      callEnrichmentIntakePilotManagerIds: [],
       callEnrichmentWritebackEnabled: true
     });
   });

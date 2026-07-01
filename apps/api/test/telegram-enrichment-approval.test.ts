@@ -139,7 +139,7 @@ describe("telegram enrichment approval", () => {
       sender,
       decisionService: createDecisionService(),
       managerChatIds: {
-        "78": "chat-78"
+        "78": ["chat-78"]
       },
       idGenerator: vi
         .fn()
@@ -167,6 +167,82 @@ describe("telegram enrichment approval", () => {
         id: "event-1",
         batchId: "batch-1",
         action: "batch.telegram_sent"
+      })
+    );
+  });
+
+  it("sends identical approval messages to every configured chat for one manager", async () => {
+    const repository = createRepository();
+    const sender = createSender();
+    const service = createTelegramEnrichmentApprovalService({
+      repository,
+      sender,
+      decisionService: createDecisionService(),
+      managerChatIds: {
+        "78": ["chat-78", "chat-owner"]
+      },
+      idGenerator: vi
+        .fn()
+        .mockReturnValueOnce("approve-token-1")
+        .mockReturnValueOnce("decline-token-1")
+        .mockReturnValueOnce("event-1")
+        .mockReturnValueOnce("approve-token-2")
+        .mockReturnValueOnce("decline-token-2")
+        .mockReturnValueOnce("event-2"),
+      now: () => new Date("2026-06-28T10:00:00.000Z")
+    });
+
+    await service.sendProposalBatch({
+      batch,
+      proposals: [proposal]
+    });
+
+    expect(repository.createTelegramEnrichmentActionToken).toHaveBeenCalledTimes(4);
+    expect(sender.sendMessage).toHaveBeenCalledTimes(2);
+    expect(sender.sendMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ chatId: "chat-78" })
+    );
+    expect(sender.sendMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ chatId: "chat-owner" })
+    );
+
+    const [firstMessage] = vi.mocked(sender.sendMessage).mock.calls[0] ?? [];
+    const [secondMessage] = vi.mocked(sender.sendMessage).mock.calls[1] ?? [];
+    const firstReplyMarkup = firstMessage?.replyMarkup as
+      | { inline_keyboard?: Array<Array<{ text: string }>> }
+      | undefined;
+    const secondReplyMarkup = secondMessage?.replyMarkup as
+      | { inline_keyboard?: Array<Array<{ text: string }>> }
+      | undefined;
+    expect(firstMessage?.text).toEqual(secondMessage?.text);
+    expect(
+      firstReplyMarkup?.inline_keyboard?.[0]?.map((button) => button.text)
+    ).toEqual(
+      secondReplyMarkup?.inline_keyboard?.[0]?.map((button) => button.text)
+    );
+    expect(repository.updateEnrichmentProposalBatchTelegramMessage).toHaveBeenCalledTimes(
+      1
+    );
+    expect(repository.updateEnrichmentProposalBatchTelegramMessage).toHaveBeenCalledWith({
+      batchId: "batch-1",
+      telegramChatId: "chat-78",
+      telegramMessageId: "42",
+      updatedAt: "2026-06-28T10:00:00.000Z"
+    });
+    expect(repository.appendEnrichmentProposalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-1",
+        action: "batch.telegram_sent",
+        metadata: expect.objectContaining({ telegramChatId: "chat-78" })
+      })
+    );
+    expect(repository.appendEnrichmentProposalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-2",
+        action: "batch.telegram_sent",
+        metadata: expect.objectContaining({ telegramChatId: "chat-owner" })
       })
     );
   });
@@ -205,7 +281,7 @@ describe("telegram enrichment approval", () => {
       sender,
       decisionService: createDecisionService(),
       managerChatIds: {
-        "78": "chat-78"
+        "78": ["chat-78"]
       },
       idGenerator: vi
         .fn()
@@ -249,7 +325,7 @@ describe("telegram enrichment approval", () => {
       sender,
       decisionService,
       managerChatIds: {
-        "78": "chat-78"
+        "78": ["chat-78"]
       },
       idGenerator: () => "event-1",
       now: () => new Date("2026-06-28T11:00:00.000Z")
@@ -323,7 +399,7 @@ describe("telegram enrichment approval", () => {
       sender,
       decisionService,
       managerChatIds: {
-        "78": "chat-78"
+        "78": ["chat-78"]
       },
       now: () => new Date("2026-06-28T11:00:00.000Z")
     });
@@ -374,7 +450,7 @@ describe("telegram enrichment approval", () => {
       sender,
       decisionService,
       managerChatIds: {
-        "78": "chat-78"
+        "78": ["chat-78"]
       },
       idGenerator: () => "event-1",
       now: () => new Date("2026-06-28T11:00:00.000Z")
@@ -433,7 +509,7 @@ describe("telegram enrichment approval", () => {
           .mockReturnValueOnce("event-applied")
       }),
       managerChatIds: {
-        "78": "chat-78"
+        "78": ["chat-78"]
       },
       now: () => new Date("2026-06-28T11:00:00.000Z")
     });
@@ -479,7 +555,7 @@ describe("telegram enrichment approval", () => {
       sender,
       decisionService,
       managerChatIds: {
-        "78": "chat-78"
+        "78": ["chat-78"]
       },
       now: () => new Date("2026-06-28T11:00:00.000Z")
     });

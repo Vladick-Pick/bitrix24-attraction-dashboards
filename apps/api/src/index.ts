@@ -174,6 +174,7 @@ const callAnalysis = env.OPENROUTER_API_KEY
 const callEnrichmentExtractionProvider = env.OPENROUTER_API_KEY
   ? new OpenRouterEnrichmentExtractionProvider({
       apiKey: env.OPENROUTER_API_KEY,
+      model: env.OPENROUTER_MODEL,
       ...(env.OPENROUTER_APP_REFERER
         ? { appReferer: env.OPENROUTER_APP_REFERER }
         : {}),

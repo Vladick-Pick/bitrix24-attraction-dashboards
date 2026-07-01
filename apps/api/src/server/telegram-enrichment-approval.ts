@@ -43,7 +43,7 @@ export interface TelegramEnrichmentApprovalServiceInput {
   repository: TelegramEnrichmentApprovalRepository;
   sender: TelegramInteractiveSender;
   decisionService: CallEnrichmentWritebackService;
-  managerChatIds: Record<string, string>;
+  managerChatIds: Record<string, string[]>;
   idGenerator?: () => string;
   now?: () => Date;
 }
@@ -77,8 +77,8 @@ export function createTelegramEnrichmentApprovalService(
       return;
     }
 
-    const chatId = input.managerChatIds[sendInput.batch.managerId];
-    if (!chatId) {
+    const chatIds = input.managerChatIds[sendInput.batch.managerId] ?? [];
+    if (chatIds.length === 0) {
       await appendBatchEvent(sendInput.batch, {
         action: "batch.telegram_skipped",
         reason: "TELEGRAM_CHAT_NOT_CONFIGURED",
@@ -87,41 +87,48 @@ export function createTelegramEnrichmentApprovalService(
       return;
     }
 
-    try {
-      const tokens = await createActionTokens(sendInput, chatId);
-      const message = buildTelegramEnrichmentApprovalMessage({
-        batch: sendInput.batch,
-        proposals: sendInput.proposals,
-        tokens
-      });
-      const sentMessage = await input.sender.sendMessage({
-        chatId,
-        text: message.text,
-        replyMarkup: message.replyMarkup
-      });
-      await input.repository.updateEnrichmentProposalBatchTelegramMessage({
-        batchId: sendInput.batch.id,
-        telegramChatId: chatId,
-        telegramMessageId: sentMessage.messageId,
-        updatedAt: now().toISOString()
-      });
-      await appendBatchEvent(sendInput.batch, {
-        action: "batch.telegram_sent",
-        reason: null,
-        metadata: {
-          telegramChatId: chatId,
-          telegramMessageId: sentMessage.messageId,
-          proposalCount: sendInput.proposals.length
+    let primaryDeliveryStored = false;
+    for (const chatId of chatIds) {
+      try {
+        const tokens = await createActionTokens(sendInput, chatId);
+        const message = buildTelegramEnrichmentApprovalMessage({
+          batch: sendInput.batch,
+          proposals: sendInput.proposals,
+          tokens
+        });
+        const sentMessage = await input.sender.sendMessage({
+          chatId,
+          text: message.text,
+          replyMarkup: message.replyMarkup
+        });
+        if (!primaryDeliveryStored) {
+          await input.repository.updateEnrichmentProposalBatchTelegramMessage({
+            batchId: sendInput.batch.id,
+            telegramChatId: chatId,
+            telegramMessageId: sentMessage.messageId,
+            updatedAt: now().toISOString()
+          });
+          primaryDeliveryStored = true;
         }
-      });
-    } catch (error) {
-      await appendBatchEvent(sendInput.batch, {
-        action: "batch.telegram_failed",
-        reason: "TELEGRAM_SEND_FAILED",
-        metadata: {
-          error: error instanceof Error ? error.message : "unknown"
-        }
-      });
+        await appendBatchEvent(sendInput.batch, {
+          action: "batch.telegram_sent",
+          reason: null,
+          metadata: {
+            telegramChatId: chatId,
+            telegramMessageId: sentMessage.messageId,
+            proposalCount: sendInput.proposals.length
+          }
+        });
+      } catch (error) {
+        await appendBatchEvent(sendInput.batch, {
+          action: "batch.telegram_failed",
+          reason: "TELEGRAM_SEND_FAILED",
+          metadata: {
+            telegramChatId: chatId,
+            error: error instanceof Error ? error.message : "unknown"
+          }
+        });
+      }
     }
   }
 

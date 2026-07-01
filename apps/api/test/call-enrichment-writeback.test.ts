@@ -517,6 +517,43 @@ describe("createCallEnrichmentWritebackService", () => {
     );
   });
 
+  it("does not resume approved proposal writes from mirrored Telegram callbacks", async () => {
+    const approvedProposal = {
+      ...contactProposal,
+      status: "approved"
+    } satisfies EnrichmentProposalRecord;
+    const repository = createRepository({
+      getEnrichmentProposal: vi.fn().mockResolvedValue(approvedProposal),
+      getEnrichmentProposalBatch: vi.fn().mockResolvedValue({
+        ...batch,
+        status: "pending"
+      })
+    });
+    const bitrix = createBitrix();
+    const service = createCallEnrichmentWritebackService({
+      repository,
+      bitrix,
+      idGenerator: () => "event-1"
+    });
+
+    await expect(
+      service.applyManagerEnrichmentDecision({
+        proposalId: "proposal-1",
+        managerId: "7",
+        action: "approve",
+        decidedAt: "2026-06-28T11:00:00.000Z",
+        allowApprovedResume: false
+      })
+    ).resolves.toEqual({
+      status: "already_decided",
+      proposalId: "proposal-1"
+    });
+
+    expect(repository.markEnrichmentProposalDecision).not.toHaveBeenCalled();
+    expect(bitrix.updateContactEnrichmentField).not.toHaveBeenCalled();
+    expect(repository.markEnrichmentProposalApplied).not.toHaveBeenCalled();
+  });
+
   it("declines a proposal without calling Bitrix", async () => {
     const repository = createRepository();
     const bitrix = createBitrix();

@@ -218,7 +218,7 @@ const callEnrichmentOrchestrator =
     ? createCallEnrichmentOrchestrator({
         analysis: callAnalysis,
         repository: attractionRepository,
-        pilotManagerIds: env.callEnrichmentPilotManagerIds,
+        pilotManagerIds: env.callEnrichmentIntakePilotManagerIds,
         ...(telegramEnrichmentApproval
           ? { proposalNotifier: telegramEnrichmentApproval }
           : {}),

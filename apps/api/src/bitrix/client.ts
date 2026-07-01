@@ -7,13 +7,17 @@ import type {
 } from "@bitrix24-reporting/contracts";
 
 import {
+  buildContactEnrichmentValuesParams,
   buildConversionEventListParams,
   buildConversionEventItemListParams,
   buildDealBackfillParams,
+  buildDealEnrichmentValuesParams,
   buildSmartProcessStageHistoryListParams
 } from "./selectors.js";
 import {
+  assertAllowedCallEnrichmentWriteMethod,
   assertAllowedBitrixMethod,
+  assertSafeCallEnrichmentWriteFields,
   assertSafeSelectFields,
   redactWebhookUrl
 } from "./security.js";
@@ -22,6 +26,11 @@ import {
   resolveConversionEventName,
   resolveConversionEventStatus
 } from "../domain/conversion-events.js";
+import {
+  CALL_ENRICHMENT_CONTACT_FIELD_CODES,
+  CALL_ENRICHMENT_DEAL_FIELD_CODES,
+  type CallEnrichmentEntityType
+} from "../server/call-enrichment-fields.js";
 
 interface BitrixClientConfig {
   dealCategoryIds: string[];
@@ -184,6 +193,8 @@ export interface ContactRow {
   ID: string;
   [key: string]: unknown;
 }
+
+export type CallEnrichmentValuesRow = Record<string, unknown>;
 
 interface SmartProcessTypeRow {
   entityTypeId: string | number;
@@ -362,6 +373,17 @@ function toNumber(value: string | number | null | undefined) {
 
 function toStringArray(values: string[]) {
   return values.map((value) => String(value));
+}
+
+function pickAllowedFieldValues(
+  row: Record<string, unknown>,
+  fieldCodes: string[]
+): CallEnrichmentValuesRow {
+  return Object.fromEntries(
+    fieldCodes
+      .filter((fieldCode) => Object.prototype.hasOwnProperty.call(row, fieldCode))
+      .map((fieldCode) => [fieldCode, row[fieldCode]])
+  );
 }
 
 function normalizeOptionalString(value: unknown) {
@@ -641,11 +663,23 @@ export class BitrixClient {
     params: Record<string, unknown>,
     options?: {
       allowedCustomFields?: string[];
+      callEnrichmentWrite?: {
+        entityType: CallEnrichmentEntityType;
+        fields: Record<string, unknown>;
+      };
       signal?: AbortSignal;
     }
   ) {
     this.ensureConfigured();
-    assertAllowedBitrixMethod(method);
+    if (options?.callEnrichmentWrite) {
+      assertAllowedCallEnrichmentWriteMethod(method);
+      assertSafeCallEnrichmentWriteFields(
+        options.callEnrichmentWrite.entityType,
+        options.callEnrichmentWrite.fields
+      );
+    } else {
+      assertAllowedBitrixMethod(method);
+    }
 
     if (Array.isArray(params.select)) {
       assertSafeSelectFields(
@@ -1469,6 +1503,46 @@ export class BitrixClient {
     }));
   }
 
+  async getDealEnrichmentValues(
+    dealId: string
+  ): Promise<CallEnrichmentValuesRow | null> {
+    const response = await this.call<Array<Record<string, unknown>>>(
+      "crm.deal.list",
+      buildDealEnrichmentValuesParams(dealId),
+      {
+        allowedCustomFields: CALL_ENRICHMENT_DEAL_FIELD_CODES
+      }
+    );
+    const row = this.extractItems(response)[0];
+
+    return row
+      ? pickAllowedFieldValues(row, CALL_ENRICHMENT_DEAL_FIELD_CODES)
+      : null;
+  }
+
+  async updateDealEnrichmentField(input: {
+    entityId: string;
+    fieldCode: string;
+    value: unknown;
+  }) {
+    const fields = {
+      [input.fieldCode]: input.value
+    };
+    await this.call<boolean>(
+      "crm.deal.update",
+      {
+        id: input.entityId,
+        fields
+      },
+      {
+        callEnrichmentWrite: {
+          entityType: "deal",
+          fields
+        }
+      }
+    );
+  }
+
   async fetchDealStages(categoryIds: string[]): Promise<StageCatalogEntry[]> {
     const rows = await Promise.all(
       Array.from(new Set(categoryIds)).map(async (categoryId) => {
@@ -1808,6 +1882,46 @@ export class BitrixClient {
         );
 
         return this.extractItems(response);
+      }
+    );
+  }
+
+  async getContactEnrichmentValues(
+    contactId: string
+  ): Promise<CallEnrichmentValuesRow | null> {
+    const response = await this.call<ContactRow[]>(
+      "crm.contact.list",
+      buildContactEnrichmentValuesParams(contactId),
+      {
+        allowedCustomFields: CALL_ENRICHMENT_CONTACT_FIELD_CODES
+      }
+    );
+    const row = this.extractItems(response)[0];
+
+    return row
+      ? pickAllowedFieldValues(row, CALL_ENRICHMENT_CONTACT_FIELD_CODES)
+      : null;
+  }
+
+  async updateContactEnrichmentField(input: {
+    entityId: string;
+    fieldCode: string;
+    value: unknown;
+  }) {
+    const fields = {
+      [input.fieldCode]: input.value
+    };
+    await this.call<boolean>(
+      "crm.contact.update",
+      {
+        id: input.entityId,
+        fields
+      },
+      {
+        callEnrichmentWrite: {
+          entityType: "contact",
+          fields
+        }
       }
     );
   }

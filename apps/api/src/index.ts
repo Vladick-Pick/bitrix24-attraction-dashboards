@@ -5,9 +5,15 @@ import { createPlaybookReader } from "./agent/playbook-reader.js";
 import { createPasswordAuthService, createSqliteAuthStore } from "./server/auth.js";
 import { createApp } from "./server/app.js";
 import { createCallAnalysisService } from "./server/call-analysis-service.js";
+import { buildCallEnrichmentDiff } from "./server/call-enrichment-diff.js";
+import { createCallEnrichmentOrchestrator } from "./server/call-enrichment-orchestrator.js";
+import { createCallEnrichmentWritebackService } from "./server/call-enrichment-writeback.js";
 import { createLeadgenService } from "./server/leadgen-service.js";
+import { OpenRouterDialogueGateProvider } from "./server/openrouter-dialogue-gate.js";
+import { OpenRouterEnrichmentExtractionProvider } from "./server/openrouter-enrichment-extraction.js";
 import { OpenRouterCallAnalysisProvider } from "./server/openrouter-call-analysis.js";
 import { PaperclipClient } from "./server/paperclip-client.js";
+import { createTelegramEnrichmentApprovalService } from "./server/telegram-enrichment-approval.js";
 import type {
   PlatformCommentRepository,
   ProtoCommentRepository,
@@ -139,6 +145,21 @@ const callAnalysis = env.OPENROUTER_API_KEY
       client,
       recordingDownloadTimeoutMs: env.CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS,
       maxRecordingBytes: env.CALL_ANALYSIS_MAX_AUDIO_BYTES,
+      ...(env.callAnalysisDialogueGateEnabled
+        ? {
+            dialogueGate: new OpenRouterDialogueGateProvider({
+              apiKey: env.OPENROUTER_API_KEY,
+              model: env.OPENROUTER_DIALOGUE_GATE_MODEL,
+              promptVersion: env.OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION,
+              ...(env.OPENROUTER_APP_REFERER
+                ? { appReferer: env.OPENROUTER_APP_REFERER }
+                : {}),
+              ...(env.OPENROUTER_APP_TITLE
+                ? { appTitle: env.OPENROUTER_APP_TITLE }
+                : {})
+            })
+          }
+        : {}),
       provider: new OpenRouterCallAnalysisProvider({
         apiKey: env.OPENROUTER_API_KEY,
         model: env.OPENROUTER_MODEL,
@@ -150,6 +171,115 @@ const callAnalysis = env.OPENROUTER_API_KEY
       })
     })
   : undefined;
+const callEnrichmentExtractionProvider = env.OPENROUTER_API_KEY
+  ? new OpenRouterEnrichmentExtractionProvider({
+      apiKey: env.OPENROUTER_API_KEY,
+      ...(env.OPENROUTER_APP_REFERER
+        ? { appReferer: env.OPENROUTER_APP_REFERER }
+        : {}),
+      ...(env.OPENROUTER_APP_TITLE ? { appTitle: env.OPENROUTER_APP_TITLE } : {})
+    })
+  : undefined;
+const telegramEnrichmentSender =
+  env.telegramEnrichmentEnabled && env.TELEGRAM_ENRICHMENT_BOT_TOKEN
+    ? new TelegramBotClient({
+        botToken: env.TELEGRAM_ENRICHMENT_BOT_TOKEN
+      })
+    : undefined;
+const callEnrichmentWriteback = env.telegramEnrichmentEnabled
+  ? createCallEnrichmentWritebackService({
+      repository: attractionRepository,
+      ...(env.bitrixEnabled ? { bitrix: client } : {}),
+      writebackMode: env.callEnrichmentWritebackEnabled
+        ? env.callEnrichmentMode === "limited_write"
+          ? "limited"
+          : "enabled"
+        : "disabled",
+      pilotManagerIds: env.callEnrichmentPilotManagerIds
+    })
+  : undefined;
+const telegramEnrichmentApproval =
+  telegramEnrichmentSender &&
+  callEnrichmentWriteback &&
+  env.telegramEnrichmentEnabled
+    ? createTelegramEnrichmentApprovalService({
+        repository: attractionRepository,
+        sender: telegramEnrichmentSender,
+        decisionService: callEnrichmentWriteback,
+        managerChatIds: env.telegramEnrichmentManagerChatIds
+      })
+    : undefined;
+const callEnrichmentOrchestrator =
+  callAnalysis &&
+  callEnrichmentExtractionProvider &&
+  env.callEnrichmentAnalysisEnabled &&
+  env.bitrixEnabled
+    ? createCallEnrichmentOrchestrator({
+        analysis: callAnalysis,
+        repository: attractionRepository,
+        ...(telegramEnrichmentApproval
+          ? { proposalNotifier: telegramEnrichmentApproval }
+          : {}),
+        enrichmentPipeline: {
+          async runAfterCallAnalysis({ context, analysis }) {
+            const dealId = normalizeRuntimeEntityId(
+              context.attributes.dealId ?? analysis.attributes.dealId
+            );
+            const contactId = normalizeRuntimeEntityId(
+              context.attributes.contactId ?? analysis.attributes.contactId
+            );
+
+            if (!dealId) {
+              return {
+                proposals: [],
+                skipped: [],
+                metadata: {
+                  reason: "DEAL_NOT_RESOLVED"
+                }
+              };
+            }
+
+            const extraction =
+              await callEnrichmentExtractionProvider.extractCallEnrichment({
+                callId: analysis.callId,
+                fullTranscriptText: analysis.fullTranscriptText,
+                transcriptByRoles: analysis.transcriptByRoles,
+                analysisSummary: extractCallAnalysisSummary(analysis.aiEvaluation),
+                dealId,
+                contactId: contactId ?? "not_resolved"
+              });
+            const [contactValues, dealValues] = await Promise.all([
+              contactId
+                ? client.getContactEnrichmentValues(contactId)
+                : Promise.resolve(null),
+              client.getDealEnrichmentValues(dealId)
+            ]);
+            const diff = buildCallEnrichmentDiff({
+              dealId,
+              contactId,
+              candidates: extraction.candidates,
+              currentValues: {
+                contact: contactValues,
+                deal: dealValues
+              }
+            });
+
+            return {
+              ...diff,
+              metadata: {
+                extraction: {
+                  model: extraction.model,
+                  promptVersion: extraction.promptVersion,
+                  analyzedAt: extraction.analyzedAt,
+                  candidateCount: extraction.candidates.length,
+                  totalTokens: extraction.usage.totalTokens
+                }
+              }
+            };
+          }
+        }
+      })
+    : undefined;
 const authStore =
   env.AUTH_MODE === "password"
     ? createSqliteAuthStore({
@@ -230,7 +360,19 @@ const app = createApp(service, {
   comments: platformComments,
   ...(paperclip ? { paperclip } : {}),
   protoComments,
-  ...(callAnalysis ? { callAnalysis } : {}),
+  ...(callAnalysis
+    ? {
+        callAnalysis: {
+          ...callAnalysis,
+          ...(callEnrichmentOrchestrator
+            ? {
+                queueAutomaticCallAnalysis:
+                  callEnrichmentOrchestrator.queueAutomaticCallAnalysis
+              }
+            : {})
+        }
+      }
+    : {}),
   modules: {
     attraction: service,
     leadgen: leadgenService
@@ -254,6 +396,17 @@ const app = createApp(service, {
     enabled: env.attractionAutoSyncEnabled && env.bitrixEnabled,
     intervalMs: env.attractionAutoSyncIntervalMs
   },
+  callEnrichmentIntake: {
+    enabled: env.callEnrichmentAnalysisEnabled,
+    ...(env.bitrixCallEventWebhookSecret
+      ? { secret: env.bitrixCallEventWebhookSecret }
+      : {})
+  },
+  callEnrichmentExpiry: {
+    enabled: env.callEnrichmentAnalysisEnabled,
+    intervalMs: env.callEnrichmentExpiryIntervalMs,
+    repository: attractionRepository
+  },
   telegramActivityReport: {
     enabled: env.telegramActivityReportEnabled,
     time: env.telegramActivityReportTime,
@@ -261,6 +414,15 @@ const app = createApp(service, {
     chatIds: env.telegramActivityReportChatIds,
     ...(telegramActivityReportSender
       ? { sender: telegramActivityReportSender }
+      : {})
+  },
+  telegramEnrichment: {
+    enabled: env.telegramEnrichmentEnabled,
+    ...(env.telegramEnrichmentCallbackSecret
+      ? { secret: env.telegramEnrichmentCallbackSecret }
+      : {}),
+    ...(telegramEnrichmentApproval
+      ? { approvalService: telegramEnrichmentApproval }
       : {})
   },
   ...(env.WEB_STATIC_DIR ? { webStaticDir: env.WEB_STATIC_DIR } : {})
@@ -273,9 +435,26 @@ const server = app.listen(env.API_PORT, env.API_HOST, () => {
 process.on("SIGINT", () => {
   app.locals.stopAttractionAutoSync?.();
   app.locals.stopTelegramActivityReport?.();
+  app.locals.stopCallEnrichmentExpiry?.();
   for (const repository of repositories) {
     repository.close();
   }
   authStore?.close();
   server.close(() => process.exit(0));
 });
+
+function normalizeRuntimeEntityId(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized.length > 0 && normalized !== "0" ? normalized : null;
+}
+
+function extractCallAnalysisSummary(aiEvaluation: Record<string, unknown>) {
+  const summary = aiEvaluation.summary;
+  return typeof summary === "string" && summary.trim().length > 0
+    ? summary.trim()
+    : null;
+}

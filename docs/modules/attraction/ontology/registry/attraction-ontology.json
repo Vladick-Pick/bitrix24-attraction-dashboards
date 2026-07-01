@@ -405,6 +405,72 @@
       "reportBindingIds": ["attraction-funnel-flow", "attraction-activities-sla"]
     },
     {
+      "id": "intro_meeting_to_activation",
+      "label": "Встреча-знакомство -> Активация",
+      "status": "confirmed",
+      "fromConceptId": "intro_meeting",
+      "toConceptId": "activation",
+      "definition": "Первое значимое соприкосновение с клубной средой, подтвержденное доказательной базой.",
+      "trigger": "Проведена встреча или активационное событие; зафиксирован первый значимый опыт клуба.",
+      "sourceIds": ["module_ontology", "ontology_state_machine"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-conversion-events"]
+    },
+    {
+      "id": "activation_to_demonstration",
+      "label": "Активация -> Демонстрация",
+      "status": "confirmed",
+      "fromConceptId": "activation",
+      "toConceptId": "demonstration",
+      "definition": "Участник увидел, как устроен клуб, и осознал двустороннюю выгоду.",
+      "trigger": "Показаны форматы и люди клуба; зафиксирована конкретная польза.",
+      "sourceIds": ["module_ontology", "ontology_state_machine"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-conversion-events"]
+    },
+    {
+      "id": "demonstration_to_problematization",
+      "label": "Демонстрация -> Проблематизация",
+      "status": "confirmed",
+      "fromConceptId": "demonstration",
+      "toConceptId": "problematization",
+      "definition": "Клуб связан с задачей участника и осознанной ценой бездействия.",
+      "trigger": "Зафиксировано понимание цены бездействия (обязательное доказательство).",
+      "sourceIds": ["module_ontology", "ontology_state_machine"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-conversion-events"]
+    },
+    {
+      "id": "problematization_to_admission",
+      "label": "Проблематизация -> Адмиссия",
+      "status": "confirmed",
+      "fromConceptId": "problematization",
+      "toConceptId": "admission",
+      "definition": "Участник допущен к ценностной проверке соответствия клубу.",
+      "trigger": "Назначена адмиссия с держателем ценностей клуба.",
+      "sourceIds": ["module_ontology", "ontology_state_machine"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-conversion-events"]
+    },
+    {
+      "id": "admission_to_contract",
+      "label": "Адмиссия -> Контракт",
+      "status": "confirmed",
+      "fromConceptId": "admission",
+      "toConceptId": "contract",
+      "definition": "Подтверждено взаимное соответствие; начата коммерческая настройка.",
+      "trigger": "Положительный результат адмиссии и готовность к контракту.",
+      "sourceIds": ["module_ontology", "ontology_state_machine"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-revenue-velocity"]
+    },
+    {
+      "id": "contract_to_handoff",
+      "label": "Контракт -> На передаче",
+      "status": "confirmed",
+      "fromConceptId": "contract",
+      "toConceptId": "handoff",
+      "definition": "Договорные условия и критерий передачи готовы; карточка отправлена в клуб.",
+      "trigger": "Сформированы договорные условия и пакет передачи.",
+      "sourceIds": ["module_ontology", "ontology_state_machine"],
+      "reportBindingIds": ["attraction-funnel-flow", "attraction-revenue-velocity"]
+    },
+    {
       "id": "handoff_to_won",
       "label": "На передаче -> Передано в клуб",
       "status": "confirmed",

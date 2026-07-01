@@ -69,6 +69,13 @@ TELEGRAM_ACTIVITY_REPORT_BOT_TOKEN=<telegram-bot-token>
 TELEGRAM_ACTIVITY_REPORT_CHAT_ID=<telegram-chat-id>
 TELEGRAM_ACTIVITY_REPORT_CHAT_IDS=<telegram-chat-id-1>,<telegram-chat-id-2>
 TELEGRAM_ACTIVITY_REPORT_TIME=20:00
+CALL_ENRICHMENT_MODE=off
+CALL_ENRICHMENT_PILOT_MANAGER_IDS=
+CALL_ENRICHMENT_EXPIRY_INTERVAL_MINUTES=60
+BITRIX_CALL_EVENT_WEBHOOK_SECRET=<32+ random chars>
+TELEGRAM_ENRICHMENT_BOT_TOKEN=<telegram-bot-token>
+TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS=<bitrix-user-id>:<telegram-chat-id>
+TELEGRAM_ENRICHMENT_CALLBACK_SECRET=<32+ random chars>
 
 BITRIX24_PORTAL_HOST=<portal>.bitrix24.ru
 BITRIX24_WEBHOOK_USER_ID=<user-id>
@@ -84,6 +91,35 @@ chmod 600 .env.production
 ```
 
 Generate `SESSION_SECRET` with `openssl rand -base64 48`.
+
+Use the existing Telegram enrichment bot. Set its webhook with the same
+`TELEGRAM_ENRICHMENT_CALLBACK_SECRET`; Telegram sends it back in
+`X-Telegram-Bot-Api-Secret-Token`.
+
+```bash
+curl -X POST "https://api.telegram.org/bot${TELEGRAM_ENRICHMENT_BOT_TOKEN}/setWebhook" \
+  -d "url=${APP_PUBLIC_URL}/api/telegram/enrichment/callback" \
+  -d "secret_token=${TELEGRAM_ENRICHMENT_CALLBACK_SECRET}" \
+  -d 'allowed_updates=["callback_query"]'
+```
+
+### Call Enrichment Rollout
+
+Keep `CALL_ENRICHMENT_MODE=off` by default. Enable the call enrichment feature in
+separate phases:
+
+1. Set `CALL_ENRICHMENT_MODE=dry_run`, deploy, and validate that call events
+   create only analysis/proposal audit records.
+2. Set `CALL_ENRICHMENT_MODE=telegram_only` and validate Telegram messages plus
+   manager decisions. CRM fields are not written in this mode.
+3. Set `CALL_ENRICHMENT_MODE=limited_write` with
+   `CALL_ENRICHMENT_PILOT_MANAGER_IDS=<bitrix-user-id-1>,<bitrix-user-id-2>` and
+   verify contact/deal field writes only for pilot managers.
+4. Set `CALL_ENRICHMENT_MODE=full_v1` only after pilot review.
+
+Rollback does not require a database migration: set `CALL_ENRICHMENT_MODE=off`
+to stop intake/analysis, or `CALL_ENRICHMENT_MODE=telegram_only` to keep manager
+decision logging while disabling CRM writes.
 
 ## 3. Build And Start
 

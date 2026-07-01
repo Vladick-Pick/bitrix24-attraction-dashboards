@@ -84,6 +84,10 @@ route and schema identifiers, not executable functions. `agentReadable: true`
 means a reviewer must treat the capability as privacy-sensitive and verify that
 the route returns aggregate or safe read data only.
 
+Call enrichment writeback is a destructive capability, not part of the current
+metadata-only manifest. A future module may declare a similar capability only
+with an explicit ADR, field allowlist, approval flow, and audit contract.
+
 ## Attraction Agent-Readable Reports
 
 The attraction manifest must describe every live attraction analytics route so

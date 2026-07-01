@@ -1,3 +1,8 @@
+import {
+  CALL_ENRICHMENT_CONTACT_FIELD_CODES,
+  CALL_ENRICHMENT_DEAL_FIELD_CODES
+} from "../server/call-enrichment-fields.js";
+
 export const ALLOWED_DEAL_FIELDS = [
   "ID",
   "CONTACT_ID",
@@ -177,6 +182,37 @@ export function buildLeadBackfillParams(options: BackfillSelectorOptions) {
       ID: "ASC" as const
     },
     start: -1
+  };
+}
+
+export function buildContactEnrichmentValuesParams(contactId: string) {
+  return {
+    order: {
+      ID: "ASC" as const
+    },
+    filter: {
+      ID: contactId
+    },
+    select: ["ID", ...CALL_ENRICHMENT_CONTACT_FIELD_CODES],
+    start: 0
+  };
+}
+
+export function buildDealEnrichmentValuesParams(dealId: string) {
+  return {
+    order: {
+      ID: "ASC" as const
+    },
+    filter: {
+      ID: dealId
+    },
+    select: [
+      "ID",
+      "CONTACT_ID",
+      "ASSIGNED_BY_ID",
+      ...CALL_ENRICHMENT_DEAL_FIELD_CODES
+    ],
+    start: 0
   };
 }
 

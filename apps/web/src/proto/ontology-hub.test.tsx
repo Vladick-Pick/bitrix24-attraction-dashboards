@@ -507,4 +507,67 @@ describe('OntologyHubScene', () => {
     expect(within(table).getByRole('cell', { name: 'Descriptive layer' })).toBeInTheDocument()
     expect(within(table).getByRole('cell', { name: 'Состояния и переходы' })).toBeInTheDocument()
   })
+
+  function renderOntologyScene(ontology: AttractionOntologyResponse = createOntology()) {
+    return render(
+      <OntologyHubScene
+        commentMode={false}
+        filters={{
+          rangeStart: '2026-04-01',
+          rangeEnd: '2026-04-30',
+          compareRanges: [],
+          managers: [],
+          sources: [],
+        }}
+        runtimeData={{
+          managerOptions: [],
+          sourceOptions: [],
+          attractionOntology: ontology,
+          operationalStatus: 'ready',
+          operationalError: null,
+        }}
+      />,
+    )
+  }
+
+  it('opens the first process stage in the inspector by default', () => {
+    renderOntologyScene()
+
+    const inspector = screen.getByTestId('ontology-inspector')
+    expect(within(inspector).getByText('Старт процесса Привлечения.')).toBeInTheDocument()
+    expect(within(inspector).getByText('Этап 1 из 2')).toBeInTheDocument()
+  })
+
+  it('updates the inspector when a process node is selected on the map', () => {
+    renderOntologyScene()
+
+    const processMap = screen.getByTestId('ontology-process-map')
+    fireEvent.click(within(processMap).getByRole('button', { name: /Звонок-знакомство/i }))
+
+    const inspector = screen.getByTestId('ontology-inspector')
+    expect(within(inspector).getByText('Первый ручной контакт КИ.')).toBeInTheDocument()
+    expect(within(inspector).getByText('Этап 2 из 2')).toBeInTheDocument()
+  })
+
+  it('selects an outcome from the ledger and shows its disambiguation in the inspector', () => {
+    renderOntologyScene()
+
+    const ledger = screen.getByTestId('ontology-outcomes')
+    fireEvent.click(within(ledger).getByText('Корзина'))
+
+    const inspector = screen.getByTestId('ontology-inspector')
+    expect(
+      within(inspector).getByText('Текущий проигрыш сделки после работы КИ.'),
+    ).toBeInTheDocument()
+    expect(within(inspector).getByText(/возврат поставщику/i)).toBeInTheDocument()
+  })
+
+  it('summarizes model trust and counts in the overview', () => {
+    renderOntologyScene()
+
+    expect(screen.getByText('Статус модели')).toBeInTheDocument()
+    expect(screen.getByText('Концепты')).toBeInTheDocument()
+    expect(screen.getByText('5 / 6')).toBeInTheDocument()
+    expect(screen.getByText('Расхождений не найдено')).toBeInTheDocument()
+  })
 })

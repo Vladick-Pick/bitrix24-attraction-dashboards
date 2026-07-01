@@ -61,7 +61,8 @@ import type {
 import { AuthError, hashPassword, verifyPassword } from "./auth.js";
 import type {
   DashboardCommentRecord,
-  PaperclipCommentStatus
+  PaperclipCommentStatus,
+  SqliteRepository
 } from "./sqlite-repository.js";
 import type {
   PlatformCommentRepository,
@@ -87,6 +88,7 @@ import {
   registerPlatformRoutes
 } from "./routes/platform-routes.js";
 import { registerSyncRoutes } from "./routes/sync-routes.js";
+import { registerTelegramEnrichmentRoutes } from "./routes/telegram-enrichment-routes.js";
 import {
   buildManagerTeams,
   NO_ATTRACTION_MANAGER_MATCH_ID,
@@ -103,6 +105,7 @@ import type {
   PaperclipIssueComment
 } from "./paperclip-client.js";
 import type { TelegramMessageSender } from "./telegram-client.js";
+import type { TelegramEnrichmentApprovalService } from "./telegram-enrichment-approval.js";
 import {
   buildDailyActivityReportRange,
   buildTelegramActivityReportMessages,
@@ -294,6 +297,21 @@ interface AppConfig {
     timezone?: string;
     retryDelayMs?: number;
     sender?: TelegramMessageSender;
+  };
+  telegramEnrichment?: {
+    enabled?: boolean;
+    secret?: string;
+    approvalService?: TelegramEnrichmentApprovalService;
+  };
+  callEnrichmentIntake?: {
+    enabled?: boolean;
+    secret?: string;
+  };
+  callEnrichmentExpiry?: {
+    enabled?: boolean;
+    intervalMs?: number;
+    initialDelayMs?: number;
+    repository?: Pick<SqliteRepository, "expirePendingEnrichmentProposals">;
   };
   callAnalysis?: CallAnalysisRunner;
   modules?: Record<string, ModuleService>;
@@ -1495,6 +1513,13 @@ function readBearerToken(value: string | undefined) {
   return match?.[1]?.trim();
 }
 
+function isBitrixCallEventRoute(request: express.Request) {
+  return (
+    request.method === "POST" &&
+    /^\/api\/(?:modules\/[^/]+\/)?calls\/events\/bitrix$/.test(request.path)
+  );
+}
+
 const localWebHostnames = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function isAllowedWebOrigin(origin: string, webOrigin: string) {
@@ -1856,6 +1881,72 @@ export function createApp(
     };
   }
 
+  function startCallEnrichmentExpiry() {
+    if (!config.callEnrichmentExpiry?.enabled) {
+      return undefined;
+    }
+
+    const repository = config.callEnrichmentExpiry.repository;
+    if (!repository) {
+      throw new Error("Call enrichment expiry requires a repository when enabled.");
+    }
+    const expirePendingEnrichmentProposals =
+      repository.expirePendingEnrichmentProposals.bind(repository);
+
+    const intervalMs =
+      config.callEnrichmentExpiry.intervalMs &&
+      Number.isFinite(config.callEnrichmentExpiry.intervalMs) &&
+      config.callEnrichmentExpiry.intervalMs > 0
+        ? config.callEnrichmentExpiry.intervalMs
+        : 60 * 60 * 1_000;
+    const initialDelayMs =
+      config.callEnrichmentExpiry.initialDelayMs !== undefined &&
+      Number.isFinite(config.callEnrichmentExpiry.initialDelayMs) &&
+      config.callEnrichmentExpiry.initialDelayMs >= 0
+        ? config.callEnrichmentExpiry.initialDelayMs
+        : intervalMs;
+
+    let intervalTimer: ReturnType<typeof setInterval> | null = null;
+
+    function runExpiry() {
+      const startedMs = performance.now();
+      const expiredAt = new Date().toISOString();
+      expirePendingEnrichmentProposals({ expiredAt })
+        .then(() => {
+          logJson("info", "call_enrichment.expiry.completed", {
+            expiredAt,
+            durationMs: Math.round(performance.now() - startedMs)
+          });
+        })
+        .catch((error) => {
+          logJson("error", "call_enrichment.expiry.failed", {
+            expiredAt,
+            durationMs: Math.round(performance.now() - startedMs),
+            error: describeError(error)
+          });
+        });
+    }
+
+    const initialTimer = setTimeout(() => {
+      runExpiry();
+      intervalTimer = setInterval(runExpiry, intervalMs);
+      intervalTimer.unref?.();
+    }, initialDelayMs);
+    initialTimer.unref?.();
+
+    logJson("info", "call_enrichment.expiry.enabled", {
+      intervalMs,
+      initialDelayMs
+    });
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (intervalTimer) {
+        clearInterval(intervalTimer);
+      }
+    };
+  }
+
   function denyIfMissingAttractionAccess(
     response: express.Response,
     options: { leaderOnly?: boolean } = {}
@@ -2125,11 +2216,14 @@ export function createApp(
         "Content-Type",
         "Authorization",
         "X-API-Token",
-        "X-CSRF-Token"
+        "X-CSRF-Token",
+        "X-Telegram-Bot-Api-Secret-Token"
       ]
     })
   );
   app.use(express.json({ limit: config.jsonBodyLimit ?? "256kb" }));
+
+  registerTelegramEnrichmentRoutes(app, config.telegramEnrichment ?? {});
 
   if (config.agentMcp?.accessToken && config.agentMcp.gateway) {
     registerAttractionMcpHttpRoute(app, {
@@ -2145,6 +2239,10 @@ export function createApp(
   const stopTelegramActivityReport = startTelegramActivityReport();
   if (stopTelegramActivityReport) {
     app.locals.stopTelegramActivityReport = stopTelegramActivityReport;
+  }
+  const stopCallEnrichmentExpiry = startCallEnrichmentExpiry();
+  if (stopCallEnrichmentExpiry) {
+    app.locals.stopCallEnrichmentExpiry = stopCallEnrichmentExpiry;
   }
 
   registerPlatformPublicRoutes(app, {
@@ -2194,6 +2292,11 @@ export function createApp(
       return;
     }
 
+    if (isBitrixCallEventRoute(request)) {
+      next();
+      return;
+    }
+
     const sessionToken = readSessionCookie(request, auth.cookieName);
 
     if (!sessionToken) {
@@ -2233,6 +2336,11 @@ export function createApp(
     }
 
     if (request.path === "/api/health") {
+      next();
+      return;
+    }
+
+    if (isBitrixCallEventRoute(request)) {
       next();
       return;
     }
@@ -2493,6 +2601,9 @@ export function createApp(
       service,
       ...(config.callAnalysis ? { callAnalysis: config.callAnalysis } : {}),
       parseCallAnalysisQueueRequest,
+      ...(config.callEnrichmentIntake
+        ? { callEnrichmentIntake: config.callEnrichmentIntake }
+        : {}),
       scopeCallAnalysisQueueRequest: (_request, response, input) =>
         scopeAttractionRangeRequest(response, input),
       denyIfMissingCallAnalysisAccess: (_request, response, callId) =>

@@ -18,11 +18,23 @@ describe("readEnv", () => {
     for (const name of [
       "CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS",
       "CALL_ANALYSIS_MAX_AUDIO_BYTES",
+      "CALL_ENRICHMENT_INTAKE_ENABLED",
+      "BITRIX_CALL_EVENT_WEBHOOK_SECRET",
       "OPENROUTER_API_KEY",
       "OPENROUTER_MODEL",
       "OPENROUTER_PROMPT_VERSION",
+      "OPENROUTER_DIALOGUE_GATE_MODEL",
+      "OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION",
+      "CALL_ANALYSIS_DIALOGUE_GATE_ENABLED",
       "OPENROUTER_APP_REFERER",
-      "OPENROUTER_APP_TITLE"
+      "OPENROUTER_APP_TITLE",
+      "CALL_ENRICHMENT_MODE",
+      "CALL_ENRICHMENT_PILOT_MANAGER_IDS",
+      "CALL_ENRICHMENT_EXPIRY_INTERVAL_MINUTES",
+      "TELEGRAM_ENRICHMENT_ENABLED",
+      "TELEGRAM_ENRICHMENT_BOT_TOKEN",
+      "TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS",
+      "TELEGRAM_ENRICHMENT_CALLBACK_SECRET"
     ]) {
       expect(envExample).toContain(`${name}=`);
     }
@@ -95,7 +107,10 @@ describe("readEnv", () => {
     expect(readEnv({})).toMatchObject({
       CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: 60_000,
       CALL_ANALYSIS_MAX_AUDIO_BYTES: 50 * 1024 * 1024,
-      OPENROUTER_MODEL: "google/gemini-3.5-flash"
+      OPENROUTER_MODEL: "google/gemini-3.5-flash",
+      OPENROUTER_DIALOGUE_GATE_MODEL: "google/gemini-2.5-flash-lite",
+      OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION: "dialogue-gate-v1",
+      callAnalysisDialogueGateEnabled: false
     });
 
     expect(
@@ -107,6 +122,187 @@ describe("readEnv", () => {
       CALL_ANALYSIS_DOWNLOAD_TIMEOUT_MS: 15_000,
       CALL_ANALYSIS_MAX_AUDIO_BYTES: 12 * 1024 * 1024
     });
+  });
+
+  it("defaults the dialogue gate on when call enrichment intake is enabled", () => {
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters"
+      }).callAnalysisDialogueGateEnabled
+    ).toBe(true);
+
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        CALL_ANALYSIS_DIALOGUE_GATE_ENABLED: ""
+      }).callAnalysisDialogueGateEnabled
+    ).toBe(true);
+
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        CALL_ANALYSIS_DIALOGUE_GATE_ENABLED: "false"
+      }).callAnalysisDialogueGateEnabled
+    ).toBe(false);
+
+    expect(
+      readEnv({
+        CALL_ANALYSIS_DIALOGUE_GATE_ENABLED: "true",
+        OPENROUTER_DIALOGUE_GATE_MODEL: "custom/cheap-audio-model",
+        OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION: "dialogue-gate-test"
+      })
+    ).toMatchObject({
+      callAnalysisDialogueGateEnabled: true,
+      OPENROUTER_DIALOGUE_GATE_MODEL: "custom/cheap-audio-model",
+      OPENROUTER_DIALOGUE_GATE_PROMPT_VERSION: "dialogue-gate-test"
+    });
+  });
+
+  it("keeps call enrichment intake disabled by default", () => {
+    const env = readEnv({});
+
+    expect(env.callEnrichmentIntakeEnabled).toBe(false);
+    expect(env.bitrixCallEventWebhookSecret).toBeUndefined();
+  });
+
+  it("requires a long Bitrix call event secret when call enrichment intake is enabled", () => {
+    expect(() =>
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true"
+      })
+    ).toThrow(/BITRIX_CALL_EVENT_WEBHOOK_SECRET/i);
+
+    expect(() =>
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET: "short"
+      })
+    ).toThrow(/BITRIX_CALL_EVENT_WEBHOOK_SECRET/i);
+  });
+
+  it("derives call enrichment intake settings from env", () => {
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_INTAKE_ENABLED: "true",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters"
+      })
+    ).toMatchObject({
+      callEnrichmentIntakeEnabled: true,
+      bitrixCallEventWebhookSecret:
+        "bitrix-call-event-secret-with-32-characters"
+      });
+  });
+
+  it("derives call enrichment rollout modes and gates", () => {
+    expect(readEnv({})).toMatchObject({
+      callEnrichmentMode: "off",
+      callEnrichmentAnalysisEnabled: false,
+      callEnrichmentTelegramEnabled: false,
+      callEnrichmentWritebackEnabled: false,
+      callEnrichmentPilotManagerIds: [],
+      callEnrichmentExpiryIntervalMs: 60 * 60 * 1_000
+    });
+
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_MODE: "dry_run",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        CALL_ENRICHMENT_EXPIRY_INTERVAL_MINUTES: "15"
+      })
+    ).toMatchObject({
+      callEnrichmentMode: "dry_run",
+      callEnrichmentIntakeEnabled: true,
+      callEnrichmentAnalysisEnabled: true,
+      callEnrichmentTelegramEnabled: false,
+      callEnrichmentWritebackEnabled: false,
+      callEnrichmentExpiryIntervalMs: 15 * 60 * 1_000
+    });
+
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_MODE: "telegram_only",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "78:123",
+        TELEGRAM_ENRICHMENT_CALLBACK_SECRET:
+          "telegram-enrichment-secret-with-32-bytes"
+      })
+    ).toMatchObject({
+      callEnrichmentMode: "telegram_only",
+      callEnrichmentAnalysisEnabled: true,
+      callEnrichmentTelegramEnabled: true,
+      callEnrichmentWritebackEnabled: false,
+      telegramEnrichmentEnabled: true
+    });
+
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_MODE: "limited_write",
+        CALL_ENRICHMENT_PILOT_MANAGER_IDS: "78, 13020",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "78:123,13020:456",
+        TELEGRAM_ENRICHMENT_CALLBACK_SECRET:
+          "telegram-enrichment-secret-with-32-bytes"
+      })
+    ).toMatchObject({
+      callEnrichmentMode: "limited_write",
+      callEnrichmentPilotManagerIds: ["78", "13020"],
+      callEnrichmentWritebackEnabled: true
+    });
+
+    expect(
+      readEnv({
+        CALL_ENRICHMENT_MODE: "full_v1",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "78:123",
+        TELEGRAM_ENRICHMENT_CALLBACK_SECRET:
+          "telegram-enrichment-secret-with-32-bytes"
+      })
+    ).toMatchObject({
+      callEnrichmentMode: "full_v1",
+      callEnrichmentWritebackEnabled: true
+    });
+  });
+
+  it("rejects unsafe call enrichment rollout combinations", () => {
+    expect(() =>
+      readEnv({
+        CALL_ENRICHMENT_MODE: "dry_run"
+      })
+    ).toThrow(/BITRIX_CALL_EVENT_WEBHOOK_SECRET/i);
+
+    expect(() =>
+      readEnv({
+        CALL_ENRICHMENT_MODE: "telegram_only",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters"
+      })
+    ).toThrow(/TELEGRAM_ENRICHMENT_BOT_TOKEN/i);
+
+    expect(() =>
+      readEnv({
+        CALL_ENRICHMENT_MODE: "limited_write",
+        BITRIX_CALL_EVENT_WEBHOOK_SECRET:
+          "bitrix-call-event-secret-with-32-characters",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "78:123",
+        TELEGRAM_ENRICHMENT_CALLBACK_SECRET:
+          "telegram-enrichment-secret-with-32-bytes"
+      })
+    ).toThrow(/CALL_ENRICHMENT_PILOT_MANAGER_IDS/i);
   });
 
   it("configures hourly attraction auto sync from production defaults and explicit overrides", () => {
@@ -192,6 +388,53 @@ describe("readEnv", () => {
         TELEGRAM_ACTIVITY_REPORT_TIME: "24:00"
       })
     ).toThrow(/TELEGRAM_ACTIVITY_REPORT_TIME/i);
+  });
+
+  it("keeps telegram enrichment disabled by default and validates enabled config", () => {
+    expect(readEnv({})).toMatchObject({
+      telegramEnrichmentEnabled: false,
+      telegramEnrichmentManagerChatIds: {}
+    });
+
+    expect(() =>
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true"
+      })
+    ).toThrow(/TELEGRAM_ENRICHMENT_BOT_TOKEN/i);
+
+    expect(() =>
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token"
+      })
+    ).toThrow(/TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS/i);
+
+    expect(() =>
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "78:123"
+      })
+    ).toThrow(/TELEGRAM_ENRICHMENT_CALLBACK_SECRET/i);
+
+    expect(
+      readEnv({
+        TELEGRAM_ENRICHMENT_ENABLED: "true",
+        TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+        TELEGRAM_ENRICHMENT_MANAGER_CHAT_IDS: "78:123, 13020:-10042",
+        TELEGRAM_ENRICHMENT_CALLBACK_SECRET:
+          "telegram-enrichment-secret-with-32-bytes"
+      })
+    ).toMatchObject({
+      telegramEnrichmentEnabled: true,
+      TELEGRAM_ENRICHMENT_BOT_TOKEN: "telegram-token",
+      telegramEnrichmentManagerChatIds: {
+        "78": "123",
+        "13020": "-10042"
+      },
+      telegramEnrichmentCallbackSecret:
+        "telegram-enrichment-secret-with-32-bytes"
+    });
   });
 
   it("derives separate platform, attraction, and leadgen database URLs", () => {

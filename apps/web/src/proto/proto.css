@@ -507,3 +507,888 @@ tbody tr:hover {
 .proto-select-list {
   background: #ffffff;
 }
+
+/* ------------------------------------------------------------------ */
+/* Ontology model workbench (om-*)                                    */
+/* Module-scoped primitives for the /ontology scene. Built only on    */
+/* shared tokens (--accent, --ink-*, --line-*, status vars) so the    */
+/* block stays on the slate dashboard system: a living process map +  */
+/* a sticky object-card inspector, plus dense trust/evidence/drift.   */
+/* ------------------------------------------------------------------ */
+
+.om-mono {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.om-muted {
+  color: var(--ink-500);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+/* Trust overview ---------------------------------------------------- */
+
+.om-trust-grid {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.om-trust-tile {
+  padding: 0.85rem 0.95rem;
+  display: grid;
+  gap: 0.25rem;
+  align-content: start;
+}
+
+.om-trust-badge {
+  width: fit-content;
+  margin-top: 0.1rem;
+}
+
+.om-trust-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--ink-900);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.om-trust-owner {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-700);
+}
+
+.om-trust-meta {
+  font-size: 0.74rem;
+  color: var(--ink-500);
+  line-height: 1.35;
+}
+
+/* Workbench: canvas + inspector ------------------------------------ */
+
+.om-workbench {
+  display: grid;
+  gap: 1.1rem;
+  margin-top: 1.25rem;
+}
+
+.om-canvas {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.6);
+  padding: 0.95rem 1rem 1.1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.om-canvas-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.om-canvas-count {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--ink-500);
+  letter-spacing: 0.04em;
+}
+
+/* Process spine ----------------------------------------------------- */
+
+.om-spine {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.om-stage {
+  position: relative;
+}
+
+/* Per-stage connector: runs from this stage's dot to the next stage's dot,
+   so the spine ends exactly at the last dot regardless of card/branch height. */
+.om-stage:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 1.05rem;
+  bottom: -1.55rem;
+  left: calc(0.95rem - 1px);
+  width: 2px;
+  background: var(--line-strong);
+  border-radius: 999px;
+}
+
+.om-node {
+  position: relative;
+  width: 100%;
+  display: grid;
+  align-items: stretch;
+  gap: 0.55rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.om-node-stage {
+  grid-template-columns: 1.9rem minmax(0, 1fr);
+}
+
+.om-node-branch,
+.om-node-exit {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.om-node-marker {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 0.6rem;
+}
+
+.om-node-dot {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid var(--ink-500);
+  box-shadow: 0 0 0 3px rgba(248, 250, 252, 0.95);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.om-node-card {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.5rem 0.7rem;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.om-node:hover .om-node-card {
+  border-color: var(--line-strong);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.07);
+}
+
+.om-node:focus-visible {
+  outline: none;
+}
+
+.om-node:focus-visible .om-node-card {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(77, 124, 255, 0.35);
+}
+
+.om-node.is-linked .om-node-card {
+  border-color: rgba(77, 124, 255, 0.42);
+}
+
+.om-node.is-selected .om-node-card {
+  border-color: var(--accent);
+  background: #fff;
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 12px 26px rgba(77, 124, 255, 0.18);
+}
+
+.om-node[data-status="confirmed"] .om-node-dot {
+  border-color: #1f9d58;
+}
+
+.om-node[data-status="needs-sync"] .om-node-dot {
+  border-color: #d97706;
+}
+
+.om-node[data-status="deprecated"] .om-node-dot {
+  border-color: #dc2626;
+}
+
+.om-node.is-selected[data-status="confirmed"] .om-node-dot {
+  background: #1f9d58;
+}
+
+.om-node.is-selected[data-status="needs-sync"] .om-node-dot {
+  background: #d97706;
+}
+
+.om-node.is-selected .om-node-dot {
+  box-shadow:
+    0 0 0 3px rgba(248, 250, 252, 0.95),
+    0 0 0 5px rgba(77, 124, 255, 0.2);
+}
+
+.om-node-top {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.om-node-index {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.om-node-label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink-900);
+  line-height: 1.2;
+}
+
+.om-node-flag {
+  padding: 0.1rem 0.45rem;
+  font-size: 0.6rem;
+}
+
+.om-node-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.om-node-meta .om-mono {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* Branch outcomes (exits attached to a stage) ----------------------- */
+
+.om-branches {
+  position: relative;
+  margin: 0.1rem 0 0.2rem 1.9rem;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.om-branches::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -0.3rem;
+  bottom: 1rem;
+  width: 2px;
+  background: var(--line-strong);
+  border-radius: 999px;
+}
+
+.om-branch {
+  position: relative;
+}
+
+.om-branch::before {
+  content: "";
+  position: absolute;
+  left: -1.1rem;
+  top: 1.05rem;
+  width: 1.1rem;
+  height: 2px;
+  background: var(--line-strong);
+}
+
+.om-node-branch .om-node-card,
+.om-node-exit .om-node-card {
+  background: rgba(248, 250, 252, 0.92);
+  border-style: dashed;
+}
+
+.om-node-branch.is-selected .om-node-card,
+.om-node-exit.is-selected .om-node-card {
+  background: #fff;
+  border-style: solid;
+}
+
+/* Other exits ------------------------------------------------------- */
+
+.om-exits {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--line-soft);
+}
+
+.om-exits-label {
+  margin-bottom: 0.55rem;
+}
+
+.om-exits-grid {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Legend ------------------------------------------------------------ */
+
+.om-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-500);
+}
+
+.om-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.om-legend-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  border: 2px solid var(--ink-500);
+}
+
+.om-legend-dot[data-status="confirmed"] {
+  border-color: #1f9d58;
+}
+
+.om-legend-dot[data-status="needs-sync"] {
+  border-color: #d97706;
+}
+
+.om-legend-line {
+  width: 1.3rem;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+/* Inspector --------------------------------------------------------- */
+
+.om-inspector {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  padding: 1rem 1.05rem 1.1rem;
+  display: grid;
+  gap: 0.85rem;
+  align-content: start;
+}
+
+.om-inspector-empty {
+  color: var(--ink-500);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.om-inspector-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.om-inspector-title {
+  margin-top: 0.2rem;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--ink-900);
+  line-height: 1.2;
+}
+
+.om-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.85rem;
+  margin: 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.7);
+}
+
+.om-fact {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.om-fact-wide {
+  grid-column: 1 / -1;
+}
+
+.om-fact dt {
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.om-fact dd {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+
+.om-inspector-def {
+  border-left: 3px solid var(--accent);
+  padding: 0.1rem 0 0.1rem 0.7rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.om-inspector-def-text {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink-700);
+}
+
+.om-inspector-block {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.om-inspector-warn {
+  border: 1px solid rgba(217, 119, 6, 0.32);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+/* Not-equal disambiguation chips ----------------------------------- */
+
+.om-not-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.om-not-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--ink-700);
+}
+
+.om-not-glyph {
+  color: var(--warn-fg);
+  font-weight: 800;
+}
+
+/* Transitions ------------------------------------------------------- */
+
+.om-trans-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.om-trans {
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 0.4rem 0.55rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.om-trans-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-700);
+}
+
+.om-trans-flow .om-strong {
+  color: var(--ink-900);
+}
+
+.om-arrow {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.om-trans-trigger {
+  font-size: 0.72rem;
+  color: var(--ink-500);
+  line-height: 1.35;
+}
+
+/* Evidence chips (inspector) --------------------------------------- */
+
+.om-evidence-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.om-evidence {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.4rem 0.55rem;
+  text-align: left;
+  text-decoration: none;
+  font: inherit;
+  cursor: pointer;
+  color: var(--ink-700);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.om-evidence:hover {
+  border-color: var(--line-strong);
+  background: #fff;
+}
+
+.om-evidence-kind {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #1d4ed8;
+  background: rgba(77, 124, 255, 0.12);
+  border-radius: 999px;
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
+}
+
+.om-evidence-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+/* Report chips ------------------------------------------------------ */
+
+.om-report-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.om-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.28rem 0.6rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--ink-700);
+  text-decoration: none;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.om-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  background: #fff;
+}
+
+/* Outcome ledger ---------------------------------------------------- */
+
+.om-ledger {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.om-ledger-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.om-ledger-row:hover {
+  border-color: var(--line-strong);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+}
+
+.om-ledger-row.is-selected {
+  border-color: var(--accent);
+  background: #fff;
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 10px 22px rgba(77, 124, 255, 0.14);
+}
+
+.om-ledger-main {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.om-ledger-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.om-ledger-name {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--ink-900);
+}
+
+.om-ledger-def {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--ink-700);
+}
+
+.om-ledger-side {
+  flex-shrink: 0;
+  text-align: right;
+  max-width: 40%;
+}
+
+.om-ledger-side .om-mono {
+  overflow-wrap: anywhere;
+}
+
+/* Evidence groups (sources panel) ---------------------------------- */
+
+.om-evidence-groups {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.om-evidence-group {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.om-evidence-group-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.om-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.2rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(77, 124, 255, 0.12);
+  color: var(--accent-strong);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.om-source-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Report links ------------------------------------------------------ */
+
+.om-reportlinks {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.om-reportlink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.7rem 0.85rem;
+  text-decoration: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.om-reportlink:hover {
+  border-color: var(--accent);
+  background: #fff;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+}
+
+.om-reportlink-main {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.om-reportlink-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.om-reportlink .om-mono {
+  overflow-wrap: anywhere;
+}
+
+/* Drift ------------------------------------------------------------- */
+
+.om-drift-summary {
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: var(--ink-500);
+  letter-spacing: 0.02em;
+}
+
+.om-drift-list {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+}
+
+.om-drift-row {
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 11px;
+  padding: 0.7rem 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.om-drift-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.om-drift-label {
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.om-drift-kind {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-500);
+}
+
+.om-drift-message {
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+/* Keyboard focus for the interactive surfaces beyond the process nodes. */
+.om-ledger-row:focus-visible,
+.om-evidence:focus-visible,
+.om-chip:focus-visible,
+.om-reportlink:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(77, 124, 255, 0.35);
+}
+
+@media (min-width: 768px) {
+  .om-ledger,
+  .om-reportlinks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .om-workbench {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .om-inspector {
+    position: sticky;
+    top: 1.25rem;
+  }
+}
+
+@media (max-width: 1024px) {
+  .om-trust-grid,
+  .om-source-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .om-trust-grid,
+  .om-source-grid,
+  .om-exits-grid {
+    grid-template-columns: 1fr;
+  }
+}

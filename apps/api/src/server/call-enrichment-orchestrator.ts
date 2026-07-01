@@ -79,6 +79,7 @@ export interface CreateCallEnrichmentOrchestratorInput {
   repository: CallEnrichmentOrchestratorRepository;
   enrichmentPipeline?: CallEnrichmentPipeline;
   proposalNotifier?: CallEnrichmentProposalNotifier;
+  pilotManagerIds?: string[];
   idGenerator?: () => string;
   now?: () => Date;
   proposalTtlMs?: number;
@@ -93,6 +94,7 @@ export function createCallEnrichmentOrchestrator(
   const idGenerator = input.idGenerator ?? randomUUID;
   const now = input.now ?? (() => new Date());
   const proposalTtlMs = input.proposalTtlMs ?? DEFAULT_PROPOSAL_TTL_MS;
+  const pilotManagerIds = new Set(input.pilotManagerIds ?? []);
   const defaultEnrichmentPipeline: CallEnrichmentPipeline = {
     async runAfterCallAnalysis() {
       return { proposals: [] };
@@ -126,6 +128,17 @@ export function createCallEnrichmentOrchestrator(
       const managerId = normalizeId(context.attributes.managerId);
       if (!managerId) {
         return { status: "skipped", callId, reason: "MANAGER_NOT_RESOLVED" };
+      }
+
+      if (pilotManagerIds.size > 0 && !pilotManagerIds.has(managerId)) {
+        await recordSkippedBatch({
+          callEvent,
+          context,
+          dealId,
+          managerId,
+          reason: "MANAGER_NOT_IN_PILOT"
+        });
+        return { status: "skipped", callId, reason: "MANAGER_NOT_IN_PILOT" };
       }
 
       const analysisResult = await input.analysis.analyzeCall({
